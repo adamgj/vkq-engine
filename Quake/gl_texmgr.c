@@ -1465,7 +1465,7 @@ gltexture_t *TexMgr_LoadImage (
 	unsigned short crc = 0;
 	gltexture_t	  *glt;
 
-	if (isDedicated)
+	if (no_rendering)
 		return NULL;
 
 	// cache check

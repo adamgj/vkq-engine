@@ -90,6 +90,7 @@ int main (int argc, char *argv[])
 	COM_InitArgv (parms.argc, parms.argv);
 
 	isDedicated = (COM_CheckParm ("-dedicated") != 0);
+	Harness_CheckArgs ();
 
 	Sys_InitSDL ();
 
@@ -136,16 +137,23 @@ int main (int argc, char *argv[])
 	else
 		while (1)
 		{
-			/* If we have no input focus at all, sleep a bit */
-			if ((!listening && !VID_HasMouseOrInputFocus ()) || cl.paused)
+			if (!no_rendering)
 			{
-				SDL_Delay (16);
+				/* If we have no input focus at all, sleep a bit */
+				if ((!listening && !VID_HasMouseOrInputFocus ()) || cl.paused)
+				{
+					SDL_Delay (16);
+				}
+				/* If we're minimised, sleep a bit more */
+				if (!listening && VID_IsMinimized ())
+					SDL_Delay (32);
 			}
-			/* If we're minimised, sleep a bit more */
-			if (!listening && VID_IsMinimized ())
-				SDL_Delay (32);
 			newtime = Sys_DoubleTime ();
 			time = newtime - oldtime;
+
+			/* fixed timestep: state must not depend on wall-clock time */
+			if (harness_active)
+				time = Harness_FrameTime ();
 
 			Host_Frame (time);
 

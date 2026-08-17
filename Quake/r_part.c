@@ -248,8 +248,11 @@ void R_InitParticles (void)
 	Cvar_SetCallback (&r_particles, R_SetParticleTexture_f);
 	Cvar_RegisterVariable (&r_quadparticles); // johnfitz
 
-	R_InitParticleTextures (); // johnfitz
-	R_InitParticleIndexBuffer ();
+	if (!no_rendering)
+	{
+		R_InitParticleTextures (); // johnfitz
+		R_InitParticleIndexBuffer ();
+	}
 }
 
 /*

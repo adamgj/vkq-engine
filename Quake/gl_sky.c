@@ -459,6 +459,9 @@ void Sky_LoadSkyBox (const char *name)
 	byte		  *data[6];
 	qboolean	   nonefound = true, cubemap = true;
 
+	if (no_rendering)
+		return;
+
 	if (strcmp (skybox.name, name) == 0)
 		return; // no change
 

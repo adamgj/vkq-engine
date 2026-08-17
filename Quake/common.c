@@ -4276,6 +4276,19 @@ static inline uint32_t rotl (const uint32_t x, int k)
 	return (x << k) | (x >> (32 - k));
 }
 
+/*
+=================
+COM_RandState
+
+Exposes the RNG state for the verification harness state hash.
+=================
+*/
+void COM_RandState (uint32_t state[2])
+{
+	state[0] = xorshiro_state[0];
+	state[1] = xorshiro_state[1];
+}
+
 int32_t COM_Rand ()
 {
 	// Xorshiro64**

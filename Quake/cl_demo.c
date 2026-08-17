@@ -63,6 +63,8 @@ void CL_StopPlayback (void)
 
 	if (cls.timedemo)
 		CL_FinishTimeDemo ();
+
+	Harness_DemoEnded ();
 }
 
 /*

@@ -386,7 +386,7 @@ void GLMesh_UploadBuffers (qmodel_t *mod, aliashdr_t *hdr, unsigned short *index
 		totalvbosize += (numverts * sizeof (meshst_t));
 	}
 
-	if (isDedicated)
+	if (no_rendering)
 		return;
 	if (!numindexes)
 		return;

@@ -4397,6 +4397,9 @@ void R_TranslateNewPlayerSkin (int playernum)
 	aliashdr_t *paliashdr;
 	int			skinnum;
 
+	if (no_rendering)
+		return;
+
 	// get correct texture pixels
 	entity_t *currententity = &cl.entities[1 + playernum];
 
@@ -4527,6 +4530,10 @@ void R_NewMap (void)
 #ifdef PSET_SCRIPT
 	PScript_ClearParticles (true);
 #endif
+
+	if (no_rendering)
+		return;
+
 	GL_DeleteBModelVertexBuffer ();
 
 	GL_BuildLightmaps ();

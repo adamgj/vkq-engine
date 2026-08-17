@@ -242,6 +242,7 @@ OBJS := strlcat.o \
 	cfgfile.o \
 	json.o \
 	steam.o \
+	harness.o \
 	host.o \
 	host_cmd.o \
 	mathlib.o \

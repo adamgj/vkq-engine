@@ -229,6 +229,7 @@ srcs = [
     'Quake/gl_texmgr.c',
     'Quake/gl_vidsdl.c',
     'Quake/gl_warp.c',
+    'Quake/harness.c',
     'Quake/host.c',
     'Quake/host_cmd.c',
     'Quake/image.c',

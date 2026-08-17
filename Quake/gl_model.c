@@ -472,7 +472,7 @@ static void Mod_FreeModelMemory (qmodel_t *mod)
 	else
 		SAFE_FREE (mod->textures);
 
-	if (!isDedicated)
+	if (!no_rendering)
 		TexMgr_FreeTexturesForOwner (mod);
 }
 
@@ -1253,7 +1253,7 @@ static void Mod_LoadTextures (qmodel_t *mod, byte *mod_base, lump_t *l)
 	// we no longer need the wads after this point
 	W_FreeWadList (wads);
 
-	if (!isDedicated)
+	if (!no_rendering)
 	{
 		if (!Tasks_IsWorker () && (nummiptex > 1))
 		{
@@ -1981,7 +1981,7 @@ static void Mod_LoadFaces (qmodel_t *mod, byte *mod_base, lump_t *l, qboolean bs
 		// johnfitz
 	}
 
-	if (!isDedicated)
+	if (!no_rendering)
 	{
 		if (!Tasks_IsWorker () && (count > 1))
 		{
