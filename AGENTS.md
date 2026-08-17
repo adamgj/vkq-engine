@@ -37,6 +37,7 @@ Key facts:
 - The roadmap is 11 phases (0–10) with explicit scope, exit criteria, and deletion lists per phase — **do not port code or delete C files out of roadmap order**, and don't touch code explicitly deferred to a later phase (e.g. `tasks.c` stays C until Phase 8, per ADR-016).
 - Follow ADR decisions exactly, especially the `(compat exception)` ones (e.g. ADR-005 float formatter, ADR-006 edict arena, ADR-008 ambient qcvm, ADR-010 determinism) — these are deliberate deviations from idiomatic Rust made to preserve bug-for-bug compatibility. Mark code implementing one with a `// COMPAT:` comment linking to the ADR, per the ADR template.
 - Check ADR-003 before adding any third-party crate, and ADR-004 before writing `unsafe`.
+- **Crate licensing is permissive-only, and MIT is preferred** (ADR-003). Never introduce a crate — directly or transitively — under a copyleft license (`LGPL`, `GPL`, `AGPL`, `MPL-2.0`, `CDDL`, `EPL`, `EUPL`, `CC-BY-SA`) or one requiring a paid/commercial license (`BUSL-1.1`, `SSPL`, `Elastic-2.0`, "free for non-commercial use"). Allowed: `MIT`, `MIT-0`, `Apache-2.0`, `BSD-2-Clause`, `BSD-3-Clause`, `Zlib`, `ISC`, `0BSD`, `Unicode-DFS-2016`, `Unicode-3.0`. Check the license of every crate you propose *and* its dependency tree (`cargo deny check licenses`, or `cargo tree` plus the crates.io listing) before writing it into a `Cargo.toml`; when two crates would both work, take the MIT one. If the only crate that fits is copyleft or paid, stop and ask rather than adding it — the fallback is a permissive alternative or in-tree code.
 
 ## Testing & verification strategy
 
@@ -47,6 +48,6 @@ Key facts:
 ## Agent conduct
 
 - Keep diffs minimal and scoped to what was asked; don't refactor unrelated code or add abstractions the task doesn't need.
-- Don't introduce new build systems, dependencies, or vendored libraries without checking the relevant ADR first.
+- Don't introduce new build systems, dependencies, or vendored libraries without checking the relevant ADR first — for Rust crates that means the permissive-only, MIT-preferred license rule in ADR-003 above.
 - Prefer targeted reads (specific files/ranges) over dumping whole files or directories into context.
 - When a change touches the Rust migration, name the roadmap phase and/or ADR it relates to in the commit/PR description.

@@ -131,7 +131,9 @@ tools/
 
 ### Dependency policy ([ADR-003](adr/ADR-003-dependency-policy.md))
 
-Third-party crates must be widely used and actively maintained, with **no open high/critical advisories** — enforced in CI by `cargo audit` (RustSec) and `cargo deny` (advisories + license allowlist; the engine is GPLv2+, so licenses must be GPLv2-compatible). `Cargo.lock` is committed; MSRV is pinned; each new direct dependency requires a short review note in its introducing PR (maintenance status, transitive footprint, alternatives considered).
+Third-party crates must be widely used and actively maintained, with **no open high/critical advisories** — enforced in CI by `cargo audit` (RustSec) and `cargo deny` (advisories + license allowlist). `Cargo.lock` is committed; MSRV is pinned; each new direct dependency requires a short review note in its introducing PR (maintenance status, transitive footprint, alternatives considered).
+
+**Licensing: permissive only, MIT preferred.** The allowlist is `MIT`, `MIT-0`, `Apache-2.0` (incl. `WITH LLVM-exception`), `BSD-2-Clause`, `BSD-3-Clause`, `Zlib`, `ISC`, `0BSD`, `Unicode-DFS-2016`, `Unicode-3.0`. Copyleft crates — `LGPL-*`, `GPL-*`, `AGPL-*`, `MPL-2.0`, `CDDL-*`, `EPL-*`, `EUPL-*`, `CC-BY-SA-*` — and crates needing a paid or commercial license (`BUSL-1.1`, `SSPL-*`, `Elastic-2.0`, "free for non-commercial use") are rejected, transitively as well as directly. GPLv2-compatibility alone is not enough: LGPL is compatible but pushes relinking and source-disclosure obligations onto downstream packagers, which this project won't take on. Exceptions require an ADR-003 amendment, not a per-PR waiver.
 
 Expected direct dependencies: `ash` (Vulkan), `sdl2` + `sdl3` (feature-gated), `crossbeam-deque`/`crossbeam-utils`, `zip` or `flate2`+`miniz_oxide` (kpf/zip), `png` + `image` (or `zune-jpeg`), `libmimalloc-sys` (allocator, ADR-013), `bitflags`, `libc`; build/dev: `bindgen`, `cbindgen`, `cargo-fuzz`/`libfuzzer-sys`, `criterion`, `proptest`, `loom`.
 
