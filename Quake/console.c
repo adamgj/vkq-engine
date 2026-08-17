@@ -2418,7 +2418,10 @@ void LOG_Init (quakeparms_t *parms)
 
 	inittime = time (NULL);
 	strftime (session, sizeof (session), "%m/%d/%Y %H:%M:%S", localtime (&inittime));
-	char *pref_path = Sys_GetPrefPath ("vkQuake", "");
+	/* harness runs keep the log beside the game data instead of in the user's
+	   pref dir (LOG_Init runs before COM_InitFilesystem, so com_gamedir is not
+	   available yet -- basedir is the disposable staging dir either way) */
+	char *pref_path = harness_active ? NULL : Sys_GetPrefPath ("vkQuake", "");
 	if (pref_path)
 	{
 		q_snprintf (logfilename, sizeof (logfilename), "%sqconsole.log", pref_path);

@@ -81,7 +81,7 @@ vkQuake wouldn't even start on an big-endian system, outputing a fatal error.
 ## Rust migration
 A phased plan to convert the engine from C to Rust — while preserving 100% compatibility with game logic, assets, savegames, demos, networking, mods, and the 2021 re-release — is documented in [docs/rust-migration/](docs/rust-migration/PLAN.md): the [plan](docs/rust-migration/PLAN.md), the [roadmap](docs/rust-migration/ROADMAP.md) of discrete phases, and the [architecture decision records](docs/rust-migration/adr/README.md).
 
-Phase 0 landed the scaffolding: a Cargo workspace in `rust/` builds a staticlib that Meson links into `vkquake` when `-Duse_rust` is enabled (auto-enabled if `cargo` is found; install via [rustup](https://rustup.rs), the toolchain is pinned by `rust/rust-toolchain.toml`). It also added the differential-verification harness — headless demo playback with per-frame state hashing, savegame byte-diffing, a progs VM trace and protocol capture — documented in [Misc/harness/README.md](Misc/harness/README.md).
+Phase 0 landed the scaffolding: a Cargo workspace in `rust/` builds a staticlib that Meson links into `vkquake` when built with `-Duse_rust=enabled` (explicit opt-in, since cargo always builds for the host default triple; install the toolchain via [rustup](https://rustup.rs), the version is pinned by `rust/rust-toolchain.toml`). It also added the differential-verification harness — headless demo playback with per-frame state hashing, savegame byte-diffing, a progs VM trace and protocol capture — documented in [Misc/harness/README.md](Misc/harness/README.md).
 
 ## Building
 > **Note**\

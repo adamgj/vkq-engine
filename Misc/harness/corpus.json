@@ -27,6 +27,14 @@
       "requires": [{"path": "id1/pak0.pak", "sha256": "35a9c55e5e5a284a159ad2a62e0e8def23d829561fe2f54eb402dbc0a9a946af"}]
     },
     {
+      "name": "map-e1m2",
+      "tier": "shareware",
+      "cmds": ["0 map e1m2", "1500 quit"],
+      "exitafter": 5000,
+      "note": "second shareware map so the per-frame server/edict hash covers more than one level",
+      "requires": [{"path": "id1/pak0.pak", "sha256": "35a9c55e5e5a284a159ad2a62e0e8def23d829561fe2f54eb402dbc0a9a946af"}]
+    },
+    {
       "name": "save-e2m1",
       "tier": "registered",
       "cmds": ["0 map e2m1", "300 save harness_a", "600 save harness_b", "610 quit"],

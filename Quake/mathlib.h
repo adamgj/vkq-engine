@@ -55,7 +55,7 @@ static inline int IS_NAN (float x)
 	return ((num.i & nanmask) == nanmask);
 }
 #endif
-// Q_rint moved to q_minmax.h
+#include "q_minmax.h" // Q_rint
 
 #define DotProduct(x, y)				((x)[0] * (y)[0] + (x)[1] * (y)[1] + (x)[2] * (y)[2])
 #define DotProduct2(x, y)				((x)[0] * (y)[0] + (x)[1] * (y)[1])

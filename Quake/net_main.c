@@ -589,7 +589,10 @@ int NET_GetMessage (qsocket_t *sock)
 
 	if (ret > 0)
 	{
-		Harness_NetCapture (0, sock->driver, ret, net_message.data, net_message.cursize);
+		/* QGetMessage returns 1 for reliable and 2 for unreliable, which is
+		   exactly the capture's `kind` encoding (see harness.h) */
+		const int kind = ret;
+		Harness_NetCapture (0, sock->driver, kind, net_message.data, net_message.cursize);
 		if (!IS_LOOP_DRIVER (sock->driver))
 		{
 			sock->lastMessageTime = net_time;
@@ -622,6 +625,7 @@ qsocket_t *NET_GetServerMessage (void)
 		s = net_drivers[net_driverlevel].QGetAnyMessage ();
 		if (s)
 		{
+			/* kind 0 = unknown: reliability is not distinguished on this path */
 			Harness_NetCapture (0, s->driver, 0, net_message.data, net_message.cursize);
 			return s;
 		}

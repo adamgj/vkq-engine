@@ -76,19 +76,15 @@ void Harness_CheckArgs (void)
 		no_rendering = true;
 }
 
-static int Harness_CmdCompare (const void *a, const void *b)
-{
-	return ((const harness_cmd_t *)a)->frame - ((const harness_cmd_t *)b)->frame;
-}
-
 static void Harness_LoadCmds (const char *path)
 {
 	FILE *f = Sys_fopen (path, "r");
 	char  line[1024];
+	int	  i;
 
 	if (!f)
 		Sys_Error ("Harness: can't open -harnesscmds file %s", path);
-	while (fgets (line, sizeof (line), f) && harness_numcmds < HARNESS_MAX_CMDS)
+	while (fgets (line, sizeof (line), f))
 	{
 		char *cmd = NULL;
 		long  frame = strtol (line, &cmd, 10);
@@ -101,12 +97,28 @@ static void Harness_LoadCmds (const char *path)
 			cmd[--len] = 0;
 		if (!len)
 			continue;
+		if (harness_numcmds == HARNESS_MAX_CMDS)
+			Sys_Error ("Harness: more than %d commands in %s", HARNESS_MAX_CMDS, path);
 		harness_cmds[harness_numcmds].frame = (int)frame;
 		harness_cmds[harness_numcmds].command = q_strdup (cmd);
 		harness_numcmds++;
 	}
 	fclose (f);
-	qsort (harness_cmds, harness_numcmds, sizeof (harness_cmds[0]), Harness_CmdCompare);
+
+	/* stable insertion sort: commands sharing a frame must keep file order.
+	   qsort is not stable and its ordering of equal keys varies by libc, which
+	   would make the same script produce different goldens per platform. */
+	for (i = 1; i < harness_numcmds; i++)
+	{
+		harness_cmd_t key = harness_cmds[i];
+		int			  j = i - 1;
+		while (j >= 0 && harness_cmds[j].frame > key.frame)
+		{
+			harness_cmds[j + 1] = harness_cmds[j];
+			j--;
+		}
+		harness_cmds[j + 1] = key;
+	}
 }
 
 void Harness_Init (void)
@@ -156,10 +168,27 @@ static uint64_t Harness_HashServer (uint64_t h)
 	{
 		edict_t *ed = (edict_t *)((byte *)vm->edicts + i * vm->edict_size);
 		/* never hash the raw edict block: the leading fields hold pointers,
-		   area links and a debug-only header whose layout differs per build */
+		   area links and a debug-only header whose layout differs per build.
+		   Everything below is layout-stable, simulation-derived state that a
+		   port could get wrong silently -- baseline drives delta encoding,
+		   the lerp fields are LERP_BANDAID/sv_smoothplatformlerps state, and
+		   num_leafs/leafnums are SV_FindTouchedLeafs' world-linkage output. */
 		h = Harness_Hash64 (h, &ed->free, sizeof (ed->free));
 		h = Harness_Hash64 (h, &ed->freetime, sizeof (ed->freetime));
 		h = Harness_Hash64 (h, &ed->alpha, sizeof (ed->alpha));
+		h = Harness_Hash64 (h, &ed->baseline, sizeof (ed->baseline));
+		h = Harness_Hash64 (h, &ed->sendinterval, sizeof (ed->sendinterval));
+		h = Harness_Hash64 (h, &ed->sendinterval_default, sizeof (ed->sendinterval_default));
+		h = Harness_Hash64 (h, &ed->oldframe, sizeof (ed->oldframe));
+		h = Harness_Hash64 (h, &ed->oldthinktime, sizeof (ed->oldthinktime));
+		h = Harness_Hash64 (h, ed->predthinkpos, sizeof (ed->predthinkpos));
+		h = Harness_Hash64 (h, &ed->lastthink, sizeof (ed->lastthink));
+		/* only the populated leafnums: entries past num_leafs are stale
+		   leftovers no observer can see, and demanding a port reproduce them
+		   would fail the gate on a difference that cannot matter */
+		h = Harness_Hash64 (h, &ed->num_leafs, sizeof (ed->num_leafs));
+		if (ed->num_leafs <= MAX_ENT_LEAFS)
+			h = Harness_Hash64 (h, ed->leafnums, ed->num_leafs * sizeof (ed->leafnums[0]));
 		h = Harness_Hash64 (h, &ed->v, vm->edict_size - offsetof (edict_t, v));
 	}
 	h = Harness_Hash64 (h, vm->globals, vm->progs->numglobals * 4);
@@ -239,6 +268,9 @@ void Harness_NetCapture (int direction, int driver, int kind, const byte *data, 
 static void Harness_Exit (int code)
 {
 	Harness_Shutdown ();
+#ifdef PR_TRACE
+	PR_TraceShutdown (); /* don't rely on exit() flushing the trace sink */
+#endif
 	Sys_Printf ("Harness: exiting at frame %d with code %d\n", host_framecount, code);
 	if (code == 0)
 		Sys_Quit ();

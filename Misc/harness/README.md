@@ -15,14 +15,16 @@ All compiled into every build (runtime-gated); see [harness.h](../../Quake/harne
 | `-netcapture <file>` | framed capture of all traffic at the `NET_*` funnels |
 | `-tracefile <file>` | per-instruction progs VM trace (needs a `-Dtrace=true` build) |
 
-The state hash covers: per-edict `free`/`freetime`/`alpha` + the full progs-visible field block, progs globals, VM time, client sim variables, client entity states, and the RNG state. It deliberately excludes pointers, area links and the debug-only edict header, so debug and release builds hash the same *state* (though FP differences mean goldens are release-only).
+The state hash covers: per-edict `free`/`freetime`/`alpha`/`baseline`/lerp fields/`num_leafs`+populated `leafnums` + the full progs-visible field block, progs globals, VM time, client sim variables, client entity states, and the RNG state. It deliberately excludes pointers, area links, the debug-only edict header, and `leafnums` entries past `num_leafs` (stale leftovers no observer can see), so debug and release builds hash the same *state* (though FP differences mean goldens are release-only).
 
-Harness runs are hermetic: per-user files (`vkQuake.cfg`, history, remembered basedirs) are redirected into the disposable staging gamedir.
+**The server half only applies when a server is running.** Demo playback never starts one, so for the demo entries `Harness_HashServer` returns immediately and the chain covers client sim state, client entity states and the RNG only. Server/edict state is exercised by the map entries (`save-e1m1`, `map-e1m2`, `save-e2m1`), which is why CI runs the corpus rather than demos alone. CSQC (`cl.qcvm`) globals are not hashed in Phase 0.
+
+Harness runs are hermetic: per-user files (`vkQuake.cfg`, `basedirs.txt`, console history, and the `-condebug` log) are redirected into the disposable staging dir rather than the real pref directory.
 
 ## Scripts (`scripts/harness/`)
 
 - `run_demo.py` — one headless run; stages a writable basedir from `$QUAKE_GAME_DATA`
-- `run_corpus.py` — drive [corpus.json](corpus.json): `--generate` / `--check` goldens, or `--stability` (run-twice)
+- `run_corpus.py` — drive [corpus.json](corpus.json): `--generate` / `--check` goldens, `--stability` (run-twice), or `--compare <other-build>` (the mixed-vs-C-only gate, which needs no goldens and so works on platforms that have none yet)
 - `save_diff.py` — scripted map+save scenario byte-compared between two builds
 - `capture_session.py` — dedicated server + headless client localhost protocol capture
 - `run_trace.py` — progs trace collection on a `-Dtrace=true` build

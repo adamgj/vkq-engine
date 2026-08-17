@@ -32,6 +32,12 @@ typedef struct qcond_s	 qcond_t;
 typedef struct qsem_s	 qsem_t;
 typedef struct qthread_s qthread_t;
 
+/* Contracts the engine already relies on, so any future backing implementation
+   (a Rust Mutex in a later phase is NOT recursive) must preserve them:
+   - Recursive: locking a mutex the calling thread already holds succeeds
+	 (gl_texmgr.c's TexMgr_FreeTextures* and pr_ext.c depend on this).
+   - NULL-tolerant: passing NULL is a no-op, not a crash (headless runs skip
+	 S_Init, leaving snd_mutex NULL while S_StartSound still locks it). */
 qmutex_t *QMutex_Create (void);
 void	  QMutex_Destroy (qmutex_t *mutex);
 void	  QMutex_Lock (qmutex_t *mutex);

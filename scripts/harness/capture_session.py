@@ -73,8 +73,16 @@ def main():
     sv_dir = stage(args.game_data)
     cl_dir = stage(args.game_data)
 
+    # start the map / connect from a cmds file, not +map / +connect: the cmdline
+    # cvar is deliberately empty in shareware installs, so stuffcmds is a no-op
+    with open(os.path.join(sv_dir, "harness.cmds"), "w") as f:
+        f.write(f"0 map {args.map}\n")
+    with open(os.path.join(cl_dir, "harness.cmds"), "w") as f:
+        f.write(f"0 connect 127.0.0.1:{args.port}\n")
+
     server = subprocess.Popen(
-        [exe, "-dedicated", "-basedir", ".", "-port", str(args.port), "+map", args.map],
+        [exe, "-dedicated", "-basedir", ".", "-port", str(args.port),
+         "-harnesscmds", "harness.cmds"],
         cwd=sv_dir, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     try:
         time.sleep(3)  # let the server come up
@@ -83,7 +91,7 @@ def main():
 
         client = subprocess.run(
             [exe, "-headless", "-basedir", ".", "-netcapture", "harness.cap",
-             "-exitafter", str(args.frames), "+connect", f"127.0.0.1:{args.port}"],
+             "-exitafter", str(args.frames), "-harnesscmds", "harness.cmds"],
             cwd=cl_dir, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
             timeout=600)
         # -exitafter exits with code 2 by design

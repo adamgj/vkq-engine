@@ -5,6 +5,9 @@ Modes:
   --generate   write golden hash files to Misc/harness/goldens/<os>-<arch>/
   --check      run and byte-compare against the committed goldens
   --stability  run every entry twice and require identical output
+  --compare B  run every entry on this build and on B, require identical output
+               (the mixed-vs-C-only gate; needs no goldens, so it works on
+               platforms that have none yet)
 
 Entries whose required data (checksummed files or mod dirs) is absent are
 skipped with a warning, so the same corpus file serves the CI shareware tier
@@ -98,6 +101,7 @@ def main():
     mode.add_argument("--generate", action="store_true")
     mode.add_argument("--check", action="store_true")
     mode.add_argument("--stability", action="store_true")
+    mode.add_argument("--compare", metavar="OTHER_VKQUAKE", default=None)
     args = p.parse_args()
 
     if not args.game_data:
@@ -139,21 +143,28 @@ def main():
                 continue
             out = tempfile.NamedTemporaryFile(suffix=".hash", delete=False).name
             ok = run_entry(exe, entry, data_root, out)
-            if ok and open(out, "rb").read() == open(golden, "rb").read():
+            if not ok:
+                print(f"RUN FAILED: {name} (no hash produced)")
+                failed.append(name)
+            elif open(out, "rb").read() == open(golden, "rb").read():
                 print(f"ok: {name}")
                 ran.append(name)
             else:
                 print(f"MISMATCH: {name} ({out} vs {golden})")
                 failed.append(name)
-        else:  # stability
+        else:  # stability / compare
             a = tempfile.NamedTemporaryFile(suffix=".hash", delete=False).name
             b = tempfile.NamedTemporaryFile(suffix=".hash", delete=False).name
-            ok = run_entry(exe, entry, data_root, a) and run_entry(exe, entry, data_root, b)
-            if ok and open(a, "rb").read() == open(b, "rb").read():
-                print(f"stable: {name}")
+            other = os.path.abspath(args.compare) if args.compare else exe
+            ok = run_entry(exe, entry, data_root, a) and run_entry(other, entry, data_root, b)
+            if not ok:
+                print(f"RUN FAILED: {name} (no hash produced)")
+                failed.append(name)
+            elif open(a, "rb").read() == open(b, "rb").read():
+                print(f"{'identical' if args.compare else 'stable'}: {name}")
                 ran.append(name)
             else:
-                print(f"UNSTABLE: {name}")
+                print(f"{'DIFFERS' if args.compare else 'UNSTABLE'}: {name} ({a} vs {b})")
                 failed.append(name)
 
     print(f"\n{len(ran)} ran, {len(skipped)} skipped, {len(failed)} failed")

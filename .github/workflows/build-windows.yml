@@ -128,19 +128,19 @@ jobs:
         meson compile -C build-c
         meson setup build-rs -Duse_sdl3=enabled -Duse_rust=enabled
         meson compile -C build-rs
-    - name: Demo hash stability and mixed identity
+    # no windows-x86_64 goldens yet, so gate on run-to-run stability and on the
+    # mixed build matching C-only; both cover the map entries, i.e. real
+    # server/edict state rather than demo playback alone
+    - name: Corpus stability (C-only, run-twice)
       run: |
         $env:QUAKE_GAME_DATA = "$PWD\shareware-data"
-        foreach ($d in 'demo1','demo2','demo3') {
-          python scripts/harness/run_demo.py --vkquake build-c/vkquake.exe --demo $d --out "c_${d}_1.hash"
-          if ($LASTEXITCODE -ne 0) { throw "run failed" }
-          python scripts/harness/run_demo.py --vkquake build-c/vkquake.exe --demo $d --out "c_${d}_2.hash"
-          if ($LASTEXITCODE -ne 0) { throw "run failed" }
-          python scripts/harness/run_demo.py --vkquake build-rs/vkquake.exe --demo $d --out "rs_${d}.hash"
-          if ($LASTEXITCODE -ne 0) { throw "run failed" }
-          if ((Get-FileHash "c_${d}_1.hash").Hash -ne (Get-FileHash "c_${d}_2.hash").Hash) { throw "$d unstable" }
-          if ((Get-FileHash "c_${d}_1.hash").Hash -ne (Get-FileHash "rs_${d}.hash").Hash) { throw "$d mixed differs" }
-        }
+        python scripts/harness/run_corpus.py --vkquake build-c/vkquake.exe --stability --tier shareware
+        if ($LASTEXITCODE -ne 0) { throw "corpus stability failed" }
+    - name: Mixed build identity (rust vs C-only)
+      run: |
+        $env:QUAKE_GAME_DATA = "$PWD\shareware-data"
+        python scripts/harness/run_corpus.py --vkquake build-c/vkquake.exe --compare build-rs/vkquake.exe --tier shareware
+        if ($LASTEXITCODE -ne 0) { throw "mixed build differs from C-only" }
     - name: Savegame byte-diff (C-only vs mixed)
       run: |
         $env:QUAKE_GAME_DATA = "$PWD\shareware-data"

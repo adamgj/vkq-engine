@@ -795,6 +795,11 @@ void Key_WriteBindings (FILE *f)
 
 static FILE *History_OpenFile (const char *mode)
 {
+	/* harness runs must not read or write real per-user state: COM_FOpenPrefFile
+	   redirects into the disposable gamedir while harness_active */
+	if (harness_active)
+		return COM_FOpenPrefFile (HISTORY_FILE_NAME, mode);
+
 	if (host_parms->userdir != host_parms->basedir)
 		return Sys_fopen (va ("%s/%s", host_parms->userdir, HISTORY_FILE_NAME), mode);
 

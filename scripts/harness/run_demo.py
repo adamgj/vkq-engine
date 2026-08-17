@@ -91,9 +91,16 @@ def main():
         if args.extra_args:
             cmd += args.extra_args.split()
 
+        # com_cmdline is truncated at CMDLINE_LENGTH, but the only consumer is the
+        # informational `cmdline` cvar that stuffcmds reads -- and harness runs
+        # drive everything through -harnesscmds, never +commands. Truncation is
+        # therefore cosmetic, and failing on it would make the corpus pass or
+        # fail depending on how long the path to the binary happens to be.
         cmdline_len = len(" ".join(cmd))
         if cmdline_len > 255:
-            sys.exit(f"error: engine command line would be {cmdline_len} chars (CMDLINE_LENGTH is 256)")
+            print(f"note: engine command line is {cmdline_len} chars, so the cmdline cvar "
+                  f"will be truncated (CMDLINE_LENGTH is 256); harmless for harness runs",
+                  file=sys.stderr)
 
         proc = subprocess.run(cmd, cwd=staging, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         if proc.returncode != 0:

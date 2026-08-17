@@ -35,7 +35,7 @@ def sha256(path):
 
 
 def find_extractor():
-    for tool, argv in [("lha", ["lha", "xqw="]), ("lhasa", None), ("7z", ["7z", "x", "-y"]), ("7zz", ["7zz", "x", "-y"])]:
+    for tool in ("lha", "lhasa", "7z", "7zz"):
         if shutil.which(tool):
             return tool
     return None
@@ -58,7 +58,10 @@ def main():
     for url in MIRRORS:
         try:
             print(f"downloading {url}")
-            urllib.request.urlretrieve(url, zip_path)
+            # explicit timeout: a hung mirror should fall through to the next
+            # one rather than burn the whole CI job timeout
+            with urllib.request.urlopen(url, timeout=60) as resp, open(zip_path, "wb") as out:
+                shutil.copyfileobj(resp, out)
             if sha256(zip_path) == ZIP_SHA256:
                 break
             print("checksum mismatch, trying next mirror")
@@ -69,7 +72,12 @@ def main():
 
     import zipfile
     with zipfile.ZipFile(zip_path) as z:
-        z.extract("resource.1", tmp)
+        member = next((n for n in z.namelist() if n.lower().endswith("resource.1")), None)
+        if not member:
+            sys.exit("error: resource.1 not found in quake106.zip")
+        z.extract(member, tmp)
+        if os.path.basename(member) != "resource.1":
+            shutil.move(os.path.join(tmp, member), os.path.join(tmp, "resource.1"))
 
     if tool in ("lha", "lhasa"):
         cmd = [tool, "xqw=" + tmp, os.path.join(tmp, "resource.1")]

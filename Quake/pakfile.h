@@ -24,6 +24,8 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 // pakfile.h -- on-disk PAK archive format (Rust migration core header)
 
+#include "q_types.h"
+
 //
 // on-disk pakfile
 //

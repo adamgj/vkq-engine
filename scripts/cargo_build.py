@@ -9,6 +9,7 @@ Invoked from the quake_rs custom_target in meson.build.
 """
 
 import argparse
+import filecmp
 import os
 import shutil
 import subprocess
@@ -31,7 +32,12 @@ def main():
     if args.profile == "release":
         cmd.append("--release")
 
-    proc = subprocess.run(cmd)
+    # cwd must be the workspace root: rustup resolves rust-toolchain.toml by
+    # walking up from the current directory, not from --manifest-path, and meson
+    # runs this script with the build dir as cwd -- so the pin is silently
+    # ignored unless we chdir into the workspace
+    workspace = os.path.dirname(os.path.abspath(args.manifest_path))
+    proc = subprocess.run(cmd, cwd=workspace)
     if proc.returncode != 0:
         sys.exit(proc.returncode)
 
@@ -39,7 +45,11 @@ def main():
     artifact = os.path.join(args.target_dir, args.profile, libname)
     if not os.path.isfile(artifact):
         sys.exit(f"error: cargo produced no {artifact}")
-    shutil.copyfile(artifact, args.output)
+    # only rewrite the output when the bytes actually changed: the custom_target
+    # is build_always_stale, so an unconditional copy bumps the mtime and
+    # relinks vkquake on every ninja invocation even when cargo did nothing
+    if not (os.path.isfile(args.output) and filecmp.cmp(artifact, args.output, shallow=False)):
+        shutil.copyfile(artifact, args.output)
 
     # cargo's dep-info names its own artifact path; point it at meson's output
     cargo_dep = os.path.splitext(artifact)[0] + ".d"
@@ -47,11 +57,14 @@ def main():
         if os.path.isfile(cargo_dep):
             with open(cargo_dep) as f:
                 content = f.read()
-            # each line is "<artifact>: <deps...>"; retarget to the copied lib
+            # each line is "<artifact>: <deps...>"; retarget to the copied lib.
+            # partition on ": " rather than ":" -- a Windows dep-info line starts
+            # with a drive letter ("C:\src\..."), which split(":", 1) would cut
+            # in half and fold the old target into the dependency list
             for line in content.splitlines():
-                if ":" in line:
-                    deps = line.split(":", 1)[1]
-                    out.write(f"{args.output}:{deps}\n")
+                _target, sep, deps = line.partition(": ")
+                if sep:
+                    out.write(f"{args.output}: {deps}\n")
         else:
             out.write(f"{args.output}:\n")
 

@@ -61,26 +61,17 @@ jobs:
       run: |
         meson setup build-c -Duse_rust=disabled && ninja -C build-c
         meson setup build-rs -Duse_rust=enabled && ninja -C build-rs
-    - name: Demo hash stability (C-only, run-twice)
-      run: |
-        export QUAKE_GAME_DATA="$PWD/shareware-data"
-        for d in demo1 demo2 demo3; do
-          python3 scripts/harness/run_demo.py --vkquake build-c/vkquake --demo $d --out c_${d}_1.hash
-          python3 scripts/harness/run_demo.py --vkquake build-c/vkquake --demo $d --out c_${d}_2.hash
-          cmp c_${d}_1.hash c_${d}_2.hash
-        done
-    - name: Mixed build identity (rust vs C-only)
-      run: |
-        export QUAKE_GAME_DATA="$PWD/shareware-data"
-        for d in demo1 demo2 demo3; do
-          python3 scripts/harness/run_demo.py --vkquake build-rs/vkquake --demo $d --out rs_${d}.hash
-          cmp c_${d}_1.hash rs_${d}.hash
-        done
-    - name: Savegame byte-diff (C-only vs mixed)
-      run: |
-        export QUAKE_GAME_DATA="$PWD/shareware-data"
-        python3 scripts/harness/save_diff.py --vkquake build-c/vkquake --vkquake-b build-rs/vkquake
+    # the corpus covers the map entries too, so the per-frame hash gate sees
+    # real server/edict state and not just demo playback
     - name: Golden check (shareware tier, darwin-arm64)
       run: |
         export QUAKE_GAME_DATA="$PWD/shareware-data"
         python3 scripts/harness/run_corpus.py --vkquake build-c/vkquake --check --tier shareware
+    - name: Mixed build identity (rust vs C-only)
+      run: |
+        export QUAKE_GAME_DATA="$PWD/shareware-data"
+        python3 scripts/harness/run_corpus.py --vkquake build-c/vkquake --compare build-rs/vkquake --tier shareware
+    - name: Savegame byte-diff (C-only vs mixed)
+      run: |
+        export QUAKE_GAME_DATA="$PWD/shareware-data"
+        python3 scripts/harness/save_diff.py --vkquake build-c/vkquake --vkquake-b build-rs/vkquake

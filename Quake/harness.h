@@ -19,6 +19,8 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #ifndef QUAKE_HARNESS_H
 #define QUAKE_HARNESS_H
 
+#include "q_types.h" // qboolean, byte, uint64_t
+
 /* Differential-verification harness (Rust migration Phase 0, PLAN.md section 7 / ADR-019).
 
    -headless           run the client without video/audio/input (implies no_rendering)
@@ -47,8 +49,14 @@ void Harness_Frame (void);	   /* end of _Host_Frame, before host_framecount++ */
 void Harness_DemoEnded (void); /* demo playback finished: flush hashes and exit 0 */
 void Harness_Shutdown (void);  /* finalize the hash+capture files; safe to call twice */
 
-/* -netcapture <file>: raw wire capture at the NET_* funnel.
-   Framed records: [u8 direction 0=recv,1=send][u8 driver][u8 kind 1=reliable,2=unreliable][u32le len][payload] */
+/* -netcapture <file>: message-level capture at the NET_* funnels. Note this is
+   whole logical messages, not packets: the dgrm driver fragments reliable
+   messages into several UDP datagrams below this layer and reassembles on
+   receive, so packet boundaries are not visible here.
+   Framed records: [u8 direction 0=recv,1=send][u8 driver]
+				   [u8 kind 0=unknown,1=reliable,2=unreliable][u32le len][payload]
+   kind 0 is emitted by the server-side NET_GetServerMessage funnel, which has
+   no reliability information available at that point. */
 void Harness_NetCapture (int direction, int driver, int kind, const byte *data, int len);
 
 /* fixed timestep fed to Host_Frame when harness_active */

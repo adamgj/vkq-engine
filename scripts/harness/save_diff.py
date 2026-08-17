@@ -94,12 +94,11 @@ def main():
     for i in sorted(a):
         if filecmp.cmp(a[i], b[i], shallow=False):
             print(f"save {i}: identical ({os.path.getsize(a[i])} bytes)")
+            os.unlink(a[i])  # keep only the files that differ, for inspection
+            os.unlink(b[i])
         else:
             print(f"save {i}: DIFFERS ({a[i]} vs {b[i]})")
             failed = True
-        if not failed:
-            os.unlink(a[i])
-            os.unlink(b[i])
     sys.exit(1 if failed else 0)
 
 

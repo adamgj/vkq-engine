@@ -1350,14 +1350,17 @@ static void M_Net_Key (int k)
 
 	case K_DOWNARROW:
 		S_LocalSound ("misc/menu1.wav");
-		if (++m_net_cursor >= m_net_items)
-			m_net_cursor = 0;
+		// wrap within [m_first_net_item, m_first_net_item + m_net_items): with IPX
+		// removed the first row is permanently dead, so wrapping to 0 would park
+		// the cursor on it
+		if (++m_net_cursor >= m_first_net_item + m_net_items)
+			m_net_cursor = m_first_net_item;
 		break;
 
 	case K_UPARROW:
 		S_LocalSound ("misc/menu1.wav");
 		if (--m_net_cursor < m_first_net_item)
-			m_net_cursor = m_net_items - 1;
+			m_net_cursor = m_first_net_item + m_net_items - 1;
 		break;
 
 	case K_MOUSE1:

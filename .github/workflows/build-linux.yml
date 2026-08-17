@@ -106,21 +106,17 @@ jobs:
       run: |
         meson setup build-c -Duse_sdl3=disabled -Duse_rust=disabled && ninja -C build-c
         meson setup build-rs -Duse_sdl3=disabled -Duse_rust=enabled && ninja -C build-rs
-    - name: Demo hash stability (C-only, run-twice)
+    # no linux-x86_64 goldens yet, so gate on run-to-run stability and on the
+    # mixed build matching C-only; both cover the map entries, i.e. real
+    # server/edict state rather than demo playback alone
+    - name: Corpus stability (C-only, run-twice)
       run: |
         export QUAKE_GAME_DATA="$PWD/shareware-data"
-        for d in demo1 demo2 demo3; do
-          python3 scripts/harness/run_demo.py --vkquake build-c/vkquake --demo $d --out c_${d}_1.hash
-          python3 scripts/harness/run_demo.py --vkquake build-c/vkquake --demo $d --out c_${d}_2.hash
-          cmp c_${d}_1.hash c_${d}_2.hash
-        done
+        python3 scripts/harness/run_corpus.py --vkquake build-c/vkquake --stability --tier shareware
     - name: Mixed build identity (rust vs C-only)
       run: |
         export QUAKE_GAME_DATA="$PWD/shareware-data"
-        for d in demo1 demo2 demo3; do
-          python3 scripts/harness/run_demo.py --vkquake build-rs/vkquake --demo $d --out rs_${d}.hash
-          cmp c_${d}_1.hash rs_${d}.hash
-        done
+        python3 scripts/harness/run_corpus.py --vkquake build-c/vkquake --compare build-rs/vkquake --tier shareware
     - name: Savegame byte-diff (C-only vs mixed)
       run: |
         export QUAKE_GAME_DATA="$PWD/shareware-data"

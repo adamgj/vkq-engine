@@ -321,7 +321,7 @@ use_rust = cargo.found() and not get_option('use_rust').disabled()
 if use_rust
     cflags += '-DUSE_RUST'
     python3 = find_program('python3')
-    rust_profile = get_option('buildtype').startswith('debug') ? 'debug' : 'release'
+    rust_profile = get_option('buildtype') == 'debug' ? 'debug' : 'release'
     rust_lib_name = host_machine.system() == 'windows' ? 'quake_rs.lib' : 'libquake_rs.a'
     quake_rs = custom_target(
         'quake_rs',
