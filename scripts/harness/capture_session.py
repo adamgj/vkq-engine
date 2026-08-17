@@ -20,6 +20,13 @@ import tempfile
 import time
 
 
+def _stage_entry(src, dst):
+    try:
+        os.symlink(src, dst)
+    except OSError:
+        shutil.copyfile(src, dst)  # Windows without symlink privilege
+
+
 def stage(game_data):
     staging = tempfile.mkdtemp(prefix="vkq-c-")
     for entry in sorted(os.listdir(game_data)):
@@ -29,7 +36,7 @@ def stage(game_data):
         dst = os.path.join(staging, entry)
         os.makedirs(dst, exist_ok=True)
         for f in sorted(os.listdir(src)):
-            os.symlink(os.path.join(src, f), os.path.join(dst, f))
+            _stage_entry(os.path.join(src, f), os.path.join(dst, f))
     return staging
 
 

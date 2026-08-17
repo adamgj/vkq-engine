@@ -2955,8 +2955,16 @@ Opens a file in the per-user preferences directory
 */
 FILE *COM_FOpenPrefFile (const char *filename, const char *mode)
 {
-	char *pref_path = Sys_GetPrefPath ("", "vkQuake");
-	FILE *f = Sys_fopen (va ("%s/%s", pref_path, filename), mode);
+	char *pref_path;
+	FILE *f;
+
+	// harness runs must be hermetic: per-user state (configs, history,
+	// remembered basedirs) is redirected into the disposable gamedir
+	if (harness_active)
+		return Sys_fopen (va ("%s/%s", com_gamedir, filename), mode);
+
+	pref_path = Sys_GetPrefPath ("", "vkQuake");
+	f = Sys_fopen (va ("%s/%s", pref_path, filename), mode);
 	Mem_Free (pref_path);
 	return f;
 }

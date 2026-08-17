@@ -12,6 +12,7 @@ jobs:
       fail-fast: false
       matrix:
         buildtype: [release, debug]
+        use-rust: ['disabled', 'enabled']
     steps:
     - uses: actions/checkout@v6
     - name: Determine version
@@ -36,22 +37,28 @@ jobs:
         arch: x64
     - name: Install meson
       run: pip install meson ninja
+    - name: Install Rust toolchain
+      if: matrix.use-rust == 'enabled'
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        toolchain: 1.97.1
+        targets: x86_64-pc-windows-msvc
     - name: Configure
       run: |
         $env:CC = 'clang-cl'
-        meson setup builddir --buildtype=${{ matrix.buildtype }} -Ddebug=true -Dstrip=false -Duse_sdl3=enabled
+        meson setup builddir --buildtype=${{ matrix.buildtype }} -Ddebug=true -Dstrip=false -Duse_sdl3=enabled -Duse_rust=${{ matrix.use-rust }}
     - name: Build
       run: meson compile -C builddir
     - name: Upload vkQuake
       uses: actions/upload-artifact@v7
       with:
-        name: vkQuake meson (${{ matrix.buildtype }}, x64)
+        name: vkQuake meson (${{ matrix.buildtype }}, x64${{ matrix.use-rust == 'enabled' && ', rust' || '' }})
         path: |
             builddir/vkquake.exe
             builddir/*.dll
             builddir/*.pdb
     - name: Package
-      if: matrix.buildtype == 'release'
+      if: matrix.buildtype == 'release' && matrix.use-rust == 'disabled'
       run: |
         $version = '${{ steps.version.outputs.version }}'
         $srcdir = 'builddir'
@@ -66,7 +73,7 @@ jobs:
         & "${env:ProgramFiles(x86)}\NSIS\makensis.exe" -V4 '-DSRCDIR=..\..\builddir' '-DPLATFORM=windows_x64' "-DVERSION=$version" vkQuake.nsi
         if (-not $?) { throw "makensis failed" }
     - name: Upload package
-      if: matrix.buildtype == 'release'
+      if: matrix.buildtype == 'release' && matrix.use-rust == 'disabled'
       uses: actions/upload-artifact@v7
       with:
         name: vkQuake package (x64)
@@ -74,10 +81,65 @@ jobs:
             Packaging\Windows\vkQuake-*.zip
             Packaging\Windows\vkQuake-Installer-*.exe
     - name: Attach to release
-      if: matrix.buildtype == 'release' && startsWith(github.ref, 'refs/tags/')
+      if: matrix.buildtype == 'release' && matrix.use-rust == 'disabled' && startsWith(github.ref, 'refs/tags/')
       uses: softprops/action-gh-release@v2
       with:
         draft: true
         files: |
           Packaging/Windows/vkQuake-*.zip
           Packaging/Windows/vkQuake-Installer-*.exe
+
+  harness-windows:
+    name: Harness Windows (shareware)
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v6
+    - name: Install Vulkan SDK
+      uses: jakoch/install-vulkan-sdk-action@v1.6.0
+      with:
+        vulkan_version: 1.4.341.1
+        install_runtime: false
+        cache: true
+        stripdown: true
+    - name: Setup MSVC environment
+      uses: ilammy/msvc-dev-cmd@v1
+      with:
+        arch: x64
+    - name: Install meson
+      run: pip install meson ninja
+    - uses: dtolnay/rust-toolchain@stable
+      with:
+        toolchain: 1.97.1
+        targets: x86_64-pc-windows-msvc
+    - name: Cache shareware data
+      uses: actions/cache@v4
+      with:
+        path: shareware-data
+        key: quake106-shareware-v1
+    - name: Fetch shareware data
+      run: python scripts/harness/fetch_shareware.py shareware-data
+    - name: Build C-only and mixed
+      run: |
+        $env:CC = 'clang-cl'
+        meson setup build-c -Duse_sdl3=enabled -Duse_rust=disabled
+        meson compile -C build-c
+        meson setup build-rs -Duse_sdl3=enabled -Duse_rust=enabled
+        meson compile -C build-rs
+    - name: Demo hash stability and mixed identity
+      run: |
+        $env:QUAKE_GAME_DATA = "$PWD\shareware-data"
+        foreach ($d in 'demo1','demo2','demo3') {
+          python scripts/harness/run_demo.py --vkquake build-c/vkquake.exe --demo $d --out "c_${d}_1.hash"
+          if ($LASTEXITCODE -ne 0) { throw "run failed" }
+          python scripts/harness/run_demo.py --vkquake build-c/vkquake.exe --demo $d --out "c_${d}_2.hash"
+          if ($LASTEXITCODE -ne 0) { throw "run failed" }
+          python scripts/harness/run_demo.py --vkquake build-rs/vkquake.exe --demo $d --out "rs_${d}.hash"
+          if ($LASTEXITCODE -ne 0) { throw "run failed" }
+          if ((Get-FileHash "c_${d}_1.hash").Hash -ne (Get-FileHash "c_${d}_2.hash").Hash) { throw "$d unstable" }
+          if ((Get-FileHash "c_${d}_1.hash").Hash -ne (Get-FileHash "rs_${d}.hash").Hash) { throw "$d mixed differs" }
+        }
+    - name: Savegame byte-diff (C-only vs mixed)
+      run: |
+        $env:QUAKE_GAME_DATA = "$PWD\shareware-data"
+        python scripts/harness/save_diff.py --vkquake build-c/vkquake.exe --vkquake-b build-rs/vkquake.exe
+        if ($LASTEXITCODE -ne 0) { throw "save diff failed" }

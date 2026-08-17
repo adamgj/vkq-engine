@@ -22,6 +22,13 @@ import tempfile
 DEFAULT_EXITAFTER = 200000
 
 
+def _stage_entry(src, dst):
+    try:
+        os.symlink(src, dst)
+    except OSError:
+        shutil.copyfile(src, dst)  # Windows without symlink privilege
+
+
 def stage_basedir(game_data, staging):
     """Symlink each game dir (id1, hipnotic, ...) into a writable basedir."""
     for entry in sorted(os.listdir(game_data)):
@@ -31,7 +38,7 @@ def stage_basedir(game_data, staging):
         dst = os.path.join(staging, entry)
         os.makedirs(dst, exist_ok=True)
         for f in sorted(os.listdir(src)):
-            os.symlink(os.path.join(src, f), os.path.join(dst, f))
+            _stage_entry(os.path.join(src, f), os.path.join(dst, f))
 
 
 def main():
@@ -54,8 +61,10 @@ def main():
     try:
         stage_basedir(args.game_data, staging)
 
-        # the engine's cmdline cvar is CMDLINE_LENGTH (256) bytes: run from the
-        # staging dir with short relative paths so +commands never truncate away
+        # the engine's cmdline cvar is CMDLINE_LENGTH (256) bytes and is
+        # deliberately empty in shareware installs (stuffcmds does nothing),
+        # so demos start via -harnesscmds rather than +playdemo, and we run
+        # from the staging dir with short relative paths
         hashname = "harness.hash"
         cmd = [
             os.path.abspath(args.vkquake),
@@ -64,8 +73,15 @@ def main():
             "-demohash", hashname,
             "-exitafter", str(args.exitafter),
         ]
+        cmdlines = []
         if args.cmds:
-            shutil.copyfile(args.cmds, os.path.join(staging, "harness.cmds"))
+            with open(args.cmds) as f:
+                cmdlines.extend(f.read().splitlines())
+        if args.demo:
+            cmdlines.append(f"0 playdemo {args.demo}")
+        if cmdlines:
+            with open(os.path.join(staging, "harness.cmds"), "w") as f:
+                f.write("\n".join(cmdlines) + "\n")
             cmd += ["-harnesscmds", "harness.cmds"]
         if args.game:
             if args.game.startswith("-"):
@@ -74,8 +90,6 @@ def main():
                 cmd += ["-game", args.game]
         if args.extra_args:
             cmd += args.extra_args.split()
-        if args.demo:
-            cmd += ["+playdemo", args.demo]
 
         cmdline_len = len(" ".join(cmd))
         if cmdline_len > 255:

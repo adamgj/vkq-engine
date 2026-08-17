@@ -21,6 +21,13 @@ import sys
 import tempfile
 
 
+def _stage_entry(src, dst):
+    try:
+        os.symlink(src, dst)
+    except OSError:
+        shutil.copyfile(src, dst)  # Windows without symlink privilege
+
+
 def run_scenario(exe, game_data, mapname, frames):
     staging = tempfile.mkdtemp(prefix="vkq-s-")
     for entry in sorted(os.listdir(game_data)):
@@ -30,7 +37,7 @@ def run_scenario(exe, game_data, mapname, frames):
         dst = os.path.join(staging, entry)
         os.makedirs(dst, exist_ok=True)
         for f in sorted(os.listdir(src)):
-            os.symlink(os.path.join(src, f), os.path.join(dst, f))
+            _stage_entry(os.path.join(src, f), os.path.join(dst, f))
 
     cmds = os.path.join(staging, "harness.cmds")
     with open(cmds, "w") as f:

@@ -27,4 +27,18 @@ for h in $HEADERS; do
         status=1
     fi
 done
+
+# the actual Phase 0 exit criterion: bindgen processes the core headers standalone
+if command -v bindgen > /dev/null 2>&1; then
+    for h in $HEADERS; do
+        if bindgen "Quake/$h" --allowlist-file ".*$h" -- -IQuake > /dev/null 2>&1; then
+            echo "bindgen ok:   $h"
+        else
+            echo "bindgen FAIL: $h"
+            status=1
+        fi
+    done
+else
+    echo "note: bindgen not on PATH; skipped the bindgen smoke (cargo install bindgen-cli)"
+fi
 exit $status
