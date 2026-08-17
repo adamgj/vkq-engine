@@ -352,10 +352,7 @@ static inline int FindLastBitNonZero64 (const uint64_t mask)
 
 #include "platform.h"
 
-#include <vulkan/vulkan_core.h>
-#if VK_HEADER_VERSION < 162
-#error Vulkan SDK too old
-#endif
+// Vulkan is included via q_render_types.h by the render headers that need it
 
 #include "console.h"
 #include "wad.h"
