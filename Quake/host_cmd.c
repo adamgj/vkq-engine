@@ -942,8 +942,6 @@ static void Host_Status_f (void)
 		print_fn ("tcp/ip:  %s\n", my_ipv4_address); // Spike -- FIXME: we should really have ports displayed here or something
 	if (ipv6Available)
 		print_fn ("ipv6:    %s\n", my_ipv6_address);
-	if (ipxAvailable)
-		print_fn ("ipx:     %s\n", my_ipx_address);
 	print_fn ("map:     %s\n", sv.name);
 	print_fn ("players: %i active (%i max)\n\n", net_activeconnections, svs.maxclients);
 	for (j = 0, client = svs.clients; j < svs.maxclients; j++, client++)

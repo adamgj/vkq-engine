@@ -53,7 +53,6 @@ void (WSAAPI *qfreeaddrinfo) (const struct addrinfo *ai);
 
 int		winsock_initialized = 0;
 WSADATA winsockdata;
-#define __wsaerr_static /* not static: used by net_wipx.c too */
 #include "wsaerror.h"
 
 //=============================================================================

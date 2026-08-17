@@ -285,7 +285,6 @@ if host_machine.system() == 'windows'
     srcs += [
         'Quake/net_win.c',
         'Quake/net_wins.c',
-        'Quake/net_wipx.c',
         'Quake/pl_win.c',
         'Quake/sys_sdl_win.c',
     ]

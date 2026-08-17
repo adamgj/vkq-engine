@@ -94,7 +94,6 @@ char		   m_return_reason[32];
 
 #define StartingGame (m_multiplayer_cursor == 1)
 #define JoiningGame	 (m_multiplayer_cursor == 0)
-#define IPXConfig	 (m_net_cursor == 0)
 #define TCPIPConfig	 (m_net_cursor == 1)
 
 static int		m_main_cursor;
@@ -1041,7 +1040,7 @@ static void M_MultiPlayer_Draw (cb_context_t *cbx)
 	M_Mouse_UpdateListCursor (&m_multiplayer_cursor, 70, 320, 32, 20, MULTIPLAYER_ITEMS, 0);
 	M_DrawTransPic (cbx, 54, 32 + m_multiplayer_cursor * 20, Draw_CachePic (va ("gfx/menudot%i.lmp", f + 1)));
 
-	if (ipxAvailable || ipv4Available || ipv6Available)
+	if (ipv4Available || ipv6Available)
 		return;
 	M_PrintWhite (cbx, (320 / 2) - ((27 * 8) / 2), 148, "No Communications Available");
 }
@@ -1076,12 +1075,12 @@ static void M_MultiPlayer_Key (int key)
 		switch (m_multiplayer_cursor)
 		{
 		case 0:
-			if (ipxAvailable || ipv4Available || ipv6Available)
+			if (ipv4Available || ipv6Available)
 				M_Menu_Net_f ();
 			break;
 
 		case 1:
-			if (ipxAvailable || ipv4Available || ipv6Available)
+			if (ipv4Available || ipv6Available)
 				M_Menu_Net_f ();
 			break;
 
@@ -1297,13 +1296,8 @@ static void M_Menu_Net_f (void)
 	key_dest = key_menu;
 	m_state = m_net;
 
-	m_net_items = 2;
-	m_first_net_item = 0;
-	if (!ipxAvailable)
-	{
-		m_net_items -= 1;
-		m_first_net_item += 1;
-	}
+	m_net_items = 1;
+	m_first_net_item = 1;
 	if (!ipv4Available && !ipv6Available)
 		m_net_items -= 1;
 
@@ -1321,10 +1315,7 @@ static void M_Net_Draw (cb_context_t *cbx)
 
 	f = 32;
 
-	if (ipxAvailable)
-		p = Draw_CachePic ("gfx/netmen3.lmp");
-	else
-		p = Draw_CachePic ("gfx/dim_ipx.lmp");
+	p = Draw_CachePic ("gfx/dim_ipx.lmp");
 	M_DrawTransPic (cbx, 72, f, p);
 
 	f += 19;
@@ -3726,10 +3717,7 @@ static void M_LanConfig_Draw (cb_context_t *cbx)
 		startJoin = "New Game";
 	else
 		startJoin = "Join Game";
-	if (IPXConfig)
-		protocol = "IPX";
-	else
-		protocol = "TCP/IP";
+	protocol = "TCP/IP";
 	M_Print (cbx, basex + 8 * 4, 32, va ("%s - %s", startJoin, protocol));
 	basex += 8;
 
@@ -4954,6 +4942,6 @@ void M_ConfigureNetSubsystem (void)
 	// enable/disable net systems to match desired config
 	Cbuf_AddText ("stopdemo\n");
 
-	if (IPXConfig || TCPIPConfig)
+	if (TCPIPConfig)
 		net_hostport = lan_config_port;
 }

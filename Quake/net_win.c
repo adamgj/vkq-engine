@@ -39,7 +39,6 @@ net_driver_t net_drivers[] = {
 const int net_numdrivers = countof (net_drivers);
 
 #include "net_wins.h"
-#include "net_wipx.h"
 
 net_landriver_t net_landrivers[] = {
 	{"Winsock TCPIP",
@@ -88,27 +87,6 @@ net_landriver_t net_landrivers[] = {
 	 WINS_GetSocketPort,
 	 WINS_SetSocketPort},
 #endif
-	{"Winsock IPX",
-	 false,
-	 0,
-	 WIPX_Init,
-	 WIPX_Shutdown,
-	 WIPX_Listen,
-	 WIPX_GetAddresses,
-	 WIPX_OpenSocket,
-	 WIPX_CloseSocket,
-	 WIPX_Connect,
-	 WIPX_CheckNewConnections,
-	 WIPX_Read,
-	 WIPX_Write,
-	 WIPX_Broadcast,
-	 WIPX_AddrToString,
-	 WIPX_StringToAddr,
-	 WIPX_GetSocketAddr,
-	 WIPX_GetNameFromAddr,
-	 WIPX_GetAddrFromName,
-	 WIPX_AddrCompare,
-	 WIPX_GetSocketPort,
-	 WIPX_SetSocketPort}};
+};
 
 const int net_numlandrivers = countof (net_landrivers);
