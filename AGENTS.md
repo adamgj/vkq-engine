@@ -4,7 +4,7 @@ Instructions for AI coding agents (Codex, GitHub Copilot, Claude Code, etc.) wor
 
 ## Project
 
-vkQuake is a C99 port of id Software's Quake using Vulkan instead of OpenGL, based on QuakeSpasm/QuakeSpasm-Spiked. Cross-platform: Windows, Linux, macOS. Engine source lives in `Quake/` (including inlined vendored libs like `miniz`, `stb_image`, `mimalloc`). Shaders are in `Shaders/`. Windows-only resources (VS solution, vendored SDL3) are in `Windows/`.
+vkQuake is a C99 port of id Software's Quake using Vulkan instead of OpenGL, based on QuakeSpasm/QuakeSpasm-Spiked. Cross-platform: Windows, Linux, macOS. Engine source lives in `Quake/` (including inlined vendored libs like `miniz`, `stb_image`, `mimalloc`). Shaders are in `Shaders/`. Windows-only resources (vendored SDL3, codec libraries) are in `Windows/`. The Rust migration workspace lives in `rust/`.
 
 ## Build & verify
 
@@ -32,7 +32,7 @@ Commit messages: concise, imperative mood, matching existing `git log` history. 
 A migration plan exists to incrementally port the C engine to Rust. **Read `docs/rust-migration/PLAN.md` and `docs/rust-migration/ROADMAP.md` before touching migration-related code**; ADRs are indexed in `docs/rust-migration/adr/README.md`.
 
 Key facts:
-- Strategy is hybrid incremental oxidation (ADR-001): a Cargo workspace under `rust/` (not yet created — Phase 0 hasn't started) builds a staticlib linked into the existing Meson build, module by module, behind `-Duse_rust_<module>` flags. C is deleted only after each phase's exit criteria pass.
+- Strategy is hybrid incremental oxidation (ADR-001): the Cargo workspace under `rust/` (created in Phase 0) builds a staticlib linked into the existing Meson build via `-Duse_rust`, module by module (per-module flags arrive as modules are ported). C is deleted only after each phase's exit criteria pass.
 - The C build remains the reference oracle until Phase 9 (host inversion).
 - The roadmap is 11 phases (0–10) with explicit scope, exit criteria, and deletion lists per phase — **do not port code or delete C files out of roadmap order**, and don't touch code explicitly deferred to a later phase (e.g. `tasks.c` stays C until Phase 8, per ADR-016).
 - Follow ADR decisions exactly, especially the `(compat exception)` ones (e.g. ADR-005 float formatter, ADR-006 edict arena, ADR-008 ambient qcvm, ADR-010 determinism) — these are deliberate deviations from idiomatic Rust made to preserve bug-for-bug compatibility. Mark code implementing one with a `// COMPAT:` comment linking to the ADR, per the ADR template.
@@ -41,6 +41,7 @@ Key facts:
 ## Testing & verification strategy
 
 - Ordinary C engine changes: build on the affected platform(s); there's no test suite to run, so be conservative and verify behavior manually where practical.
+- The Phase 0 harness exists: run it with the scripts in `scripts/harness/` (see `Misc/harness/README.md`), pointing `QUAKE_GAME_DATA` at a directory containing `id1/`. The core gates are `run_corpus.py --check` (per-frame state-hash goldens), `save_diff.py` (savegame byte-diff between two builds), and `check_headers.sh` (core headers stay SDL/Vulkan-free and bindgen-clean). Any change touching simulation, parsing, or the VM must keep these green.
 - Rust migration work (Phase 0+): the differential-verification harness described in `PLAN.md` §7 and ADR-019 (demo-determinism state-hash chains, savegame/config byte-diffing, progs VM trace oracle, protocol goldens, differential fuzzing, float-formatter conformance, sound PCM-hash parity, sanitizers) is the safety net for compatibility — it must exist and stay green alongside any port, not be treated as optional scaffolding.
 
 ## Agent conduct
