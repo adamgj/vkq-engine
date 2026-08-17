@@ -310,9 +310,10 @@ else
 endif
 
 cflags = cc.get_supported_arguments('-Wno-trigraphs', '-Wno-microsoft-enum-forward-reference') + ['-D_FILE_OFFSET_BITS=64']
-if cc.get_id() == 'clang'
+if cc.get_id() == 'clang' or cc.get_id() == 'clang-cl'
     # the stb single header libraries define their whole API static
-    cflags += '-Wno-unused-function'
+    # (clang-cl reports its id as 'clang-cl', so it needs the same suppression)
+    cflags += cc.get_supported_arguments('-Wno-unused-function')
 endif
 
 cargo = find_program('cargo', required : get_option('use_rust'))
