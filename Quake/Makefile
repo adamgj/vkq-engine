@@ -15,10 +15,6 @@ USE_CODEC_FLAC = 0
 USE_CODEC_MP3 = 1
 USE_CODEC_VORBIS = 1
 USE_CODEC_OPUS = 0
-# either xmp or mikmod (or modplug)
-USE_CODEC_MIKMOD = 0
-USE_CODEC_XMP = 0
-USE_CODEC_MODPLUG = 0
 USE_CODEC_UMX = 0
 
 # which library to use for mp3 decoding: mad or mpg123

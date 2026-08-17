@@ -37,7 +37,6 @@ jobs:
           ${{ matrix.platform.msys-env }}-libmad
           ${{ matrix.platform.msys-env }}-libogg
           ${{ matrix.platform.msys-env }}-libvorbis
-          ${{ matrix.platform.msys-env }}-libxmp
 
     - uses: actions/checkout@v6
 
