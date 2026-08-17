@@ -97,12 +97,20 @@ Prerequisites:
 * A [Vulkan-capable GPU](https://en.wikipedia.org/wiki/Vulkan_(API)#Compatibility) with the appropriate drivers installed
 * Install the latest [Vulkan SDK](https://vulkan.lunarg.com/sdk/home). Log out and back in after installation to make sure environment variables are set.
 
-#### Visual Studio
+#### Meson (MSVC toolchain)
 
-* Install [Visual Studio Community](https://www.visualstudio.com/products/free-developer-offers-vs) with Visual C++ component.
+* Install [Visual Studio Community](https://www.visualstudio.com/products/free-developer-offers-vs) with the Visual C++ and Clang components (or the standalone Build Tools).
+* Install [Meson](https://mesonbuild.com/) and [Ninja](https://ninja-build.org/), e.g. `pip install meson ninja`.
 
-Open the Visual Studio solution, `Windows\VisualStudio\vkquake.sln`, select the desired configuration and platform, then
-build the solution.
+From a "Developer PowerShell for VS" (so the MSVC environment is loaded):
+
+~~~
+$env:CC = 'clang-cl'
+meson setup builddir --buildtype=release -Duse_sdl3=enabled
+meson compile -C builddir
+~~~
+
+Visual Studio can still be used as an editor/debugger; the checked-in solution has been retired in favor of Meson.
 
 #### MinGW
 

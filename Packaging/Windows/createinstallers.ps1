@@ -7,14 +7,16 @@ $PatchVersion=$PatchVersionMatch.Matches.groups[1].value
 $SuffixMatch=Select-String "^#define\s*VKQUAKE_VER_SUFFIX\s*`"([^`"]*)" "../../Quake/quakever.h"
 $Suffix=$SuffixMatch.Matches.groups[1].value
 $Version=$VersionMajor + '.' + $VersionMinor + '.' + $PatchVersion + $Suffix
-$SrcDirX64="..\..\Windows\VisualStudio\Build-vkQuake\x64\Release"
+$SrcDirX64="..\..\builddir-package"
 
 # Cleanup
 Del "vkQuake-*.exe"
 Del "vkQuake-*.zip"
 
-# Clean & build binaries
-msbuild ..\..\Windows\VisualStudio\vkquake.sln /target:Clean /target:Build /property:Configuration=Release /property:Platform=x64
+# Clean & build binaries (meson + clang-cl; run from a shell with the MSVC environment loaded)
+$env:CC = 'clang-cl'
+meson setup ..\..\builddir-package --buildtype=release -Ddebug=true -Dstrip=false -Duse_sdl3=enabled --wipe
+meson compile -C ..\..\builddir-package
 
 # Create NSIS exe installers
 $Nsis="C:\Program Files (x86)\NSIS\Bin\makensis.exe"
@@ -23,7 +25,7 @@ Start-Process -Wait -NoNewWindow -PassThru -FilePath $Nsis -ArgumentList $NsisAr
 
 # Create zip files
 $compress = @{
-  Path = "$SrcDirX64\*.exe", "$SrcDirX64\vkQuake.pdb", "$SrcDirX64\*.dll", "..\..\LICENSE.txt"
+  Path = "$SrcDirX64\*.exe", "$SrcDirX64\vkquake.pdb", "$SrcDirX64\*.dll", "..\..\LICENSE.txt"
   CompressionLevel = "Optimal"
   DestinationPath = "vkQuake-" + $Version + "_windows_x64.zip"
 }

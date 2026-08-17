@@ -10,7 +10,7 @@ vkQuake is a C99 port of id Software's Quake using Vulkan instead of OpenGL, bas
 
 - **Primary:** Meson — `meson setup build && ninja -C build`.
 - **Fallback (Linux/macOS):** `cd Quake && make -j`.
-- **Windows alternative:** `Windows/VisualStudio/vkquake.sln` (MSVC), or MinGW/MSYS2.
+- **Windows:** Meson + clang-cl from an MSVC environment (the VS solution was retired per ADR-018), or MinGW/MSYS2 Makefiles.
 - There is **no automated test suite** in this repo. Verification is: the build succeeds for the platform(s) you touched, and behavior is checked manually (or via the Rust-migration verification harness, see below, where applicable). CI (`.github/workflows/`) runs build matrices for Windows (MSVC + MinGW + arm64), Linux, macOS, plus `clang-format-check.yml` — treat those workflows as the ground truth for what a change must pass.
 
 ## Code style

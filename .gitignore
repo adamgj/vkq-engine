@@ -9,7 +9,6 @@ Quake/vkquake.pak
 Quake/embedded_pak.c
 Quake/*.exe
 Quake/*.res
-Windows/VisualStudio/Id1
 Shaders/Compiled/Debug/*.spv
 Shaders/Compiled/Debug/*.c
 Shaders/Compiled/Debug/*.d
@@ -19,9 +18,6 @@ Shaders/Compiled/Release/*.d
 Shaders/*.exe
 Shaders/*.obj
 Shaders/bintoc
-Windows/VisualStudio/.vs
-Windows/VisualStudio/Build-*
-Windows/VisualStudio/enc_temp_folder
 Packaging/AppImage/AppDir
 Packaging/AppImage/vkquake*
 Packaging/Windows/vkQuake-Installer-*.exe
