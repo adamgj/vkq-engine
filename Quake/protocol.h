@@ -25,6 +25,13 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 // protocol.h -- communications protocols
 
+#include "q_types.h"
+#include "q_minmax.h" // for ENTALPHA_ENCODE / ENTSCALE_ENCODE
+
+// LERP_BANDAID changes the entity_state_t wire struct layout, so it must live
+// with the struct it modifies, not in quakedef.h (Rust migration, PLAN.md 4.1)
+#define LERP_BANDAID // HACK: send think interval over FTE protocol (loopback only, no demos)
+
 #define PROTOCOL_NETQUAKE  15  // johnfitz -- standard quake protocol
 #define PROTOCOL_FITZQUAKE 666 // johnfitz -- added new protocol for fitzquake 0.85
 #define PROTOCOL_RMQ	   999

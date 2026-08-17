@@ -23,6 +23,9 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #ifndef _QUAKE_WAD_H
 #define _QUAKE_WAD_H
 
+#include "q_types.h"
+#include "common.h" // fshandle_t
+
 //===============
 //   TYPES
 //===============

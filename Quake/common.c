@@ -2098,23 +2098,7 @@ QUAKE FILESYSTEM
 
 THREAD_LOCAL qfilesize_t com_filesize;
 
-//
-// on-disk pakfile
-//
-typedef struct
-{
-	char name[56];
-	int	 filepos, filelen;
-} dpackfile_t;
-
-typedef struct
-{
-	char id[4];
-	int	 dirofs;
-	int	 dirlen;
-} dpackheader_t;
-
-#define MAX_FILES_IN_PACK 2048
+#include "pakfile.h"
 
 char			 com_gamenames[1024]; // eg: "hipnotic;quoth;warp" ... no id1
 char			 com_gamedir[MAX_OSPATH];

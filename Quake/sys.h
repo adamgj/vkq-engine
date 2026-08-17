@@ -23,6 +23,8 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #define _QUAKE_SYS_H
 
 // sys.h -- non-portable functions
+
+#include "q_types.h"
 void Sys_FileInit (void);
 void Sys_Init (void);
 
