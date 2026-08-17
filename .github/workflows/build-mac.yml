@@ -83,3 +83,7 @@ jobs:
       run: |
         export QUAKE_GAME_DATA="$PWD/shareware-data"
         python3 scripts/harness/save_diff.py --vkquake build-c/vkquake --vkquake-b build-rs/vkquake
+    - name: Golden check (shareware tier, darwin-arm64)
+      run: |
+        export QUAKE_GAME_DATA="$PWD/shareware-data"
+        python3 scripts/harness/run_corpus.py --vkquake build-c/vkquake --check --tier shareware
