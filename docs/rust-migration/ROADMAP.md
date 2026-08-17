@@ -12,7 +12,7 @@ Sizes are relative T-shirt estimates. The renderer (Phase 8) is roughly one-thir
 
 The only phase that ports nothing. Everything later depends on it.
 
-**Status (2026-08-17):** implemented on `claude/rust-conversion-phase-one-e696b9`; awaiting CI verification on Linux/Windows and merge.
+**Status (2026-08-17):** implemented on `claude/rust-conversion-phase-one-e696b9`; CI green on Windows, Linux and macOS (including the mixed-build hash/savegame identity gates on all three); awaiting merge.
 - Done: Cargo workspace + Meson mixed build (verified byte-identical to C-only on the macOS corpus); header surgery (core headers bindgen-clean, checked in CI); verification harness (headless demo hash chain, savegame byte-diff, `-Dtrace` progs trace, protocol capture) with committed `darwin-arm64` goldens; approved deletions (`net_wipx.c`, `snd_mikmod/xmp/modplug.c`, `Windows/VisualStudio/`); CI matrix + rust lint/audit jobs; Windows CI rewritten from MSBuild to Meson+clang-cl (contrary to PLAN §3's claim, no Windows Meson CI existed before this phase — it was created here).
 - Deferred: first c2rust oracle translations (`tools/c2rust-oracle/` is scaffolded; no working c2rust toolchain on the dev host — first consumers are Phases 1/6); registered-tier goldens for `linux-x86_64`/`windows-x86_64` (need a machine with game data; CI enforces run-twice stability and mixed-vs-C identity on the shareware tier meanwhile); tag `c-reference/phase0` at merge.
 
