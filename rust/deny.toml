@@ -1,0 +1,24 @@
+# cargo-deny configuration (ADR-003 dependency policy).
+# The engine is GPLv2-or-later: every dependency license must be compatible
+# via the or-later route (Apache-2.0 is GPLv3-compatible only).
+
+[licenses]
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",
+    "MPL-2.0",
+    "GPL-2.0",
+    "GPL-2.0-or-later",
+    "GPL-3.0",
+]
+
+[advisories]
+yanked = "deny"
+
+[bans]
+multiple-versions = "warn"

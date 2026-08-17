@@ -38,3 +38,5 @@ helgrind.log
 .cache/
 *.user
 *.user
+rust/target/
+cargo-target/

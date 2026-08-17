@@ -1248,6 +1248,14 @@ void Host_Init (void)
 
 	Con_Printf ("Exe: %s %s %s\n", __TIME__, __DATE__, build_str_suffix);
 
+#ifdef USE_RUST
+	{
+		// Rust migration: prove the quake_rs staticlib is linked and callable
+		extern uint32_t QuakeRS_Version (void);
+		Con_DPrintf ("quake_rs staticlib linked (ABI version %u)\n", QuakeRS_Version ());
+	}
+#endif
+
 	if (cls.state != ca_dedicated)
 	{
 		host_colormap = (byte *)COM_LoadFile ("gfx/colormap.lmp", NULL);

@@ -314,6 +314,32 @@ if cc.get_id() == 'clang'
     cflags += '-Wno-unused-function'
 endif
 
+cargo = find_program('cargo', required : get_option('use_rust'))
+use_rust = cargo.found() and not get_option('use_rust').disabled()
+if use_rust
+    cflags += '-DUSE_RUST'
+    python3 = find_program('python3')
+    rust_profile = get_option('buildtype').startswith('debug') ? 'debug' : 'release'
+    rust_lib_name = host_machine.system() == 'windows' ? 'quake_rs.lib' : 'libquake_rs.a'
+    quake_rs = custom_target(
+        'quake_rs',
+        output : rust_lib_name,
+        command : [
+            python3, meson.project_source_root() / 'scripts/cargo_build.py',
+            '--cargo', cargo,
+            '--manifest-path', meson.project_source_root() / 'rust/Cargo.toml',
+            '--target-dir', meson.project_build_root() / 'cargo-target',
+            '--profile', rust_profile,
+            '--output', '@OUTPUT@',
+            '--depfile', '@DEPFILE@',
+        ],
+        depfile : 'quake_rs.d',
+        console : true,
+        # cargo is its own (fast) change detector; always let it decide
+        build_always_stale : true,
+    )
+endif
+
 deps = [
     cc.find_library('m', required : false),
     cc.find_library('dl', required : false),
@@ -321,8 +347,17 @@ deps = [
     sdl_dep,
 ]
 
+if use_rust
+    deps += declare_dependency(link_with : quake_rs)
+endif
+
 if host_machine.system() == 'windows'
-    foreach syslib : ['ws2_32', 'winmm', 'dbghelp', 'ole32', 'uuid']
+    win_syslibs = ['ws2_32', 'winmm', 'dbghelp', 'ole32', 'uuid']
+    if use_rust
+        # the Rust standard library on *-pc-windows-msvc needs these
+        win_syslibs += ['advapi32', 'userenv', 'bcrypt', 'ntdll', 'synchronization']
+    endif
+    foreach syslib : win_syslibs
         deps += cc.find_library(syslib)
     endforeach
     import('fs').copyfile('Windows/SDL3/lib64/SDL3.dll')

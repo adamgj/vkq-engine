@@ -1,0 +1,11 @@
+[package]
+name = "quake-host"
+version = "0.1.0"
+description = "host loop; becomes the bin crate with main() in Phase 9"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true

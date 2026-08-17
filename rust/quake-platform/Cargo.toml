@@ -1,0 +1,11 @@
+[package]
+name = "quake-platform"
+version = "0.1.0"
+description = "SDL2+SDL3 platform glue, input, video, sys/pl layers"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true

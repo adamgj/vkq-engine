@@ -1,0 +1,15 @@
+[package]
+name = "quake-capi"
+version = "0.1.0"
+description = "cbindgen-exported C ABI shims; builds the libquake_rs staticlib"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+name = "quake_rs"
+crate-type = ["staticlib"]
+
+[lints]
+workspace = true
