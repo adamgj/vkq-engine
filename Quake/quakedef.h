@@ -74,7 +74,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 // fall over
 #define ROLL 2
 
-#define MAX_QPATH 64 // max length of a quake game pathname
+// MAX_QPATH moved to q_types.h
 
 #define ON_EPSILON 0.1 // point on plane side epsilon
 
