@@ -100,18 +100,6 @@ ifeq ($(USE_CODEC_MP3),1)
 CFLAGS += -DUSE_CODEC_MP3
 CODECLIBS += $(lib_mp3dec)
 endif
-ifeq ($(USE_CODEC_MIKMOD),1)
-CFLAGS += -DUSE_CODEC_MIKMOD
-CODECLIBS += -lmikmod
-endif
-ifeq ($(USE_CODEC_XMP),1)
-CFLAGS += -DUSE_CODEC_XMP
-CODECLIBS += -lxmp
-endif
-ifeq ($(USE_CODEC_MODPLUG),1)
-CFLAGS += -DUSE_CODEC_MODPLUG
-CODECLIBS += -lmodplug
-endif
 ifeq ($(USE_CODEC_UMX),1)
 CFLAGS += -DUSE_CODEC_UMX
 endif
@@ -129,9 +117,6 @@ MUSIC_OBJS:= bgmusic.o \
 	snd_opus.o \
 	$(mp3_obj).o \
 	snd_mp3tag.o \
-	snd_mikmod.o \
-	snd_modplug.o \
-	snd_xmp.o \
 	snd_umx.o
 COMOBJ_SND := snd_dma.o snd_mix.o snd_mem.o $(MUSIC_OBJS)
 SYSOBJ_SND := snd_sdl.o snd_sdl3.o
@@ -257,10 +242,13 @@ OBJS := strlcat.o \
 	cfgfile.o \
 	json.o \
 	steam.o \
+	harness.o \
+	q_thread_sdl.o \
 	host.o \
 	host_cmd.o \
 	mathlib.o \
 	mdfour.o \
+	pr_trace.o \
 	pr_cmds.o \
 	pr_ext.o \
 	pr_edict.o \

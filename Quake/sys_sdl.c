@@ -38,14 +38,14 @@ typedef struct file_handle_s
 } file_handle_t;
 
 // Protects sys_handles when requesting a new handle / freeing a handle.
-static SDL_Mutex *sys_handles_mutex;
+static qmutex_t *sys_handles_mutex;
 
 #define MAX_HANDLES 32 /* johnfitz -- was 10 */
 static file_handle_t sys_handles[MAX_HANDLES * (TASKS_MAX_WORKERS + 1)];
 
 void Sys_FileInit (void)
 {
-	sys_handles_mutex = SDL_CreateMutex ();
+	sys_handles_mutex = QMutex_Create ();
 
 	memset (sys_handles, 0x0, sizeof (sys_handles));
 
@@ -57,7 +57,7 @@ static int allocHandle (void)
 {
 	int i;
 
-	SDL_LockMutex (sys_handles_mutex);
+	QMutex_Lock (sys_handles_mutex);
 
 	// TBC : why skipping index 0 ? is it to make
 	// 0 as an invalid handle value by design ?
@@ -70,22 +70,22 @@ static int allocHandle (void)
 
 			assert (!sys_handles[i].free);
 
-			SDL_UnlockMutex (sys_handles_mutex);
+			QMutex_Unlock (sys_handles_mutex);
 			return i;
 		}
 	}
-	SDL_UnlockMutex (sys_handles_mutex);
+	QMutex_Unlock (sys_handles_mutex);
 	Sys_Error ("out of handles");
 	return -1;
 }
 
 static void freeHandle (int handle)
 {
-	SDL_LockMutex (sys_handles_mutex);
+	QMutex_Lock (sys_handles_mutex);
 
 	sys_handles[handle].free = true;
 
-	SDL_UnlockMutex (sys_handles_mutex);
+	QMutex_Unlock (sys_handles_mutex);
 }
 
 qfilesize_t Sys_filelength (FILE *f)
@@ -374,3 +374,25 @@ int Sys_SelectFolder (const char *title, const char *default_location, char *dst
 	return sel.result;
 }
 #endif
+
+char *Sys_GetPrefPath (const char *org, const char *app)
+{
+	char *pref_path = SDL_GetPrefPath (org, app);
+	char *result;
+	if (!pref_path)
+		return NULL;
+	result = q_strdup (pref_path);
+	SDL_free (pref_path);
+	return result;
+}
+
+void Sys_MessageBoxWarning (const char *title, const char *message)
+{
+	SDL_ShowSimpleMessageBox (SDL_MESSAGEBOX_WARNING, title, message, NULL);
+}
+
+FUNC_NORETURN void Sys_QuitNoShutdown (void)
+{
+	SDL_Quit ();
+	exit (0);
+}

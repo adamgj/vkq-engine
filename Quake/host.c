@@ -1031,7 +1031,7 @@ static void _Host_Frame (double time)
 	if (host_speeds.value)
 		time3 = Sys_DoubleTime ();
 
-	if (!isDedicated)
+	if (!no_rendering)
 	{
 		// get new key events
 		Key_UpdateForDest ();
@@ -1155,6 +1155,8 @@ static void _Host_Frame (double time)
 		Con_Printf ("%5.2f tot %5.2f server %5.2f gfx %5.2f snd\n", pass1 + pass2 + pass3, pass1, pass2, pass3);
 	}
 
+	Harness_Frame ();
+
 	host_framecount++;
 }
 
@@ -1246,6 +1248,14 @@ void Host_Init (void)
 
 	Con_Printf ("Exe: %s %s %s\n", __TIME__, __DATE__, build_str_suffix);
 
+#ifdef USE_RUST
+	{
+		// Rust migration: prove the quake_rs staticlib is linked and callable
+		extern uint32_t QuakeRS_Version (void);
+		Con_DPrintf ("quake_rs staticlib linked (ABI version %u)\n", QuakeRS_Version ());
+	}
+#endif
+
 	if (cls.state != ca_dedicated)
 	{
 		host_colormap = (byte *)COM_LoadFile ("gfx/colormap.lmp", NULL);
@@ -1260,16 +1270,21 @@ void Host_Init (void)
 		Modlist_Init ();  // johnfitz
 		DemoList_Init (); // ericw
 		SaveList_Init ();
-		VID_Init ();
-		IN_Init ();
-		TexMgr_Init (); // johnfitz
-		Draw_Init ();
-		SCR_Init ();
-		R_Init ();
-		S_Init ();
-		CDAudio_Init ();
-		BGM_Init ();
-		Sbar_Init ();
+		if (!no_rendering)
+		{
+			VID_Init ();
+			IN_Init ();
+			TexMgr_Init (); // johnfitz
+			Draw_Init ();
+			SCR_Init ();
+			R_Init ();
+			S_Init ();
+			CDAudio_Init ();
+			BGM_Init ();
+			Sbar_Init ();
+		}
+		else
+			R_InitParticles (); // particle simulation still runs headless
 		CL_Init ();
 		Tests_Init ();
 	}
@@ -1278,6 +1293,11 @@ void Host_Init (void)
 	PScript_InitParticles ();
 #endif
 	LOC_Init (); // for 2021 rerelease support.
+
+	Harness_Init ();
+#ifdef PR_TRACE
+	PR_TraceInit ();
+#endif
 
 	host_initialized = true;
 	Con_Printf ("\n========= Quake Initialized =========\n\n");
@@ -1323,6 +1343,11 @@ void Host_Shutdown (void)
 		return;
 	}
 	isdown = true;
+
+	Harness_Shutdown ();
+#ifdef PR_TRACE
+	PR_TraceShutdown ();
+#endif
 
 	// keep Con_Printf from trying to update the screen
 	scr_disabled_for_loading = true;

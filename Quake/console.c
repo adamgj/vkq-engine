@@ -74,7 +74,7 @@ qboolean con_debuglog = false;
 
 qboolean con_initialized;
 
-SDL_Mutex *con_mutex;
+qmutex_t *con_mutex;
 
 #define CON_MARGIN			 1
 #define CON_SCROLL_ZONE		 (CHARACTER_SIZE * 2)
@@ -969,7 +969,7 @@ void Con_CheckResize (void)
 	if (width == con_linewidth)
 		return;
 
-	SDL_LockMutex (con_mutex);
+	QMutex_Lock (con_mutex);
 
 	oldwidth = con_linewidth;
 	con_linewidth = width;
@@ -1012,7 +1012,7 @@ void Con_CheckResize (void)
 	con_backscroll = 0;
 	con_current = con_totallines - 1;
 
-	SDL_UnlockMutex (con_mutex);
+	QMutex_Unlock (con_mutex);
 }
 
 /*
@@ -1050,7 +1050,7 @@ void Con_Init (void)
 {
 	int i;
 
-	con_mutex = SDL_CreateMutex ();
+	con_mutex = QMutex_Create ();
 
 	// johnfitz -- user settable console buffer size
 	i = COM_CheckParm ("-consize");
@@ -1124,7 +1124,7 @@ static void Con_Print (const char *txt)
 	int		   mask;
 	qboolean   boundary;
 
-	SDL_LockMutex (con_mutex);
+	QMutex_Lock (con_mutex);
 
 	// con_backscroll = 0; //johnfitz -- better console scrolling
 
@@ -1200,7 +1200,7 @@ static void Con_Print (const char *txt)
 			break;
 		}
 	}
-	SDL_UnlockMutex (con_mutex);
+	QMutex_Unlock (con_mutex);
 }
 
 // borrowed from uhexen2 by S.A. for new procs, LOG_Init, LOG_Close
@@ -1391,7 +1391,7 @@ void Con_LinkPrintf (const char *addr, const char *fmt, ...)
 	len = strlen (addr);
 	link = (conlink_t *)Mem_Alloc (sizeof (conlink_t) + len + 1);
 
-	SDL_LockMutex (con_mutex);
+	QMutex_Lock (con_mutex);
 
 	memcpy (link + 1, addr, len + 1);
 	link->path = (const char *)(link + 1);
@@ -1423,7 +1423,7 @@ void Con_LinkPrintf (const char *addr, const char *fmt, ...)
 		}
 	}
 
-	SDL_UnlockMutex (con_mutex);
+	QMutex_Unlock (con_mutex);
 }
 
 /*
@@ -1443,12 +1443,12 @@ void Con_SafePrintf (const char *fmt, ...)
 	q_vsnprintf (msg, sizeof (msg), fmt, argptr);
 	va_end (argptr);
 
-	SDL_LockMutex (con_mutex);
+	QMutex_Lock (con_mutex);
 	temp = scr_disabled_for_loading;
 	scr_disabled_for_loading = true;
 	Con_Printf ("%s", msg);
 	scr_disabled_for_loading = temp;
-	SDL_UnlockMutex (con_mutex);
+	QMutex_Unlock (con_mutex);
 }
 
 /*
@@ -2418,11 +2418,14 @@ void LOG_Init (quakeparms_t *parms)
 
 	inittime = time (NULL);
 	strftime (session, sizeof (session), "%m/%d/%Y %H:%M:%S", localtime (&inittime));
-	char *pref_path = SDL_GetPrefPath ("vkQuake", "");
+	/* harness runs keep the log beside the game data instead of in the user's
+	   pref dir (LOG_Init runs before COM_InitFilesystem, so com_gamedir is not
+	   available yet -- basedir is the disposable staging dir either way) */
+	char *pref_path = harness_active ? NULL : Sys_GetPrefPath ("vkQuake", "");
 	if (pref_path)
 	{
 		q_snprintf (logfilename, sizeof (logfilename), "%sqconsole.log", pref_path);
-		SDL_free (pref_path);
+		Mem_Free (pref_path);
 	}
 	else
 		q_snprintf (logfilename, sizeof (logfilename), "%s/qconsole.log", parms->basedir);

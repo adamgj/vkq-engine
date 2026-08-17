@@ -10,7 +10,8 @@ cc = meson.get_compiler('c')
 add_project_arguments(cc.get_supported_arguments('-fno-omit-frame-pointer', '/Oy-'), language: 'c')
 
 # Ask linker not to locate uninitialized variables into COMMON (will use .bss then) to avoid macOS link issue
-add_project_arguments('-fno-common', language: 'c')
+# (clang-cl doesn't accept it, and warning-as-error would turn that into a build failure)
+add_project_arguments(cc.get_supported_arguments('-fno-common'), language: 'c')
 
 if host_machine.system() == 'windows'
     foreach native : [true, false]
@@ -229,6 +230,9 @@ srcs = [
     'Quake/gl_texmgr.c',
     'Quake/gl_vidsdl.c',
     'Quake/gl_warp.c',
+    'Quake/harness.c',
+    'Quake/q_thread_sdl.c',
+    'Quake/pr_trace.c',
     'Quake/host.c',
     'Quake/host_cmd.c',
     'Quake/image.c',
@@ -285,7 +289,6 @@ if host_machine.system() == 'windows'
     srcs += [
         'Quake/net_win.c',
         'Quake/net_wins.c',
-        'Quake/net_wipx.c',
         'Quake/pl_win.c',
         'Quake/sys_sdl_win.c',
     ]
@@ -307,9 +310,36 @@ else
 endif
 
 cflags = cc.get_supported_arguments('-Wno-trigraphs', '-Wno-microsoft-enum-forward-reference') + ['-D_FILE_OFFSET_BITS=64']
-if cc.get_id() == 'clang'
+if cc.get_id() == 'clang' or cc.get_id() == 'clang-cl'
     # the stb single header libraries define their whole API static
-    cflags += '-Wno-unused-function'
+    # (clang-cl reports its id as 'clang-cl', so it needs the same suppression)
+    cflags += cc.get_supported_arguments('-Wno-unused-function')
+endif
+
+cargo = find_program('cargo', required : get_option('use_rust'))
+use_rust = cargo.found() and not get_option('use_rust').disabled()
+if use_rust
+    cflags += '-DUSE_RUST'
+    python3 = find_program('python3')
+    rust_profile = get_option('buildtype') == 'debug' ? 'debug' : 'release'
+    rust_lib_name = host_machine.system() == 'windows' ? 'quake_rs.lib' : 'libquake_rs.a'
+    quake_rs = custom_target(
+        'quake_rs',
+        output : rust_lib_name,
+        command : [
+            python3, meson.project_source_root() / 'scripts/cargo_build.py',
+            '--cargo', cargo,
+            '--manifest-path', meson.project_source_root() / 'rust/Cargo.toml',
+            '--target-dir', meson.project_build_root() / 'cargo-target',
+            '--profile', rust_profile,
+            '--output', '@OUTPUT@',
+            '--depfile', '@DEPFILE@',
+        ],
+        depfile : 'quake_rs.d',
+        console : true,
+        # cargo is its own (fast) change detector; always let it decide
+        build_always_stale : true,
+    )
 endif
 
 deps = [
@@ -319,8 +349,17 @@ deps = [
     sdl_dep,
 ]
 
+if use_rust
+    deps += declare_dependency(link_with : quake_rs)
+endif
+
 if host_machine.system() == 'windows'
-    foreach syslib : ['ws2_32', 'winmm', 'dbghelp', 'ole32', 'uuid']
+    win_syslibs = ['ws2_32', 'winmm', 'dbghelp', 'ole32', 'uuid']
+    if use_rust
+        # the Rust standard library on *-pc-windows-msvc needs these
+        win_syslibs += ['advapi32', 'userenv', 'bcrypt', 'ntdll', 'synchronization']
+    endif
+    foreach syslib : win_syslibs
         deps += cc.find_library(syslib)
     endforeach
     import('fs').copyfile('Windows/SDL3/lib64/SDL3.dll')
@@ -334,6 +373,10 @@ if build_machine.system() == 'darwin'
     deps += cc.find_library('MoltenVK', required : true, dirs : molten_dirs)
 else
     deps += dependency('vulkan', version: '>=1.4.341')
+endif
+
+if get_option('trace')
+    cflags += '-DPR_TRACE'
 endif
 
 if get_option('use_codec_wave').enabled()

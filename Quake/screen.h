@@ -48,6 +48,9 @@ extern int sb_lines;
 
 extern qboolean scr_disabled_for_loading;
 
+// protects the draw qcvm, q_cachepics and scrap updates (defined in gl_screen.c)
+extern qmutex_t *draw_qcvm_mutex;
+
 extern cvar_t scr_viewsize;
 
 extern cvar_t scr_sbaralpha; // johnfitz

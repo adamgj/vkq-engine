@@ -23,6 +23,8 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #ifndef _QUAKE_RENDER_H
 #define _QUAKE_RENDER_H
 
+#include "q_render_types.h"
+
 #include "tasks.h"
 
 // refresh.h -- public interface to refresh functions

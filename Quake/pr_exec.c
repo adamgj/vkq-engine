@@ -232,6 +232,8 @@ static int PR_EnterFunction (dfunction_t *f)
 {
 	int i, j, c, o;
 
+	PR_TRACE_ENTER ((int)(f - qcvm->functions));
+
 	qcvm->stack[qcvm->depth].s = qcvm->xstatement;
 	qcvm->stack[qcvm->depth].f = qcvm->xfunction;
 	qcvm->depth++;
@@ -270,6 +272,8 @@ PR_LeaveFunction
 static int PR_LeaveFunction (void)
 {
 	int i, c;
+
+	PR_TRACE_LEAVE ();
 
 	if (qcvm->depth <= 0)
 		Host_Error ("prog stack underflow");
@@ -340,6 +344,8 @@ void PR_ExecuteProgram (func_t fnum)
 
 		if (qcvm->trace)
 			PR_PrintStatement (st);
+
+		PR_TRACE_STATEMENT ((int)(st - qcvm->statements), st->op, st->a, st->b, st->c);
 
 		switch (st->op)
 		{
@@ -463,11 +469,13 @@ void PR_ExecuteProgram (func_t fnum)
 		case OP_STORE_S:
 		case OP_STORE_FNC: // pointers
 			OPB->_int = OPA->_int;
+			PR_TRACE_GLOBAL_WRITE ((unsigned short)st->b, &OPB->_int, 1);
 			break;
 		case OP_STORE_V:
 			OPB->vector[0] = OPA->vector[0];
 			OPB->vector[1] = OPA->vector[1];
 			OPB->vector[2] = OPA->vector[2];
+			PR_TRACE_GLOBAL_WRITE ((unsigned short)st->b, (const int *)OPB, 3);
 			break;
 
 		case OP_STOREP_F:
@@ -477,12 +485,14 @@ void PR_ExecuteProgram (func_t fnum)
 		case OP_STOREP_FNC: // pointers
 			ptr = (eval_t *)((byte *)qcvm->edicts + OPB->_int);
 			ptr->_int = OPA->_int;
+			PR_TRACE_FIELD_WRITE (OPB->_int, &ptr->_int, 1);
 			break;
 		case OP_STOREP_V:
 			ptr = (eval_t *)((byte *)qcvm->edicts + OPB->_int);
 			ptr->vector[0] = OPA->vector[0];
 			ptr->vector[1] = OPA->vector[1];
 			ptr->vector[2] = OPA->vector[2];
+			PR_TRACE_FIELD_WRITE (OPB->_int, (const int *)ptr, 3);
 			break;
 
 		case OP_ADDRESS:
@@ -550,7 +560,9 @@ void PR_ExecuteProgram (func_t fnum)
 				int i = -newf->first_statement;
 				if (i >= qcvm->numbuiltins)
 					i = 0; // just invoke the fixme builtin.
+				PR_TRACE_BUILTIN (i, qcvm->argc, (const int *)&qcvm->globals[OFS_PARM0]);
 				qcvm->builtins[i]();
+				PR_TRACE_BUILTIN_RETURN ((const int *)&qcvm->globals[OFS_RETURN]);
 				break;
 			}
 			// Normal function

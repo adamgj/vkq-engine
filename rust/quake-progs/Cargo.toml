@@ -1,0 +1,11 @@
+[package]
+name = "quake-progs"
+version = "0.1.0"
+description = "QCVM: loader, edict arena, interpreter, ED_Write/Parse, builtins"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true

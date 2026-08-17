@@ -51,7 +51,7 @@ Host_Quit_f
 */
 void Host_Quit_f (void)
 {
-	if (key_dest != key_console && cls.state != ca_dedicated)
+	if (key_dest != key_console && cls.state != ca_dedicated && !harness_active)
 	{
 		M_Menu_Quit_f ();
 		return;
@@ -142,9 +142,9 @@ static void FileList_Init (char *path, char *ext, filelist_item_t **list)
 
 	if (multiuser && !strcmp (ext, "sav"))
 	{
-		char *pref_path = SDL_GetPrefPath ("vkQuake", COM_GetGameNames (true));
+		char *pref_path = Sys_GetPrefPath ("vkQuake", COM_GetGameNames (true));
 		strcpy (multiuser_saves.filename, pref_path);
-		SDL_free (pref_path);
+		Mem_Free (pref_path);
 		multiuser_saves.next = com_searchpaths;
 	}
 	else
@@ -194,7 +194,7 @@ filelist_item_t	 *extralevels;
 filelist_item_t **extralevels_sorted;
 static size_t	  maxlevelnamelen;
 
-static SDL_Thread	  *extralevels_parsing_thread;
+static qthread_t	  *extralevels_parsing_thread;
 static atomic_uint32_t extralevels_cancel_parsing;
 
 /*
@@ -399,7 +399,7 @@ static void ExtraMaps_WaitForParsingThread (void)
 {
 	if (extralevels_parsing_thread)
 	{
-		SDL_WaitThread (extralevels_parsing_thread, NULL);
+		QThread_Wait (extralevels_parsing_thread);
 		extralevels_parsing_thread = NULL;
 		Atomic_StoreUInt32 (&extralevels_cancel_parsing, 0);
 	}
@@ -458,7 +458,7 @@ void ExtraMaps_Init (void)
 	ExtraMaps_Sort ();
 
 	Atomic_StoreUInt32 (&extralevels_cancel_parsing, 0);
-	extralevels_parsing_thread = SDL_CreateThread (ExtraMaps_ParseDescriptions, "Map parser", NULL);
+	extralevels_parsing_thread = QThread_Create (ExtraMaps_ParseDescriptions, "Map parser", NULL);
 }
 
 /*
@@ -942,8 +942,6 @@ static void Host_Status_f (void)
 		print_fn ("tcp/ip:  %s\n", my_ipv4_address); // Spike -- FIXME: we should really have ports displayed here or something
 	if (ipv6Available)
 		print_fn ("ipv6:    %s\n", my_ipv6_address);
-	if (ipxAvailable)
-		print_fn ("ipx:     %s\n", my_ipx_address);
 	print_fn ("map:     %s\n", sv.name);
 	print_fn ("players: %i active (%i max)\n\n", net_activeconnections, svs.maxclients);
 	for (j = 0, client = svs.clients; j < svs.maxclients; j++, client++)
@@ -1610,9 +1608,9 @@ static void Host_Savegame_f (void)
 
 	if (multiuser)
 	{
-		char *save_path = SDL_GetPrefPath ("vkQuake", COM_GetGameNames (true));
+		char *save_path = Sys_GetPrefPath ("vkQuake", COM_GetGameNames (true));
 		q_snprintf (name, sizeof (name), "%s%s", save_path, Cmd_Argv (1));
-		SDL_free (save_path);
+		Mem_Free (save_path);
 	}
 	else
 		q_snprintf (name, sizeof (name), "%s/%s", com_gamedir, Cmd_Argv (1));
@@ -1836,7 +1834,7 @@ static void Host_Loadgame_f (void)
 
 	cls.demonum = -1; // stop demo loop in case this fails
 
-	char	*save_path = multiuser ? SDL_GetPrefPath ("vkQuake", COM_GetGameNames (true)) : NULL;
+	char	*save_path = multiuser ? Sys_GetPrefPath ("vkQuake", COM_GetGameNames (true)) : NULL;
 	qboolean loadable = false;
 	for (int j = (multiuser ? 0 : 1); j < 2; ++j)
 	{
@@ -1857,7 +1855,7 @@ static void Host_Loadgame_f (void)
 			break;
 		}
 	}
-	SDL_free (save_path);
+	Mem_Free (save_path);
 
 	if (!loadable)
 	{

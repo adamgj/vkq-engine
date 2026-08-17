@@ -1,0 +1,67 @@
+/*
+Copyright (C) 2026 vkQuake contributors
+
+This program is free software; you can redistribute it and/or
+modify it under the terms of the GNU General Public License
+as published by the Free Software Foundation; either version 2
+of the License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+See the GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program; if not, write to the Free Software
+Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+*/
+#ifndef QUAKE_HARNESS_H
+#define QUAKE_HARNESS_H
+
+#include "q_types.h" // qboolean, byte, uint64_t
+
+/* Differential-verification harness (Rust migration Phase 0, PLAN.md section 7 / ADR-019).
+
+   -headless           run the client without video/audio/input (implies no_rendering)
+   -demohash <file>    write a per-frame chained state hash to <file>; forces
+					   deterministic fixed-timestep pacing and a fixed RNG seed
+   -exitafter <n>      hard frame cap; exit code 2 when reached (runaway guard)
+   -harnesscmds <file> inject console commands at fixed frame numbers; each line
+					   is "<framecount> <command...>"
+
+   Goldens are generated and compared only between headless runs on the same
+   platform: the headless RNG stream intentionally differs from a windowed run. */
+
+extern qboolean harness_active;
+
+/* true when -demohash is active: the main loop feeds a fixed timestep so
+   state is wall-clock independent. Live-network runs (-netcapture without
+   -demohash) keep real pacing, since a remote peer runs on wall time. */
+extern qboolean harness_fixed_dt;
+
+/* true when running without a renderer: dedicated server or -headless client */
+extern qboolean no_rendering;
+
+void Harness_CheckArgs (void); /* early, right after COM_InitArgv */
+void Harness_Init (void);	   /* end of Host_Init */
+void Harness_Frame (void);	   /* end of _Host_Frame, before host_framecount++ */
+void Harness_DemoEnded (void); /* demo playback finished: flush hashes and exit 0 */
+void Harness_Shutdown (void);  /* finalize the hash+capture files; safe to call twice */
+
+/* -netcapture <file>: message-level capture at the NET_* funnels. Note this is
+   whole logical messages, not packets: the dgrm driver fragments reliable
+   messages into several UDP datagrams below this layer and reassembles on
+   receive, so packet boundaries are not visible here.
+   Framed records: [u8 direction 0=recv,1=send][u8 driver]
+				   [u8 kind 0=unknown,1=reliable,2=unreliable][u32le len][payload]
+   kind 0 is emitted by the server-side NET_GetServerMessage funnel, which has
+   no reliability information available at that point. */
+void Harness_NetCapture (int direction, int driver, int kind, const byte *data, int len);
+
+/* fixed timestep fed to Host_Frame when harness_active */
+double Harness_FrameTime (void);
+
+uint64_t Harness_Hash64 (uint64_t h, const void *data, size_t len);
+
+#endif /* QUAKE_HARNESS_H */

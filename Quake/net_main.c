@@ -29,14 +29,12 @@ qsocket_t *net_activeSockets = NULL;
 qsocket_t *net_freeSockets = NULL;
 int		   net_numsockets = 0;
 
-qboolean ipxAvailable = false;
 qboolean ipv4Available = false;
 qboolean ipv6Available = false;
 
 int net_hostport;
 int DEFAULTnet_hostport = 26000;
 
-char my_ipx_address[NET_NAMELEN];
 char my_ipv4_address[NET_NAMELEN];
 char my_ipv6_address[NET_NAMELEN];
 
@@ -591,6 +589,10 @@ int NET_GetMessage (qsocket_t *sock)
 
 	if (ret > 0)
 	{
+		/* QGetMessage returns 1 for reliable and 2 for unreliable, which is
+		   exactly the capture's `kind` encoding (see harness.h) */
+		const int kind = ret;
+		Harness_NetCapture (0, sock->driver, kind, net_message.data, net_message.cursize);
 		if (!IS_LOOP_DRIVER (sock->driver))
 		{
 			sock->lastMessageTime = net_time;
@@ -622,7 +624,11 @@ qsocket_t *NET_GetServerMessage (void)
 			continue;
 		s = net_drivers[net_driverlevel].QGetAnyMessage ();
 		if (s)
+		{
+			/* kind 0 = unknown: reliability is not distinguished on this path */
+			Harness_NetCapture (0, s->driver, 0, net_message.data, net_message.cursize);
 			return s;
+		}
 	}
 	return NULL;
 }
@@ -670,6 +676,8 @@ int NET_SendMessage (qsocket_t *sock, sizebuf_t *data)
 
 	SetNetTime ();
 	r = sfunc.QSendMessage (sock, data);
+	if (r == 1)
+		Harness_NetCapture (1, sock->driver, 1, data->data, data->cursize);
 	if (r == 1 && !IS_LOOP_DRIVER (sock->driver))
 		messagesSent++;
 
@@ -691,6 +699,8 @@ int NET_SendUnreliableMessage (qsocket_t *sock, sizebuf_t *data)
 
 	SetNetTime ();
 	r = sfunc.SendUnreliableMessage (sock, data);
+	if (r == 1)
+		Harness_NetCapture (1, sock->driver, 2, data->data, data->cursize);
 	if (r == 1 && !IS_LOOP_DRIVER (sock->driver))
 		unreliableMessagesSent++;
 
@@ -810,8 +820,6 @@ void NET_Init (void)
 	i = COM_CheckParm ("-port");
 	if (!i)
 		i = COM_CheckParm ("-udpport");
-	if (!i)
-		i = COM_CheckParm ("-ipxport");
 
 	if (i)
 	{
@@ -868,10 +876,6 @@ void NET_Init (void)
 		Sys_Error ("Network not available!");
 	}
 
-	if (*my_ipx_address)
-	{
-		Con_DPrintf ("IPX address %s\n", my_ipx_address);
-	}
 	if (*my_ipv4_address)
 	{
 		Con_DPrintf ("IPv4 address %s\n", my_ipv4_address);

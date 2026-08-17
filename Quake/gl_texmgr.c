@@ -71,8 +71,8 @@ unsigned int d_8to24table_conchars[256];
 #define TEXTURE_HEAP_MEMORY_SIZE_MB 64
 #define TEXTURE_HEAP_PAGE_SIZE		16384
 
-static glheap_t	 *texmgr_heap;
-static SDL_Mutex *texmgr_mutex;
+static glheap_t *texmgr_heap;
+static qmutex_t *texmgr_mutex;
 
 static byte bluenoise_data[4096] = {
 	0x27, 0x62, 0x08, 0x4C, 0xDE, 0xBA, 0x05, 0xEF, 0x2A, 0xA1, 0xF7, 0x4A, 0x5F, 0x29, 0xE8, 0x34, 0xA9, 0xCB, 0x40, 0x60, 0xD5, 0x87, 0x70, 0xD0, 0x61, 0x8A,
@@ -286,12 +286,12 @@ void TexMgr_UpdateTextureDescriptorSets (void)
 {
 	gltexture_t *glt;
 
-	SDL_LockMutex (texmgr_mutex);
+	QMutex_Lock (texmgr_mutex);
 
 	for (glt = active_gltextures; glt; glt = glt->next)
 		TexMgr_SetFilterModes (glt);
 
-	SDL_UnlockMutex (texmgr_mutex);
+	QMutex_Unlock (texmgr_mutex);
 }
 
 /*
@@ -303,12 +303,12 @@ static void TexMgr_Imagelist_Completion_f (const char *partial)
 {
 	gltexture_t *glt;
 
-	SDL_LockMutex (texmgr_mutex);
+	QMutex_Lock (texmgr_mutex);
 
 	for (glt = active_gltextures; glt; glt = glt->next)
 		Con_AddToTabList (glt->name, partial, NULL);
 
-	SDL_UnlockMutex (texmgr_mutex);
+	QMutex_Unlock (texmgr_mutex);
 }
 
 /*
@@ -328,7 +328,7 @@ static void TexMgr_Imagelist_f (void)
 
 	char displayed_name[MAX_QPATH];
 
-	SDL_LockMutex (texmgr_mutex);
+	QMutex_Lock (texmgr_mutex);
 
 	for (glt = active_gltextures; glt; glt = glt->next)
 	{
@@ -358,7 +358,7 @@ static void TexMgr_Imagelist_f (void)
 		count++;
 	}
 
-	SDL_UnlockMutex (texmgr_mutex);
+	QMutex_Unlock (texmgr_mutex);
 
 	if (filter)
 	{
@@ -396,7 +396,7 @@ TexMgr_FindTexture
 */
 gltexture_t *TexMgr_FindTexture (qmodel_t *owner, const char *name)
 {
-	SDL_LockMutex (texmgr_mutex);
+	QMutex_Lock (texmgr_mutex);
 	gltexture_t *glt = NULL;
 
 	if (name)
@@ -409,7 +409,7 @@ gltexture_t *TexMgr_FindTexture (qmodel_t *owner, const char *name)
 	}
 
 unlock_mutex:
-	SDL_UnlockMutex (texmgr_mutex);
+	QMutex_Unlock (texmgr_mutex);
 	return glt;
 }
 
@@ -420,7 +420,7 @@ TexMgr_NewTexture
 */
 gltexture_t *TexMgr_NewTexture (void)
 {
-	SDL_LockMutex (texmgr_mutex);
+	QMutex_Lock (texmgr_mutex);
 	gltexture_t *glt;
 
 	glt = free_gltextures;
@@ -429,7 +429,7 @@ gltexture_t *TexMgr_NewTexture (void)
 	active_gltextures = glt;
 
 	numgltextures++;
-	SDL_UnlockMutex (texmgr_mutex);
+	QMutex_Unlock (texmgr_mutex);
 	return glt;
 }
 
@@ -442,7 +442,7 @@ TexMgr_FreeTexture
 */
 void TexMgr_FreeTexture (gltexture_t *kill)
 {
-	SDL_LockMutex (texmgr_mutex);
+	QMutex_Lock (texmgr_mutex);
 	gltexture_t *glt;
 
 	if (kill == NULL)
@@ -478,7 +478,7 @@ void TexMgr_FreeTexture (gltexture_t *kill)
 
 	Con_Printf ("TexMgr_FreeTexture: not found\n");
 unlock_mutex:
-	SDL_UnlockMutex (texmgr_mutex);
+	QMutex_Unlock (texmgr_mutex);
 }
 
 /*
@@ -494,7 +494,7 @@ void TexMgr_FreeTextures (unsigned int flags, unsigned int mask)
 
 	// OK to lock texmgr_mutex here while TexMgr_FreeTexture() also uses texmgr_mutex
 	// internally because SDL mutexes are re-entrant.
-	SDL_LockMutex (texmgr_mutex);
+	QMutex_Lock (texmgr_mutex);
 
 	for (glt = active_gltextures; glt; glt = next)
 	{
@@ -503,7 +503,7 @@ void TexMgr_FreeTextures (unsigned int flags, unsigned int mask)
 			TexMgr_FreeTexture (glt);
 	}
 
-	SDL_UnlockMutex (texmgr_mutex);
+	QMutex_Unlock (texmgr_mutex);
 }
 
 /*
@@ -517,7 +517,7 @@ void TexMgr_FreeTexturesForOwner (qmodel_t *owner)
 
 	// OK to lock texmgr_mutex here while TexMgr_FreeTexture() also uses texmgr_mutex
 	// internally because SDL mutexes are re-entrant.
-	SDL_LockMutex (texmgr_mutex);
+	QMutex_Lock (texmgr_mutex);
 
 	for (glt = active_gltextures; glt; glt = next)
 	{
@@ -525,7 +525,7 @@ void TexMgr_FreeTexturesForOwner (qmodel_t *owner)
 		if (glt && glt->owner == owner)
 			TexMgr_FreeTexture (glt);
 	}
-	SDL_UnlockMutex (texmgr_mutex);
+	QMutex_Unlock (texmgr_mutex);
 }
 
 /*
@@ -535,12 +535,12 @@ TexMgr_DeleteTextureObjects
 */
 void TexMgr_DeleteTextureObjects (void)
 {
-	SDL_LockMutex (texmgr_mutex);
+	QMutex_Lock (texmgr_mutex);
 	gltexture_t *glt;
 
 	for (glt = active_gltextures; glt; glt = glt->next)
 		GL_DeleteTexture (glt);
-	SDL_UnlockMutex (texmgr_mutex);
+	QMutex_Unlock (texmgr_mutex);
 }
 
 /*
@@ -771,7 +771,7 @@ void TexMgr_Init (void)
 
 	cmd_function_t *cmd;
 
-	texmgr_mutex = SDL_CreateMutex ();
+	texmgr_mutex = QMutex_Create ();
 
 	// init texture list
 	free_gltextures = (gltexture_t *)Mem_Alloc (MAX_GLTEXTURES * sizeof (gltexture_t));
@@ -1079,7 +1079,7 @@ static void TexMgr_LoadImage32 (gltexture_t *glt, unsigned *data)
 	}
 	int num_mips = (glt->flags & TEXPREF_MIPMAP) ? TexMgr_DeriveNumMips (glt->width, glt->height) : 1;
 
-	SDL_LockMutex (texmgr_mutex);
+	QMutex_Lock (texmgr_mutex);
 	const qboolean warp_image = (glt->flags & TEXPREF_WARPIMAGE);
 	if (warp_image)
 		num_mips = WARPIMAGEMIPS;
@@ -1216,7 +1216,7 @@ static void TexMgr_LoadImage32 (gltexture_t *glt, unsigned *data)
 		glt->storage_descriptor_set = VK_NULL_HANDLE;
 	}
 
-	SDL_UnlockMutex (texmgr_mutex);
+	QMutex_Unlock (texmgr_mutex);
 
 	// Don't upload data for warp image, will be updated by rendering
 	if (warp_image)
@@ -1465,7 +1465,7 @@ gltexture_t *TexMgr_LoadImage (
 	unsigned short crc = 0;
 	gltexture_t	  *glt;
 
-	if (isDedicated)
+	if (no_rendering)
 		return NULL;
 
 	// cache check
@@ -1683,13 +1683,13 @@ void TexMgr_ReloadNobrightImages (void)
 {
 	gltexture_t *glt;
 
-	SDL_LockMutex (texmgr_mutex);
+	QMutex_Lock (texmgr_mutex);
 
 	for (glt = active_gltextures; glt; glt = glt->next)
 		if (glt->flags & TEXPREF_NOBRIGHT)
 			TexMgr_ReloadImage (glt, -1, -1);
 
-	SDL_UnlockMutex (texmgr_mutex);
+	QMutex_Unlock (texmgr_mutex);
 }
 
 /*
@@ -1722,7 +1722,7 @@ TexMgr_CollectGarbage
 */
 void TexMgr_CollectGarbage (void)
 {
-	SDL_LockMutex (texmgr_mutex);
+	QMutex_Lock (texmgr_mutex);
 
 	int				   num;
 	int				   i;
@@ -1747,7 +1747,7 @@ void TexMgr_CollectGarbage (void)
 	}
 	num_garbage_textures[current_garbage_index] = 0;
 
-	SDL_UnlockMutex (texmgr_mutex);
+	QMutex_Unlock (texmgr_mutex);
 }
 
 /*
@@ -1757,7 +1757,7 @@ GL_DeleteTexture
 */
 static void GL_DeleteTexture (gltexture_t *texture)
 {
-	SDL_LockMutex (texmgr_mutex);
+	QMutex_Lock (texmgr_mutex);
 
 	int				   garbage_index;
 	texture_garbage_t *garbage;
@@ -1801,7 +1801,7 @@ static void GL_DeleteTexture (gltexture_t *texture)
 	texture->allocation = NULL;
 
 mutex_unlock:
-	SDL_UnlockMutex (texmgr_mutex);
+	QMutex_Unlock (texmgr_mutex);
 }
 
 glheapstats_t *TexMgr_GetHeapStats (void)

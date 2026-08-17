@@ -87,13 +87,11 @@ atomic_uint64_t total_host_vulkan_allocation_size;
 qboolean   use_simd;
 oit_mode_t frame_oit_mode;
 
-static SDL_Mutex *vertex_allocate_mutex;
-static SDL_Mutex *index_allocate_mutex;
-static SDL_Mutex *uniform_allocate_mutex;
-static SDL_Mutex *storage_allocate_mutex;
-static SDL_Mutex *garbage_mutex;
-
-extern SDL_Mutex *draw_qcvm_mutex;
+static qmutex_t *vertex_allocate_mutex;
+static qmutex_t *index_allocate_mutex;
+static qmutex_t *uniform_allocate_mutex;
+static qmutex_t *storage_allocate_mutex;
+static qmutex_t *garbage_mutex;
 
 qboolean R_UseAlphaSort (void)
 {
@@ -127,8 +125,8 @@ static vulkan_memory_t staging_memory;
 static stagingbuffer_t staging_buffers[NUM_STAGING_BUFFERS];
 static int			   current_staging_buffer = 0;
 static int			   num_stagings_in_flight = 0;
-static SDL_Mutex	  *staging_mutex;
-static SDL_Condition  *staging_cond;
+static qmutex_t		  *staging_mutex;
+static qcond_t		  *staging_cond;
 /*
 ================
 Dynamic vertex/index & uniform buffer
@@ -265,7 +263,7 @@ static void R_ShowbboxesFilter_Completion_f (const char *partial)
 	if (!sv.active)
 		return;
 
-	SDL_LockMutex (draw_qcvm_mutex);
+	QMutex_Lock (draw_qcvm_mutex);
 	PR_SwitchQCVM (&sv.qcvm);
 
 	for (i = 1, ed = NEXT_EDICT (qcvm->edicts); i < qcvm->num_edicts; i++, ed = NEXT_EDICT (ed))
@@ -279,7 +277,7 @@ static void R_ShowbboxesFilter_Completion_f (const char *partial)
 	}
 
 	PR_SwitchQCVM (NULL);
-	SDL_UnlockMutex (draw_qcvm_mutex);
+	QMutex_Unlock (draw_qcvm_mutex);
 }
 
 /*
@@ -292,12 +290,12 @@ static void R_ShowbboxesFilterClear_f (void)
 	extern char	   *r_showbboxes_filter_strings;
 	extern qboolean r_showbboxes_filter_byindex;
 
-	SDL_LockMutex (draw_qcvm_mutex);
+	QMutex_Lock (draw_qcvm_mutex);
 
 	SAFE_FREE (r_showbboxes_filter_strings);
 	r_showbboxes_filter_byindex = false;
 
-	SDL_UnlockMutex (draw_qcvm_mutex);
+	QMutex_Unlock (draw_qcvm_mutex);
 }
 
 /*
@@ -625,13 +623,13 @@ void R_InitStagingBuffers (void)
 			Sys_Error ("vkBeginCommandBuffer failed with code %i", (int)err);
 	}
 
-	vertex_allocate_mutex = SDL_CreateMutex ();
-	index_allocate_mutex = SDL_CreateMutex ();
-	uniform_allocate_mutex = SDL_CreateMutex ();
-	storage_allocate_mutex = SDL_CreateMutex ();
-	garbage_mutex = SDL_CreateMutex ();
-	staging_mutex = SDL_CreateMutex ();
-	staging_cond = SDL_CreateCondition ();
+	vertex_allocate_mutex = QMutex_Create ();
+	index_allocate_mutex = QMutex_Create ();
+	uniform_allocate_mutex = QMutex_Create ();
+	storage_allocate_mutex = QMutex_Create ();
+	garbage_mutex = QMutex_Create ();
+	staging_mutex = QMutex_Create ();
+	staging_cond = QCond_Create ();
 }
 
 /*
@@ -642,7 +640,7 @@ R_SubmitStagingBuffer
 static void R_SubmitStagingBuffer (int index)
 {
 	while (num_stagings_in_flight > 0)
-		SDL_WaitCondition (staging_cond, staging_mutex);
+		QCond_Wait (staging_cond, staging_mutex);
 
 	ZEROED_STRUCT (VkMemoryBarrier, memory_barrier);
 	memory_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
@@ -677,10 +675,10 @@ R_SubmitStagingBuffers
 */
 void R_SubmitStagingBuffers (void)
 {
-	SDL_LockMutex (staging_mutex);
+	QMutex_Lock (staging_mutex);
 
 	while (num_stagings_in_flight > 0)
-		SDL_WaitCondition (staging_cond, staging_mutex);
+		QCond_Wait (staging_cond, staging_mutex);
 
 	int i;
 	for (i = 0; i < NUM_STAGING_BUFFERS; ++i)
@@ -689,7 +687,7 @@ void R_SubmitStagingBuffers (void)
 			R_SubmitStagingBuffer (i);
 	}
 
-	SDL_UnlockMutex (staging_mutex);
+	QMutex_Unlock (staging_mutex);
 }
 
 /*
@@ -731,10 +729,10 @@ R_StagingAllocate
 */
 byte *R_StagingAllocate (int size, int alignment, VkCommandBuffer *command_buffer, VkBuffer *buffer, int *buffer_offset)
 {
-	SDL_LockMutex (staging_mutex);
+	QMutex_Lock (staging_mutex);
 
 	while (num_stagings_in_flight > 0)
-		SDL_WaitCondition (staging_cond, staging_mutex);
+		QCond_Wait (staging_cond, staging_mutex);
 
 	vulkan_globals.device_idle = false;
 
@@ -782,7 +780,7 @@ R_StagingBeginCopy
 */
 void R_StagingBeginCopy (void)
 {
-	SDL_UnlockMutex (staging_mutex);
+	QMutex_Unlock (staging_mutex);
 }
 
 /*
@@ -792,10 +790,10 @@ R_StagingEndCopy
 */
 void R_StagingEndCopy (void)
 {
-	SDL_LockMutex (staging_mutex);
+	QMutex_Lock (staging_mutex);
 	num_stagings_in_flight -= 1;
-	SDL_BroadcastCondition (staging_cond);
-	SDL_UnlockMutex (staging_mutex);
+	QCond_Broadcast (staging_cond);
+	QMutex_Unlock (staging_mutex);
 }
 
 /*
@@ -1108,7 +1106,7 @@ R_AddDynamicBufferGarbage
 */
 void R_AddDynamicBufferGarbage (vulkan_memory_t memory, dynbuffer_t *buffers, int num_buffers, VkDescriptorSet *descriptor_sets)
 {
-	SDL_LockMutex (garbage_mutex);
+	QMutex_Lock (garbage_mutex);
 
 	{
 		int *num_garbage = &num_device_memory_garbage[current_garbage_index];
@@ -1148,7 +1146,7 @@ void R_AddDynamicBufferGarbage (vulkan_memory_t memory, dynbuffer_t *buffers, in
 			descriptor_set_garbage[current_garbage_index][old_num_desc_set_garbage + i] = descriptor_sets[i];
 	}
 
-	SDL_UnlockMutex (garbage_mutex);
+	QMutex_Unlock (garbage_mutex);
 }
 
 /*
@@ -1195,11 +1193,11 @@ R_DynBufferAllocate
 ===============
 */
 byte *R_DynBufferAllocate (
-	int size, int alignment, int min_tail_size, VkBuffer *buffer, VkDeviceSize *buffer_offset, VkDeviceAddress *device_address, SDL_Mutex **mutex,
+	int size, int alignment, int min_tail_size, VkBuffer *buffer, VkDeviceSize *buffer_offset, VkDeviceAddress *device_address, qmutex_t **mutex,
 	dynbuffer_t *dyn_buffers, vulkan_memory_t *memory, uint32_t *current_size, VkDescriptorSet *descriptor_set, VkDescriptorSet *descriptor_sets,
 	void (*init_func) (void))
 {
-	SDL_LockMutex (*mutex);
+	QMutex_Lock (*mutex);
 	dynbuffer_t *dyn_buffer = &dyn_buffers[current_dyn_buffer_index];
 	const int	 aligned_size = q_align (size, alignment);
 
@@ -1223,7 +1221,7 @@ byte *R_DynBufferAllocate (
 	if (descriptor_set)
 		*descriptor_set = descriptor_sets[current_dyn_buffer_index];
 
-	SDL_UnlockMutex (*mutex);
+	QMutex_Unlock (*mutex);
 	return data;
 }
 
@@ -4315,7 +4313,7 @@ void R_Init (void)
 
 	R_AllocateLightmapComputeBuffers ();
 
-	staging_mutex = SDL_CreateMutex ();
+	staging_mutex = QMutex_Create ();
 }
 
 /*
@@ -4396,6 +4394,9 @@ void R_TranslateNewPlayerSkin (int playernum)
 	byte	   *pixels;
 	aliashdr_t *paliashdr;
 	int			skinnum;
+
+	if (no_rendering)
+		return;
 
 	// get correct texture pixels
 	entity_t *currententity = &cl.entities[1 + playernum];
@@ -4527,6 +4528,10 @@ void R_NewMap (void)
 #ifdef PSET_SCRIPT
 	PScript_ClearParticles (true);
 #endif
+
+	if (no_rendering)
+		return;
+
 	GL_DeleteBModelVertexBuffer ();
 
 	GL_BuildLightmaps ();

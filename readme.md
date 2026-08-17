@@ -81,6 +81,8 @@ vkQuake wouldn't even start on an big-endian system, outputing a fatal error.
 ## Rust migration
 A phased plan to convert the engine from C to Rust — while preserving 100% compatibility with game logic, assets, savegames, demos, networking, mods, and the 2021 re-release — is documented in [docs/rust-migration/](docs/rust-migration/PLAN.md): the [plan](docs/rust-migration/PLAN.md), the [roadmap](docs/rust-migration/ROADMAP.md) of discrete phases, and the [architecture decision records](docs/rust-migration/adr/README.md).
 
+Phase 0 landed the scaffolding: a Cargo workspace in `rust/` builds a staticlib that Meson links into `vkquake` when built with `-Duse_rust=enabled` (explicit opt-in, since cargo always builds for the host default triple; install the toolchain via [rustup](https://rustup.rs), the version is pinned by `rust/rust-toolchain.toml`). It also added the differential-verification harness — headless demo playback with per-frame state hashing, savegame byte-diffing, a progs VM trace and protocol capture — documented in [Misc/harness/README.md](Misc/harness/README.md).
+
 ## Building
 > **Note**\
 > For Windows, you will need at least Vulkan SDK version 1.4.321.1 or newer.
@@ -97,12 +99,20 @@ Prerequisites:
 * A [Vulkan-capable GPU](https://en.wikipedia.org/wiki/Vulkan_(API)#Compatibility) with the appropriate drivers installed
 * Install the latest [Vulkan SDK](https://vulkan.lunarg.com/sdk/home). Log out and back in after installation to make sure environment variables are set.
 
-#### Visual Studio
+#### Meson (MSVC toolchain)
 
-* Install [Visual Studio Community](https://www.visualstudio.com/products/free-developer-offers-vs) with Visual C++ component.
+* Install [Visual Studio Community](https://www.visualstudio.com/products/free-developer-offers-vs) with the Visual C++ and Clang components (or the standalone Build Tools).
+* Install [Meson](https://mesonbuild.com/) and [Ninja](https://ninja-build.org/), e.g. `pip install meson ninja`.
 
-Open the Visual Studio solution, `Windows\VisualStudio\vkquake.sln`, select the desired configuration and platform, then
-build the solution.
+From a "Developer PowerShell for VS" (so the MSVC environment is loaded):
+
+~~~
+$env:CC = 'clang-cl'
+meson setup builddir --buildtype=release -Duse_sdl3=enabled
+meson compile -C builddir
+~~~
+
+Visual Studio can still be used as an editor/debugger; the checked-in solution has been retired in favor of Meson.
 
 #### MinGW
 

@@ -124,8 +124,6 @@ cvar_t r_tasks = {"r_tasks", "1", CVAR_NONE};
 cvar_t			r_indirect = {"r_indirect", "1", CVAR_NONE};
 extern qboolean indirect_ready;
 
-extern SDL_Mutex *draw_qcvm_mutex;
-
 static atomic_uint32_t next_visedict;
 
 /*
@@ -714,7 +712,7 @@ static void R_ShowBoundingBoxes (cb_context_t *cbx)
 	uint16_t	*indices = (uint16_t *)R_IndexAllocate (24 * sizeof (uint16_t), &box_index_buffer, &box_index_buffer_offset);
 	memcpy (indices, box_indices, 24 * sizeof (uint16_t));
 
-	SDL_LockMutex (draw_qcvm_mutex);
+	QMutex_Lock (draw_qcvm_mutex);
 	PR_SwitchQCVM (&sv.qcvm);
 	for (pass = 0; pass < 2; pass++) // two passes (0 = lines, 1 = text) to avoid switching pipelines for every edict and so that the text is on top
 	{
@@ -771,7 +769,7 @@ static void R_ShowBoundingBoxes (cb_context_t *cbx)
 		}
 	}
 	PR_SwitchQCVM (NULL);
-	SDL_UnlockMutex (draw_qcvm_mutex);
+	QMutex_Unlock (draw_qcvm_mutex);
 
 	R_EndDebugUtilsLabel (cbx);
 }

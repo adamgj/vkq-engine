@@ -1,0 +1,11 @@
+[package]
+name = "xtask"
+version = "0.1.0"
+description = "build/codegen helper tasks (shader pipeline + pak embedding arrive in Phase 8)"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true

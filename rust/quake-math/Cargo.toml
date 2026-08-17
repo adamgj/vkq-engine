@@ -1,0 +1,11 @@
+[package]
+name = "quake-math"
+version = "0.1.0"
+description = "mathlib port: vec3 ops, AngleVectors, BoxOnPlaneSide (bit-exact)"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true

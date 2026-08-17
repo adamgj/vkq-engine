@@ -1,0 +1,11 @@
+[package]
+name = "quake-types"
+version = "0.1.0"
+description = "#[repr(C)] wire/disk/ABI struct mirrors with const layout assertions"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true

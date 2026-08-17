@@ -1,0 +1,60 @@
+name: Rust CI
+
+on:
+  push:
+    branches: [master]
+    tags: ['*']
+  pull_request:
+  schedule:
+    - cron: '17 6 * * 1' # weekly: surface new RustSec advisories without commits
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  lint:
+    name: fmt + clippy + deny
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v6
+    - uses: dtolnay/rust-toolchain@stable
+      with:
+        toolchain: 1.97.1
+        components: clippy, rustfmt
+    - name: cargo fmt
+      working-directory: rust
+      run: cargo fmt --check
+    - name: cargo clippy
+      working-directory: rust
+      run: cargo clippy --workspace --all-targets --locked -- -D warnings
+    - name: cargo deny
+      uses: EmbarkStudios/cargo-deny-action@v2
+      with:
+        manifest-path: rust/Cargo.toml
+
+  # cargo-deny's advisories check already covers RustSec on every PR; this
+  # standalone audit only adds value on the weekly cron
+  audit:
+    name: cargo audit
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule'
+    steps:
+    - uses: actions/checkout@v6
+    - uses: rustsec/audit-check@v2
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        working-directory: rust
+
+  bindgen-smoke:
+    name: core headers bindgen smoke
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v6
+    - uses: dtolnay/rust-toolchain@stable
+      with:
+        toolchain: 1.97.1
+    - name: Install bindgen
+      run: cargo install bindgen-cli --locked
+    - name: Check core headers (standalone compile + bindgen)
+      run: ./scripts/harness/check_headers.sh

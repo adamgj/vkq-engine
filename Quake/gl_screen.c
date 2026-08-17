@@ -136,7 +136,7 @@ float	 scr_disabled_time;
 
 qboolean	   in_update_screen;
 extern jmp_buf screen_error;
-SDL_Mutex	  *draw_qcvm_mutex;
+qmutex_t	  *draw_qcvm_mutex;
 
 void SCR_ScreenShot_f (void);
 
@@ -601,7 +601,7 @@ void SCR_Init (void)
 
 	SCR_LoadPics (); // johnfitz
 
-	draw_qcvm_mutex = SDL_CreateMutex ();
+	draw_qcvm_mutex = QMutex_Create ();
 
 	scr_initialized = true;
 }
@@ -1139,7 +1139,7 @@ static void SCR_DrawGUI (void *unused)
 	if (cscqhud && setjmp (screen_error))
 		PR_ClearProgs (&cl.qcvm);
 
-	SDL_LockMutex (draw_qcvm_mutex);
+	QMutex_Lock (draw_qcvm_mutex);
 
 	if (scr_drawdialog) // new game confirm
 	{
@@ -1180,7 +1180,7 @@ static void SCR_DrawGUI (void *unused)
 		M_Draw (cbx);
 	}
 
-	SDL_UnlockMutex (draw_qcvm_mutex);
+	QMutex_Unlock (draw_qcvm_mutex);
 	R_EndDebugUtilsLabel (cbx);
 }
 

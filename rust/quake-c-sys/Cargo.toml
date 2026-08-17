@@ -1,0 +1,11 @@
+[package]
+name = "quake-c-sys"
+version = "0.1.0"
+description = "bindgen externs to remaining C (shrinks to empty)"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true

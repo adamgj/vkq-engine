@@ -38,28 +38,13 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #define PSET_SCRIPT			   // enable the scriptable particle system (poorly ported from FTE)
 #define PSET_SCRIPT_EFFECTINFO // scripted particle system can load dp's effects
 
-#define LERP_BANDAID // HACK: send think interval over FTE protocol (loopback only, no demos)
+// LERP_BANDAID moved to protocol.h (it changes entity_state_t layout)
 
 #define BSP29_VALVE // enable Half-Life map support
 
 #include "q_stdinc.h"
 
-#ifndef USE_SDL3
-#define SDL_Mutex SDL_mutex
-
-#define SDL_Condition							SDL_cond
-#define SDL_CreateCondition						SDL_CreateCond
-#define SDL_BroadcastCondition					SDL_CondBroadcast
-#define SDL_WaitCondition						SDL_CondWait
-#define SDL_WaitConditionTimeout(cond, mtx, ms) (SDL_CondWaitTimeout (cond, mtx, ms) == 0)
-
-#define SDL_SignalSemaphore		  SDL_SemPost
-#define SDL_Semaphore			  SDL_sem
-#define SDL_TryWaitSemaphore(sem) (SDL_SemTryWait (sem) == 0)
-#define SDL_WaitSemaphore		  SDL_SemWait
-
-#define SDL_GetNumLogicalCPUCores SDL_GetCPUCount
-#endif
+#include "q_thread.h" // opaque threading primitives (the SDL2/SDL3 compat shims live in q_thread_sdl.c now)
 
 #define Q_UNUSED(x) (x = x) // for pesky compiler / lint warnings
 
@@ -74,7 +59,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 // fall over
 #define ROLL 2
 
-#define MAX_QPATH 64 // max length of a quake game pathname
+// MAX_QPATH moved to q_types.h
 
 #define ON_EPSILON 0.1 // point on plane side epsilon
 
@@ -319,9 +304,7 @@ static inline int FindLastBitNonZero64 (const uint64_t mask)
 	}
 #endif
 }
-#define THREAD_LOCAL  __declspec (thread)
-#define FORCE_INLINE  __forceinline
-#define UNREACHABLE() __assume (false)
+// THREAD_LOCAL / FORCE_INLINE / UNREACHABLE moved to q_types.h
 #else
 static inline int FindFirstBitNonZero (const uint32_t mask)
 {
@@ -339,9 +322,7 @@ static inline int FindLastBitNonZero64 (const uint64_t mask)
 {
 	return 63 ^ __builtin_clzll (mask);
 }
-#define THREAD_LOCAL  _Thread_local
-#define FORCE_INLINE  __attribute__ ((always_inline)) inline
-#define UNREACHABLE() __builtin_unreachable ()
+// THREAD_LOCAL / FORCE_INLINE / UNREACHABLE moved to q_types.h
 #endif
 
 #include "sys.h"
@@ -371,10 +352,7 @@ static inline int FindLastBitNonZero64 (const uint64_t mask)
 
 #include "platform.h"
 
-#include <vulkan/vulkan_core.h>
-#if VK_HEADER_VERSION < 162
-#error Vulkan SDK too old
-#endif
+// Vulkan is included via q_render_types.h by the render headers that need it
 
 #include "console.h"
 #include "wad.h"
@@ -402,6 +380,8 @@ static inline int FindLastBitNonZero64 (const uint64_t mask)
 #include "tasks.h"
 #include "atomics.h"
 #include "hash_map.h"
+#include "harness.h"
+#include "pr_trace.h"
 
 //=============================================================================
 

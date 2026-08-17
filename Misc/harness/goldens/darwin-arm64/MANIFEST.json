@@ -1,0 +1,17 @@
+{
+  "platform": "darwin-arm64",
+  "generated_from_commit": "dfe8029799d73b6d5f53d4f96927045f23deb785",
+  "generated_date": "2026-08-17",
+  "build": {
+    "buildtype": "release",
+    "compiler": "Apple clang 21.0.0",
+    "use_rust": "disabled"
+  },
+  "notes": [
+    "Regenerated after PR review: the per-edict hash now also covers baseline, the LERP_BANDAID/sv_smoothplatformlerps fields and num_leafs + the populated leafnums, so these goldens are not comparable with the pre-review set.",
+    "Goldens are derived per-frame FNV-1a state hashes, not game data; the inputs they were generated from are pinned by the checksums in corpus.json.",
+    "Regenerate only from a c-reference/* tag with run_corpus.py --generate; never hand-edit.",
+    "Debug builds run the stability gate but are not compared against these goldens (FP results may differ by optimization level, ADR-010).",
+    "Mod-tier entries (ad, copper, alkaline, quoth) had no local data at generation time; their goldens are absent and their corpus entries skip until the data is added and goldens are regenerated."
+  ]
+}

@@ -1,18 +1,27 @@
-name: Windows CI (msvc)
+name: Windows CI (meson)
 
-on: [push, pull_request]
+on:
+  push:
+    branches: [master]
+    tags: ['*']
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  build-windows:
-    name: Build Windows
-    runs-on: windows-2025-vs2026
+  build-windows-meson:
+    name: Build Windows (meson)
+    runs-on: windows-latest
     permissions:
       contents: write
     strategy:
       fail-fast: false
       matrix:
-        configuration: [Release, Debug]
-        platform: [x64]
+        buildtype: [release, debug]
+        # no use_rust axis here: the harness job below builds both C-only and
+        # mixed and diffs them, so a rust axis here would be duplicate work
     steps:
     - uses: actions/checkout@v6
     - name: Determine version
@@ -31,54 +40,109 @@ jobs:
         install_runtime: false
         cache: true
         stripdown: true
-    - name: Build vkQuake
+    - name: Setup MSVC environment
+      uses: ilammy/msvc-dev-cmd@v1
+      with:
+        arch: x64
+    - name: Install meson
+      run: pip install meson ninja
+    - name: Configure
       run: |
-        $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
-        $msbuild = & "$vswhere" -latest -requires Microsoft.Component.MSBuild -find MSBuild\**\Bin\MSBuild.exe | select-object -first 1
-        $options = @( `
-          '-property:Configuration=${{ matrix.configuration }}', `
-          '-property:Platform=${{ matrix.platform }}', `
-          '-maxcpucount', `
-          '-verbosity:minimal' `
-        )
-        & $msbuild Windows\VisualStudio\vkquake.sln $options
-        if (-not $?) { throw "Build failed" }
+        $env:CC = 'clang-cl'
+        meson setup builddir --buildtype=${{ matrix.buildtype }} -Ddebug=true -Dstrip=false -Duse_sdl3=enabled -Duse_rust=disabled
+    - name: Build
+      run: meson compile -C builddir
     - name: Upload vkQuake
       uses: actions/upload-artifact@v7
       with:
-        name: vkQuake archive (${{ matrix.configuration }}, ${{ matrix.platform }})
+        name: vkQuake meson (${{ matrix.buildtype }}, x64)
         path: |
-            Windows\VisualStudio\Build-vkQuake\**\*.exe
-            Windows\VisualStudio\Build-vkQuake\**\*.dll
-            Windows\VisualStudio\Build-vkQuake\**\vkQuake.pdb
+            builddir/vkquake.exe
+            builddir/*.dll
+            builddir/*.pdb
     - name: Package
-      if: matrix.configuration == 'Release'
+      if: matrix.buildtype == 'release'
       run: |
         $version = '${{ steps.version.outputs.version }}'
-        $srcdir = 'Windows\VisualStudio\Build-vkQuake\${{ matrix.platform }}\Release'
+        $srcdir = 'builddir'
         $compress = @{
-          Path = "$srcdir\*.exe", "$srcdir\vkQuake.pdb", "$srcdir\*.dll", 'LICENSE.txt'
+          Path = "$srcdir\*.exe", "$srcdir\vkquake.pdb", "$srcdir\*.dll", 'LICENSE.txt'
           CompressionLevel = 'Optimal'
-          DestinationPath = "Packaging\Windows\vkQuake-${version}_windows_${{ matrix.platform }}.zip"
+          DestinationPath = "Packaging\Windows\vkQuake-${version}_windows_x64.zip"
         }
         Compress-Archive @compress
         choco install nsis -y --no-progress
         Set-Location Packaging\Windows
-        & "${env:ProgramFiles(x86)}\NSIS\makensis.exe" -V4 '-DSRCDIR=..\..\Windows\VisualStudio\Build-vkQuake\${{ matrix.platform }}\Release' '-DPLATFORM=windows_${{ matrix.platform }}' "-DVERSION=$version" vkQuake.nsi
+        & "${env:ProgramFiles(x86)}\NSIS\makensis.exe" -V4 '-DSRCDIR=..\..\builddir' '-DPLATFORM=windows_x64' "-DVERSION=$version" vkQuake.nsi
         if (-not $?) { throw "makensis failed" }
     - name: Upload package
-      if: matrix.configuration == 'Release'
+      if: matrix.buildtype == 'release'
       uses: actions/upload-artifact@v7
       with:
-        name: vkQuake package (${{ matrix.platform }})
+        name: vkQuake package (x64)
         path: |
             Packaging\Windows\vkQuake-*.zip
             Packaging\Windows\vkQuake-Installer-*.exe
     - name: Attach to release
-      if: matrix.configuration == 'Release' && startsWith(github.ref, 'refs/tags/')
+      if: matrix.buildtype == 'release' && startsWith(github.ref, 'refs/tags/')
       uses: softprops/action-gh-release@v2
       with:
         draft: true
         files: |
           Packaging/Windows/vkQuake-*.zip
           Packaging/Windows/vkQuake-Installer-*.exe
+
+  harness-windows:
+    name: Harness Windows (shareware)
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v6
+    - name: Install Vulkan SDK
+      uses: jakoch/install-vulkan-sdk-action@v1.6.0
+      with:
+        vulkan_version: 1.4.341.1
+        install_runtime: false
+        cache: true
+        stripdown: true
+    - name: Setup MSVC environment
+      uses: ilammy/msvc-dev-cmd@v1
+      with:
+        arch: x64
+    - name: Install meson
+      run: pip install meson ninja
+    - uses: dtolnay/rust-toolchain@stable
+      with:
+        toolchain: 1.97.1
+        targets: x86_64-pc-windows-msvc
+    - name: Cache shareware data
+      uses: actions/cache@v4
+      with:
+        path: shareware-data
+        key: quake106-shareware-v1
+    - name: Fetch shareware data
+      run: python scripts/harness/fetch_shareware.py shareware-data
+    - name: Build C-only and mixed
+      run: |
+        $env:CC = 'clang-cl'
+        meson setup build-c -Duse_sdl3=enabled -Duse_rust=disabled
+        meson compile -C build-c
+        meson setup build-rs -Duse_sdl3=enabled -Duse_rust=enabled
+        meson compile -C build-rs
+    # no windows-x86_64 goldens yet, so gate on run-to-run stability and on the
+    # mixed build matching C-only; both cover the map entries, i.e. real
+    # server/edict state rather than demo playback alone
+    - name: Corpus stability (C-only, run-twice)
+      run: |
+        $env:QUAKE_GAME_DATA = "$PWD\shareware-data"
+        python scripts/harness/run_corpus.py --vkquake build-c/vkquake.exe --stability --tier shareware
+        if ($LASTEXITCODE -ne 0) { throw "corpus stability failed" }
+    - name: Mixed build identity (rust vs C-only)
+      run: |
+        $env:QUAKE_GAME_DATA = "$PWD\shareware-data"
+        python scripts/harness/run_corpus.py --vkquake build-c/vkquake.exe --compare build-rs/vkquake.exe --tier shareware
+        if ($LASTEXITCODE -ne 0) { throw "mixed build differs from C-only" }
+    - name: Savegame byte-diff (C-only vs mixed)
+      run: |
+        $env:QUAKE_GAME_DATA = "$PWD\shareware-data"
+        python scripts/harness/save_diff.py --vkquake build-c/vkquake.exe --vkquake-b build-rs/vkquake.exe
+        if ($LASTEXITCODE -ne 0) { throw "save diff failed" }

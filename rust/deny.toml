@@ -1,0 +1,36 @@
+# cargo-deny configuration (ADR-003 dependency policy).
+# The engine is GPLv2-or-later: every dependency license must be compatible
+# via the or-later route (Apache-2.0 is GPLv3-compatible only).
+
+# Apache-2.0 and GPL-3.0 are deliberately NOT allowed: both are GPLv3-only
+# compatible, so accepting a crate under either would mean the combined vkQuake
+# binary could no longer be distributed as GPLv2, only GPLv3+. That is a
+# project-level licensing decision, not a lint setting -- raise it explicitly
+# (and update ADR-003 and LICENSE.txt) before adding them. Dual-licensed
+# "MIT OR Apache-2.0" crates, i.e. most of the ecosystem, still pass via MIT.
+[licenses]
+allow = [
+    "MIT",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",
+    "MPL-2.0",
+    "GPL-2.0",
+    "GPL-2.0-or-later",
+]
+
+[advisories]
+yanked = "deny"
+
+[bans]
+# warn, not deny: duplicate versions are common and mostly harmless, but they
+# should be visible in the log rather than silently accepted
+multiple-versions = "warn"
+
+# ADR-003 is a supply-chain policy: dependencies must come from crates.io, not
+# an arbitrary git URL or private registry
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

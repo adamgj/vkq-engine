@@ -1,6 +1,14 @@
 name: Linux CI
 
-on: [push, pull_request]
+on:
+  push:
+    branches: [master]
+    tags: ['*']
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build-linux:
@@ -43,3 +51,73 @@ jobs:
       with:
         draft: true
         files: Packaging/AppImage/vkQuake-*.AppImage
+
+  # Rust-migration mixed build + differential harness (the AppImage job above
+  # stays C-only; its docker image has no Rust toolchain)
+  harness-linux:
+    name: Harness Linux (shareware)
+    runs-on: ubuntu-24.04
+    env:
+      VULKAN_SDK_VER: 1.4.341.1
+    steps:
+    - uses: actions/checkout@v6
+    - name: Install Dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y meson ninja-build libsdl2-dev \
+          libvorbis-dev libflac-dev libopus-dev libopusfile-dev libmpg123-dev lhasa
+    - name: Cache Vulkan SDK tools
+      id: cache-vulkan
+      uses: actions/cache@v4
+      with:
+        path: vulkan-sdk
+        key: vulkan-sdk-${{ env.VULKAN_SDK_VER }}-linux-x86_64
+    # distro glslang/spirv-tools/vulkan headers are too old for meson.build's
+    # --canonicalize-ids and >=1.4.341 checks; take the same SDK subset the
+    # AppImage docker image uses
+    - name: Install Vulkan SDK tools
+      if: steps.cache-vulkan.outputs.cache-hit != 'true'
+      run: |
+        wget -q -O vulkan-sdk.tar.xz "https://sdk.lunarg.com/sdk/download/${VULKAN_SDK_VER}/linux/vulkansdk-linux-x86_64-${VULKAN_SDK_VER}.tar.xz"
+        mkdir -p vulkan-sdk
+        tar -xf vulkan-sdk.tar.xz -C vulkan-sdk --strip-components=1 --wildcards \
+          "${VULKAN_SDK_VER}/x86_64/bin/glslang" \
+          "${VULKAN_SDK_VER}/x86_64/bin/glslangValidator" \
+          "${VULKAN_SDK_VER}/x86_64/bin/spirv-opt" \
+          "${VULKAN_SDK_VER}/x86_64/include" \
+          "${VULKAN_SDK_VER}/x86_64/lib/libvulkan.so*"
+        rm vulkan-sdk.tar.xz
+    - name: Export Vulkan SDK environment
+      run: |
+        echo "VULKAN_SDK=$PWD/vulkan-sdk/x86_64" >> "$GITHUB_ENV"
+        echo "LD_LIBRARY_PATH=$PWD/vulkan-sdk/x86_64/lib" >> "$GITHUB_ENV"
+        echo "$PWD/vulkan-sdk/x86_64/bin" >> "$GITHUB_PATH"
+    - uses: dtolnay/rust-toolchain@stable
+      with:
+        toolchain: 1.97.1
+    - name: Cache shareware data
+      uses: actions/cache@v4
+      with:
+        path: shareware-data
+        key: quake106-shareware-v1
+    - name: Fetch shareware data
+      run: python3 scripts/harness/fetch_shareware.py shareware-data
+    - name: Build C-only and mixed
+      run: |
+        meson setup build-c -Duse_sdl3=disabled -Duse_rust=disabled && ninja -C build-c
+        meson setup build-rs -Duse_sdl3=disabled -Duse_rust=enabled && ninja -C build-rs
+    # no linux-x86_64 goldens yet, so gate on run-to-run stability and on the
+    # mixed build matching C-only; both cover the map entries, i.e. real
+    # server/edict state rather than demo playback alone
+    - name: Corpus stability (C-only, run-twice)
+      run: |
+        export QUAKE_GAME_DATA="$PWD/shareware-data"
+        python3 scripts/harness/run_corpus.py --vkquake build-c/vkquake --stability --tier shareware
+    - name: Mixed build identity (rust vs C-only)
+      run: |
+        export QUAKE_GAME_DATA="$PWD/shareware-data"
+        python3 scripts/harness/run_corpus.py --vkquake build-c/vkquake --compare build-rs/vkquake --tier shareware
+    - name: Savegame byte-diff (C-only vs mixed)
+      run: |
+        export QUAKE_GAME_DATA="$PWD/shareware-data"
+        python3 scripts/harness/save_diff.py --vkquake build-c/vkquake --vkquake-b build-rs/vkquake

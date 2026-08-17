@@ -56,8 +56,8 @@ static float skyfog; // ericw
 
 #define SKYWIND_CFG "wind.cfg"
 
-static SDL_Mutex *load_skytexture_mutex;
-static int		  max_skytexture_index = -1;
+static qmutex_t *load_skytexture_mutex;
+static int		 max_skytexture_index = -1;
 
 qboolean need_bounds;
 
@@ -146,7 +146,7 @@ void Sky_LoadTexture (qmodel_t *mod, texture_t *mt, int tex_index)
 	q_snprintf (texturename, sizeof (texturename), "%s:%s_front", mod->name, mt->name);
 
 	// This is horrible but it matches the non-threaded behavior. Does this even make sense?
-	SDL_LockMutex (load_skytexture_mutex);
+	QMutex_Lock (load_skytexture_mutex);
 	if (tex_index > max_skytexture_index)
 	{
 		max_skytexture_index = tex_index;
@@ -157,7 +157,7 @@ void Sky_LoadTexture (qmodel_t *mod, texture_t *mt, int tex_index)
 		skyflatcolor[1] = (float)g / (count * 255);
 		skyflatcolor[2] = (float)b / (count * 255);
 	}
-	SDL_UnlockMutex (load_skytexture_mutex);
+	QMutex_Unlock (load_skytexture_mutex);
 
 	Mem_Free (back_data);
 }
@@ -215,7 +215,7 @@ void Sky_LoadTextureQ64 (qmodel_t *mod, texture_t *mt, int tex_index)
 
 	q_snprintf (texturename, sizeof (texturename), "%s:%s_front", mod->name, mt->name);
 	// This is horrible but it matches the non-threaded behavior. Does this even make sense?
-	SDL_LockMutex (load_skytexture_mutex);
+	QMutex_Lock (load_skytexture_mutex);
 	if (tex_index > max_skytexture_index)
 	{
 		max_skytexture_index = tex_index;
@@ -228,7 +228,7 @@ void Sky_LoadTextureQ64 (qmodel_t *mod, texture_t *mt, int tex_index)
 		skyflatcolor[1] = (float)g / (count * 255);
 		skyflatcolor[2] = (float)b / (count * 255);
 	}
-	SDL_UnlockMutex (load_skytexture_mutex);
+	QMutex_Unlock (load_skytexture_mutex);
 
 	Mem_Free (front_rgba);
 }
@@ -458,6 +458,9 @@ void Sky_LoadSkyBox (const char *name)
 	char		   filename[6][MAX_OSPATH];
 	byte		  *data[6];
 	qboolean	   nonefound = true, cubemap = true;
+
+	if (no_rendering)
+		return;
 
 	if (strcmp (skybox.name, name) == 0)
 		return; // no change
@@ -703,7 +706,7 @@ void Sky_Init (void)
 	Cmd_AddCommand ("skywind_lookdir", Skywind_LookDir_f);
 	Cmd_AddCommand ("skywind_rotate", Skywind_Rotate_f);
 
-	load_skytexture_mutex = SDL_CreateMutex ();
+	load_skytexture_mutex = QMutex_Create ();
 }
 
 //==============================================================================

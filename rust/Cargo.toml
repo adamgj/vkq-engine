@@ -1,0 +1,45 @@
+[workspace]
+resolver = "2"
+members = [
+    "quake-types",
+    "quake-math",
+    "quake-util",
+    "quake-cvar",
+    "quake-fs",
+    "quake-formats",
+    "quake-image",
+    "quake-progs",
+    "quake-net",
+    "quake-snd",
+    "quake-render",
+    "quake-tasks",
+    "quake-platform",
+    "quake-host",
+    "quake-c-sys",
+    "quake-capi",
+    "xtask",
+]
+# tools/c2rust-oracle is deliberately NOT a workspace member: transpiled
+# oracle output must never be able to break `cargo build/clippy --workspace`
+# (quarantine per PLAN.md section 2).
+
+[workspace.package]
+edition = "2021"
+rust-version = "1.97"
+license = "GPL-2.0-or-later"
+publish = false
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[workspace.lints.clippy]
+undocumented_unsafe_blocks = "deny"
+
+# panic = "abort" in every profile: a Rust panic must never unwind into a C
+# frame (PLAN.md section 4.3); panics indicate engine bugs (ADR-009)
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"
+debug = "line-tables-only"

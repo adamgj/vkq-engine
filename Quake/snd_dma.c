@@ -73,7 +73,7 @@ static sfx_t *ambient_sfx[NUM_AMBIENTS];
 
 static qboolean sound_started = false;
 
-SDL_Mutex *snd_mutex;
+qmutex_t *snd_mutex;
 
 cvar_t bgmvolume = {"bgmvolume", "1", CVAR_ARCHIVE};
 cvar_t sfxvolume = {"volume", "0.7", CVAR_ARCHIVE};
@@ -170,7 +170,7 @@ void S_Init (void)
 		return;
 	}
 
-	snd_mutex = SDL_CreateMutex ();
+	snd_mutex = QMutex_Create ();
 
 	Cvar_RegisterVariable (&nosound);
 	Cvar_RegisterVariable (&sfxvolume);
@@ -457,7 +457,7 @@ void S_StartSound (int entnum, int entchannel, sfx_t *sfx, vec3_t origin, float 
 	int			ch_idx;
 	int			skip;
 
-	SDL_LockMutex (snd_mutex);
+	QMutex_Lock (snd_mutex);
 	if (!sound_started || !sfx || nosound.value)
 		goto unlock_mutex;
 
@@ -517,14 +517,14 @@ void S_StartSound (int entnum, int entchannel, sfx_t *sfx, vec3_t origin, float 
 	}
 
 unlock_mutex:
-	SDL_UnlockMutex (snd_mutex);
+	QMutex_Unlock (snd_mutex);
 }
 
 void S_StopSound (int entnum, int entchannel)
 {
 	int i;
 
-	SDL_LockMutex (snd_mutex);
+	QMutex_Lock (snd_mutex);
 
 	for (i = 0; i < MAX_DYNAMIC_CHANNELS; i++)
 	{
@@ -537,7 +537,7 @@ void S_StopSound (int entnum, int entchannel)
 	}
 
 unlock_mutex:
-	SDL_UnlockMutex (snd_mutex);
+	QMutex_Unlock (snd_mutex);
 }
 
 void S_StopAllSounds (qboolean clear, qboolean keep_statics)
@@ -547,7 +547,7 @@ void S_StopAllSounds (qboolean clear, qboolean keep_statics)
 	if (!snd_initialized)
 		return;
 
-	SDL_LockMutex (snd_mutex);
+	QMutex_Lock (snd_mutex);
 	if (!sound_started)
 		goto unlock_mutex;
 
@@ -570,7 +570,7 @@ void S_StopAllSounds (qboolean clear, qboolean keep_statics)
 		S_ClearBuffer ();
 
 unlock_mutex:
-	SDL_UnlockMutex (snd_mutex);
+	QMutex_Unlock (snd_mutex);
 }
 
 static void S_StopAllSoundsC (void)
@@ -582,7 +582,7 @@ void S_ClearBuffer (void)
 {
 	int clear;
 
-	SDL_LockMutex (snd_mutex);
+	QMutex_Lock (snd_mutex);
 
 	if (!sound_started || !shm)
 		goto unlock_mutex;
@@ -603,7 +603,7 @@ void S_ClearBuffer (void)
 	SNDDMA_Submit ();
 
 unlock_mutex:
-	SDL_UnlockMutex (snd_mutex);
+	QMutex_Unlock (snd_mutex);
 }
 
 /*
@@ -620,7 +620,7 @@ void S_StaticSound (sfx_t *sfx, vec3_t origin, int vol, float attenuation)
 	if (!sfx)
 		return;
 
-	SDL_LockMutex (snd_mutex);
+	QMutex_Lock (snd_mutex);
 
 	if (total_channels == MAX_CHANNELS)
 	{
@@ -650,7 +650,7 @@ void S_StaticSound (sfx_t *sfx, vec3_t origin, int vol, float attenuation)
 	SND_Spatialize (ss);
 
 unlock_mutex:
-	SDL_UnlockMutex (snd_mutex);
+	QMutex_Unlock (snd_mutex);
 }
 
 //=============================================================================
@@ -685,7 +685,7 @@ static void S_UpdateAmbientSounds (void)
 	channel_t	*chan;
 	static float vol, levels[NUM_AMBIENTS]; // Spike: fixing ambient levels not changing at high enough framerates due to integer precison.
 
-	SDL_LockMutex (snd_mutex);
+	QMutex_Lock (snd_mutex);
 
 	// no ambients when disconnected
 	if (cls.state != ca_connected || cls.signon != SIGNONS)
@@ -733,7 +733,7 @@ static void S_UpdateAmbientSounds (void)
 	}
 
 unlock_mutex:
-	SDL_UnlockMutex (snd_mutex);
+	QMutex_Unlock (snd_mutex);
 }
 
 /*
@@ -835,7 +835,7 @@ void S_Update (vec3_t origin, vec3_t forward, vec3_t right, vec3_t up)
 	channel_t *ch;
 	channel_t *combine;
 
-	SDL_LockMutex (snd_mutex);
+	QMutex_Lock (snd_mutex);
 	if (!sound_started || (snd_blocked > 0))
 		goto unlock_mutex;
 
@@ -923,7 +923,7 @@ void S_Update (vec3_t origin, vec3_t forward, vec3_t right, vec3_t up)
 	S_Update_ ();
 
 unlock_mutex:
-	SDL_UnlockMutex (snd_mutex);
+	QMutex_Unlock (snd_mutex);
 }
 
 static void GetSoundtime (void)
@@ -970,7 +970,7 @@ static void S_Update_ (void)
 	if (!snd_initialized)
 		return;
 
-	SDL_LockMutex (snd_mutex);
+	QMutex_Lock (snd_mutex);
 
 	if (!sound_started || (snd_blocked > 0))
 		goto unlock_mutex;
@@ -999,12 +999,12 @@ static void S_Update_ (void)
 	SNDDMA_Submit ();
 
 unlock_mutex:
-	SDL_UnlockMutex (snd_mutex);
+	QMutex_Unlock (snd_mutex);
 }
 
 void S_BlockSound (void)
 {
-	SDL_LockMutex (snd_mutex);
+	QMutex_Lock (snd_mutex);
 	/* FIXME: do we really need the blocking at the
 	 * driver level?
 	 */
@@ -1015,12 +1015,12 @@ void S_BlockSound (void)
 		if (shm)
 			SNDDMA_BlockSound ();
 	}
-	SDL_UnlockMutex (snd_mutex);
+	QMutex_Unlock (snd_mutex);
 }
 
 void S_UnblockSound (void)
 {
-	SDL_LockMutex (snd_mutex);
+	QMutex_Lock (snd_mutex);
 
 	if (!sound_started || !snd_blocked)
 		goto unlock_mutex;
@@ -1032,7 +1032,7 @@ void S_UnblockSound (void)
 	}
 
 unlock_mutex:
-	SDL_UnlockMutex (snd_mutex);
+	QMutex_Unlock (snd_mutex);
 }
 
 /*
@@ -1042,14 +1042,14 @@ S_ClearAll
 */
 void S_ClearAll (void)
 {
-	SDL_LockMutex (snd_mutex);
+	QMutex_Lock (snd_mutex);
 
 	for (int i = 0; i < num_sfx; ++i)
 	{
 		SAFE_FREE (known_sfx[i].cache);
 	}
 
-	SDL_UnlockMutex (snd_mutex);
+	QMutex_Unlock (snd_mutex);
 }
 
 /*
@@ -1132,7 +1132,7 @@ void S_LocalSound (const char *name)
 {
 	sfx_t *sfx;
 
-	SDL_LockMutex (snd_mutex);
+	QMutex_Lock (snd_mutex);
 
 	if (nosound.value)
 		goto unlock_mutex;
@@ -1148,7 +1148,7 @@ void S_LocalSound (const char *name)
 	S_StartSound (cl.viewentity, -1, sfx, vec3_origin, 1, 1);
 
 unlock_mutex:
-	SDL_UnlockMutex (snd_mutex);
+	QMutex_Unlock (snd_mutex);
 }
 
 void S_ClearPrecache (void) {}
