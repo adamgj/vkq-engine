@@ -226,6 +226,17 @@ typedef ptrdiff_t ssize_t;
 #define inline __inline
 #endif /* _MSC_VER */
 
+/* compiler intrinsics for thread-local storage, inlining and unreachability */
+#if defined(_MSC_VER)
+#define THREAD_LOCAL  __declspec (thread)
+#define FORCE_INLINE  __forceinline
+#define UNREACHABLE() __assume (false)
+#else
+#define THREAD_LOCAL  _Thread_local
+#define FORCE_INLINE  __attribute__ ((always_inline)) inline
+#define UNREACHABLE() __builtin_unreachable ()
+#endif
+
 #define MAX_QPATH 64 // max length of a quake game pathname
 
 /*==========================================================================*/

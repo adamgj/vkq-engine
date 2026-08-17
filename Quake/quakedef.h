@@ -319,9 +319,7 @@ static inline int FindLastBitNonZero64 (const uint64_t mask)
 	}
 #endif
 }
-#define THREAD_LOCAL  __declspec (thread)
-#define FORCE_INLINE  __forceinline
-#define UNREACHABLE() __assume (false)
+// THREAD_LOCAL / FORCE_INLINE / UNREACHABLE moved to q_types.h
 #else
 static inline int FindFirstBitNonZero (const uint32_t mask)
 {
@@ -339,9 +337,7 @@ static inline int FindLastBitNonZero64 (const uint64_t mask)
 {
 	return 63 ^ __builtin_clzll (mask);
 }
-#define THREAD_LOCAL  _Thread_local
-#define FORCE_INLINE  __attribute__ ((always_inline)) inline
-#define UNREACHABLE() __builtin_unreachable ()
+// THREAD_LOCAL / FORCE_INLINE / UNREACHABLE moved to q_types.h
 #endif
 
 #include "sys.h"
