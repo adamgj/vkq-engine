@@ -374,3 +374,25 @@ int Sys_SelectFolder (const char *title, const char *default_location, char *dst
 	return sel.result;
 }
 #endif
+
+char *Sys_GetPrefPath (const char *org, const char *app)
+{
+	char *pref_path = SDL_GetPrefPath (org, app);
+	char *result;
+	if (!pref_path)
+		return NULL;
+	result = q_strdup (pref_path);
+	SDL_free (pref_path);
+	return result;
+}
+
+void Sys_MessageBoxWarning (const char *title, const char *message)
+{
+	SDL_ShowSimpleMessageBox (SDL_MESSAGEBOX_WARNING, title, message, NULL);
+}
+
+FUNC_NORETURN void Sys_QuitNoShutdown (void)
+{
+	SDL_Quit ();
+	exit (0);
+}

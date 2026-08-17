@@ -34,14 +34,21 @@ void Sys_Init (void);
 typedef long long qfilesize_t;
 typedef long long qfileofs_t;
 
-// return 0 on success
+// returns the per-user preferences directory as a Mem_Alloc'd string
+// (caller frees with Mem_Free), or NULL if unavailable
+char *Sys_GetPrefPath (const char *org, const char *app);
+
+// shows a warning dialog where the platform supports one
+void Sys_MessageBoxWarning (const char *title, const char *message);
+
+// immediate exit without engine shutdown (early-init failure paths only)
+FUNC_NORETURN void Sys_QuitNoShutdown (void);
+
 // origin is SEEK_CUR / SEEK_END / SEEK_SET
 int Sys_fseek (FILE *file, qfileofs_t ofs, int origin);
 
 qfileofs_t	Sys_ftell (FILE *file);
 qfilesize_t Sys_filelength (FILE *f);
-
-int Sys_fgetc (int handle);
 
 // returns the file size or -1 if file is not present.
 // the file should be in BINARY mode for stupid OSs that care

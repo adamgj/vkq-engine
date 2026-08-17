@@ -832,7 +832,7 @@ static void M_ScanSaves (void)
 	char  name[MAX_OSPATH];
 	FILE *f;
 	int	  version;
-	char *save_path = multiuser ? SDL_GetPrefPath ("vkQuake", COM_GetGameNames (true)) : NULL;
+	char *save_path = multiuser ? Sys_GetPrefPath ("vkQuake", COM_GetGameNames (true)) : NULL;
 
 	for (i = 0; i < MAX_SAVEGAMES; i++)
 	{
@@ -865,7 +865,7 @@ static void M_ScanSaves (void)
 		}
 	}
 
-	SDL_free (save_path);
+	Mem_Free (save_path);
 }
 
 static void M_Menu_Load_f (void)

@@ -142,9 +142,9 @@ static void FileList_Init (char *path, char *ext, filelist_item_t **list)
 
 	if (multiuser && !strcmp (ext, "sav"))
 	{
-		char *pref_path = SDL_GetPrefPath ("vkQuake", COM_GetGameNames (true));
+		char *pref_path = Sys_GetPrefPath ("vkQuake", COM_GetGameNames (true));
 		strcpy (multiuser_saves.filename, pref_path);
-		SDL_free (pref_path);
+		Mem_Free (pref_path);
 		multiuser_saves.next = com_searchpaths;
 	}
 	else
@@ -1608,9 +1608,9 @@ static void Host_Savegame_f (void)
 
 	if (multiuser)
 	{
-		char *save_path = SDL_GetPrefPath ("vkQuake", COM_GetGameNames (true));
+		char *save_path = Sys_GetPrefPath ("vkQuake", COM_GetGameNames (true));
 		q_snprintf (name, sizeof (name), "%s%s", save_path, Cmd_Argv (1));
-		SDL_free (save_path);
+		Mem_Free (save_path);
 	}
 	else
 		q_snprintf (name, sizeof (name), "%s/%s", com_gamedir, Cmd_Argv (1));
@@ -1834,7 +1834,7 @@ static void Host_Loadgame_f (void)
 
 	cls.demonum = -1; // stop demo loop in case this fails
 
-	char	*save_path = multiuser ? SDL_GetPrefPath ("vkQuake", COM_GetGameNames (true)) : NULL;
+	char	*save_path = multiuser ? Sys_GetPrefPath ("vkQuake", COM_GetGameNames (true)) : NULL;
 	qboolean loadable = false;
 	for (int j = (multiuser ? 0 : 1); j < 2; ++j)
 	{
@@ -1855,7 +1855,7 @@ static void Host_Loadgame_f (void)
 			break;
 		}
 	}
-	SDL_free (save_path);
+	Mem_Free (save_path);
 
 	if (!loadable)
 	{
