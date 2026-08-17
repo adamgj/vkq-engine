@@ -194,7 +194,7 @@ filelist_item_t	 *extralevels;
 filelist_item_t **extralevels_sorted;
 static size_t	  maxlevelnamelen;
 
-static SDL_Thread	  *extralevels_parsing_thread;
+static qthread_t	  *extralevels_parsing_thread;
 static atomic_uint32_t extralevels_cancel_parsing;
 
 /*
@@ -399,7 +399,7 @@ static void ExtraMaps_WaitForParsingThread (void)
 {
 	if (extralevels_parsing_thread)
 	{
-		SDL_WaitThread (extralevels_parsing_thread, NULL);
+		QThread_Wait (extralevels_parsing_thread);
 		extralevels_parsing_thread = NULL;
 		Atomic_StoreUInt32 (&extralevels_cancel_parsing, 0);
 	}
@@ -458,7 +458,7 @@ void ExtraMaps_Init (void)
 	ExtraMaps_Sort ();
 
 	Atomic_StoreUInt32 (&extralevels_cancel_parsing, 0);
-	extralevels_parsing_thread = SDL_CreateThread (ExtraMaps_ParseDescriptions, "Map parser", NULL);
+	extralevels_parsing_thread = QThread_Create (ExtraMaps_ParseDescriptions, "Map parser", NULL);
 }
 
 /*

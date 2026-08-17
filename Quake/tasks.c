@@ -74,8 +74,8 @@ typedef struct
 	atomic_uint32_t remaining_dependencies;
 	uint64_t		epoch;
 	void		   *func;
-	SDL_Mutex	   *epoch_mutex;
-	SDL_Condition  *epoch_condition;
+	qmutex_t	   *epoch_mutex;
+	qcond_t  *epoch_condition;
 	uint8_t			payload[MAX_PAYLOAD_SIZE];
 	task_handle_t	dependent_task_handles[MAX_DEPENDENT_TASKS];
 } task_t;
@@ -96,8 +96,8 @@ typedef struct
 	atomic_uint64_t tail;
 	uint64_t		tail_padding[7];
 	uint32_t		capacity_mask;
-	SDL_Semaphore  *push_semaphore;
-	SDL_Semaphore  *pop_semaphore;
+	qsem_t  *push_semaphore;
+	qsem_t  *pop_semaphore;
 	task_slot_t		task_slots[1];
 } task_queue_t;
 
@@ -194,18 +194,18 @@ static inline void CPUPause ()
 SpinWaitSemaphore
 ====================
 */
-static inline void SpinWaitSemaphore (SDL_Semaphore *semaphore)
+static inline void SpinWaitSemaphore (qsem_t *semaphore)
 {
 	int	 remaining_spins = WAIT_SPIN_COUNT;
 	bool signalled = false;
-	while (!(signalled = SDL_TryWaitSemaphore (semaphore)))
+	while (!(signalled = QSem_TryWait (semaphore)))
 	{
 		CPUPause ();
 		if (--remaining_spins == 0)
 			break;
 	}
 	if (!signalled)
-		SDL_WaitSemaphore (semaphore);
+		QSem_Wait (semaphore);
 }
 
 /*
@@ -219,8 +219,8 @@ static task_queue_t *CreateTaskQueue (int capacity)
 	assert ((capacity & (capacity - 1)) == 0); // Needs to be power of 2
 	task_queue_t *queue = Mem_Alloc (sizeof (task_queue_t) + (sizeof (task_slot_t) * (capacity - 1)));
 	queue->capacity_mask = capacity - 1;
-	queue->push_semaphore = SDL_CreateSemaphore (capacity - 1);
-	queue->pop_semaphore = SDL_CreateSemaphore (0);
+	queue->push_semaphore = QSem_Create (capacity - 1);
+	queue->pop_semaphore = QSem_Create (0);
 	for (uint32_t i = 0; i < (uint32_t)capacity; ++i)
 		Atomic_StoreUInt64 (&queue->task_slots[ShuffleIndex (i)].sequence, i);
 	return queue;
@@ -243,7 +243,7 @@ static inline void TaskQueuePush (task_queue_t *queue, uint32_t task_index)
 	slot->task_index = task_index;
 	ANNOTATE_HAPPENS_BEFORE (slot);
 	Atomic_StoreUInt64 (&slot->sequence, ticket + 1);
-	SDL_SignalSemaphore (queue->pop_semaphore);
+	QSem_Post (queue->pop_semaphore);
 }
 
 /*
@@ -262,7 +262,7 @@ static inline uint32_t TaskQueuePop (task_queue_t *queue)
 
 	const uint32_t task_index = slot->task_index;
 	Atomic_StoreUInt64 (&slot->sequence, ticket + queue->capacity_mask + 1);
-	SDL_SignalSemaphore (queue->push_semaphore);
+	QSem_Post (queue->push_semaphore);
 	ANNOTATE_HAPPENS_AFTER (slot);
 
 	return task_index;
@@ -334,7 +334,7 @@ static int Task_Worker (void *data)
 		{
 			// Helgrind needs to know about all threads
 			// that participated in an indexed execution
-			SDL_LockMutex (task->epoch_mutex);
+			QMutex_Lock (task->epoch_mutex);
 			for (int i = 0; i < task->num_dependents; ++i)
 			{
 				const int task_index = IndexFromTaskHandle (task->dependent_task_handles[i]);
@@ -346,18 +346,18 @@ static int Task_Worker (void *data)
 
 		if (Atomic_DecrementUInt32 (&task->remaining_workers) == 1)
 		{
-			SDL_LockMutex (task->epoch_mutex);
+			QMutex_Lock (task->epoch_mutex);
 			for (int i = 0; i < task->num_dependents; ++i)
 				Task_Submit (task->dependent_task_handles[i]);
 			task->epoch += 1;
-			SDL_BroadcastCondition (task->epoch_condition);
-			SDL_UnlockMutex (task->epoch_mutex);
+			QCond_Broadcast (task->epoch_condition);
+			QMutex_Unlock (task->epoch_mutex);
 			TaskQueuePush (free_task_queue, task_index);
 		}
 
 #if defined(USE_HELGRIND)
 		if (indexed_task)
-			SDL_UnlockMutex (task->epoch_mutex);
+			QMutex_Unlock (task->epoch_mutex);
 #endif
 	}
 	return 0;
@@ -400,7 +400,7 @@ static void parse_pinned_workers (void)
 				return;
 			}
 
-			pinned_workers_core_ids[num_pinned_workers++] = strtol (fields[core_index], NULL, 10) % SDL_GetNumLogicalCPUCores ();
+			pinned_workers_core_ids[num_pinned_workers++] = strtol (fields[core_index], NULL, 10) % QThread_NumLogicalCores ();
 		}
 
 		Mem_Free (fields);
@@ -428,11 +428,11 @@ void Tasks_Init (void)
 
 	for (uint32_t task_index = 0; task_index < MAX_PENDING_TASKS; ++task_index)
 	{
-		tasks[task_index].epoch_mutex = SDL_CreateMutex ();
-		tasks[task_index].epoch_condition = SDL_CreateCondition ();
+		tasks[task_index].epoch_mutex = QMutex_Create ();
+		tasks[task_index].epoch_condition = QCond_Create ();
 	}
 
-	num_workers = CLAMP (1, SDL_GetNumLogicalCPUCores (), TASKS_MAX_WORKERS);
+	num_workers = CLAMP (1, QThread_NumLogicalCores (), TASKS_MAX_WORKERS);
 
 	// num_workers is overriden by -pinnedworkers number of fields
 	parse_pinned_workers ();
@@ -450,7 +450,7 @@ void Tasks_Init (void)
 	indexed_task_counters = Mem_Alloc (sizeof (task_counter_t) * num_workers * MAX_PENDING_TASKS);
 	for (int i = 0; i < num_workers; ++i)
 	{
-		SDL_DetachThread (SDL_CreateThread (Task_Worker, va ("Task_Worker_%d", i), (void *)(intptr_t)i));
+		QThread_Detach (QThread_Create (Task_Worker, va ("Task_Worker_%d", i), (void *)(intptr_t)i));
 	}
 }
 
@@ -587,11 +587,11 @@ void Task_AddDependency (task_handle_t before, task_handle_t after)
 	uint32_t	   before_task_index = IndexFromTaskHandle (before);
 	task_t		  *before_task = &tasks[before_task_index];
 	const uint64_t before_handle_task_epoch = EpochFromTaskHandle (before);
-	SDL_LockMutex (before_task->epoch_mutex);
+	QMutex_Lock (before_task->epoch_mutex);
 	if (before_task->epoch != before_handle_task_epoch)
 	{
 		ANNOTATE_HAPPENS_AFTER (before_task);
-		SDL_UnlockMutex (before_task->epoch_mutex);
+		QMutex_Unlock (before_task->epoch_mutex);
 		return;
 	}
 	uint32_t after_task_index = IndexFromTaskHandle (after);
@@ -600,7 +600,7 @@ void Task_AddDependency (task_handle_t before, task_handle_t after)
 	before_task->dependent_task_handles[before_task->num_dependents] = after;
 	before_task->num_dependents += 1;
 	Atomic_IncrementUInt32 (&after_task->remaining_dependencies);
-	SDL_UnlockMutex (before_task->epoch_mutex);
+	QMutex_Unlock (before_task->epoch_mutex);
 }
 
 /*
@@ -612,16 +612,16 @@ qboolean Task_Join (task_handle_t handle, uint32_t timeout)
 {
 	task_t		  *task = &tasks[IndexFromTaskHandle (handle)];
 	const uint64_t handle_task_epoch = EpochFromTaskHandle (handle);
-	SDL_LockMutex (task->epoch_mutex);
+	QMutex_Lock (task->epoch_mutex);
 	while (task->epoch == handle_task_epoch)
 	{
-		if (!SDL_WaitConditionTimeout (task->epoch_condition, task->epoch_mutex, timeout))
+		if (!QCond_WaitTimeout (task->epoch_condition, task->epoch_mutex, timeout))
 		{
-			SDL_UnlockMutex (task->epoch_mutex);
+			QMutex_Unlock (task->epoch_mutex);
 			return false;
 		}
 	}
-	SDL_UnlockMutex (task->epoch_mutex);
+	QMutex_Unlock (task->epoch_mutex);
 	ANNOTATE_HAPPENS_AFTER (task);
 	return true;
 }

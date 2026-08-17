@@ -22,7 +22,6 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 #include "quakedef.h"
 
-extern SDL_Mutex *snd_mutex;
 
 /*
 ================
@@ -99,7 +98,7 @@ sfxcache_t *S_LoadSound (sfx_t *s)
 	float		stepscale;
 	sfxcache_t *sc = NULL;
 
-	SDL_LockMutex (snd_mutex);
+	QMutex_Lock (snd_mutex);
 
 	// see if still in memory
 	if (s->cache)
@@ -162,7 +161,7 @@ sfxcache_t *S_LoadSound (sfx_t *s)
 
 unlock_mutex:
 	Mem_Free (data);
-	SDL_UnlockMutex (snd_mutex);
+	QMutex_Unlock (snd_mutex);
 	return sc;
 }
 

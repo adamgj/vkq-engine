@@ -157,6 +157,7 @@ extern channel_t snd_channels[MAX_CHANNELS];
  * MAX_DYNAMIC_CHANNELS + NUM_AMBIENTS to total_channels = static sounds
  */
 
+extern qmutex_t *snd_mutex;
 extern volatile dma_t *shm;
 
 extern int total_channels;

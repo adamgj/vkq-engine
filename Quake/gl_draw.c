@@ -99,8 +99,6 @@ typedef struct cachepic_s
 COMPILE_TIME_ASSERT ("cachepic padding placement", offsetof (cachepic_t, padding) == offsetof (cachepic_t, pic) + sizeof (((struct cachepic_s *)0)->pic));
 COMPILE_TIME_ASSERT ("cachepic padding size", sizeof (((struct cachepic_s *)0)->padding) >= sizeof (glpic_t));
 
-// draw_qcvm_mutex also protects q_cachepics  / scrap updates
-extern SDL_Mutex  *draw_qcvm_mutex;
 static cachepic_t *q_cachepics;
 
 // last entry of the chained q_cachepics, new entries are appended to it
@@ -493,7 +491,7 @@ Draw_NewGame -- johnfitz
 */
 void Draw_NewGame (void)
 {
-	SDL_LockMutex (draw_qcvm_mutex);
+	QMutex_Lock (draw_qcvm_mutex);
 
 	// empty scrap and reallocate gltextures
 	memset (scrap_allocated, 0, sizeof (scrap_allocated));
@@ -522,7 +520,7 @@ void Draw_NewGame (void)
 	SCR_LoadPics ();
 	Sbar_LoadPics ();
 
-	SDL_UnlockMutex (draw_qcvm_mutex);
+	QMutex_Unlock (draw_qcvm_mutex);
 }
 
 /*

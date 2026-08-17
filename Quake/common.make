@@ -243,6 +243,7 @@ OBJS := strlcat.o \
 	json.o \
 	steam.o \
 	harness.o \
+	q_thread_sdl.o \
 	host.o \
 	host_cmd.o \
 	mathlib.o \
