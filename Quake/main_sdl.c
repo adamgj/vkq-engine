@@ -152,7 +152,7 @@ int main (int argc, char *argv[])
 			time = newtime - oldtime;
 
 			/* fixed timestep: state must not depend on wall-clock time */
-			if (harness_active)
+			if (harness_fixed_dt)
 				time = Harness_FrameTime ();
 
 			Host_Frame (time);

@@ -381,6 +381,7 @@ static inline int FindLastBitNonZero64 (const uint64_t mask)
 #include "atomics.h"
 #include "hash_map.h"
 #include "harness.h"
+#include "pr_trace.h"
 
 //=============================================================================
 

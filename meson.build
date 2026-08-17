@@ -231,6 +231,7 @@ srcs = [
     'Quake/gl_warp.c',
     'Quake/harness.c',
     'Quake/q_thread_sdl.c',
+    'Quake/pr_trace.c',
     'Quake/host.c',
     'Quake/host_cmd.c',
     'Quake/image.c',
@@ -335,6 +336,10 @@ if build_machine.system() == 'darwin'
     deps += cc.find_library('MoltenVK', required : true, dirs : molten_dirs)
 else
     deps += dependency('vulkan', version: '>=1.4.341')
+endif
+
+if get_option('trace')
+    cflags += '-DPR_TRACE'
 endif
 
 if get_option('use_codec_wave').enabled()

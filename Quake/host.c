@@ -1287,6 +1287,9 @@ void Host_Init (void)
 	LOC_Init (); // for 2021 rerelease support.
 
 	Harness_Init ();
+#ifdef PR_TRACE
+	PR_TraceInit ();
+#endif
 
 	host_initialized = true;
 	Con_Printf ("\n========= Quake Initialized =========\n\n");
@@ -1334,6 +1337,9 @@ void Host_Shutdown (void)
 	isdown = true;
 
 	Harness_Shutdown ();
+#ifdef PR_TRACE
+	PR_TraceShutdown ();
+#endif
 
 	// keep Con_Printf from trying to update the screen
 	scr_disabled_for_loading = true;

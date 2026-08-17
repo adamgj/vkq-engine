@@ -589,6 +589,7 @@ int NET_GetMessage (qsocket_t *sock)
 
 	if (ret > 0)
 	{
+		Harness_NetCapture (0, sock->driver, ret, net_message.data, net_message.cursize);
 		if (!IS_LOOP_DRIVER (sock->driver))
 		{
 			sock->lastMessageTime = net_time;
@@ -620,7 +621,10 @@ qsocket_t *NET_GetServerMessage (void)
 			continue;
 		s = net_drivers[net_driverlevel].QGetAnyMessage ();
 		if (s)
+		{
+			Harness_NetCapture (0, s->driver, 0, net_message.data, net_message.cursize);
 			return s;
+		}
 	}
 	return NULL;
 }
@@ -668,6 +672,8 @@ int NET_SendMessage (qsocket_t *sock, sizebuf_t *data)
 
 	SetNetTime ();
 	r = sfunc.QSendMessage (sock, data);
+	if (r == 1)
+		Harness_NetCapture (1, sock->driver, 1, data->data, data->cursize);
 	if (r == 1 && !IS_LOOP_DRIVER (sock->driver))
 		messagesSent++;
 
@@ -689,6 +695,8 @@ int NET_SendUnreliableMessage (qsocket_t *sock, sizebuf_t *data)
 
 	SetNetTime ();
 	r = sfunc.SendUnreliableMessage (sock, data);
+	if (r == 1)
+		Harness_NetCapture (1, sock->driver, 2, data->data, data->cursize);
 	if (r == 1 && !IS_LOOP_DRIVER (sock->driver))
 		unreliableMessagesSent++;
 

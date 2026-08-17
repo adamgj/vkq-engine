@@ -23,6 +23,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include "harness.h"
 
 qboolean harness_active = false;
+qboolean harness_fixed_dt = false;
 qboolean no_rendering = false;
 
 #define HARNESS_FRAME_DT   (1.0 / 72)
@@ -32,6 +33,7 @@ qboolean no_rendering = false;
 #define HARNESS_HASH_PRIME UINT64_C (0x100000001b3)
 
 static FILE	   *harness_hashfile = NULL;
+static FILE	   *harness_capturefile = NULL;
 static uint64_t harness_hashchain = HARNESS_HASH_BASIS;
 static int		harness_exitafter = 0;
 
@@ -65,8 +67,11 @@ void Harness_CheckArgs (void)
 {
 	if (COM_CheckParm ("-headless"))
 		no_rendering = true;
-	if (COM_CheckParm ("-headless") || COM_CheckParm ("-demohash") || COM_CheckParm ("-exitafter") || COM_CheckParm ("-harnesscmds"))
+	if (COM_CheckParm ("-headless") || COM_CheckParm ("-demohash") || COM_CheckParm ("-exitafter") || COM_CheckParm ("-harnesscmds") ||
+		COM_CheckParm ("-netcapture"))
 		harness_active = true;
+	if (COM_CheckParm ("-demohash"))
+		harness_fixed_dt = true;
 	if (isDedicated)
 		no_rendering = true;
 }
@@ -120,6 +125,14 @@ void Harness_Init (void)
 		harness_hashfile = Sys_fopen (com_argv[i + 1], "w");
 		if (!harness_hashfile)
 			Sys_Error ("Harness: can't open -demohash file %s", com_argv[i + 1]);
+	}
+
+	i = COM_CheckParm ("-netcapture");
+	if (i && i < com_argc - 1)
+	{
+		harness_capturefile = Sys_fopen (com_argv[i + 1], "wb");
+		if (!harness_capturefile)
+			Sys_Error ("Harness: can't open -netcapture file %s", com_argv[i + 1]);
 	}
 
 	i = COM_CheckParm ("-exitafter");
@@ -199,6 +212,28 @@ void Harness_Shutdown (void)
 		fclose (harness_hashfile);
 		harness_hashfile = NULL;
 	}
+	if (harness_capturefile)
+	{
+		fclose (harness_capturefile);
+		harness_capturefile = NULL;
+	}
+}
+
+void Harness_NetCapture (int direction, int driver, int kind, const byte *data, int len)
+{
+	byte header[7];
+
+	if (!harness_capturefile || len < 0)
+		return;
+	header[0] = (byte)direction;
+	header[1] = (byte)driver;
+	header[2] = (byte)kind;
+	header[3] = (byte)(len & 0xff);
+	header[4] = (byte)((len >> 8) & 0xff);
+	header[5] = (byte)((len >> 16) & 0xff);
+	header[6] = (byte)((len >> 24) & 0xff);
+	fwrite (header, 1, sizeof (header), harness_capturefile);
+	fwrite (data, 1, len, harness_capturefile);
 }
 
 static void Harness_Exit (int code)

@@ -33,6 +33,11 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 extern qboolean harness_active;
 
+/* true when -demohash is active: the main loop feeds a fixed timestep so
+   state is wall-clock independent. Live-network runs (-netcapture without
+   -demohash) keep real pacing, since a remote peer runs on wall time. */
+extern qboolean harness_fixed_dt;
+
 /* true when running without a renderer: dedicated server or -headless client */
 extern qboolean no_rendering;
 
@@ -40,7 +45,11 @@ void Harness_CheckArgs (void); /* early, right after COM_InitArgv */
 void Harness_Init (void);	   /* end of Host_Init */
 void Harness_Frame (void);	   /* end of _Host_Frame, before host_framecount++ */
 void Harness_DemoEnded (void); /* demo playback finished: flush hashes and exit 0 */
-void Harness_Shutdown (void);  /* finalize the hash file; safe to call twice */
+void Harness_Shutdown (void);  /* finalize the hash+capture files; safe to call twice */
+
+/* -netcapture <file>: raw wire capture at the NET_* funnel.
+   Framed records: [u8 direction 0=recv,1=send][u8 driver][u8 kind 1=reliable,2=unreliable][u32le len][payload] */
+void Harness_NetCapture (int direction, int driver, int kind, const byte *data, int len);
 
 /* fixed timestep fed to Host_Frame when harness_active */
 double Harness_FrameTime (void);
