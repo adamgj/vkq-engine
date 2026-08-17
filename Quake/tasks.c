@@ -75,7 +75,7 @@ typedef struct
 	uint64_t		epoch;
 	void		   *func;
 	qmutex_t	   *epoch_mutex;
-	qcond_t  *epoch_condition;
+	qcond_t		   *epoch_condition;
 	uint8_t			payload[MAX_PAYLOAD_SIZE];
 	task_handle_t	dependent_task_handles[MAX_DEPENDENT_TASKS];
 } task_t;
@@ -96,8 +96,8 @@ typedef struct
 	atomic_uint64_t tail;
 	uint64_t		tail_padding[7];
 	uint32_t		capacity_mask;
-	qsem_t  *push_semaphore;
-	qsem_t  *pop_semaphore;
+	qsem_t		   *push_semaphore;
+	qsem_t		   *pop_semaphore;
 	task_slot_t		task_slots[1];
 } task_queue_t;
 

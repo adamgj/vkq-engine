@@ -71,7 +71,7 @@ unsigned int d_8to24table_conchars[256];
 #define TEXTURE_HEAP_MEMORY_SIZE_MB 64
 #define TEXTURE_HEAP_PAGE_SIZE		16384
 
-static glheap_t	 *texmgr_heap;
+static glheap_t *texmgr_heap;
 static qmutex_t *texmgr_mutex;
 
 static byte bluenoise_data[4096] = {

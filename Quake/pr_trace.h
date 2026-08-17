@@ -26,14 +26,14 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
    Con_Printf debugging path, which is unchanged.
 
    Versioned text format, one record per line:
-     PRTRACE 1          header
-     E <fnum>           function enter
-     L                  function leave
-     S <pc> <op> <a> <b> <c>              statement (before execution)
-     W <ofs> <n> <v..>  global write (store family), raw i32 values in hex
-     P <ofs> <n> <v..>  entity-field write (storep family), byte offset
-     B <ord> <argc> <parm hex triplets>   builtin call (before)
-     R <v0> <v1> <v2>   builtin return (OFS_RETURN after)                 */
+	 PRTRACE 1          header
+	 E <fnum>           function enter
+	 L                  function leave
+	 S <pc> <op> <a> <b> <c>              statement (before execution)
+	 W <ofs> <n> <v..>  global write (store family), raw i32 values in hex
+	 P <ofs> <n> <v..>  entity-field write (storep family), byte offset
+	 B <ord> <argc> <parm hex triplets>   builtin call (before)
+	 R <v0> <v1> <v2>   builtin return (OFS_RETURN after)                 */
 
 #ifdef PR_TRACE
 

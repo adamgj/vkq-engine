@@ -23,10 +23,10 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
    -headless           run the client without video/audio/input (implies no_rendering)
    -demohash <file>    write a per-frame chained state hash to <file>; forces
-                       deterministic fixed-timestep pacing and a fixed RNG seed
+					   deterministic fixed-timestep pacing and a fixed RNG seed
    -exitafter <n>      hard frame cap; exit code 2 when reached (runaway guard)
    -harnesscmds <file> inject console commands at fixed frame numbers; each line
-                       is "<framecount> <command...>"
+					   is "<framecount> <command...>"
 
    Goldens are generated and compared only between headless runs on the same
    platform: the headless RNG stream intentionally differs from a windowed run. */

@@ -57,7 +57,7 @@ static float skyfog; // ericw
 #define SKYWIND_CFG "wind.cfg"
 
 static qmutex_t *load_skytexture_mutex;
-static int		  max_skytexture_index = -1;
+static int		 max_skytexture_index = -1;
 
 qboolean need_bounds;
 

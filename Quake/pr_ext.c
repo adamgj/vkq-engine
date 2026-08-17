@@ -53,7 +53,6 @@ static int pr_ext_warned_particleeffectnum;						  // so these only spam once pe
 
 extern qpic_t *pic_nul;
 
-
 static void *PR_FindExtGlobal (int type, const char *name);
 void		 SV_CheckVelocity (edict_t *ent);
 

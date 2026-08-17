@@ -93,7 +93,6 @@ static qmutex_t *uniform_allocate_mutex;
 static qmutex_t *storage_allocate_mutex;
 static qmutex_t *garbage_mutex;
 
-
 qboolean R_UseAlphaSort (void)
 {
 	return r_alphasort.value && !R_UseOIT ();
@@ -126,8 +125,8 @@ static vulkan_memory_t staging_memory;
 static stagingbuffer_t staging_buffers[NUM_STAGING_BUFFERS];
 static int			   current_staging_buffer = 0;
 static int			   num_stagings_in_flight = 0;
-static qmutex_t	  *staging_mutex;
-static qcond_t  *staging_cond;
+static qmutex_t		  *staging_mutex;
+static qcond_t		  *staging_cond;
 /*
 ================
 Dynamic vertex/index & uniform buffer
