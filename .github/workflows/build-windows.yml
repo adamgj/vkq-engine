@@ -3,6 +3,43 @@ name: Windows CI (msvc)
 on: [push, pull_request]
 
 jobs:
+  build-windows-meson:
+    name: Build Windows (meson)
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        buildtype: [release, debug]
+    steps:
+    - uses: actions/checkout@v6
+    - name: Install Vulkan SDK
+      uses: jakoch/install-vulkan-sdk-action@v1.6.0
+      with:
+        vulkan_version: 1.4.341.1
+        install_runtime: false
+        cache: true
+        stripdown: true
+    - name: Setup MSVC environment
+      uses: ilammy/msvc-dev-cmd@v1
+      with:
+        arch: x64
+    - name: Install meson
+      run: pip install meson ninja
+    - name: Configure
+      run: |
+        $env:CC = 'clang-cl'
+        meson setup builddir --buildtype=${{ matrix.buildtype }} -Duse_sdl3=enabled
+    - name: Build
+      run: meson compile -C builddir
+    - name: Upload vkQuake
+      uses: actions/upload-artifact@v7
+      with:
+        name: vkQuake meson (${{ matrix.buildtype }}, x64)
+        path: |
+            builddir/vkquake.exe
+            builddir/*.dll
+            builddir/*.pdb
+
   build-windows:
     name: Build Windows
     runs-on: windows-2025-vs2026
