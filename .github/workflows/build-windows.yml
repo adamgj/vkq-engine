@@ -1,6 +1,14 @@
 name: Windows CI (meson)
 
-on: [push, pull_request]
+on:
+  push:
+    branches: [master]
+    tags: ['*']
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build-windows-meson:
@@ -12,7 +20,8 @@ jobs:
       fail-fast: false
       matrix:
         buildtype: [release, debug]
-        use-rust: ['disabled', 'enabled']
+        # no use_rust axis here: the harness job below builds both C-only and
+        # mixed and diffs them, so a rust axis here would be duplicate work
     steps:
     - uses: actions/checkout@v6
     - name: Determine version
@@ -37,28 +46,22 @@ jobs:
         arch: x64
     - name: Install meson
       run: pip install meson ninja
-    - name: Install Rust toolchain
-      if: matrix.use-rust == 'enabled'
-      uses: dtolnay/rust-toolchain@stable
-      with:
-        toolchain: 1.97.1
-        targets: x86_64-pc-windows-msvc
     - name: Configure
       run: |
         $env:CC = 'clang-cl'
-        meson setup builddir --buildtype=${{ matrix.buildtype }} -Ddebug=true -Dstrip=false -Duse_sdl3=enabled -Duse_rust=${{ matrix.use-rust }}
+        meson setup builddir --buildtype=${{ matrix.buildtype }} -Ddebug=true -Dstrip=false -Duse_sdl3=enabled -Duse_rust=disabled
     - name: Build
       run: meson compile -C builddir
     - name: Upload vkQuake
       uses: actions/upload-artifact@v7
       with:
-        name: vkQuake meson (${{ matrix.buildtype }}, x64${{ matrix.use-rust == 'enabled' && ', rust' || '' }})
+        name: vkQuake meson (${{ matrix.buildtype }}, x64)
         path: |
             builddir/vkquake.exe
             builddir/*.dll
             builddir/*.pdb
     - name: Package
-      if: matrix.buildtype == 'release' && matrix.use-rust == 'disabled'
+      if: matrix.buildtype == 'release'
       run: |
         $version = '${{ steps.version.outputs.version }}'
         $srcdir = 'builddir'
@@ -73,7 +76,7 @@ jobs:
         & "${env:ProgramFiles(x86)}\NSIS\makensis.exe" -V4 '-DSRCDIR=..\..\builddir' '-DPLATFORM=windows_x64' "-DVERSION=$version" vkQuake.nsi
         if (-not $?) { throw "makensis failed" }
     - name: Upload package
-      if: matrix.buildtype == 'release' && matrix.use-rust == 'disabled'
+      if: matrix.buildtype == 'release'
       uses: actions/upload-artifact@v7
       with:
         name: vkQuake package (x64)
@@ -81,7 +84,7 @@ jobs:
             Packaging\Windows\vkQuake-*.zip
             Packaging\Windows\vkQuake-Installer-*.exe
     - name: Attach to release
-      if: matrix.buildtype == 'release' && matrix.use-rust == 'disabled' && startsWith(github.ref, 'refs/tags/')
+      if: matrix.buildtype == 'release' && startsWith(github.ref, 'refs/tags/')
       uses: softprops/action-gh-release@v2
       with:
         draft: true

@@ -39,17 +39,18 @@ def run_scenario(exe, game_data, mapname, frames):
         for f in sorted(os.listdir(src)):
             _stage_entry(os.path.join(src, f), os.path.join(dst, f))
 
+    # the map is started from the cmds file, not +map: the cmdline cvar is
+    # deliberately empty in shareware installs, so +commands never run there
     cmds = os.path.join(staging, "harness.cmds")
     with open(cmds, "w") as f:
+        f.write(f"0 map {mapname}\n")
         for i, frame in enumerate(frames):
             f.write(f"{frame} save harness_{i}\n")
         f.write(f"{frames[-1] + 10} quit\n")
 
     cmd = [os.path.abspath(exe), "-headless", "-basedir", ".",
            "-harnesscmds", "harness.cmds", "-demohash", "harness.hash",
-           "-exitafter", str(frames[-1] + 1000), f"+map {mapname}"]
-    # +map with argument must be separate argv entries
-    cmd = cmd[:-1] + ["+map", mapname]
+           "-exitafter", str(frames[-1] + 1000)]
     proc = subprocess.run(cmd, cwd=staging, stdout=subprocess.PIPE,
                           stderr=subprocess.STDOUT, text=True)
     if proc.returncode != 0:

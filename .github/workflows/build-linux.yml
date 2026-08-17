@@ -1,6 +1,14 @@
 name: Linux CI
 
-on: [push, pull_request]
+on:
+  push:
+    branches: [master]
+    tags: ['*']
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build-linux:
@@ -49,13 +57,41 @@ jobs:
   harness-linux:
     name: Harness Linux (shareware)
     runs-on: ubuntu-24.04
+    env:
+      VULKAN_SDK_VER: 1.4.341.1
     steps:
     - uses: actions/checkout@v6
     - name: Install Dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y meson ninja-build glslang-tools spirv-tools libsdl2-dev libvulkan-dev \
+        sudo apt-get install -y meson ninja-build libsdl2-dev \
           libvorbis-dev libflac-dev libopus-dev libopusfile-dev libmpg123-dev lhasa
+    - name: Cache Vulkan SDK tools
+      id: cache-vulkan
+      uses: actions/cache@v4
+      with:
+        path: vulkan-sdk
+        key: vulkan-sdk-${{ env.VULKAN_SDK_VER }}-linux-x86_64
+    # distro glslang/spirv-tools/vulkan headers are too old for meson.build's
+    # --canonicalize-ids and >=1.4.341 checks; take the same SDK subset the
+    # AppImage docker image uses
+    - name: Install Vulkan SDK tools
+      if: steps.cache-vulkan.outputs.cache-hit != 'true'
+      run: |
+        wget -q -O vulkan-sdk.tar.xz "https://sdk.lunarg.com/sdk/download/${VULKAN_SDK_VER}/linux/vulkansdk-linux-x86_64-${VULKAN_SDK_VER}.tar.xz"
+        mkdir -p vulkan-sdk
+        tar -xf vulkan-sdk.tar.xz -C vulkan-sdk --strip-components=1 --wildcards \
+          "${VULKAN_SDK_VER}/x86_64/bin/glslang" \
+          "${VULKAN_SDK_VER}/x86_64/bin/glslangValidator" \
+          "${VULKAN_SDK_VER}/x86_64/bin/spirv-opt" \
+          "${VULKAN_SDK_VER}/x86_64/include" \
+          "${VULKAN_SDK_VER}/x86_64/lib/libvulkan.so*"
+        rm vulkan-sdk.tar.xz
+    - name: Export Vulkan SDK environment
+      run: |
+        echo "VULKAN_SDK=$PWD/vulkan-sdk/x86_64" >> "$GITHUB_ENV"
+        echo "LD_LIBRARY_PATH=$PWD/vulkan-sdk/x86_64/lib" >> "$GITHUB_ENV"
+        echo "$PWD/vulkan-sdk/x86_64/bin" >> "$GITHUB_PATH"
     - uses: dtolnay/rust-toolchain@stable
       with:
         toolchain: 1.97.1

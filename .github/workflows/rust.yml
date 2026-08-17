@@ -2,9 +2,15 @@ name: Rust CI
 
 on:
   push:
+    branches: [master]
+    tags: ['*']
   pull_request:
   schedule:
     - cron: '17 6 * * 1' # weekly: surface new RustSec advisories without commits
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   lint:
@@ -27,9 +33,12 @@ jobs:
       with:
         manifest-path: rust/Cargo.toml
 
+  # cargo-deny's advisories check already covers RustSec on every PR; this
+  # standalone audit only adds value on the weekly cron
   audit:
     name: cargo audit
     runs-on: ubuntu-latest
+    if: github.event_name == 'schedule'
     steps:
     - uses: actions/checkout@v6
     - uses: rustsec/audit-check@v2

@@ -10,7 +10,8 @@ cc = meson.get_compiler('c')
 add_project_arguments(cc.get_supported_arguments('-fno-omit-frame-pointer', '/Oy-'), language: 'c')
 
 # Ask linker not to locate uninitialized variables into COMMON (will use .bss then) to avoid macOS link issue
-add_project_arguments('-fno-common', language: 'c')
+# (clang-cl doesn't accept it, and warning-as-error would turn that into a build failure)
+add_project_arguments(cc.get_supported_arguments('-fno-common'), language: 'c')
 
 if host_machine.system() == 'windows'
     foreach native : [true, false]
