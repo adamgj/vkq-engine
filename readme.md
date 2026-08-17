@@ -78,6 +78,9 @@ vkQuake only supports **little-endian** systems.
 The reason is, all known existing Vulkan-capable systems in the wild are little-endian. Consequently, all big-endian support from QuakeSpasm has been effectively removed. 
 vkQuake wouldn't even start on an big-endian system, outputing a fatal error.
 
+## Rust migration
+A phased plan to convert the engine from C to Rust — while preserving 100% compatibility with game logic, assets, savegames, demos, networking, mods, and the 2021 re-release — is documented in [docs/rust-migration/](docs/rust-migration/PLAN.md): the [plan](docs/rust-migration/PLAN.md), the [roadmap](docs/rust-migration/ROADMAP.md) of discrete phases, and the [architecture decision records](docs/rust-migration/adr/README.md).
+
 ## Building
 > **Note**\
 > For Windows, you will need at least Vulkan SDK version 1.4.321.1 or newer.
