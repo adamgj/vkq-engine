@@ -3,8 +3,23 @@ name: Rust CI
 on:
   push:
     branches: [master]
-    tags: ['*']
+    tags: ['*'] # path filters are not evaluated for tag pushes, so releases always build
+    paths: &ci-paths
+      - '**'
+      # non-functional files: docs, editor/tooling config
+      - '!**.md'
+      - '!docs/**'
+      - '!.vscode/**'
+      - '!.gitignore'
+      - '!LICENSE.txt'
+      - '!vs-chromium-project.txt'
+      - '!helgrind.supp'
+      - '!.github/ISSUE_TEMPLATE/**'
+      # another workflow's change can't affect this one; this file's can
+      - '!.github/workflows/**'
+      - '.github/workflows/rust.yml'
   pull_request:
+    paths: *ci-paths
   schedule:
     - cron: '17 6 * * 1' # weekly: surface new RustSec advisories without commits
 
