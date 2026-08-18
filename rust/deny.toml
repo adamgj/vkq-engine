@@ -9,15 +9,18 @@
 # (and update ADR-003 and LICENSE.txt) before adding them. Dual-licensed
 # "MIT OR Apache-2.0" crates, i.e. most of the ecosystem, still pass via MIT.
 [licenses]
+# MPL-2.0 and bare GPL-2.0 were removed in Phase 1: ADR-003 rejects copyleft
+# dependencies outright, and no crate needed them (GPL-2.0-or-later stays for
+# the workspace's own crates).
 allow = [
     "MIT",
+    "MIT-0",
+    "0BSD",
     "BSD-2-Clause",
     "BSD-3-Clause",
     "ISC",
     "Zlib",
     "Unicode-3.0",
-    "MPL-2.0",
-    "GPL-2.0",
     "GPL-2.0-or-later",
 ]
 

@@ -30,6 +30,9 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #ifdef _DEBUG
 #include "gl_heap.h"
 #endif
+#ifdef USE_RUST
+#include "quake_rs.h"
+#endif
 
 /*
 
@@ -1249,11 +1252,8 @@ void Host_Init (void)
 	Con_Printf ("Exe: %s %s %s\n", __TIME__, __DATE__, build_str_suffix);
 
 #ifdef USE_RUST
-	{
-		// Rust migration: prove the quake_rs staticlib is linked and callable
-		extern uint32_t QuakeRS_Version (void);
-		Con_DPrintf ("quake_rs staticlib linked (ABI version %u)\n", QuakeRS_Version ());
-	}
+	// Rust migration: prove the quake_rs staticlib is linked and callable
+	Con_DPrintf ("quake_rs staticlib linked (ABI version %u)\n", QuakeRS_Version ());
 #endif
 
 	if (cls.state != ca_dedicated)

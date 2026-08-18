@@ -214,7 +214,6 @@ srcs = [
     'Quake/cmd.c',
     'Quake/common.c',
     'Quake/console.c',
-    'Quake/crc.c',
     'Quake/cvar.c',
     'Quake/gl_draw.c',
     'Quake/gl_fog.c',
@@ -243,7 +242,6 @@ srcs = [
     'Quake/keys.c',
     'Quake/main_sdl.c',
     'Quake/mathlib.c',
-    'Quake/mdfour.c',
     'Quake/mem.c',
     'Quake/menu.c',
     'Quake/net_dgrm.c',
@@ -270,8 +268,6 @@ srcs = [
     'Quake/snd_umx.c',
     'Quake/snd_wave.c',
     'Quake/steam.c',
-    'Quake/strlcat.c',
-    'Quake/strlcpy.c',
     'Quake/sv_main.c',
     'Quake/sv_move.c',
     'Quake/sv_phys.c',
@@ -283,6 +279,16 @@ srcs = [
     'Quake/world.c',
 	'Quake/hash_map.c',
 	 run_generate_embedded_pak,
+]
+
+# Phase 1 (Rust migration): C originals of modules ported to rust/. Compiled
+# only when use_rust is disabled; the mixed build resolves their symbols from
+# libquake_rs.a instead. Deleted at phase exit (ROADMAP.md Phase 1).
+phase1_c_srcs = [
+    'Quake/crc.c',
+    'Quake/mdfour.c',
+    'Quake/strlcat.c',
+    'Quake/strlcpy.c',
 ]
 
 if host_machine.system() == 'windows'
@@ -319,27 +325,33 @@ endif
 cargo = find_program('cargo', required : get_option('use_rust'))
 use_rust = cargo.found() and not get_option('use_rust').disabled()
 if use_rust
+    cbindgen = find_program('cbindgen', required : true)
     cflags += '-DUSE_RUST'
     python3 = find_program('python3')
     rust_profile = get_option('buildtype') == 'debug' ? 'debug' : 'release'
     rust_lib_name = host_machine.system() == 'windows' ? 'quake_rs.lib' : 'libquake_rs.a'
     quake_rs = custom_target(
         'quake_rs',
-        output : rust_lib_name,
+        output : [rust_lib_name, 'quake_rs.h'],
         command : [
             python3, meson.project_source_root() / 'scripts/cargo_build.py',
             '--cargo', cargo,
             '--manifest-path', meson.project_source_root() / 'rust/Cargo.toml',
             '--target-dir', meson.project_build_root() / 'cargo-target',
             '--profile', rust_profile,
-            '--output', '@OUTPUT@',
+            '--output', '@OUTPUT0@',
             '--depfile', '@DEPFILE@',
+            '--cbindgen', cbindgen,
+            '--header-output', '@OUTPUT1@',
         ],
         depfile : 'quake_rs.d',
         console : true,
         # cargo is its own (fast) change detector; always let it decide
         build_always_stale : true,
     )
+else
+    # C-only build: keep compiling the originals of the Rust-ported modules
+    srcs += phase1_c_srcs
 endif
 
 deps = [
@@ -350,7 +362,10 @@ deps = [
 ]
 
 if use_rust
-    deps += declare_dependency(link_with : quake_rs)
+    # link_with the staticlib; sources orders C compilation after quake_rs.h
+    # generation (the header lands in the build root, which is on the include
+    # path implicitly)
+    deps += declare_dependency(link_with : quake_rs[0], sources : quake_rs[1])
 endif
 
 if host_machine.system() == 'windows'

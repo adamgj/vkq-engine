@@ -9,7 +9,12 @@ publish.workspace = true
 
 [lib]
 name = "quake_rs"
-crate-type = ["staticlib"]
+# rlib in addition to staticlib so quake-ctest can link the shims into its
+# differential test binaries
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+quake-util = { path = "../quake-util" }
 
 [lints]
 workspace = true

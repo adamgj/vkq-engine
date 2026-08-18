@@ -70,6 +70,30 @@ jobs:
       with:
         toolchain: 1.97.1
     - name: Install bindgen
-      run: cargo install bindgen-cli --locked
+      # version-pinned: the committed quake-c-sys bindings embed the bindgen
+      # version, so a floating install would fail the regen diff below
+      run: cargo install bindgen-cli --locked --version 0.72.1
     - name: Check core headers (standalone compile + bindgen)
       run: ./scripts/harness/check_headers.sh
+    - name: Regenerate quake-c-sys bindings and diff (ADR-011)
+      run: |
+        ./scripts/gen_c_bindings.sh
+        git diff --exit-code rust/quake-c-sys/src/generated.rs
+
+  # differential tests (Rust ports vs original C via quake-ctest) and unit
+  # tests, on every CI OS; release so proptest runs at full speed
+  test:
+    name: unit + differential tests
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+    - uses: actions/checkout@v6
+    - uses: dtolnay/rust-toolchain@stable
+      with:
+        toolchain: 1.97.1
+    - name: cargo test
+      working-directory: rust
+      run: cargo test --workspace --locked --release

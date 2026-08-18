@@ -24,6 +24,8 @@ def main():
     p.add_argument("--profile", required=True, choices=["debug", "release"])
     p.add_argument("--output", required=True)
     p.add_argument("--depfile", required=True)
+    p.add_argument("--cbindgen")
+    p.add_argument("--header-output")
     args = p.parse_args()
 
     cmd = [args.cargo, "build", "--locked", "-p", "quake-capi",
@@ -50,6 +52,21 @@ def main():
     # relinks vkquake on every ninja invocation even when cargo did nothing
     if not (os.path.isfile(args.output) and filecmp.cmp(artifact, args.output, shallow=False)):
         shutil.copyfile(artifact, args.output)
+
+    # generate quake_rs.h (cbindgen), also copy-if-changed so including C files
+    # only recompile when the exported API actually changed
+    if args.cbindgen and args.header_output:
+        crate_dir = os.path.join(workspace, "quake-capi")
+        tmp_header = args.header_output + ".tmp"
+        proc = subprocess.run([args.cbindgen,
+                               "--config", os.path.join(crate_dir, "cbindgen.toml"),
+                               "--output", tmp_header, crate_dir])
+        if proc.returncode != 0:
+            sys.exit(proc.returncode)
+        if not (os.path.isfile(args.header_output)
+                and filecmp.cmp(tmp_header, args.header_output, shallow=False)):
+            shutil.copyfile(tmp_header, args.header_output)
+        os.remove(tmp_header)
 
     # cargo's dep-info names its own artifact path; point it at meson's output
     cargo_dep = os.path.splitext(artifact)[0] + ".d"
