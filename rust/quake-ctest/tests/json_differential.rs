@@ -2,6 +2,9 @@
 //! the original json.c compiled as c_ref_*. Both trees are serialized to a
 //! canonical form and compared; acceptance (NULL vs non-NULL) must match on
 //! every input (ADR-012: jsmn's tolerant behavior is the spec).
+// The c_ref_* symbols are compiled C (build.rs), which Miri cannot execute;
+// the shims themselves get Miri coverage in miri_capi.rs instead.
+#![cfg(not(miri))]
 
 use core::ffi::{c_char, c_int, CStr};
 use proptest::prelude::*;

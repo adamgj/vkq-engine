@@ -1,6 +1,9 @@
 //! Differential tests: quake-math (and the quake-capi shims) vs the original
 //! mathlib.c compiled as c_ref_*. All comparisons are bit-exact (to_bits) so
 //! NaN propagation and negative zero are covered.
+// The c_ref_* symbols are compiled C (build.rs), which Miri cannot execute;
+// the shims themselves get Miri coverage in miri_capi.rs instead.
+#![cfg(not(miri))]
 
 use core::ffi::{c_double, c_float, c_int};
 use proptest::prelude::*;

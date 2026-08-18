@@ -3,6 +3,9 @@
 //! the same stub filesystem (a shared temp directory) and the full observable
 //! state is compared: the in-place-edited wad_base image, the lump directory,
 //! and the wad_t list (order, names, ids, lump arrays).
+// The c_ref_* symbols are compiled C (build.rs), which Miri cannot execute;
+// the shims themselves get Miri coverage in miri_capi.rs instead.
+#![cfg(not(miri))]
 
 use core::ffi::{c_char, c_int, c_void, CStr};
 use quake_c_sys::fshandle_t;

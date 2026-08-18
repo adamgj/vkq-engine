@@ -5,6 +5,9 @@
 //! callers can produce is swept — including the negative values a signed
 //! `char` yields for bytes >= 0x80, which is exactly where a naive port
 //! (`u8`-based, or Rust's `is_ascii_*`) would diverge.
+// The c_ref_* symbols are compiled C (build.rs), which Miri cannot execute;
+// the shims themselves get Miri coverage in miri_capi.rs instead.
+#![cfg(not(miri))]
 
 use core::ffi::c_int;
 use quake_ctest as _; // links the cc-built c_ref_* archive
