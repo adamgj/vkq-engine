@@ -58,6 +58,12 @@ unsafe extern "C" {
     );
 }
 unsafe extern "C" {
+    pub fn COM_SeedRand(seed: u64);
+}
+unsafe extern "C" {
+    pub fn COM_Rand() -> i32;
+}
+unsafe extern "C" {
     pub fn COM_FOpenFile(
         filename: *const ::std::os::raw::c_char,
         file: *mut *mut FILE,

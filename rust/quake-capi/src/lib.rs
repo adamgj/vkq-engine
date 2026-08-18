@@ -7,6 +7,7 @@
 //! by compiling the generated quake_rs.h against those headers in one TU.
 
 pub mod crc;
+pub mod hash_map;
 pub mod mathlib;
 pub mod mdfour;
 pub mod strl;

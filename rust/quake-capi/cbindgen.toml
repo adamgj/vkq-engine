@@ -20,10 +20,26 @@ struct mplane_s;
 int BoxOnPlaneSide(float *emins, float *emaxs, struct mplane_s *p);
 void R_ConcatRotations(float in1[3][3], float in2[3][3], float out[3][3]);
 void R_ConcatTransforms(float in1[3][4], float in2[3][4], float out[3][4]);
-extern float vec3_origin[3];"""
+extern float vec3_origin[3];
+struct hash_map_s;
+struct hash_map_s *HashMap_CreateImpl(uint32_t key_size, uint32_t value_size, uint32_t (*hasher)(const void *), bool (*comp)(const void *, const void *));
+void HashMap_Destroy(struct hash_map_s *map);
+void HashMap_Reserve(struct hash_map_s *map, int capacity);
+void HashMap_Clear(struct hash_map_s *map);
+bool HashMap_InsertImpl(struct hash_map_s *map, uint32_t key_size, uint32_t value_size, const void *key, const void *value);
+bool HashMap_EraseImpl(struct hash_map_s *map, uint32_t key_size, const void *key);
+void *HashMap_LookupImpl(struct hash_map_s *map, uint32_t key_size, const void *key);
+uint32_t HashMap_Size(struct hash_map_s *map);
+void *HashMap_GetKeyImpl(struct hash_map_s *map, uint32_t index);
+void *HashMap_GetValueImpl(struct hash_map_s *map, uint32_t index);"""
 
 [parse]
 parse_deps = false
 
 [export]
-exclude = ["BoxOnPlaneSide", "R_ConcatRotations", "R_ConcatTransforms", "vec3_origin"]
+exclude = [
+    "BoxOnPlaneSide", "R_ConcatRotations", "R_ConcatTransforms", "vec3_origin",
+    "HashMap_CreateImpl", "HashMap_Destroy", "HashMap_Reserve", "HashMap_Clear",
+    "HashMap_InsertImpl", "HashMap_EraseImpl", "HashMap_LookupImpl",
+    "HashMap_Size", "HashMap_GetKeyImpl", "HashMap_GetValueImpl", "FfiHashMap",
+]

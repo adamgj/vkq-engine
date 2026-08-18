@@ -7,6 +7,7 @@ use std::path::PathBuf;
 
 const C_SOURCES: &[&str] = &[
     "Quake/crc.c",
+    "Quake/hash_map.c",
     "Quake/mathlib.c",
     "Quake/mdfour.c",
     "Quake/strlcpy.c",
@@ -45,6 +46,7 @@ fn main() {
     build.file(manifest.join("stubs").join("snprintf_oracle.c"));
     build.file(manifest.join("stubs").join("stubs.c"));
     build.file(manifest.join("stubs").join("anorms_ref.c"));
+    build.file(manifest.join("stubs").join("hashers_ref.c"));
     println!("cargo:rerun-if-changed={}", prelude.display());
     println!(
         "cargo:rerun-if-changed={}",

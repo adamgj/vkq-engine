@@ -283,7 +283,6 @@ srcs = [
     'Quake/view.c',
     'Quake/wad.c',
     'Quake/world.c',
-	'Quake/hash_map.c',
 	 run_generate_embedded_pak,
 ]
 
@@ -292,6 +291,7 @@ srcs = [
 # libquake_rs.a instead. Deleted at phase exit (ROADMAP.md Phase 1).
 phase1_c_srcs = [
     'Quake/crc.c',
+    'Quake/hash_map.c',
     'Quake/mathlib.c',
     'Quake/mdfour.c',
     'Quake/strlcat.c',

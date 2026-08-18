@@ -25,10 +25,12 @@ fi
 cat > "$tmpdir/capi_sig_check.c" <<'EOF'
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 #include "q_types.h"
 #include "quake_rs.h"
 #include "crc.h"
 #include "strl_fn.h"
+#include "hash_map.h"
 /* mathlib.h needs quakedef.h's bit-scan inline */
 #ifdef _MSC_VER
 #include <intrin.h>

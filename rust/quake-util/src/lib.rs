@@ -6,6 +6,7 @@
 #![forbid(unsafe_code)] // ADR-004: pure crate
 
 pub mod crc;
+pub mod hash_map;
 pub mod mdfour;
 pub mod printf;
 pub mod qctype;

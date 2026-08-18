@@ -17,8 +17,10 @@
 #define QUAKEDEFS_H
 #define _USE_MATH_DEFINES /* M_PI on MSVC */
 #include "q_types.h"
+#include <assert.h>
 #include <math.h>
 #include <string.h>
+#include "mem.h"
 
 /* the slice of quakedef.h the reference files actually need */
 #define PITCH 0
@@ -100,5 +102,17 @@ static inline int FindLastBitNonZero (const uint32_t mask)
 #define IsAxisAlignedDeg		 c_ref_IsAxisAlignedDeg
 
 #include "mathlib.h"
+
+/* hash_map.c */
+#define HashMap_CreateImpl	 c_ref_HashMap_CreateImpl
+#define HashMap_Destroy		 c_ref_HashMap_Destroy
+#define HashMap_Reserve		 c_ref_HashMap_Reserve
+#define HashMap_Clear		 c_ref_HashMap_Clear
+#define HashMap_InsertImpl	 c_ref_HashMap_InsertImpl
+#define HashMap_EraseImpl	 c_ref_HashMap_EraseImpl
+#define HashMap_LookupImpl	 c_ref_HashMap_LookupImpl
+#define HashMap_Size		 c_ref_HashMap_Size
+#define HashMap_GetKeyImpl	 c_ref_HashMap_GetKeyImpl
+#define HashMap_GetValueImpl c_ref_HashMap_GetValueImpl
 
 #endif /* C_REF_PRELUDE_H */
