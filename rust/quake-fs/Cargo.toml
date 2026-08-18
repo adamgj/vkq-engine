@@ -10,6 +10,11 @@ publish.workspace = true
 [dependencies]
 # for sizeof(lumpinfo_t), whose layout quake-types asserts against the C
 quake-types = { path = "../quake-types" }
+# tolerant JSON parser ported in Phase 1 (EGS manifest matching)
+quake-util = { path = "../quake-util" }
+# inflate for .kpf (zip) entries and the embedded pak, replacing the
+# vendored miniz on the Rust side (ADR-012; MIT OR Zlib OR Apache-2.0)
+miniz_oxide = "0.8"
 
 [lints]
 workspace = true
