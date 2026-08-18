@@ -416,62 +416,6 @@ byte *COM_LoadMallocFile_TextMode_OSPath (const char *path, long *len_out)
 	return data;
 }
 
-const char *COM_ParseIntNewline (const char *buffer, int *value)
-{
-	int consumed = 0;
-	sscanf (buffer, "%i\n%n", value, &consumed);
-	return buffer + consumed;
-}
-
-const char *COM_ParseFloatNewline (const char *buffer, float *value)
-{
-	int consumed = 0;
-	sscanf (buffer, "%f\n%n", value, &consumed);
-	return buffer + consumed;
-}
-
-const char *COM_ParseStringNewline (const char *buffer)
-{
-	int consumed = 0;
-	com_token[0] = '\0';
-	sscanf (buffer, "%1023s\n%n", com_token, &consumed);
-	return buffer + consumed;
-}
-
-size_t COM_SanitizeDescriptionString (char *dst, size_t dstsize, const char *src, bool remove_color)
-{
-	int srcpos, dstpos;
-
-	if (!dstsize)
-		return 0;
-
-	for (srcpos = dstpos = 0; src[srcpos] && (size_t)dstpos + 1 < dstsize; srcpos++)
-	{
-		char c = src[srcpos] & (remove_color ? 0x7f : 0xFF); // remove_color
-
-		// When reducing to plain ASCII, also strip control chars: colored glyphs can mask down to
-		// scanf whitespace (e.g. 0x8b -> \v), which would split the savegame comment line on load
-		if (remove_color && !q_isprint (c))
-			c = ' ';
-		else if (c == '\n' || c == '\r') // replace newlines with spaces
-			c = ' ';
-		else if (c == '\\' && src[srcpos + 1] == 'n') // replace '\\' followed by 'n' with space
-		{
-			c = ' ';
-			srcpos++;
-		}
-		// remove leading spaces, replace consecutive spaces with single one
-		if (c != ' ' || (dstpos > 0 && dst[dstpos - 1] != c))
-			dst[dstpos++] = c;
-	}
-	// remove trailing space, if any
-	if (dstpos > 0 && dst[dstpos - 1] == ' ')
-		--dstpos;
-
-	dst[dstpos] = '\0';
-	return dstpos;
-}
-
 /*
 =================
 COM_LoadPackFile -- johnfitz -- modified based on topaz's tutorial
