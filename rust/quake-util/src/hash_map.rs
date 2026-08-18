@@ -95,12 +95,24 @@ impl QHashMap {
 
     /// Raw storage base pointers, for the FFI adapter's pointer-returning
     /// lookups (C callers receive pointers into the map's storage).
+    /// Null while nothing is allocated, matching the C's NULL `keys`/`values`
+    /// before the first insert/reserve (`Vec::as_mut_ptr` would hand out a
+    /// dangling sentinel instead).
     pub fn key_storage_ptr(&mut self) -> *mut u8 {
-        self.keys.as_mut_ptr()
+        if self.keys.is_empty() {
+            core::ptr::null_mut()
+        } else {
+            self.keys.as_mut_ptr()
+        }
     }
 
+    /// Null while nothing is allocated; see [`Self::key_storage_ptr`].
     pub fn value_storage_ptr(&mut self) -> *mut u8 {
-        self.values.as_mut_ptr()
+        if self.values.is_empty() {
+            core::ptr::null_mut()
+        } else {
+            self.values.as_mut_ptr()
+        }
     }
 
     fn keys_equal(&self, key: &[u8], storage_key: &[u8]) -> bool {

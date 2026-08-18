@@ -6,13 +6,34 @@
 //! ownership, consistent with ADR-013). Lookup/GetKey/GetValue return raw
 //! pointers into the map's storage exactly like the C did: valid until the
 //! next insert/reserve reallocates, which is the same contract C callers
-//! already live with. The storage base comes from Vec<u8> (malloc), which is
-//! at least 16-aligned in practice — the same alignment Mem_Alloc gave the C
-//! key/value arrays, so C hashers reading pointer-sized keys behave
-//! identically.
+//! already live with.
+//!
+//! Alignment: both sides dereference these pointers at natural alignment (C's
+//! `HashMap_Lookup (int64_t, ...)` expands to `*(int64_t *)`), but the arenas
+//! are `Vec<u8>`, whose requested alignment is 1. The 8/16-byte alignment they
+//! actually get is *incidental* — an artifact of the current allocator
+//! forwarding to malloc — not a language guarantee, and ADR-013 schedules a
+//! mimalloc `#[global_allocator]` for Phase 2. `assert_storage_alignment`
+//! below therefore checks it in debug builds so an allocator change trips a
+//! test rather than producing misaligned loads at runtime.
 
 use core::ffi::{c_int, c_void};
 use quake_util::hash_map::{Comp, Hasher, QHashMap};
+
+/// Largest natural alignment any engine key/value type needs (int64_t,
+/// pointers). Checked in debug builds only — see the module comment.
+const MAX_ENGINE_ALIGN: usize = 8;
+
+#[inline]
+fn assert_storage_alignment(p: *const u8) {
+    debug_assert!(
+        p.is_null() || (p as usize).is_multiple_of(MAX_ENGINE_ALIGN),
+        "hash_map storage is under-aligned for C's natural-alignment loads: \
+         the global allocator no longer returns {MAX_ENGINE_ALIGN}-aligned \
+         blocks for Vec<u8>, so the arenas need an explicitly aligned backing \
+         store (see ADR-013)"
+    );
+}
 
 type CHasher = unsafe extern "C" fn(*const c_void) -> u32;
 type CComp = unsafe extern "C" fn(*const c_void, *const c_void) -> bool;
@@ -132,9 +153,9 @@ pub unsafe extern "C" fn HashMap_LookupImpl(
     match m.core.lookup(k) {
         // SAFETY: index is in-bounds of the value storage
         Some(index) => unsafe {
-            m.core
-                .value_storage_ptr()
-                .add((m.core.value_size() * index) as usize) as *mut c_void
+            let base = m.core.value_storage_ptr();
+            assert_storage_alignment(base);
+            base.add((m.core.value_size() * index) as usize) as *mut c_void
         },
         None => core::ptr::null_mut(),
     }
@@ -159,9 +180,9 @@ pub unsafe extern "C" fn HashMap_GetKeyImpl(map: *mut FfiHashMap, index: u32) ->
     let m = unsafe { &mut *map };
     // SAFETY: same pointer arithmetic as the C
     unsafe {
-        m.core
-            .key_storage_ptr()
-            .add((m.core.key_size() * index) as usize) as *mut c_void
+        let base = m.core.key_storage_ptr();
+        assert_storage_alignment(base);
+        base.add((m.core.key_size() * index) as usize) as *mut c_void
     }
 }
 
@@ -173,9 +194,9 @@ pub unsafe extern "C" fn HashMap_GetValueImpl(map: *mut FfiHashMap, index: u32) 
     let m = unsafe { &mut *map };
     // SAFETY: same pointer arithmetic as the C
     unsafe {
-        m.core
-            .value_storage_ptr()
-            .add((m.core.value_size() * index) as usize) as *mut c_void
+        let base = m.core.value_storage_ptr();
+        assert_storage_alignment(base);
+        base.add((m.core.value_size() * index) as usize) as *mut c_void
     }
 }
 

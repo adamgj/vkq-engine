@@ -199,6 +199,9 @@ version = "0.1.0"
 [[package]]
 name = "quake-fs"
 version = "0.1.0"
+dependencies = [
+ "quake-types",
+]
 
 [[package]]
 name = "quake-host"

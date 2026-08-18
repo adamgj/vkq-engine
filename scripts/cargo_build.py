@@ -24,6 +24,7 @@ def main():
     p.add_argument("--profile", required=True, choices=["debug", "release"])
     p.add_argument("--output", required=True)
     p.add_argument("--depfile", required=True)
+    p.add_argument("--features", help="comma-separated cargo features")
     p.add_argument("--cbindgen")
     p.add_argument("--header-output")
     args = p.parse_args()
@@ -33,6 +34,8 @@ def main():
            "--target-dir", args.target_dir]
     if args.profile == "release":
         cmd.append("--release")
+    if args.features:
+        cmd += ["--features", args.features]
 
     # cwd must be the workspace root: rustup resolves rust-toolchain.toml by
     # walking up from the current directory, not from --manifest-path, and meson

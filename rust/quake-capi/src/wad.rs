@@ -151,7 +151,12 @@ pub unsafe extern "C" fn W_LoadWadFile() {
             infotableofs =
                 i32::from_le(core::ptr::addr_of!((*header).infotableofs).read_unaligned());
         }
-        wad_lumps = wad_base.offset(infotableofs as isize) as *mut LumpInfo;
+        // wrapping_offset, not offset: infotableofs is untrusted file data and
+        // this runs *before* the bounds check below (the C leaves wad_lumps
+        // pointing at the bogus address too, so it cannot be reordered).
+        // `offset` is getelementptr inbounds -- immediate UB out of range --
+        // whereas the C is a plain integer add.
+        wad_lumps = wad_base.wrapping_offset(infotableofs as isize) as *mut LumpInfo;
         if header_extends_beyond(infotableofs, wad_numlumps, file_len) {
             quake_c_sys::Con_Printf(
                 c"Wad file %s header extends beyond end of file\n".as_ptr(),
@@ -181,7 +186,7 @@ pub unsafe extern "C" fn W_LoadWadFile() {
             });
             if core::ptr::addr_of!((*lump).type_).read_unaligned() == TYP_QPIC {
                 let filepos = core::ptr::addr_of!((*lump).filepos).read_unaligned();
-                SwapPic(wad_base.offset(filepos as isize) as *mut QPic);
+                SwapPic(wad_base.wrapping_offset(filepos as isize) as *mut QPic);
             }
         }
     }
@@ -226,7 +231,7 @@ pub unsafe extern "C" fn W_GetLumpName(
         }
         *out_info = lump;
         let filepos = core::ptr::addr_of!((*lump).filepos).read_unaligned();
-        wad_base.offset(filepos as isize) as *mut c_void
+        wad_base.wrapping_offset(filepos as isize) as *mut c_void
     }
 }
 

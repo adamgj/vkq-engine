@@ -56,6 +56,7 @@ fn main() {
         "stubs.c",
         "anorms_ref.c",
         "hashers_ref.c",
+        "qctype_ref.c",
     ] {
         let path = manifest.join("stubs").join(stub);
         println!("cargo:rerun-if-changed={}", path.display());

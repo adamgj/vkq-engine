@@ -38,8 +38,11 @@ pub fn header_extends_beyond(infotableofs: i32, numlumps: i32, file_len: i64) ->
     if infotableofs < 0 {
         return true;
     }
-    let total =
-        (infotableofs as i64 as u64).wrapping_add((numlumps as i64 as u64).wrapping_mul(32));
+    // sizeof (lumpinfo_t), taken from the mirror whose layout quake-types
+    // asserts against the C struct, so the two cannot drift
+    const LUMPINFO_SIZE: u64 = core::mem::size_of::<quake_types::wad::LumpInfo>() as u64;
+    let total = (infotableofs as i64 as u64)
+        .wrapping_add((numlumps as i64 as u64).wrapping_mul(LUMPINFO_SIZE));
     total > file_len as u64
 }
 

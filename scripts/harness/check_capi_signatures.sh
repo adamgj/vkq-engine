@@ -27,12 +27,16 @@ cat > "$tmpdir/capi_sig_check.c" <<'EOF'
 #include <stdint.h>
 #include <string.h>
 #include "q_types.h"
-#include "quake_rs.h"
+/* engine headers first: quake_rs.h guards its typedef-dependent declarations
+ * (wad, JSON_Find*) on these headers' include guards, so they only
+ * materialize -- and only get diffed against the originals -- once the
+ * engine declarations are in scope */
 #include "crc.h"
 #include "strl_fn.h"
 #include "hash_map.h"
 #include "json.h"
 #include "cfgfile.h"
+#include "wad.h"
 /* mathlib.h needs quakedef.h's bit-scan inline */
 #ifdef _MSC_VER
 #include <intrin.h>
@@ -49,6 +53,7 @@ static inline int FindLastBitNonZero (const uint32_t mask)
 }
 #endif
 #include "mathlib.h"
+#include "quake_rs.h"
 EOF
 
 "$CC" -fsyntax-only -Werror -IQuake -I"$header_dir" "$tmpdir/capi_sig_check.c"

@@ -121,6 +121,13 @@ pub fn anglemod(a: f32) -> f32 {
 /// Returns 1, 2, or 1 + 2. The axial fast path lives in the C
 /// BOX_ON_PLANE_SIDE macro, not here. `Err` reports the debug-build
 /// `Sys_Error` conditions (bad signbits / zero sides) for the shim to raise.
+///
+/// The C guards those with `#if defined(DEBUG) || defined(_DEBUG)`, i.e. the
+/// *engine's* build type; the `engine-debug` feature mirrors it. Gating on
+/// `debug_assertions` (the Rust profile) instead would diverge — Meson sets
+/// `-D_DEBUG` for `debugoptimized` while building Rust in release, and
+/// `sides == 0` is reachable with NaN inputs, so the mismatch is "abort"
+/// vs "return 0 and keep playing".
 pub fn box_on_plane_side(
     emins: &Vec3,
     emaxs: &Vec3,
@@ -128,7 +135,7 @@ pub fn box_on_plane_side(
     dist: f32,
     signbits: u8,
 ) -> Result<i32, &'static str> {
-    if cfg!(debug_assertions) && signbits & !7 != 0 {
+    if cfg!(feature = "engine-debug") && signbits & !7 != 0 {
         return Err("BoxOnPlaneSide:  Bad signbits");
     }
 
@@ -150,7 +157,7 @@ pub fn box_on_plane_side(
         sides |= 2;
     }
 
-    if cfg!(debug_assertions) && sides == 0 {
+    if cfg!(feature = "engine-debug") && sides == 0 {
         return Err("BoxOnPlaneSide: sides==0");
     }
     Ok(sides)

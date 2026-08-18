@@ -25,5 +25,10 @@ quake-fs = { path = "../quake-fs" }
 quake-types = { path = "../quake-types" }
 quake-c-sys = { path = "../quake-c-sys" }
 
+[features]
+# forwarded to the pure crates; set by the Meson build when the C engine is
+# compiled with -D_DEBUG (see quake-math's engine-debug)
+engine-debug = ["quake-math/engine-debug"]
+
 [lints]
 workspace = true

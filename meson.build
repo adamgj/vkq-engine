@@ -18,7 +18,13 @@ add_project_arguments(cc.get_supported_arguments('-fno-common'), language: 'c')
 # targets that have it (arm64), which plain Rust float ops don't reproduce;
 # only arm64 targets change behavior (x86-64 baseline has no FMA). The
 # darwin-arm64 harness goldens were regenerated for this (Phase 1).
-add_project_arguments(cc.get_supported_arguments('-ffp-contract=off', '/clang:-ffp-contract=off'), language: 'c')
+# note: this is a *project-wide* flag -- it covers the vendored miniz /
+# stb_image / mimalloc sources and the whole renderer, not just the ported
+# leaves. That is deliberate: every later phase ports code onto a C build that
+# already matches Rust's FP semantics. See ADR-010's Phase 1 amendment.
+# first_supported_argument, not get_supported_arguments: clang-cl accepts both
+# spellings, and adding both would pass the flag twice.
+add_project_arguments(cc.first_supported_argument('-ffp-contract=off', '/clang:-ffp-contract=off'), language: 'c')
 
 if host_machine.system() == 'windows'
     foreach native : [true, false]
@@ -336,6 +342,10 @@ if use_rust
     cflags += '-DUSE_RUST'
     python3 = find_program('python3')
     rust_profile = get_option('buildtype') == 'debug' ? 'debug' : 'release'
+    # the ported code's debug-only diagnostics must track the C engine's
+    # DEBUG/_DEBUG, not the Rust profile: -D_DEBUG is set for every debug*
+    # buildtype while the Rust profile is release for debugoptimized
+    rust_features = get_option('buildtype').startswith('debug') ? 'engine-debug' : ''
     rust_lib_name = host_machine.system() == 'windows' ? 'quake_rs.lib' : 'libquake_rs.a'
     quake_rs = custom_target(
         'quake_rs',
@@ -348,6 +358,7 @@ if use_rust
             '--profile', rust_profile,
             '--output', '@OUTPUT0@',
             '--depfile', '@DEPFILE@',
+            '--features', rust_features,
             '--cbindgen', cbindgen,
             '--header-output', '@OUTPUT1@',
         ],

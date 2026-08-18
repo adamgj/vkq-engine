@@ -37,15 +37,28 @@ The mathlib differential suite found two compiler relaxations empirically (the
   (meson.build + common.make + the quake-ctest reference build), per this
   ADR's intent. Only arm64 targets change behavior (x86-64 baseline has no
   FMA); the darwin-arm64 goldens were regenerated from the new C build.
+  **Scope: this is a project-wide flag** (`add_project_arguments`), so it also
+  covers the vendored `miniz`/`stb_image`/`mimalloc` sources and the entire
+  renderer — not only the ported leaves. That is deliberate rather than
+  incidental: the flag is what makes the C build's FP semantics match Rust's,
+  and every later phase (notably Phase 7's `sv_phys.c`/`world.c`) ports onto
+  it, so scoping it per-file would only have to be undone. Anyone comparing a
+  vendored library's codegen here against upstream should expect this
+  difference.
 - **Apple sincosf fusion**: at -O2+, clang on Darwin fuses adjacent
   `sinf`/`cosf` calls into `__sincosf_stret`, whose results differ from
   separate calls by up to 1 ulp. The engine's only affected function is
   `RotationMatrix` (renderer-only, gl_rmain.c — pixels, not bytes), so the C
   build keeps the fusion and the Rust port uses separate platform calls; the
   quake-ctest reference is compiled with `-fno-builtin-sinf -fno-builtin-cosf`
-  so the differential gate tests source semantics. The double-precision
-  `__sincos_stret` fusion (sim-relevant, e.g. AngleVectors) is bit-identical
-  to separate calls — differentially verified.
+  so the differential gate tests source semantics. Stated plainly: this is a
+  **known C-vs-Rust divergence deliberately fenced out of the oracle** — the
+  differential suite cannot see it, and it is accepted only because every
+  caller is renderer-side (`gl_rmain.c`), where the bar is pixels rather than
+  bytes. If `RotationMatrix` ever acquires a simulation caller, the fence must
+  come down. (The double-precision `__sincos_stret` fusion, which *is*
+  sim-relevant via `AngleVectors`, is bit-identical to separate calls —
+  differentially verified, not assumed.)
 - Libm call-throughs live in `quake-c-sys::libm` as hand-written C-standard
   externs with safe wrappers (not the `libc` crate, which does not reliably
   expose math functions on windows-msvc).

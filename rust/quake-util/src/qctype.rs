@@ -75,20 +75,23 @@ pub fn q_toupper(c: i32) -> i32 {
 mod tests {
     use super::*;
 
+    // behaviour is pinned against the C header by
+    // quake-ctest/tests/qctype_differential.rs (full int-range sweep); these
+    // only cover the cases most likely to be got wrong by a naive port
     #[test]
-    fn matches_c_semantics() {
-        for c in -256i32..=512 {
-            let b = c as u8; // wrapped, only meaningful in 0..=255 range checks
-            let _ = b;
-            assert_eq!(q_isascii(c), (c & !0x7f) == 0);
-            assert_eq!(q_tolower(b'A' as i32), b'a' as i32);
-            assert_eq!(q_toupper(b'z' as i32), b'Z' as i32);
-        }
-        assert!(q_isspace(b'\x0b' as i32));
+    fn boundaries_and_passthrough() {
+        assert!(q_isspace(0x0b)); // vertical tab is space here, unlike some libcs
         assert!(!q_isspace(0));
-        assert_eq!(q_tolower(b'@' as i32), b'@' as i32);
-        assert_eq!(q_tolower(b'[' as i32), b'[' as i32);
-        // out-of-ASCII values pass through untouched, like the C
+        assert_eq!(q_tolower(b'@' as i32), b'@' as i32); // just below 'A'
+        assert_eq!(q_tolower(b'[' as i32), b'[' as i32); // just above 'Z'
+        assert_eq!(q_toupper(b'`' as i32), b'`' as i32); // just below 'a'
+        assert_eq!(q_toupper(b'{' as i32), b'{' as i32); // just above 'z'
+
+        // non-ASCII and negative (sign-extended char) values pass through
         assert_eq!(q_tolower(0xc4), 0xc4);
+        assert_eq!(q_tolower(-60), -60);
+        assert!(!q_isascii(0xc4));
+        assert!(!q_isascii(-60));
+        assert_eq!(q_toascii(0xc4), 0x44);
     }
 }

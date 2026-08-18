@@ -170,6 +170,16 @@ fn gfx_wad_healthy_and_corrupt() {
             w[dirofs..dirofs + 4].copy_from_slice(&50000i32.to_le_bytes()); // size
             w
         },
+        // lump extends beyond the end and disksize does not rescue it: the only
+        // way to reach the repair's q_max (0, size - filepos) clamp
+        // (LumpProblem::ExtendsBeyond)
+        {
+            let mut w = build_wad(b"WAD2", &[(b"EXT", 64, vec![7; 10])]);
+            let dirofs = 12 + 10;
+            w[dirofs + 4..dirofs + 8].copy_from_slice(&50000i32.to_le_bytes()); // disksize
+            w[dirofs + 8..dirofs + 12].copy_from_slice(&50000i32.to_le_bytes()); // size
+            w
+        },
         // negative lump size
         {
             let mut w = build_wad(b"WAD2", &[(b"NEG", 64, vec![7; 10])]);
@@ -247,8 +257,19 @@ fn wad_list_matches() {
     )
     .unwrap();
     std::fs::write(dir.join("empty.wad"), build_wad(b"WAD2", &[])).unwrap();
+    // same ExtendsBeyond clamp, but through W_AddWadFile: it cleans the name
+    // *before* warning and prints the size with %i instead of %u, so the two
+    // loaders' repair paths are not interchangeable
+    std::fs::write(dir.join("extlump.wad"), {
+        let mut w = build_wad(b"WAD2", &[(b"EXTLUMP", 68, vec![5; 16])]);
+        let dirofs = 12 + 16;
+        w[dirofs + 4..dirofs + 8].copy_from_slice(&50000i32.to_le_bytes()); // disksize
+        w[dirofs + 8..dirofs + 12].copy_from_slice(&50000i32.to_le_bytes()); // size
+        w
+    })
+    .unwrap();
 
-    let names = c"C:\\editor\\path\\texlist.wad;gfxonly;badmagic.wad;;empty;missing.wad";
+    let names = c"C:\\editor\\path\\texlist.wad;gfxonly;badmagic.wad;;empty;extlump;missing.wad";
 
     // SAFETY: both lists are built and freed here; layouts are asserted in
     // the Rust shim and mirrored by CWad
@@ -280,7 +301,7 @@ fn wad_list_matches() {
             r = (*r).next;
             count += 1;
         }
-        assert_eq!(count, 2, "expected texlist + gfxonly to load");
+        assert_eq!(count, 3, "expected texlist + gfxonly + extlump to load");
 
         // list-wide lookup agrees
         for name in [c"BRICK", c"slime", c"nope"] {
