@@ -35,9 +35,14 @@ fn main() {
         .flag_if_supported("-fno-builtin-sinf")
         .flag_if_supported("-fno-builtin-cosf");
 
+    // the engine compiles as gnu11 (meson c_std / common.make); MSVC cl.exe
+    // defaults to a C89-ish mode where the headers' C11 `bool` fails, so pin
+    // the standard explicitly (c11 is the closest cl.exe offers)
     if build.get_compiler().is_like_msvc() {
+        build.flag("/std:c11");
         build.flag(format!("/FI{}", prelude.display()));
     } else {
+        build.flag("-std=gnu11");
         build.flag("-include").flag(prelude.to_str().unwrap());
     }
 

@@ -69,6 +69,9 @@ jobs:
     - uses: dtolnay/rust-toolchain@stable
       with:
         toolchain: 1.97.1
+        # bindgen runs rustfmt over its output; without it the regen diff
+        # below compares unformatted against formatted output
+        components: rustfmt
     - name: Install bindgen
       # version-pinned: the committed quake-c-sys bindings embed the bindgen
       # version, so a floating install would fail the regen diff below
