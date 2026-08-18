@@ -211,7 +211,6 @@ endforeach
 srcs = [
     'Quake/bgmusic.c',
     'Quake/cd_null.c',
-    'Quake/cfgfile.c',
     'Quake/chase.c',
     'Quake/cl_demo.c',
     'Quake/cl_input.c',
@@ -288,6 +287,7 @@ srcs = [
 # only when use_rust is disabled; the mixed build resolves their symbols from
 # libquake_rs.a instead. Deleted at phase exit (ROADMAP.md Phase 1).
 phase1_c_srcs = [
+    'Quake/cfgfile.c',
     'Quake/crc.c',
     'Quake/hash_map.c',
     'Quake/json.c',

@@ -29,6 +29,9 @@ unsafe extern "C" {
     pub fn Sys_ftell(file: *mut FILE) -> qfileofs_t;
 }
 unsafe extern "C" {
+    pub fn Sys_filelength(f: *mut FILE) -> qfilesize_t;
+}
+unsafe extern "C" {
     pub fn Sys_Error(error: *const ::std::os::raw::c_char, ...) -> !;
 }
 unsafe extern "C" {
@@ -112,6 +115,12 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn FS_rewind(fh: *mut fshandle_t);
+}
+unsafe extern "C" {
+    pub fn FS_feof(fh: *mut fshandle_t) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn FS_ferror(fh: *mut fshandle_t) -> ::std::os::raw::c_int;
 }
 unsafe extern "C" {
     pub fn FS_fclose(fh: *mut fshandle_t) -> ::std::os::raw::c_int;

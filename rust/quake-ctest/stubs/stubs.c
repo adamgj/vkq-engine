@@ -386,3 +386,165 @@ static int ctest_LongNoSwap (int l)
 	return l;
 }
 int (*LittleLong) (int l) = ctest_LongNoSwap;
+
+/* ---- cfgfile.c dependencies ---- */
+
+int FS_feof (fshandle_t *fh)
+{
+	if (!fh)
+	{
+		errno = EBADF;
+		return -1;
+	}
+	if (fh->pos >= fh->length)
+		return -1;
+	return 0;
+}
+
+int FS_ferror (fshandle_t *fh)
+{
+	if (!fh)
+	{
+		errno = EBADF;
+		return -1;
+	}
+	return ferror (fh->file);
+}
+
+char *FS_fgets (char *s, int size, fshandle_t *fh)
+{
+	char *ret;
+
+	if (FS_feof (fh))
+		return NULL;
+
+	if (size > (fh->length - fh->pos) + 1)
+		size = (fh->length - fh->pos) + 1;
+
+	ret = fgets (s, size, fh->file);
+	fh->pos = Sys_ftell (fh->file) - fh->start;
+
+	return ret;
+}
+
+void FS_rewind (fshandle_t *fh)
+{
+	if (!fh)
+		return;
+	clearerr (fh->file);
+	fseek (fh->file, fh->start, SEEK_SET);
+	fh->pos = 0;
+}
+
+qfilesize_t Sys_filelength (FILE *f)
+{
+	qfileofs_t pos, end;
+
+	pos = Sys_ftell (f);
+	Sys_fseek (f, 0, SEEK_END);
+	end = Sys_ftell (f);
+	Sys_fseek (f, pos, SEEK_SET);
+
+	return end;
+}
+
+FILE *COM_FOpenPrefFile (const char *filename, const char *mode)
+{
+	char full[2048];
+	snprintf (full, sizeof (full), "%s/%s", ctest_file_dir, filename);
+	return fopen (full, mode);
+}
+
+int q_strcasecmp (const char *s1, const char *s2)
+{
+	const char *p1 = s1;
+	const char *p2 = s2;
+	char		c1, c2;
+
+	if (p1 == p2)
+		return 0;
+
+	do
+	{
+		c1 = *p1++;
+		c2 = *p2++;
+		if (c1 >= 'A' && c1 <= 'Z')
+			c1 += 'a' - 'A';
+		if (c2 >= 'A' && c2 <= 'Z')
+			c2 += 'a' - 'A';
+		if (c1 == '\0')
+			break;
+	} while (c1 == c2);
+
+	return (int)(c1 - c2);
+}
+
+/* va: single static buffer is enough for the tests */
+char *va (const char *format, ...)
+{
+	static char va_buf[1024];
+	va_list		argptr;
+	va_start (argptr, format);
+	vsnprintf (va_buf, sizeof (va_buf), format, argptr);
+	va_end (argptr);
+	return va_buf;
+}
+
+/* Cvar_Set capture: both the C reference and the Rust shims funnel through
+ * this stub, so tests snapshot and compare the exact call sequences */
+#define CTEST_CVAR_LOG_MAX 128
+static char ctest_cvar_log[CTEST_CVAR_LOG_MAX][2][256];
+static int	ctest_cvar_log_count;
+
+void Cvar_Set (const char *var_name, const char *value)
+{
+	if (ctest_cvar_log_count < CTEST_CVAR_LOG_MAX)
+	{
+		snprintf (ctest_cvar_log[ctest_cvar_log_count][0], 256, "%s", var_name);
+		snprintf (ctest_cvar_log[ctest_cvar_log_count][1], 256, "%s", value);
+	}
+	ctest_cvar_log_count++;
+}
+
+void ctest_clear_cvar_log (void)
+{
+	ctest_cvar_log_count = 0;
+}
+
+int ctest_cvar_log_len (void)
+{
+	return ctest_cvar_log_count;
+}
+
+const char *ctest_cvar_log_get (int i, int which)
+{
+	return ctest_cvar_log[i][which];
+}
+
+/* command line for COM_CheckParm */
+#define CTEST_MAX_ARGS 64
+static char *ctest_argv[CTEST_MAX_ARGS];
+int			 com_argc;
+char	   **com_argv = ctest_argv;
+
+void ctest_set_args (int argc, char **argv)
+{
+	com_argc = argc < CTEST_MAX_ARGS ? argc : CTEST_MAX_ARGS;
+	for (int i = 0; i < com_argc; i++)
+		ctest_argv[i] = argv[i];
+}
+
+int COM_CheckParm (const char *parm)
+{
+	int i;
+
+	for (i = 1; i < com_argc; i++)
+	{
+		if (!com_argv[i])
+			continue;
+		if (!strcmp (parm, com_argv[i]))
+			return i;
+	}
+
+	return 0;
+}

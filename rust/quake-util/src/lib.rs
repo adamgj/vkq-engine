@@ -5,6 +5,7 @@
 
 #![forbid(unsafe_code)] // ADR-004: pure crate
 
+pub mod cfgfile;
 pub mod crc;
 pub mod hash_map;
 pub mod json;

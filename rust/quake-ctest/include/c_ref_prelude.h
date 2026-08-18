@@ -140,7 +140,15 @@ static inline int FindLastBitNonZero (const uint32_t mask)
 #define W_GetLumpinfoList	c_ref_W_GetLumpinfoList
 #define SwapPic				c_ref_SwapPic
 
+/* cfgfile.c */
+#define CFG_OpenConfig		 c_ref_CFG_OpenConfig
+#define CFG_CloseConfig		 c_ref_CFG_CloseConfig
+#define CFG_ReadCvars		 c_ref_CFG_ReadCvars
+#define CFG_ReadCvarOverrides c_ref_CFG_ReadCvarOverrides
+#define CONFIG_NAME			 "vkQuake.cfg"
+
 void Con_Printf (const char *fmt, ...);
+void Cvar_Set (const char *var_name, const char *value);
 void Con_Warning (const char *fmt, ...);
 void Con_DPrintf (const char *fmt, ...);
 void Con_DPrintf2 (const char *fmt, ...);
