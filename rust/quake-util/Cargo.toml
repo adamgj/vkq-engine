@@ -7,5 +7,10 @@ rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
+[dependencies]
+# platform strtod call-through for json number parsing (ADR-012); safe
+# wrappers only, so this crate stays forbid(unsafe_code)
+quake-c-sys = { path = "../quake-c-sys" }
+
 [lints]
 workspace = true

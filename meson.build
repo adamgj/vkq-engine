@@ -242,7 +242,6 @@ srcs = [
     'Quake/host.c',
     'Quake/host_cmd.c',
     'Quake/image.c',
-    'Quake/json.c',
     'Quake/in_sdl.c',
     'Quake/in_sdl2.c',
     'Quake/in_sdl3.c',
@@ -292,6 +291,7 @@ srcs = [
 phase1_c_srcs = [
     'Quake/crc.c',
     'Quake/hash_map.c',
+    'Quake/json.c',
     'Quake/mathlib.c',
     'Quake/mdfour.c',
     'Quake/strlcat.c',

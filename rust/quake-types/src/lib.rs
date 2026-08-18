@@ -5,6 +5,7 @@
 
 #![forbid(unsafe_code)] // ADR-004: pure crate
 
+pub mod json;
 pub mod plane;
 
 pub use plane::MPlane;

@@ -31,7 +31,10 @@ bool HashMap_EraseImpl(struct hash_map_s *map, uint32_t key_size, const void *ke
 void *HashMap_LookupImpl(struct hash_map_s *map, uint32_t key_size, const void *key);
 uint32_t HashMap_Size(struct hash_map_s *map);
 void *HashMap_GetKeyImpl(struct hash_map_s *map, uint32_t index);
-void *HashMap_GetValueImpl(struct hash_map_s *map, uint32_t index);"""
+void *HashMap_GetValueImpl(struct hash_map_s *map, uint32_t index);
+struct json_s;
+struct json_s *JSON_Parse(const char *text);
+void JSON_Free(struct json_s *json);"""
 
 [parse]
 parse_deps = false
@@ -42,4 +45,6 @@ exclude = [
     "HashMap_CreateImpl", "HashMap_Destroy", "HashMap_Reserve", "HashMap_Clear",
     "HashMap_InsertImpl", "HashMap_EraseImpl", "HashMap_LookupImpl",
     "HashMap_Size", "HashMap_GetKeyImpl", "HashMap_GetValueImpl", "FfiHashMap",
+    "JSON_Parse", "JSON_Free", "JSON_Find", "JSON_FindString", "JSON_FindNumber",
+    "JSON_FindBoolean", "Json", "JsonEntry", "JsonValue",
 ]

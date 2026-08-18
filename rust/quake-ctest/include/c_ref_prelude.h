@@ -19,8 +19,11 @@
 #include "q_types.h"
 #include <assert.h>
 #include <math.h>
+#include <stdlib.h>
 #include <string.h>
 #include "mem.h"
+
+size_t UTF8_WriteCodePoint (char *dst, size_t maxbytes, uint32_t codepoint);
 
 /* the slice of quakedef.h the reference files actually need */
 #define PITCH 0
@@ -114,5 +117,13 @@ static inline int FindLastBitNonZero (const uint32_t mask)
 #define HashMap_Size		 c_ref_HashMap_Size
 #define HashMap_GetKeyImpl	 c_ref_HashMap_GetKeyImpl
 #define HashMap_GetValueImpl c_ref_HashMap_GetValueImpl
+
+/* json.c */
+#define JSON_Parse		 c_ref_JSON_Parse
+#define JSON_Free		 c_ref_JSON_Free
+#define JSON_Find		 c_ref_JSON_Find
+#define JSON_FindString	 c_ref_JSON_FindString
+#define JSON_FindNumber	 c_ref_JSON_FindNumber
+#define JSON_FindBoolean c_ref_JSON_FindBoolean
 
 #endif /* C_REF_PRELUDE_H */

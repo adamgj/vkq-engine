@@ -8,6 +8,7 @@
 
 pub mod crc;
 pub mod hash_map;
+pub mod json;
 pub mod mathlib;
 pub mod mdfour;
 pub mod strl;

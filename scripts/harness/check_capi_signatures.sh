@@ -31,6 +31,7 @@ cat > "$tmpdir/capi_sig_check.c" <<'EOF'
 #include "crc.h"
 #include "strl_fn.h"
 #include "hash_map.h"
+#include "json.h"
 /* mathlib.h needs quakedef.h's bit-scan inline */
 #ifdef _MSC_VER
 #include <intrin.h>

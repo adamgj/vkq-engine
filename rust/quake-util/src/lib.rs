@@ -7,6 +7,7 @@
 
 pub mod crc;
 pub mod hash_map;
+pub mod json;
 pub mod mdfour;
 pub mod printf;
 pub mod qctype;

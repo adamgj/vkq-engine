@@ -8,6 +8,7 @@ use std::path::PathBuf;
 const C_SOURCES: &[&str] = &[
     "Quake/crc.c",
     "Quake/hash_map.c",
+    "Quake/json.c",
     "Quake/mathlib.c",
     "Quake/mdfour.c",
     "Quake/strlcpy.c",
