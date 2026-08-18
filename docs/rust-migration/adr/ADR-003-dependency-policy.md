@@ -28,3 +28,16 @@ GPLv2-compatibility is necessary but not sufficient. LGPL and other copyleft lic
 - License compliance is automatic; GPLv2+ distribution remains clean, and downstream packagers inherit no relinking or source-disclosure obligations beyond the engine's own GPLv2+.
 - Occasionally the best-in-class crate for a job is copyleft and must be passed over for a weaker permissive alternative or in-tree code. That cost is accepted deliberately; `cargo deny` makes it visible at PR time rather than at release time.
 - The allowlist needs maintenance: crates do relicense, and SPDX expressions for dual-licensed crates (`MIT OR Apache-2.0`) must be satisfiable from the allowlist alone. Revisit if a genuinely unavoidable dependency (a Vulkan or platform binding with no permissive equivalent) turns up.
+
+## Amended (Phase 1, 2026-08-17)
+
+`rust/deny.toml` is the enforced allowlist and deliberately diverges from the
+table above in one direction: **Apache-2.0 is excluded** (it is
+GPLv3-only-compatible; accepting it would force the combined GPLv2-or-later
+binary to GPLv3+ — see deny.toml's header comment). Dual-licensed
+"MIT OR Apache-2.0" crates still pass via MIT, which covers the ecosystem.
+The unused `MPL-2.0`/bare `GPL-2.0` allowances from Phase 0 were removed.
+First dependencies added (dev-only, never linked into the staticlib):
+`cc` and `proptest`, both MIT OR Apache-2.0 → MIT. External CLI tools
+(`cbindgen`, MPL-2.0; `bindgen-cli`, BSD-3-Clause) do not enter the
+dependency graph.
