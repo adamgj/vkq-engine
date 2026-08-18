@@ -25,7 +25,9 @@ fn ascii_eq_ignore_case(a: &[u8], b: &[u8]) -> bool {
 ///
 /// # Safety
 /// `vars` must point to `num_vars` readable pointers, each NULL or
-/// NUL-terminated; the strings must outlive the returned slices.
+/// NUL-terminated. The returned lifetime is unconstrained (as in
+/// `CStr::from_ptr`, which this wraps), so callers must not let the slices
+/// outlive the call — `CFG_ReadCvars` drops them before returning.
 unsafe fn collect_var_bytes<'a>(vars: *mut *const c_char, num_vars: c_int) -> Vec<&'a [u8]> {
     let mut out = Vec::new();
     for i in 0..num_vars.max(0) as usize {

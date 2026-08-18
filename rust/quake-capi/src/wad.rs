@@ -58,10 +58,10 @@ unsafe fn read_name(p: *const c_char) -> Vec<u8> {
 /// In-place `W_CleanupName` on a 16-byte lump name.
 unsafe fn cleanup_name_in_place(p: *mut c_char) {
     // SAFETY: p points to a 16-byte name field per the wad.h layout
-    unsafe {
-        let cleaned = cleanup_name(&read_name(p));
-        core::ptr::copy_nonoverlapping(cleaned.as_ptr() as *const c_char, p, 16);
-    }
+    let raw = unsafe { read_name(p) };
+    let cleaned = cleanup_name(&raw);
+    // SAFETY: as above; cleanup_name always yields exactly 16 bytes
+    unsafe { core::ptr::copy_nonoverlapping(cleaned.as_ptr() as *const c_char, p, 16) };
 }
 
 /// C: `void W_CleanupName (const char *in, char *out);`
@@ -71,18 +71,22 @@ unsafe fn cleanup_name_in_place(p: *mut c_char) {
 /// `out` must be writable for 16 bytes. In-place calls are fine, like C.
 #[no_mangle]
 pub unsafe extern "C" fn W_CleanupName(in_: *const c_char, out: *mut c_char) {
-    // SAFETY: caller contract above; read completes before the write
-    unsafe {
-        let cleaned = cleanup_name(&read_name(in_));
-        core::ptr::copy_nonoverlapping(cleaned.as_ptr() as *const c_char, out, 16);
-    }
+    // SAFETY: caller contract above
+    let raw = unsafe { read_name(in_) };
+    let cleaned = cleanup_name(&raw);
+    // SAFETY: caller contract above; the read is already complete, so in-place
+    // calls (in_ == out) stay well-defined, like C
+    unsafe { core::ptr::copy_nonoverlapping(cleaned.as_ptr() as *const c_char, out, 16) };
 }
 
 /// The WAD2 magic at the head of a loaded image.
 ///
-/// Split from `read_wad_counts` because the C reads the id first and only
-/// touches the rest of the header once the id checks out — a 4-byte file must
-/// not be read 12 bytes deep.
+/// Split from `read_wad_counts` to mirror wad.c's read order: the id first,
+/// the counts only once the id checks out. That narrows but does not close the
+/// short-file window — `COM_LoadFile` allocates `len + 1` and pads to nothing,
+/// so a gfx.wad whose entire contents are `WAD2` still reaches the 12-byte
+/// header read. wad.c gates that read on the id alone too, and staying
+/// bug-for-bug with it is deliberate.
 ///
 /// # Safety
 /// `base` must point to at least 4 readable bytes.
@@ -118,24 +122,36 @@ unsafe fn fixup_lump(
     cleanup_first: bool,
     warn: impl Fn(*const c_char, LumpProblem),
 ) {
-    // SAFETY: lump points at a lumpinfo_t inside a readable/writable buffer;
-    // reads/writes are unaligned-safe
+    // SAFETY: `lump` points at a lumpinfo_t inside a readable/writable buffer,
+    // so `name` is its 16-byte field
+    let name = unsafe { core::ptr::addr_of_mut!((*lump).name) as *mut c_char };
+    if cleanup_first {
+        // SAFETY: as above
+        unsafe { cleanup_name_in_place(name) };
+    }
+
+    // SAFETY: as above; the reads are unaligned-safe and the on-disk fields
+    // are little-endian
+    let (mut filepos, mut size, disksize) = unsafe {
+        (
+            i32::from_le(core::ptr::addr_of!((*lump).filepos).read_unaligned()),
+            i32::from_le(core::ptr::addr_of!((*lump).size).read_unaligned()),
+            i32::from_le(core::ptr::addr_of!((*lump).disksize).read_unaligned()),
+        )
+    };
+
+    if let Some(problem) = repair_lump(&mut filepos, &mut size, disksize, file_len) {
+        warn(name as *const c_char, problem);
+    }
+
+    // SAFETY: as above; the writes go back into the fields just read
     unsafe {
-        if cleanup_first {
-            cleanup_name_in_place(core::ptr::addr_of_mut!((*lump).name) as *mut c_char);
-        }
-        let mut filepos = i32::from_le(core::ptr::addr_of!((*lump).filepos).read_unaligned());
-        let mut size = i32::from_le(core::ptr::addr_of!((*lump).size).read_unaligned());
-        let disksize = i32::from_le(core::ptr::addr_of!((*lump).disksize).read_unaligned());
-        let problem = repair_lump(&mut filepos, &mut size, disksize, file_len);
-        if let Some(problem) = problem {
-            warn(core::ptr::addr_of!((*lump).name) as *const c_char, problem);
-        }
         core::ptr::addr_of_mut!((*lump).filepos).write_unaligned(filepos);
         core::ptr::addr_of_mut!((*lump).size).write_unaligned(size);
-        if !cleanup_first {
-            cleanup_name_in_place(core::ptr::addr_of_mut!((*lump).name) as *mut c_char);
-        }
+    }
+    if !cleanup_first {
+        // SAFETY: as above
+        unsafe { cleanup_name_in_place(name) };
     }
 }
 
@@ -171,11 +187,11 @@ pub unsafe extern "C" fn W_LoadWadFile() {
     // SAFETY: engine C API, reporting on the file COM_LoadFile just read
     let file_len = unsafe { quake_c_sys::COM_ThreadFileSize() };
 
-    // SAFETY: COM_LoadFile returned a non-NULL image, so its first bytes are
-    // readable
+    // SAFETY: COM_LoadFile returned a non-NULL image. It guarantees only
+    // `len + 1` bytes, so a gfx.wad under 4 bytes reads out of bounds here —
+    // exactly where wad.c's unchecked `header->identification[0..4]` does.
     let ident = unsafe { read_wad_ident(base) };
 
-    let mut numlumps: c_int = 0;
     let mut infotableofs: i32 = 0;
     if !wad2_id_ok(&ident) {
         // SAFETY: engine C API; NUL-terminated format and argument
@@ -187,12 +203,14 @@ pub unsafe extern "C" fn W_LoadWadFile() {
             wad_numlumps = 0;
         }
     } else {
-        // SAFETY: the id checked out, so this is a WAD2 image with a full
-        // header; the global is only written on the init path
-        unsafe {
-            (numlumps, infotableofs) = read_wad_counts(base);
-            wad_numlumps = numlumps;
-        }
+        // SAFETY: wad.c gates the numlumps/infotableofs reads on the WAD2 id
+        // alone, and so does this — a 4-byte "WAD2" file reads 8 bytes past
+        // the COM_LoadFile block, bug-for-bug with the C. The global is only
+        // written on the init path.
+        let (numlumps, ofs) = unsafe { read_wad_counts(base) };
+        infotableofs = ofs;
+        // SAFETY: the global is only written on the init path
+        unsafe { wad_numlumps = numlumps };
     }
 
     // wrapping_offset, not offset: infotableofs is untrusted file data and
@@ -204,6 +222,11 @@ pub unsafe extern "C" fn W_LoadWadFile() {
     // SAFETY: the global is only written on the init path
     unsafe { wad_lumps = lumps };
 
+    // `wad_numlumps` stays the single source of truth for the count, written
+    // at exactly the points the C writes it; the locals below are snapshots of
+    // it, read on the single-threaded init path.
+    // SAFETY: the global was just settled by the id check above
+    let numlumps = unsafe { wad_numlumps };
     if header_extends_beyond(infotableofs, numlumps, file_len) {
         // SAFETY: engine C API; NUL-terminated format and argument
         unsafe {
@@ -213,8 +236,9 @@ pub unsafe extern "C" fn W_LoadWadFile() {
             );
             wad_numlumps = 0;
         }
-        numlumps = 0;
     }
+    // SAFETY: as above — re-read because the bounds check may have zeroed it
+    let numlumps = unsafe { wad_numlumps };
 
     let warn = |name: *const c_char, problem: LumpProblem| {
         // SAFETY: engine C API; `name` is the lump's 16-byte name field, which
@@ -508,9 +532,14 @@ pub unsafe extern "C" fn W_LoadWadList(names: *const c_char) -> *mut Wad {
         if !opened {
             // try the "gfx" directory: C memmoves the name up 4 bytes and
             // stamps "gfx/", re-terminating the last byte
+            // both pointers come from one `as_mut_ptr`: spelling this as
+            // copy(filename.as_ptr(), filename.as_mut_ptr().add(4), ..) reads
+            // through a tag the second retag has already invalidated, which
+            // Miri/Stacked Borrows rejects
+            let p = filename.as_mut_ptr();
             // SAFETY: source and destination are both inside `filename` and
             // 4 + 60 == 64; `copy` is the overlap-tolerant memmove
-            unsafe { core::ptr::copy(filename.as_ptr(), filename.as_mut_ptr().add(4), 60) };
+            unsafe { core::ptr::copy(p, p.add(4), 60) };
             filename[0] = b'g' as c_char;
             filename[1] = b'f' as c_char;
             filename[2] = b'x' as c_char;

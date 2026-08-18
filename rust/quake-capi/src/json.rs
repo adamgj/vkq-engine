@@ -122,8 +122,12 @@ pub unsafe extern "C" fn JSON_Parse(text: *const c_char) -> *mut Json {
         let entry = unsafe { entries.add(i) };
         // link into the parent's child list, in token order
         if let Some(p) = desc.parent {
-            // SAFETY: parse() only ever names an already-emitted token as a
-            // parent, so p < i and that slot is an initialised arena entry
+            // quake_util::json::parse only ever names an already-emitted
+            // token as a parent; assert it rather than trusting a cross-crate
+            // invariant that nothing else here would catch if it regressed
+            debug_assert!(p < i, "parse() named a forward parent");
+            // SAFETY: p < i <= numtokens, so that slot is an initialised
+            // arena entry
             unsafe { link_child(entries.add(p), entry) };
         }
         // SAFETY: `entry` is a zeroed arena slot and `strings` is this arena's
