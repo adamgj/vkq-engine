@@ -332,7 +332,7 @@ void Host_Version_f (void)
 {
 	Con_Printf ("Quake Version %1.2f\n", VERSION);
 	Con_Printf ("QuakeSpasm Version " QUAKESPASM_VER_STRING "\n");
-	Con_Printf ("vkQuake Version " ENGINE_NAME_AND_VER "\n");
+	Con_Printf ("vkqr-engine Version " ENGINE_NAME_AND_VER "\n");
 
 #if defined(DEBUG) || defined(_DEBUG)
 	const char *build_str_suffix = "(DEBUG build)";

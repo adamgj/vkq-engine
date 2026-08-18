@@ -853,7 +853,7 @@ quakeflavor_t ChooseQuakeFlavor (void)
 	messagebox.buttons = buttons;
 	messagebox.numbuttons = countof (buttons);
 	messagebox.flags = SDL_MESSAGEBOX_BUTTONS_LEFT_TO_RIGHT;
-	messagebox.title = "vkQuake";
+	messagebox.title = "vkqr-engine";
 	messagebox.message = "Which Quake version would you like to play?";
 
 #ifdef USE_SDL3

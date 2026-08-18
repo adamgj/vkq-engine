@@ -2,8 +2,8 @@
 Categories=Game;Shooter;
 Comment=Port of id Software's Quake using the Vulkan API
 Icon=vkquake
-Name=vkQuake
+Name=vkqr-engine
 Terminal=false
 Type=Application
 # no path for AppImage
-Exec=vkquake
+Exec=vkqr-engine

@@ -3089,7 +3089,7 @@ static qboolean COM_SelectBaseDir (int flavor, char *dst, size_t dstsize)
 	{
 		if (COM_IsValidFlavorDir (dst, flavor))
 			return true;
-		Sys_MessageBoxWarning ("vkQuake", complaint);
+		Sys_MessageBoxWarning ("vkqr-engine", complaint);
 	}
 
 	if (result == 0) // cancelled

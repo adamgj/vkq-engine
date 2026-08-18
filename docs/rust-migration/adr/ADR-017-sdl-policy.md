@@ -14,7 +14,7 @@ The C engine supports both SDL2 and SDL3 (`USE_SDL3` compile switch; per-file sp
 - Structure mirrors the C approach that already works: a thin common layer (the Rust equivalent of `in_sdl.c`'s shared logic and the threading-name shim) over two backend modules, so version-specific code stays as small as the C splits are today.
 - Windows remains SDL3-only (as in C). CI builds both features on Linux and macOS (matching the existing macOS CI matrix).
 - The scancode→Quake-key table (`in_sdl.h`) ports once with per-backend mappings.
-- Revisit when upstream vkQuake or its distribution targets drop SDL2; this ADR then flips to SDL3-only with a one-phase deprecation window.
+- Revisit when upstream vkqr-engine or its distribution targets drop SDL2; this ADR then flips to SDL3-only with a one-phase deprecation window.
 
 ## Consequences
 

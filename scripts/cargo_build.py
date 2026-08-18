@@ -52,7 +52,7 @@ def main():
         sys.exit(f"error: cargo produced no {artifact}")
     # only rewrite the output when the bytes actually changed: the custom_target
     # is build_always_stale, so an unconditional copy bumps the mtime and
-    # relinks vkquake on every ninja invocation even when cargo did nothing
+    # relinks vkqr-engine on every ninja invocation even when cargo did nothing
     if not (os.path.isfile(args.output) and filecmp.cmp(artifact, args.output, shallow=False)):
         shutil.copyfile(artifact, args.output)
 

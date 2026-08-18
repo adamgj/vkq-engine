@@ -1,5 +1,5 @@
 /*
-Copyright (C) 2016-2024 vkQuake developers
+Copyright (C) 2016-2024 vkqr-engine developers
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -35,10 +35,10 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #endif
 
 #define VKQUAKE_VERSION_MAJOR 1
-#define VKQUAKE_VERSION_MINOR 35
-#define VKQUAKE_VER_PATCH	  1
+#define VKQUAKE_VERSION_MINOR 0
+#define VKQUAKE_VER_PATCH	  0
 
-#define VKQUAKE_VERSION		   1.35
+#define VKQUAKE_VERSION		   1.0
 #define VKQUAKE_COPYRIGHT_YEAR "2026"
 
 #define LINUX_VERSION VKQUAKE_VERSION
@@ -56,10 +56,10 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 #ifdef QSS_DATE
 // combined version string like "2020-10-20-beta1"
-#define ENGINE_NAME_AND_VER "vkQuake " QS_STRINGIFY (QSS_DATE) VKQUAKE_VER_SUFFIX
+#define ENGINE_NAME_AND_VER "vkqr-engine " QS_STRINGIFY (QSS_DATE) VKQUAKE_VER_SUFFIX
 #else
 #define ENGINE_NAME_AND_VER \
-	"vkQuake"               \
+	"vkqr-engine"           \
 	" " VKQUAKE_VER_STRING
 #endif
 #endif /* QUAKEVER_H */

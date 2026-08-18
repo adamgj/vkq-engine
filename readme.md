@@ -1,7 +1,7 @@
-# 🌋 vkQuake
+# 🌋 vkqr-engine
 [![Windows CI](https://github.com/Novum/vkQuake/actions/workflows/build-windows.yml/badge.svg)](https://github.com/Novum/vkQuake/actions/workflows/build-windows.yml) [![Windows CI](https://github.com/Novum/vkQuake/actions/workflows/build-mingw.yml/badge.svg)](https://github.com/Novum/vkQuake/actions/workflows/build-mingw.yml) [![Windows CI](https://github.com/Novum/vkQuake/actions/workflows/build-msys2-clangarm64.yml/badge.svg)](https://github.com/Novum/vkQuake/actions/workflows/build-msys2-clangarm64.yml) [![Linux CI](https://github.com/Novum/vkQuake/actions/workflows/build-linux.yml/badge.svg)](https://github.com/Novum/vkQuake/actions/workflows/build-linux.yml) [![macOS CI](https://github.com/Novum/vkQuake/actions/workflows/build-mac.yml/badge.svg)](https://github.com/Novum/vkQuake/actions/workflows/build-mac.yml) [![Formatting](https://github.com/Novum/vkQuake/actions/workflows/clang-format-check.yml/badge.svg)](https://github.com/Novum/vkQuake/actions/workflows/clang-format-check.yml)
 
-vkQuake is a port of id Software's [Quake](https://en.wikipedia.org/wiki/Quake_(video_game)) using Vulkan instead of OpenGL for rendering. It is based on the popular [QuakeSpasm](http://quakespasm.sourceforge.net/) and [QuakeSpasm-Spiked](https://triptohell.info/moodles/qss/) ports and runs all mods compatible with QuakeSpasm like [Arcane Dimensions](http://www.moddb.com/mods/arcane-dimensions). 
+vkqr-engine is a port of id Software's [Quake](https://en.wikipedia.org/wiki/Quake_(video_game)) using Vulkan instead of OpenGL for rendering. It is based on the popular [QuakeSpasm](http://quakespasm.sourceforge.net/) and [QuakeSpasm-Spiked](https://triptohell.info/moodles/qss/) ports and runs all mods compatible with QuakeSpasm like [Arcane Dimensions](http://www.moddb.com/mods/arcane-dimensions). 
 
 Improvements over QuakeSpasm include:
 * Much better performance with multithreaded rendering and loading
@@ -32,10 +32,10 @@ MacOS (both Apple Silicon and 64-bit Intel) binaries are at [Mac Source Ports](h
 ### Windows
 It is recommended to use the installer on Windows. This sets up start menu entries for the classic and remastered Quake versions. The engine finds Steam, GOG and Epic Games Store installs automatically; otherwise it asks for the game folder once and remembers it. Save data and config files will be written to the user folder (`%APPDATA%\vkQuake`) instead of the Quake data folder.
 
-Otherwise copy all files inside the `vkquake-<version>_windows_x64.zip` (Intel) or `vkquake-<version>_windows_arm64.zip` (Arm64) folder in the zip to the Quake base directory. Overwrite any existing files. Afterward to run the game just execute `vkQuake.exe`.
+Otherwise copy all files inside the `vkqr-engine-<version>_windows_x64.zip` (Intel) or `vkqr-engine-<version>_windows_arm64.zip` (Arm64) folder in the zip to the Quake base directory. Overwrite any existing files. Afterward to run the game just execute `vkqr-engine.exe`.
 
 ### Linux
-Copy all files inside the `vkquake-<version>-linux_x64` folder in the tar archive to the Quake base directory. Overwrite any existing files. Run `vkquake.AppImage`.
+Copy all files inside the `vkqr-engine-<version>-linux_x64` folder in the tar archive to the Quake base directory. Overwrite any existing files. Run `vkqr-engine.AppImage`.
 
 > **Note**\
 > Make sure all data files are lowercase, e.g. "id1", not "ID1" and "pak0.pak", not "PAK0.PAK". Some distributions of the game have upper case file names, e.g. from GOG.com.
@@ -68,20 +68,20 @@ $ cd /usr/ports/games/vkquake
 
 ### Quake '2021 re-release'
 
-vkQuake has support for playing the 2021 re-release content. Follow installation instructions as above but copy the files into the rerelease folder.
+vkqr-engine has support for playing the 2021 re-release content. Follow installation instructions as above but copy the files into the rerelease folder.
 
 ## Vulkan
-vkQuake shows basic usage of the API. For example it demonstrates render passes & sub passes, pipeline barriers & synchronization, compute shaders, push & specialization constants, CPU/GPU parallelism and memory pooling.
+vkqr-engine shows basic usage of the API. For example it demonstrates render passes & sub passes, pipeline barriers & synchronization, compute shaders, push & specialization constants, CPU/GPU parallelism and memory pooling.
 
 ## Endianness
-vkQuake only supports **little-endian** systems. 
+vkqr-engine only supports **little-endian** systems. 
 The reason is, all known existing Vulkan-capable systems in the wild are little-endian. Consequently, all big-endian support from QuakeSpasm has been effectively removed. 
-vkQuake wouldn't even start on an big-endian system, outputing a fatal error.
+vkqr-engine wouldn't even start on an big-endian system, outputing a fatal error.
 
 ## Rust migration
 A phased plan to convert the engine from C to Rust — while preserving 100% compatibility with game logic, assets, savegames, demos, networking, mods, and the 2021 re-release — is documented in [docs/rust-migration/](docs/rust-migration/PLAN.md): the [plan](docs/rust-migration/PLAN.md), the [roadmap](docs/rust-migration/ROADMAP.md) of discrete phases, and the [architecture decision records](docs/rust-migration/adr/README.md).
 
-Phase 0 landed the scaffolding: a Cargo workspace in `rust/` builds a staticlib that Meson links into `vkquake` when built with `-Duse_rust=enabled` (explicit opt-in, since cargo always builds for the host default triple; install the toolchain via [rustup](https://rustup.rs), the version is pinned by `rust/rust-toolchain.toml`). It also added the differential-verification harness — headless demo playback with per-frame state hashing, savegame byte-diffing, a progs VM trace and protocol capture — documented in [Misc/harness/README.md](Misc/harness/README.md).
+Phase 0 landed the scaffolding: a Cargo workspace in `rust/` builds a staticlib that Meson links into `vkqr-engine` when built with `-Duse_rust=enabled` (explicit opt-in, since cargo always builds for the host default triple; install the toolchain via [rustup](https://rustup.rs), the version is pinned by `rust/rust-toolchain.toml`). It also added the differential-verification harness — headless demo playback with per-frame state hashing, savegame byte-diffing, a progs VM trace and protocol capture — documented in [Misc/harness/README.md](Misc/harness/README.md).
 
 ## Building
 > **Note**\
@@ -119,14 +119,14 @@ Visual Studio can still be used as an editor/debugger; the checked-in solution h
 Setup your [MinGW-w64](https://sourceforge.net/projects/mingw-w64/) environment, e.g. using [w64devkit](https://github.com/skeeto/w64devkit) or [MSYS2](https://www.msys2.org/).
 
 
-Build 64 bit Intel vkQuake:
+Build 64 bit Intel vkqr-engine:
 
 ~~~
 cd vkQuake/Quake
 make -f Makefile.w64
 ~~~
 
-Build 64 bit Arm vkQuake:
+Build 64 bit Arm vkqr-engine:
 
 ~~~
 cd vkQuake/Quake
@@ -148,7 +148,7 @@ meson setup build && ninja -C build
 
 Make sure that both your GPU and your GPU driver support [Vulkan](https://en.wikipedia.org/wiki/Vulkan#Support_across_vendors).
 
-To compile vkQuake, first install the build dependencies:
+To compile vkqr-engine, first install the build dependencies:
 
 Ubuntu:
 ~~~
@@ -188,14 +188,14 @@ Meson prefers SDL3 and falls back to SDL2 if it is not installed; add `-Duse_sdl
 > cd vkQuake/Quake
 > make -j
 > ~~~
-> Meson is the preferred way to build vkQuake because it automatically checks for out of date file depenencies, is faster and has better error reporting for missing dependencies.
+> Meson is the preferred way to build vkqr-engine because it automatically checks for out of date file depenencies, is faster and has better error reporting for missing dependencies.
 
 > **Note**\
-> vkQuake requires **SDL3** or, as a fallback for older distributions, at least **SDL2 2.0.6 with enabled Vulkan support**.
+> vkqr-engine requires **SDL3** or, as a fallback for older distributions, at least **SDL2 2.0.6 with enabled Vulkan support**.
 
 ### MacOS
 
-To compile vkQuake, first install the build dependencies with Homebrew:
+To compile vkqr-engine, first install the build dependencies with Homebrew:
 
 ~~~
 brew install molten-vk vulkan-headers glslang spirv-tools sdl3 libvorbis flac opus opusfile flac mpg123 meson pkgconfig
@@ -221,7 +221,7 @@ Meson prefers SDL3 and falls back to SDL2 if it is not installed; add `-Duse_sdl
 
 ## Error reporting
 
-`vkQuake` is not garanteed to be free of runtime errors. In those rare cases, the game is either quit brutally with a `Quake Error` dialog, 
+`vkqr-engine` is not garanteed to be free of runtime errors. In those rare cases, the game is either quit brutally with a `Quake Error` dialog, 
 or by an `Host_Error` console message that only terminates the currently played level. 
 
 In both cases some error context is provided that can be useful for developers. See [Error reporting](error_reporting_howto.md) for details.      
@@ -231,11 +231,11 @@ In both cases some error context is provided that can be useful for developers. 
 > **Note**\
 > This section only applies to older releases. For the 2021 re-release music will work out of the box.
 
-The original Quake had a great soundtrack by Nine Inch Nails. Unfortunately, the Steam version does not come with the soundtrack files. The GOG-provided files need to be converted before they are ready for use. In general, you'll just need to move a "music" folder to the correct location within your vkQuake installation (.e.g `/usr/share/quake/id1/music`). Most Quake engines play nicest with soundtracks placed in the `id1/music` subfolder vs. `sound\cdtracks`
+The original Quake had a great soundtrack by Nine Inch Nails. Unfortunately, the Steam version does not come with the soundtrack files. The GOG-provided files need to be converted before they are ready for use. In general, you'll just need to move a "music" folder to the correct location within your vkqr-engine installation (.e.g `/usr/share/quake/id1/music`). Most Quake engines play nicest with soundtracks placed in the `id1/music` subfolder vs. `sound\cdtracks`
 
-QuakeSpasm, the engine vkQuake is derived from, supports OGG, MP3, FLAC, and WAV audio formats. The Linux version of QuakeSpasm/VkQuake requires external libraries: libogg or libvorbis for OGG support, libmad or libmpg123 for MP3, and libflac for FLAC. If you already have a setup that works for the engine you're currently using, then you don't necessarily have to change it. 
+QuakeSpasm, the engine vkqr-engine is derived from, supports OGG, MP3, FLAC, and WAV audio formats. The Linux version of QuakeSpasm/vkqr-engine requires external libraries: libogg or libvorbis for OGG support, libmad or libmpg123 for MP3, and libflac for FLAC. If you already have a setup that works for the engine you're currently using, then you don't necessarily have to change it. 
 
-Generally, the below setup works for multiple engines, including Quakespasm/vkQuake:
+Generally, the below setup works for multiple engines, including Quakespasm/vkqr-engine:
 
 * The music files are loose files, NOT inside a pak or pk3 archive.
 * The files are placed inside a "music" subfolder of the "id1" folder. For missionpack or mod soundtracks, the files are placed in a "music" subfolder of the appropriate game folder. So the original Quake soundtrack files go inside "id1\music", Mission Pack 1 soundtrack files go inside "hipnotic\music", and Mission Pack 2 soundtrack files go inside "rogue\music".

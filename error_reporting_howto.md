@@ -1,24 +1,24 @@
 # Error reporting
 
 In order to get the most context for fatal errors we need to have Debug information correcty installed 
-either alongside the `vkQuake` executable, or in a place where it can be found for post-mortem analysis:
+either alongside the `vkqr-engine` executable, or in a place where it can be found for post-mortem analysis:
 
--  Windows MSVC : Debug information is in the `vkQuake.pdb` file:
+-  Windows MSVC : Debug information is in the `vkqr-engine.pdb` file:
   
-    - Using `vkQuake-Installer-windows_x64-N.NN.N.exe` : Automatically installs the `.pdb` file at the right place.
-    - Using `vkQuake-N.NN.N_windows_x64.zip` : put the `vkQuake.pdb` file at the same place as the `vkQuake.exe` file.
+    - Using `vkqr-engine-Installer-windows_x64-N.NN.N.exe` : Automatically installs the `.pdb` file at the right place.
+    - Using `vkqr-engine-N.NN.N_windows_x64.zip` : put the `vkqr-engine.pdb` file at the same place as the `vkqr-engine.exe` file.
  
--  Windows MSYS2 for either `x64` or `arm64` : Debug information is already built-in the `vkQuake.exe` file.  
+-  Windows MSYS2 for either `x64` or `arm64` : Debug information is already built-in the `vkqr-engine.exe` file.  
 
 - Linux :
-   - Using Appimage : Extract the original executable `vkquake` from the .AppImage itself using the following command : `./vkQuake-<version>-x86_64.AppImage --appimage-extract`. That executable have Debug information included.
-   - Using either `Meson` or `Makefile` builds : Debug information is included in the `vkquake` executable.
+   - Using Appimage : Extract the original executable `vkqr-engine` from the .AppImage itself using the following command : `./vkqr-engine-<version>-x86_64.AppImage --appimage-extract`. That executable have Debug information included.
+   - Using either `Meson` or `Makefile` builds : Debug information is included in the `vkqr-engine` executable.
  
 - MacOS :
-   - `vkquake.dSYM` directory contains the Debug information that will be used for post-mortem analysis, and should be put at the same place
-     where the `vkquake` executable is. 
+   - `vkqr-engine.dSYM` directory contains the Debug information that will be used for post-mortem analysis, and should be put at the same place
+     where the `vkqr-engine` executable is. 
  
-## Extracting file+line information from in-game vkQuake fatal errors :  
+## Extracting file+line information from in-game vkqr-engine fatal errors :  
 
 ### _Examples:_
 
@@ -41,7 +41,7 @@ STACK TRACE
 ```
 Run: 
 ```sh
-addr2line -e vkquake 0x16a8a8 0x93267 0x165735 0x165839 0x1669dd 0x166ea0 0x936ed
+addr2line -e vkqr-engine 0x16a8a8 0x93267 0x165735 0x165839 0x1669dd 0x166ea0 0x936ed
 ```
 
 
@@ -49,25 +49,25 @@ addr2line -e vkquake 0x16a8a8 0x93267 0x165735 0x165839 0x1669dd 0x166ea0 0x936e
  
 ```c
 STACK TRACE
-0 : ./vkquake(+0x16a8a8) [0x588582e618a8]
-1 : ./vkquake(+0x93267) [0x588582d8a267]
-2 : ./vkquake(+0x165735) [0x588582e5c735]
-3 : ./vkquake(+0x165839) [0x588582e5c839]
-4 : ./vkquake(+0x1669dd) [0x588582e5d9dd]
-5 : ./vkquake(+0x166ea0) [0x588582e5dea0]
-6 : ./vkquake(+0x936ed) [0x588582d8a6ed]
+0 : ./vkqr-engine(+0x16a8a8) [0x588582e618a8]
+1 : ./vkqr-engine(+0x93267) [0x588582d8a267]
+2 : ./vkqr-engine(+0x165735) [0x588582e5c735]
+3 : ./vkqr-engine(+0x165839) [0x588582e5c839]
+4 : ./vkqr-engine(+0x1669dd) [0x588582e5d9dd]
+5 : ./vkqr-engine(+0x166ea0) [0x588582e5dea0]
+6 : ./vkqr-engine(+0x936ed) [0x588582d8a6ed]
 ```
 Run:
 ```sh
 # Using relative addresses: 
-addr2line -f -e [VKQUAKEBEBUG] 0x16a8a8 0x93267 0x165735 0x165839 0x1669dd 0x166ea0 0x936ed
+addr2line -f -e [VKQRENGINEDEBUG] 0x16a8a8 0x93267 0x165735 0x165839 0x1669dd 0x166ea0 0x936ed
 ```
 or Run:
 ```sh
 # Using absolute addresses: 
-addr2line -f -e [VKQUAKEBEBUG] 0x588582e618a8 0x588582d8a267 0x588582e5c735 0x588582e5c839 0x588582e5d9dd 0x588582e5dea0 0x588582d8a6ed
+addr2line -f -e [VKQRENGINEDEBUG] 0x588582e618a8 0x588582d8a267 0x588582e5c735 0x588582e5c839 0x588582e5d9dd 0x588582e5dea0 0x588582d8a6ed
 ```
-Use whatever works best, where `[VKQUAKEBEBUG]` is the vkQuake executable built using either Meson or Makefile, or the executable extracted from the `.AppImage`. 
+Use whatever works best, where `[VKQRENGINEDEBUG]` is the vkqr-engine executable built using either Meson or Makefile, or the executable extracted from the `.AppImage`. 
 
 
 -  ##### MacOS:
@@ -75,16 +75,16 @@ Use whatever works best, where `[VKQUAKEBEBUG]` is the vkQuake executable built 
 ```c
 STACK TRACE
 0x100003f4d 0x100003f01 0x100003ed0 0x100003ea0 0x7fff2035a3d5
-0 : 0   vkquake                 0x0000000100003f4d Sys_StackTrace + 77
-1 : 1   vkquake                 0x0000000100003f01 level3 + 17
-2 : 2   vkquake                 0x0000000100003ed0 level2 + 16
-3 : 3   vkquake                 0x0000000100003ea0 level1 + 16
+0 : 0   vkqr-engine                 0x0000000100003f4d Sys_StackTrace + 77
+1 : 1   vkqr-engine                 0x0000000100003f01 level3 + 17
+2 : 2   vkqr-engine                 0x0000000100003ed0 level2 + 16
+3 : 3   vkqr-engine                 0x0000000100003ea0 level1 + 16
 4 : 4   libdyld.dylib           0x00007fff2035a3d5 start + 1
 ```
 Run:
 ```sh
 # Pass the first line :
-atos -o vkquake 0x100003f4d 0x100003f01 0x100003ed0 0x100003ea0 0x7fff2035a3d5
+atos -o vkqr-engine 0x100003f4d 0x100003f01 0x100003ed0 0x100003ea0 0x7fff2035a3d5
 ```
 
 ----------------------------
@@ -99,4 +99,4 @@ main_sdl.c:112
 SDL_windows_main.c:?
 
 ```
-That can be reported to `vkQuake` maintainers.
+That can be reported to `vkqr-engine` maintainers.

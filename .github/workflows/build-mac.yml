@@ -40,20 +40,20 @@ jobs:
     - uses: actions/checkout@v6
     - name: Install Dependencies
       run: brew install molten-vk vulkan-headers glslang spirv-tools sdl2 sdl3 libvorbis flac opus opusfile flac mpg123 meson
-    - name: Build vkQuake
+    - name: Build vkqr-engine
       run: meson setup build --buildtype=${{ matrix.configuration }} -Ddebug=true -Dstrip=false -Duse_sdl3=${{ matrix.use-sdl3 }} -Duse_rust=disabled && ninja -C build
     - name: Extract debug information and bundle it to .dSYM
       run: |
-        dsymutil build/vkquake -o build/vkquake.dSYM
-        du -sh build/vkquake build/vkquake.dSYM
-        dwarfdump --uuid build/vkquake build/vkquake.dSYM
-    - name: Upload vkQuake
+        dsymutil build/vkqr-engine -o build/vkqr-engine.dSYM
+        du -sh build/vkqr-engine build/vkqr-engine.dSYM
+        dwarfdump --uuid build/vkqr-engine build/vkqr-engine.dSYM
+    - name: Upload vkqr-engine
       uses: actions/upload-artifact@v7
       with:
-        name: vkQuake archive (${{ matrix.configuration }}${{ matrix.use-sdl3 == 'disabled' && ', SDL2' || '' }})
+        name: vkqr-engine archive (${{ matrix.configuration }}${{ matrix.use-sdl3 == 'disabled' && ', SDL2' || '' }})
         path: |
-          build/vkquake
-          build/vkquake.dSYM
+          build/vkqr-engine
+          build/vkqr-engine.dSYM
 
   harness-mac:
     name: Harness macOS (shareware)
@@ -83,12 +83,12 @@ jobs:
     - name: Golden check (shareware tier, darwin-arm64)
       run: |
         export QUAKE_GAME_DATA="$PWD/shareware-data"
-        python3 scripts/harness/run_corpus.py --vkquake build-c/vkquake --check --tier shareware
+        python3 scripts/harness/run_corpus.py --vkquake build-c/vkqr-engine --check --tier shareware
     - name: Mixed build identity (rust vs C-only)
       run: |
         export QUAKE_GAME_DATA="$PWD/shareware-data"
-        python3 scripts/harness/run_corpus.py --vkquake build-c/vkquake --compare build-rs/vkquake --tier shareware
+        python3 scripts/harness/run_corpus.py --vkquake build-c/vkqr-engine --compare build-rs/vkqr-engine --tier shareware
     - name: Savegame byte-diff (C-only vs mixed)
       run: |
         export QUAKE_GAME_DATA="$PWD/shareware-data"
-        python3 scripts/harness/save_diff.py --vkquake build-c/vkquake --vkquake-b build-rs/vkquake
+        python3 scripts/harness/save_diff.py --vkquake build-c/vkqr-engine --vkquake-b build-rs/vkqr-engine

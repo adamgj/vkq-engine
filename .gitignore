@@ -4,7 +4,7 @@ Quake/*.dll
 Quake/*.o
 Quake/*.d
 Quake/id1/
-Quake/vkquake
+Quake/vkqr-engine
 Quake/vkquake.pak
 Quake/embedded_pak.c
 Quake/*.exe
@@ -20,8 +20,9 @@ Shaders/*.obj
 Shaders/bintoc
 Packaging/AppImage/AppDir
 Packaging/AppImage/vkquake*
-Packaging/Windows/vkQuake-Installer-*.exe
-Packaging/Windows/vkQuake*.zip
+Packaging/AppImage/vkqr-engine*
+Packaging/Windows/vkqr-engine-Installer-*.exe
+Packaging/Windows/vkqr-engine*.zip
 Misc/vq_pak/mkpak
 Misc/vq_pak/*.exe
 Misc/vq_pak/*.dSYM

@@ -18,7 +18,7 @@ icon ICON "vkQuake.ico"
 	#define VER_DEBUG				0
 #endif
 
-//////////////////////////////////////////////////////////////// 
+////////////////////////////////////////////////////////////////
 
 VS_VERSION_INFO VERSIONINFO
 FILEVERSION		VER_FILEVERSION
@@ -33,11 +33,11 @@ BEGIN
 	BEGIN
 		BLOCK "040904E4"
 		BEGIN
-			VALUE "FileDescription",	"vkQuake Quake engine"
+			VALUE "FileDescription",	"vkqr-engine Quake engine"
 			VALUE "FileVersion",		VER_FILEVERSION_STR
 			VALUE "LegalCopyright",		VER_LEGAL_COPYRIGHT
-			VALUE "OriginalFilename",	"vkQuake.exe"
-			VALUE "ProductName",		"vkQuake"
+			VALUE "OriginalFilename",	"vkqr-engine.exe"
+			VALUE "ProductName",		"vkqr-engine"
 			VALUE "ProductVersion",		VER_PRODUCTVERSION_STR
 		END
 	END

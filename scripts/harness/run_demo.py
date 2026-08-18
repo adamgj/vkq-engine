@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run vkQuake headless demo playback and collect the per-frame state hash.
+"""Run vkqr-engine headless demo playback and collect the per-frame state hash.
 
 Stages a temporary writable basedir (game dirs symlinked from read-only game
 data) so the engine can write configs/saves without touching the source data.

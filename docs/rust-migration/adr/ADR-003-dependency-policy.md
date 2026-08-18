@@ -6,7 +6,7 @@
 
 ## Context
 
-The project allows Cargo dependencies but requires them to be widely used, actively supported, and free of open high/critical CVEs. vkQuake is GPLv2+, constraining acceptable licenses. Supply-chain risk must be managed for a codebase that parses untrusted network and file input.
+The project allows Cargo dependencies but requires them to be widely used, actively supported, and free of open high/critical CVEs. vkqr-engine is GPLv2+, constraining acceptable licenses. Supply-chain risk must be managed for a codebase that parses untrusted network and file input.
 
 GPLv2-compatibility is necessary but not sufficient. LGPL and other copyleft licenses are GPLv2-compatible yet impose relinking, source-disclosure, and per-file obligations on downstream packagers and on anyone reusing engine code — a real cost for a project distributed through many third-party package repositories. Crates requiring a paid or commercial license (dual-licensed "free for non-commercial use", BUSL/SSPL/Elastic-style source-available terms, or a purchased seat/redistribution key) are incompatible with a GPLv2+ codebase anyone can build and redistribute for free. Permissive licensing keeps distribution obligations at "keep the notice file accurate".
 

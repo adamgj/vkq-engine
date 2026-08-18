@@ -4,7 +4,7 @@ Instructions for AI coding agents (Codex, GitHub Copilot, Claude Code, etc.) wor
 
 ## Project
 
-vkQuake is a C99 port of id Software's Quake using Vulkan instead of OpenGL, based on QuakeSpasm/QuakeSpasm-Spiked. Cross-platform: Windows, Linux, macOS. Engine source lives in `Quake/` (including inlined vendored libs like `miniz`, `stb_image`, `mimalloc`). Shaders are in `Shaders/`. Windows-only resources (vendored SDL3, codec libraries) are in `Windows/`. The Rust migration workspace lives in `rust/`.
+vkqr-engine is a C99 port of id Software's Quake using Vulkan instead of OpenGL, based on QuakeSpasm/QuakeSpasm-Spiked. Cross-platform: Windows, Linux, macOS. Engine source lives in `Quake/` (including inlined vendored libs like `miniz`, `stb_image`, `mimalloc`). Shaders are in `Shaders/`. Windows-only resources (vendored SDL3, codec libraries) are in `Windows/`. The Rust migration workspace lives in `rust/`.
 
 ## Build & verify
 

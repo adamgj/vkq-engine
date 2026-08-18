@@ -6,13 +6,13 @@
 
 ## Context
 
-vkQuake is ~124k LOC of C11 with a hard requirement of 100% backwards compatibility (saves, demos, netplay, mods, re-release content) and a goal of idiomatic, type-safe Rust. Three candidate strategies:
+vkqr-engine is ~124k LOC of C11 with a hard requirement of 100% backwards compatibility (saves, demos, netplay, mods, re-release content) and a goal of idiomatic, type-safe Rust. Three candidate strategies:
 
 1. **Incremental in-place oxidation** — link a growing Rust staticlib into the existing build, port module-by-module, invert ownership at the end.
 2. **c2rust transpile-then-refactor** — machine-translate the whole tree, then refactor toward idiomatic Rust.
 3. **Clean-room rewrite** — new Rust engine matching behavior (the Richter/Seismon approach).
 
-Evidence: Immunant's c2rust translation of ioquake3 works but produces raw-pointer, `unsafe`-saturated, non-idiomatic code; refactoring such output fights both the original design and transpiler artifacts, and the intermediate states are unshippable. Clean-room Rust Quake engines remain protocol-15-only and incomplete after years, and would discard vkQuake's accumulated compatibility fixes. Incremental oxidation keeps a shippable, testable engine at every step and lets each ported module be differentially verified against the live C implementation.
+Evidence: Immunant's c2rust translation of ioquake3 works but produces raw-pointer, `unsafe`-saturated, non-idiomatic code; refactoring such output fights both the original design and transpiler artifacts, and the intermediate states are unshippable. Clean-room Rust Quake engines remain protocol-15-only and incomplete after years, and would discard vkqr-engine's accumulated compatibility fixes. Incremental oxidation keeps a shippable, testable engine at every step and lets each ported module be differentially verified against the live C implementation.
 
 ## Decision
 

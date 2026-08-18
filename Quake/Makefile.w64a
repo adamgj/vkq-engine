@@ -1,4 +1,4 @@
-# GNU Makefile for compiling vkQuake.exe for Windows arm64 using MSYS2/clangarm64.
+# GNU Makefile for compiling vkqr-engine.exe for Windows arm64 using MSYS2/clangarm64.
 # Usage: "make -f Makefile.w64a"
 #
 # "make VK_SDK_PATH=/path/to/vksdk" to specify the Vulkan SDK root
@@ -36,7 +36,7 @@ USE_SDL3 := 1
 # ---------------------------
 SYSOBJ_NET := net_win.o net_wins.o
 SYSOBJ_SYS := pl_win.o sys_sdl.o sys_sdl_win.o
-DEFAULT_TARGET := vkQuake.exe
+DEFAULT_TARGET := vkqr-engine.exe
 BINTOC_EXE = ../Shaders/bintoc
 
 # ---------------------------
@@ -71,7 +71,7 @@ COMMON_LIBS:= -lole32 -luuid -lwinmm -ldbghelp
 
 LIBS := $(COMMON_LIBS) $(NET_LIBS) $(CODEC_LINK) $(CODECLIBS) $(VULKAN_LINK) $(VULKAN_LIBS)
 
-SYSOBJ_RES = vkQuake.res
+SYSOBJ_RES = vkqr-engine.res
 
 LIBWINPTHREAD = $(MSYSTEM_PREFIX)/bin/libwinpthread-1.dll
 
@@ -87,13 +87,13 @@ all: $(BINTOC_EXE) .WAIT $(DEFAULT_TARGET) .WAIT dll
 %.res: ../Windows/%.rc
 	$(WINDRES) -I../Windows -I../Quake --output-format=coff --target=pe-aarch64-little -o $@ $<
 
-vkQuake.exe: $(SHADER_OBJS) $(OBJS)
+vkqr-engine.exe: $(SHADER_OBJS) $(OBJS)
 	$(LINKER) $(SHADER_OBJS) $(OBJS) $(LDFLAGS) $(LIBS) $(SDL_LIBS) -o $@
 # Never strip
 #	$(call DO_STRIP,$@)
 
 dll:
-	ldd vkquake.exe | cut -d' ' -f3 | grep ${MSYSTEM_PREFIX}
+	ldd vkqr-engine.exe | cut -d' ' -f3 | grep ${MSYSTEM_PREFIX}
 	cp -p ${MSYSTEM_PREFIX}/bin/libvorbisfile-3.dll .
 	cp -p ${MSYSTEM_PREFIX}/bin/libFLAC.dll .
 	cp -p ${MSYSTEM_PREFIX}/bin/libmpg123-0.dll .
@@ -104,7 +104,7 @@ dll:
 	cp -p ${MSYSTEM_PREFIX}/bin/libvorbis-0.dll .
 	cp -p ${MSYSTEM_PREFIX}/bin/libopus-0.dll .
 
-release: vkQuake.exe
+release: vkqr-engine.exe
 debug:
 	$(error Use "make DEBUG=1")
 

@@ -215,7 +215,7 @@ areanode_t *SV_CreateAreaNode (int depth, vec3_t mins, vec3_t maxs)
 
 	if (pr_checkextension.value && sv_fte_createareanode.value > 0.0f)
 	{
-		// vso - vkQuake variant : hard to trigger some events, ex. opening Gold Door in https://www.quaddicted.com/filebase/hhouse.zip ?
+		// vso - vkqr-engine variant : hard to trigger some events, ex. opening Gold Door in https://www.quaddicted.com/filebase/hhouse.zip ?
 		// But a perceptible performance gain in big maps, so keep it.
 		// controlled by sv_fte_createareanode.
 		max_depth_reached = (depth == MAX_AREA_DEPTH || size[anode->axis] < 500);
