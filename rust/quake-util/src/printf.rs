@@ -609,19 +609,15 @@ fn fmt_nonfinite(
     let _ = precision;
 
     if mantissa == 0 {
-        #[allow(unused_mut)]
-        let mut body: Vec<u8> = if upper {
-            b"INF".to_vec()
-        } else {
-            b"inf".to_vec()
-        };
-        // UCRT's %#.0f forces the decimal point *into* the spelling: "i.nf"
-        // (observed on CI; per-platform match per ADR-005)
+        let body: &[u8] = if upper { b"INF" } else { b"inf" };
+        // UCRT's %#.0f forces the decimal point into index 1 of the *signed*
+        // spelling: "i.nf", "-.inf" (observed on CI; per-platform per ADR-005)
         #[cfg(target_os = "windows")]
         if f.alt && precision == 0 {
-            body.insert(1, b'.');
+            ucrt_hash_dot(out, body, negative, f, width);
+            return;
         }
-        pad_number(out, &body, negative, f, width, None);
+        pad_number(out, body, negative, f, width, None);
         return;
     }
 
