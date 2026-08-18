@@ -263,6 +263,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[cfg_attr(miri, ignore = "number parsing calls the platform strtod (FFI)")]
     fn accepts_and_shapes() {
         let p = parse(br#"{"a": 1, "b": [true, false, null], "c": "x\ny"}"#).unwrap();
         assert_eq!(p.entries[0].data, EntryData::Object);
