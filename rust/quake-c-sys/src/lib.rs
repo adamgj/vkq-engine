@@ -18,6 +18,23 @@ pub mod manual {
     }
 }
 
+/// libc stdio over the opaque `FILE` from the generated bindings; the
+/// engine's `FS_f*` pak-aware stdio shims wrap these exactly like the C.
+pub mod stdio {
+    use crate::FILE;
+    use core::ffi::{c_char, c_int, c_void};
+    extern "C" {
+        pub fn fread(ptr: *mut c_void, size: usize, nmemb: usize, stream: *mut FILE) -> usize;
+        pub fn fwrite(ptr: *const c_void, size: usize, nmemb: usize, stream: *mut FILE) -> usize;
+        pub fn fclose(stream: *mut FILE) -> c_int;
+        pub fn fgets(s: *mut c_char, size: c_int, stream: *mut FILE) -> *mut c_char;
+        pub fn fgetc(stream: *mut FILE) -> c_int;
+        pub fn ferror(stream: *mut FILE) -> c_int;
+        pub fn feof(stream: *mut FILE) -> c_int;
+        pub fn clearerr(stream: *mut FILE);
+    }
+}
+
 /// The engine's vendored mimalloc (amalgamated into mem.c's translation unit
 /// via `#include "mimalloc/static.c"`; the `mi_*` symbols have external
 /// linkage there). Only linked in the Meson mixed build — see quake-capi's

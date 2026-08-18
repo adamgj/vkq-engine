@@ -33,6 +33,14 @@ engine-debug = ["quake-math/engine-debug"]
 # (ADR-013). Set only by the Meson build: plain cargo test binaries don't
 # link mem.o, so the mi_* symbols don't exist there.
 engine-alloc = []
+# the Phase 2 filesystem shims (COM_*/FS_*/LOC_*/Steam discovery); set by
+# Meson when -Duse_rust_fs is enabled, and by quake-ctest for the
+# differential suites
+fs = []
+# tracks the C build's USE_SDL3 (folder-picker dialog availability)
+sdl3 = []
+# tracks the C build's DO_USERDIRS (extra per-user localization lookups)
+userdirs = []
 
 [lints]
 workspace = true

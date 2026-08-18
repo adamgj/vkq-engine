@@ -381,6 +381,7 @@ qfileofs_t COM_ThreadFileSize (void);
 int		   COM_ThreadFileFromPak (void);
 void	   COM_SetThreadFileSize (qfilesize_t size);
 void	   COM_SetThreadFileFromPak (int from_pak);
+const char *COM_ThreadToken (void);
 
 // Rust migration seam: quakeparms_t lives outside the bindgen-clean headers
 const char *COM_HostBasedir (void);

@@ -5,6 +5,28 @@
 pub struct FILE {
     _opaque: [u8; 0],
 }
+// MAX_OSPATH is PATH_MAX (q_types.h), platform-dependent: bindgen would
+// have baked the generation host's value into the arrays below.
+// The values are cross-checked against the C sizeof in quake-ctest.
+#[cfg(windows)]
+pub const MAX_OSPATH: usize = 260;
+#[cfg(target_os = "macos")]
+pub const MAX_OSPATH: usize = 1024;
+#[cfg(all(unix, not(target_os = "macos")))]
+pub const MAX_OSPATH: usize = 4096;
+#[repr(C)]
+pub struct steamgame_s {
+    pub appid: ::std::os::raw::c_int,
+    pub subdir: *mut ::std::os::raw::c_char,
+    pub library: [::std::os::raw::c_char; MAX_OSPATH],
+}
+pub type steamgame_t = steamgame_s;
+#[repr(C)]
+pub struct findfile_s {
+    pub attribs: fileattribs_t,
+    pub name: [::std::os::raw::c_char; MAX_OSPATH],
+}
+pub type findfile_t = findfile_s;
 
 pub type byte = ::std::os::raw::c_uchar;
 pub type qboolean = bool;
@@ -26,13 +48,134 @@ unsafe extern "C" {
 pub type qfilesize_t = ::std::os::raw::c_longlong;
 pub type qfileofs_t = ::std::os::raw::c_longlong;
 unsafe extern "C" {
+    pub fn Sys_GetPrefPath(
+        org: *const ::std::os::raw::c_char,
+        app: *const ::std::os::raw::c_char,
+    ) -> *mut ::std::os::raw::c_char;
+}
+unsafe extern "C" {
+    pub fn Sys_MessageBoxWarning(
+        title: *const ::std::os::raw::c_char,
+        message: *const ::std::os::raw::c_char,
+    );
+}
+unsafe extern "C" {
+    pub fn Sys_QuitNoShutdown() -> !;
+}
+unsafe extern "C" {
+    pub fn Sys_fseek(
+        file: *mut FILE,
+        ofs: qfileofs_t,
+        origin: ::std::os::raw::c_int,
+    ) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
     pub fn Sys_ftell(file: *mut FILE) -> qfileofs_t;
 }
 unsafe extern "C" {
     pub fn Sys_filelength(f: *mut FILE) -> qfilesize_t;
 }
 unsafe extern "C" {
+    pub fn Sys_FileOpenRead(
+        path: *const ::std::os::raw::c_char,
+        hndl: *mut ::std::os::raw::c_int,
+    ) -> qfilesize_t;
+}
+unsafe extern "C" {
+    pub fn Sys_MemFileOpenRead(
+        memory: *const byte,
+        size: qfilesize_t,
+        hndl: *mut ::std::os::raw::c_int,
+    );
+}
+unsafe extern "C" {
+    pub fn Sys_DuplicateHandle(handle: ::std::os::raw::c_int) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn Sys_FileOpenWrite(path: *const ::std::os::raw::c_char) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn Sys_FileClose(handle: ::std::os::raw::c_int);
+}
+unsafe extern "C" {
+    pub fn Sys_FileSeek(
+        handle: ::std::os::raw::c_int,
+        position: qfileofs_t,
+    ) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn Sys_FileRead(
+        handle: ::std::os::raw::c_int,
+        dest: *mut ::std::os::raw::c_void,
+        count: ::std::os::raw::c_int,
+    ) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn Sys_FileWrite(
+        handle: ::std::os::raw::c_int,
+        data: *const ::std::os::raw::c_void,
+        count: ::std::os::raw::c_int,
+    ) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn Sys_fopen(
+        path: *const ::std::os::raw::c_char,
+        mode: *const ::std::os::raw::c_char,
+    ) -> *mut FILE;
+}
+unsafe extern "C" {
+    pub fn Sys_mkdir(path: *const ::std::os::raw::c_char);
+}
+unsafe extern "C" {
+    pub fn Sys_FileType(path: *const ::std::os::raw::c_char) -> ::std::os::raw::c_int;
+}
+pub const fileattribs_t_FA_DIRECTORY: fileattribs_t = 1;
+pub type fileattribs_t = ::std::os::raw::c_uint;
+unsafe extern "C" {
+    pub fn Sys_FindFirst(
+        dir: *const ::std::os::raw::c_char,
+        ext: *const ::std::os::raw::c_char,
+    ) -> *mut findfile_t;
+}
+unsafe extern "C" {
+    pub fn Sys_FindNext(find: *mut findfile_t) -> *mut findfile_t;
+}
+unsafe extern "C" {
+    pub fn Sys_FindClose(find: *mut findfile_t);
+}
+unsafe extern "C" {
+    pub fn Sys_GetSteamDir(path: *mut ::std::os::raw::c_char, pathsize: usize) -> qboolean;
+}
+unsafe extern "C" {
+    pub fn Sys_GetGOGQuakeDir(path: *mut ::std::os::raw::c_char, pathsize: usize) -> qboolean;
+}
+unsafe extern "C" {
+    pub fn Sys_GetGOGQuakeEnhancedDir(
+        path: *mut ::std::os::raw::c_char,
+        pathsize: usize,
+    ) -> qboolean;
+}
+unsafe extern "C" {
+    pub fn Sys_GetEGSManifestDir(path: *mut ::std::os::raw::c_char, pathsize: usize) -> qboolean;
+}
+unsafe extern "C" {
+    pub fn Sys_GetEGSLauncherData() -> *const ::std::os::raw::c_char;
+}
+unsafe extern "C" {
+    pub fn Sys_GetNightdiveUserDir(
+        path: *mut ::std::os::raw::c_char,
+        pathsize: usize,
+        steamlibrary: *const ::std::os::raw::c_char,
+    ) -> qboolean;
+}
+unsafe extern "C" {
     pub fn Sys_Error(error: *const ::std::os::raw::c_char, ...) -> !;
+}
+unsafe extern "C" {
+    pub fn Sys_Printf(fmt: *const ::std::os::raw::c_char, ...);
+}
+unsafe extern "C" {
+    pub fn COM_Parse(data: *const ::std::os::raw::c_char) -> *const ::std::os::raw::c_char;
 }
 unsafe extern "C" {
     pub static mut com_argc: ::std::os::raw::c_int;
@@ -42,6 +185,12 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn COM_CheckParm(parm: *const ::std::os::raw::c_char) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn COM_CheckParmNext(
+        last: ::std::os::raw::c_int,
+        parm: *const ::std::os::raw::c_char,
+    ) -> ::std::os::raw::c_int;
 }
 unsafe extern "C" {
     pub fn COM_FOpenPrefFile(
@@ -76,6 +225,30 @@ unsafe extern "C" {
     pub fn COM_ThreadFileFromPak() -> ::std::os::raw::c_int;
 }
 unsafe extern "C" {
+    pub fn COM_SetThreadFileSize(size: qfilesize_t);
+}
+unsafe extern "C" {
+    pub fn COM_SetThreadFileFromPak(from_pak: ::std::os::raw::c_int);
+}
+unsafe extern "C" {
+    pub fn COM_ThreadToken() -> *const ::std::os::raw::c_char;
+}
+unsafe extern "C" {
+    pub fn COM_HostBasedir() -> *const ::std::os::raw::c_char;
+}
+unsafe extern "C" {
+    pub fn COM_HostUserdir() -> *const ::std::os::raw::c_char;
+}
+unsafe extern "C" {
+    pub fn COM_SetHostUserdir(dir: *const ::std::os::raw::c_char);
+}
+unsafe extern "C" {
+    pub fn COM_Game_f();
+}
+unsafe extern "C" {
+    pub fn COM_CheckRegistered();
+}
+unsafe extern "C" {
     pub fn COM_FOpenFile(
         filename: *const ::std::os::raw::c_char,
         file: *mut *mut FILE,
@@ -86,6 +259,12 @@ unsafe extern "C" {
     pub fn COM_LoadFile(
         path: *const ::std::os::raw::c_char,
         path_id: *mut ::std::os::raw::c_uint,
+    ) -> *mut byte;
+}
+unsafe extern "C" {
+    pub fn COM_LoadMallocFile_TextMode_OSPath(
+        path: *const ::std::os::raw::c_char,
+        len_out: *mut ::std::os::raw::c_long,
     ) -> *mut byte;
 }
 #[repr(C)]
@@ -132,8 +311,57 @@ unsafe extern "C" {
         fh: *mut fshandle_t,
     ) -> *mut ::std::os::raw::c_char;
 }
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct cvar_s {
+    pub name: *const ::std::os::raw::c_char,
+    pub string: *const ::std::os::raw::c_char,
+    pub flags: cvarflags_t,
+    pub value: f32,
+    pub default_string: *const ::std::os::raw::c_char,
+    pub callback: cvarcallback_t,
+    pub completion: cvarcompletion_t,
+    pub next: *mut cvar_s,
+}
+unsafe extern "C" {
+    pub static mut registered: cvar_s;
+}
+unsafe extern "C" {
+    pub static mut cmdline: cvar_s;
+}
+pub const cvarflags_t_CVAR_NONE: cvarflags_t = 0;
+pub const cvarflags_t_CVAR_ARCHIVE: cvarflags_t = 1;
+pub const cvarflags_t_CVAR_NOTIFY: cvarflags_t = 2;
+pub const cvarflags_t_CVAR_SERVERINFO: cvarflags_t = 4;
+pub const cvarflags_t_CVAR_USERINFO: cvarflags_t = 8;
+pub const cvarflags_t_CVAR_CHANGED: cvarflags_t = 16;
+pub const cvarflags_t_CVAR_ROM: cvarflags_t = 64;
+pub const cvarflags_t_CVAR_LOCKED: cvarflags_t = 256;
+pub const cvarflags_t_CVAR_REGISTERED: cvarflags_t = 1024;
+pub const cvarflags_t_CVAR_CALLBACK: cvarflags_t = 65536;
+pub const cvarflags_t_CVAR_USERDEFINED: cvarflags_t = 131072;
+pub const cvarflags_t_CVAR_AUTOCVAR: cvarflags_t = 262144;
+pub const cvarflags_t_CVAR_SETA: cvarflags_t = 524288;
+pub type cvarflags_t = ::std::os::raw::c_uint;
+pub type cvarcallback_t = ::std::option::Option<unsafe extern "C" fn(arg1: *mut cvar_s)>;
+pub type cvarcompletion_t = ::std::option::Option<
+    unsafe extern "C" fn(var: *mut cvar_s, partial: *const ::std::os::raw::c_char),
+>;
+pub type cvar_t = cvar_s;
+unsafe extern "C" {
+    pub fn Cvar_RegisterVariable(variable: *mut cvar_t);
+}
 unsafe extern "C" {
     pub fn Cvar_Set(var_name: *const ::std::os::raw::c_char, value: *const ::std::os::raw::c_char);
+}
+pub const quakeflavor_t_QUAKE_FLAVOR_ORIGINAL: quakeflavor_t = 0;
+pub const quakeflavor_t_QUAKE_FLAVOR_REMASTERED: quakeflavor_t = 1;
+pub type quakeflavor_t = ::std::os::raw::c_uint;
+unsafe extern "C" {
+    pub fn Steam_Init(game: *const steamgame_t) -> qboolean;
+}
+unsafe extern "C" {
+    pub fn ChooseQuakeFlavor() -> quakeflavor_t;
 }
 unsafe extern "C" {
     pub fn Con_Printf(fmt: *const ::std::os::raw::c_char, ...);
@@ -146,4 +374,52 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn Con_DPrintf2(fmt: *const ::std::os::raw::c_char, ...);
+}
+pub type xcommand_t = ::std::option::Option<unsafe extern "C" fn()>;
+pub const cmd_source_t_src_client: cmd_source_t = 0;
+pub const cmd_source_t_src_command: cmd_source_t = 1;
+pub const cmd_source_t_src_server: cmd_source_t = 2;
+pub type cmd_source_t = ::std::os::raw::c_uint;
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct cmd_function_s {
+    _unused: [u8; 0],
+}
+pub type cmd_function_t = cmd_function_s;
+unsafe extern "C" {
+    pub fn Cmd_AddCommand2(
+        cmd_name: *const ::std::os::raw::c_char,
+        function: xcommand_t,
+        srctype: cmd_source_t,
+        qcinterceptable: qboolean,
+    ) -> *mut cmd_function_t;
+}
+unsafe extern "C" {
+    pub fn Sys_SelectFolder(
+        title: *const ::std::os::raw::c_char,
+        default_location: *const ::std::os::raw::c_char,
+        dst: *mut ::std::os::raw::c_char,
+        dstsize: usize,
+    ) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub static mut multiuser: qboolean;
+}
+unsafe extern "C" {
+    pub static mut isDedicated: qboolean;
+}
+unsafe extern "C" {
+    pub static mut developer: cvar_t;
+}
+unsafe extern "C" {
+    pub static mut harness_active: qboolean;
+}
+unsafe extern "C" {
+    pub static vkquake_pak: [::std::os::raw::c_uchar; 0usize];
+}
+unsafe extern "C" {
+    pub static vkquake_pak_size: ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub static vkquake_pak_decompressed_size: ::std::os::raw::c_int;
 }

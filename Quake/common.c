@@ -2142,6 +2142,11 @@ void COM_SetThreadFileFromPak (int from_pak)
 	file_from_pak = from_pak;
 }
 
+const char *COM_ThreadToken (void)
+{
+	return com_token;
+}
+
 // Rust migration seam: quakeparms_t lives outside the bindgen-clean headers
 const char *COM_HostBasedir (void)
 {
