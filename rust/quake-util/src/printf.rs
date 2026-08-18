@@ -576,6 +576,23 @@ fn fmt_float(out: &mut Vec<u8>, v: f64, flags: Flags, width: usize, precision: u
     pad_number(out, &body, negative, flags, width, None);
 }
 
+/// UCRT %#.0f of a non-finite value: the decimal point is inserted at index
+/// 1 of the sign-included string ("i.nf", "-.inf", "-.nan(ind)").
+#[cfg(target_os = "windows")]
+fn ucrt_hash_dot(out: &mut Vec<u8>, body: &[u8], negative: bool, flags: Flags, width: usize) {
+    let mut signed: Vec<u8> = Vec::with_capacity(body.len() + 2);
+    if negative {
+        signed.push(b'-');
+    } else if flags.plus {
+        signed.push(b'+');
+    } else if flags.space {
+        signed.push(b' ');
+    }
+    signed.extend_from_slice(body);
+    signed.insert(1, b'.');
+    pad_bytes(out, &signed, flags, width);
+}
+
 fn fmt_nonfinite(
     out: &mut Vec<u8>,
     negative: bool,
@@ -631,14 +648,15 @@ fn fmt_nonfinite(
         } else {
             b"nan".to_vec()
         };
-        let mut body = if upper {
+        let body = if upper {
             body.to_ascii_uppercase()
         } else {
             body
         };
-        // UCRT's %#.0f decimal-point insertion, as for inf: "n.an(ind)"
+        // UCRT's %#.0f decimal-point insertion, as for inf: "-.nan(ind)"
         if f.alt && precision == 0 {
-            body.insert(1, b'.');
+            ucrt_hash_dot(out, &body, negative, f, width);
+            return;
         }
         pad_number(out, &body, negative, f, width, None);
     }
