@@ -2,6 +2,9 @@
 //! snprintf, on a stratified sample of f32/f64 bit patterns plus integer and
 //! string spec coverage. The scheduled exhaustive 2^32 f32 sweep lives in
 //! src/bin/snprintf_sweep.rs.
+// The c_ref_* symbols are compiled C (build.rs), which Miri cannot execute;
+// the shims themselves get Miri coverage in miri_capi.rs instead.
+#![cfg(not(miri))]
 
 use quake_ctest::*;
 use quake_util::printf::{format, Arg};

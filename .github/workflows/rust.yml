@@ -104,6 +104,41 @@ jobs:
       working-directory: rust
       run: cargo run -p quake-ctest --release --locked --bin snprintf_sweep
 
+  # ADR-019 section 7: Miri over the pure crates, plus the quake-capi FFI
+  # shims. The differential suites prove the shims agree with the C, but they
+  # run natively and so cannot see undefined behaviour; tests/miri_capi.rs
+  # supplies the engine symbols as Rust #[no_mangle] stubs, which Miri
+  # resolves through quake-c-sys's extern "C" declarations, so the real shims
+  # execute under Miri's aliasing model. Stacked Borrows (the default model)
+  # is the one that catches mut/const pointer-pair mistakes; Tree Borrows
+  # accepts some of them.
+  miri:
+    name: miri (pure crates + capi shims)
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v6
+    # nightly-only tool; the explicit `cargo +nightly` below overrides the
+    # 1.97.1 pin in rust/rust-toolchain.toml
+    - uses: dtolnay/rust-toolchain@master
+      with:
+        toolchain: nightly
+        components: miri
+    - name: cargo miri setup
+      working-directory: rust
+      run: cargo +nightly miri setup
+    - name: Miri - pure crates (forbid(unsafe_code), ADR-004)
+      working-directory: rust
+      run: >
+        cargo +nightly miri test
+        -p quake-math -p quake-util -p quake-fs -p quake-types
+        -p quake-cvar -p quake-formats -p quake-image
+    # the whole package, not just --test miri_capi: the other suites are
+    # #![cfg(not(miri))] and must stay that way, so running them here proves
+    # the gate still holds
+    - name: Miri - quake-capi shims
+      working-directory: rust
+      run: cargo +nightly miri test -p quake-ctest
+
   # ADR-005: scheduled exhaustive conformance sweep of all 2^32 f32 patterns
   # against the platform snprintf, per CI OS
   conformance-exhaustive:

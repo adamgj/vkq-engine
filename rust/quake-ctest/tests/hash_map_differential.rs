@@ -4,6 +4,9 @@
 //! compared after every op: return values, size, lookups over the whole key
 //! space, and the full index-ordered key/value iteration (which is observable
 //! and must match, including erase's swap-remove reordering).
+// The c_ref_* symbols are compiled C (build.rs), which Miri cannot execute;
+// the shims themselves get Miri coverage in miri_capi.rs instead.
+#![cfg(not(miri))]
 
 use core::ffi::{c_int, c_void};
 use proptest::prelude::*;

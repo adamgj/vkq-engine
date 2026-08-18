@@ -2,6 +2,9 @@
 //! compiled as c_ref_*. Both sides read the same config files through the
 //! same stub filesystem and funnel Cvar_Set into a shared capture log; the
 //! exact call sequences (names, values, order) are compared.
+// The c_ref_* symbols are compiled C (build.rs), which Miri cannot execute;
+// the shims themselves get Miri coverage in miri_capi.rs instead.
+#![cfg(not(miri))]
 
 use core::ffi::{c_char, c_int, CStr};
 use quake_ctest as _; // links the cc-built c_ref_* archive

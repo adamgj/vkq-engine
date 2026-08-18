@@ -1,4 +1,7 @@
 //! Differential tests: Rust ports vs the original C (compiled as c_ref_*).
+// The c_ref_* symbols are compiled C (build.rs), which Miri cannot execute;
+// the shims themselves get Miri coverage in miri_capi.rs instead.
+#![cfg(not(miri))]
 
 use proptest::prelude::*;
 use quake_ctest::*;
