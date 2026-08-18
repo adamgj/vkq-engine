@@ -374,6 +374,11 @@ extern int				com_numbasedirs;
 extern char				com_gamedir[MAX_OSPATH];
 extern THREAD_LOCAL int file_from_pak; // global indicating that file came from a pak
 
+// Rust migration seam: thread-local globals are not reachable through
+// bindgen, so ported code reads them through these accessors
+qfileofs_t COM_ThreadFileSize (void);
+int		   COM_ThreadFileFromPak (void);
+
 void COM_AddBaseDir (const char *dir);
 
 const char *COM_GetGameNames (qboolean full);

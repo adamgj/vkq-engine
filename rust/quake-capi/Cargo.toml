@@ -9,7 +9,26 @@ publish.workspace = true
 
 [lib]
 name = "quake_rs"
-crate-type = ["staticlib"]
+# rlib in addition to staticlib so quake-ctest can link the shims into its
+# differential test binaries
+crate-type = ["staticlib", "rlib"]
+# no unit tests here (differential tests live in quake-ctest, which supplies
+# the engine-symbol stubs); a test harness for this crate would fail to link
+# on MSVC, where the staticlib's unresolved engine imports are not stripped
+test = false
+doctest = false
+
+[dependencies]
+quake-util = { path = "../quake-util" }
+quake-math = { path = "../quake-math" }
+quake-fs = { path = "../quake-fs" }
+quake-types = { path = "../quake-types" }
+quake-c-sys = { path = "../quake-c-sys" }
+
+[features]
+# forwarded to the pure crates; set by the Meson build when the C engine is
+# compiled with -D_DEBUG (see quake-math's engine-debug)
+engine-debug = ["quake-math/engine-debug"]
 
 [lints]
 workspace = true

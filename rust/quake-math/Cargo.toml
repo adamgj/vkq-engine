@@ -7,5 +7,16 @@ rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
+[dependencies]
+# platform libm call-throughs (ADR-010); safe wrappers only, so this crate
+# stays forbid(unsafe_code)
+quake-c-sys = { path = "../quake-c-sys" }
+
+[features]
+# mirrors the engine's DEBUG/_DEBUG: enabled by the Meson build when the C
+# side is built with -D_DEBUG, so the debug-only Sys_Error diagnostics in the
+# ported code appear in exactly the builds the C had them (ADR-010)
+engine-debug = []
+
 [lints]
 workspace = true

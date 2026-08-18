@@ -1,0 +1,27 @@
+[package]
+name = "quake-ctest"
+version = "0.1.0"
+description = "dev-only differential test harness: Rust ports vs the original C, compiled via cc; never linked into the shipping staticlib"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+quake-util = { path = "../quake-util" }
+quake-math = { path = "../quake-math" }
+quake-types = { path = "../quake-types" }
+quake-c-sys = { path = "../quake-c-sys" }
+quake-capi = { path = "../quake-capi" }
+
+[dev-dependencies]
+# ADR-003 review: proptest is MIT OR Apache-2.0 (MIT preferred), dev-only;
+# transitive graph checked with `cargo deny check licenses`
+proptest = "1"
+
+[build-dependencies]
+# ADR-003 review: cc is MIT OR Apache-2.0 (MIT preferred), build-time only
+cc = "1"
+
+[lints]
+workspace = true

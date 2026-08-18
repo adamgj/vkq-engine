@@ -110,6 +110,10 @@ jobs:
     - uses: dtolnay/rust-toolchain@stable
       with:
         toolchain: 1.97.1
+    - name: Install cbindgen
+      uses: taiki-e/install-action@v2
+      with:
+        tool: cbindgen
     - name: Cache shareware data
       uses: actions/cache@v4
       with:
@@ -121,6 +125,8 @@ jobs:
       run: |
         meson setup build-c -Duse_sdl3=disabled -Duse_rust=disabled && ninja -C build-c
         meson setup build-rs -Duse_sdl3=disabled -Duse_rust=enabled && ninja -C build-rs
+    - name: FFI signature parity (quake_rs.h vs engine headers)
+      run: ./scripts/harness/check_capi_signatures.sh build-rs/quake_rs.h
     # no linux-x86_64 goldens yet, so gate on run-to-run stability and on the
     # mixed build matching C-only; both cover the map entries, i.e. real
     # server/edict state rather than demo playback alone

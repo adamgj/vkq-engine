@@ -61,7 +61,7 @@ jobs:
     steps:
     - uses: actions/checkout@v6
     - name: Install Dependencies
-      run: brew install molten-vk vulkan-headers glslang spirv-tools sdl3 libvorbis flac opus opusfile mpg123 meson lhasa
+      run: brew install molten-vk vulkan-headers glslang spirv-tools sdl3 libvorbis flac opus opusfile mpg123 meson lhasa cbindgen
     - uses: dtolnay/rust-toolchain@stable
       with:
         toolchain: 1.97.1
@@ -76,6 +76,8 @@ jobs:
       run: |
         meson setup build-c -Duse_rust=disabled && ninja -C build-c
         meson setup build-rs -Duse_rust=enabled && ninja -C build-rs
+    - name: FFI signature parity (quake_rs.h vs engine headers)
+      run: ./scripts/harness/check_capi_signatures.sh build-rs/quake_rs.h
     # the corpus covers the map entries too, so the per-frame hash gate sees
     # real server/edict state and not just demo playback
     - name: Golden check (shareware tier, darwin-arm64)

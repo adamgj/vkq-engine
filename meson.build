@@ -13,6 +13,19 @@ add_project_arguments(cc.get_supported_arguments('-fno-omit-frame-pointer', '/Oy
 # (clang-cl doesn't accept it, and warning-as-error would turn that into a build failure)
 add_project_arguments(cc.get_supported_arguments('-fno-common'), language: 'c')
 
+# ADR-010 (Rust migration): pin FP contraction off so C and Rust builds agree
+# on FMA usage. Compilers default to contracting a*b+c into fused fmadd on
+# targets that have it (arm64), which plain Rust float ops don't reproduce;
+# only arm64 targets change behavior (x86-64 baseline has no FMA). The
+# darwin-arm64 harness goldens were regenerated for this (Phase 1).
+# note: this is a *project-wide* flag -- it covers the vendored miniz /
+# stb_image / mimalloc sources and the whole renderer, not just the ported
+# leaves. That is deliberate: every later phase ports code onto a C build that
+# already matches Rust's FP semantics. See ADR-010's Phase 1 amendment.
+# first_supported_argument, not get_supported_arguments: clang-cl accepts both
+# spellings, and adding both would pass the flag twice.
+add_project_arguments(cc.first_supported_argument('-ffp-contract=off', '/clang:-ffp-contract=off'), language: 'c')
+
 if host_machine.system() == 'windows'
     foreach native : [true, false]
         add_project_arguments('-D_CRT_SECURE_NO_WARNINGS', '-D_CRT_NONSTDC_NO_DEPRECATE', '-D_WINSOCK_DEPRECATED_NO_WARNINGS', language : 'c', native : native)
@@ -204,7 +217,6 @@ endforeach
 srcs = [
     'Quake/bgmusic.c',
     'Quake/cd_null.c',
-    'Quake/cfgfile.c',
     'Quake/chase.c',
     'Quake/cl_demo.c',
     'Quake/cl_input.c',
@@ -214,7 +226,6 @@ srcs = [
     'Quake/cmd.c',
     'Quake/common.c',
     'Quake/console.c',
-    'Quake/crc.c',
     'Quake/cvar.c',
     'Quake/gl_draw.c',
     'Quake/gl_fog.c',
@@ -236,14 +247,11 @@ srcs = [
     'Quake/host.c',
     'Quake/host_cmd.c',
     'Quake/image.c',
-    'Quake/json.c',
     'Quake/in_sdl.c',
     'Quake/in_sdl2.c',
     'Quake/in_sdl3.c',
     'Quake/keys.c',
     'Quake/main_sdl.c',
-    'Quake/mathlib.c',
-    'Quake/mdfour.c',
     'Quake/mem.c',
     'Quake/menu.c',
     'Quake/net_dgrm.c',
@@ -270,8 +278,6 @@ srcs = [
     'Quake/snd_umx.c',
     'Quake/snd_wave.c',
     'Quake/steam.c',
-    'Quake/strlcat.c',
-    'Quake/strlcpy.c',
     'Quake/sv_main.c',
     'Quake/sv_move.c',
     'Quake/sv_phys.c',
@@ -279,10 +285,23 @@ srcs = [
 	'Quake/sys_sdl.c',
     'Quake/tasks.c',
     'Quake/view.c',
-    'Quake/wad.c',
     'Quake/world.c',
-	'Quake/hash_map.c',
 	 run_generate_embedded_pak,
+]
+
+# Phase 1 (Rust migration): C originals of modules ported to rust/. Compiled
+# only when use_rust is disabled; the mixed build resolves their symbols from
+# libquake_rs.a instead. Deleted at phase exit (ROADMAP.md Phase 1).
+phase1_c_srcs = [
+    'Quake/cfgfile.c',
+    'Quake/crc.c',
+    'Quake/hash_map.c',
+    'Quake/json.c',
+    'Quake/mathlib.c',
+    'Quake/mdfour.c',
+    'Quake/strlcat.c',
+    'Quake/strlcpy.c',
+    'Quake/wad.c',
 ]
 
 if host_machine.system() == 'windows'
@@ -319,27 +338,38 @@ endif
 cargo = find_program('cargo', required : get_option('use_rust'))
 use_rust = cargo.found() and not get_option('use_rust').disabled()
 if use_rust
+    cbindgen = find_program('cbindgen', required : true)
     cflags += '-DUSE_RUST'
     python3 = find_program('python3')
     rust_profile = get_option('buildtype') == 'debug' ? 'debug' : 'release'
+    # the ported code's debug-only diagnostics must track the C engine's
+    # DEBUG/_DEBUG, not the Rust profile: -D_DEBUG is set for every debug*
+    # buildtype while the Rust profile is release for debugoptimized
+    rust_features = get_option('buildtype').startswith('debug') ? 'engine-debug' : ''
     rust_lib_name = host_machine.system() == 'windows' ? 'quake_rs.lib' : 'libquake_rs.a'
     quake_rs = custom_target(
         'quake_rs',
-        output : rust_lib_name,
+        output : [rust_lib_name, 'quake_rs.h'],
         command : [
             python3, meson.project_source_root() / 'scripts/cargo_build.py',
             '--cargo', cargo,
             '--manifest-path', meson.project_source_root() / 'rust/Cargo.toml',
             '--target-dir', meson.project_build_root() / 'cargo-target',
             '--profile', rust_profile,
-            '--output', '@OUTPUT@',
+            '--output', '@OUTPUT0@',
             '--depfile', '@DEPFILE@',
+            '--features', rust_features,
+            '--cbindgen', cbindgen,
+            '--header-output', '@OUTPUT1@',
         ],
         depfile : 'quake_rs.d',
         console : true,
         # cargo is its own (fast) change detector; always let it decide
         build_always_stale : true,
     )
+else
+    # C-only build: keep compiling the originals of the Rust-ported modules
+    srcs += phase1_c_srcs
 endif
 
 deps = [
@@ -350,7 +380,10 @@ deps = [
 ]
 
 if use_rust
-    deps += declare_dependency(link_with : quake_rs)
+    # link_with the staticlib; sources orders C compilation after quake_rs.h
+    # generation (the header lands in the build root, which is on the include
+    # path implicitly)
+    deps += declare_dependency(link_with : quake_rs[0], sources : quake_rs[1])
 endif
 
 if host_machine.system() == 'windows'

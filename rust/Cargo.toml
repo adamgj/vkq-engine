@@ -17,6 +17,7 @@ members = [
     "quake-host",
     "quake-c-sys",
     "quake-capi",
+    "quake-ctest",
     "xtask",
 ]
 # tools/c2rust-oracle is deliberately NOT a workspace member: transpiled

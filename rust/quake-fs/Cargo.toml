@@ -7,5 +7,9 @@ rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
+[dependencies]
+# for sizeof(lumpinfo_t), whose layout quake-types asserts against the C
+quake-types = { path = "../quake-types" }
+
 [lints]
 workspace = true

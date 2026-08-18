@@ -2108,6 +2108,17 @@ char			 com_basedirs[MAX_BASEDIRS][MAX_OSPATH]; // all content roots in mount or
 int				 com_numbasedirs;
 THREAD_LOCAL int file_from_pak; // ZOID: global indicating that file came from a pak
 
+// Rust migration seam: thread-local globals are not reachable through bindgen
+qfileofs_t COM_ThreadFileSize (void)
+{
+	return com_filesize;
+}
+
+int COM_ThreadFileFromPak (void)
+{
+	return file_from_pak;
+}
+
 /*
 =================
 COM_AddBaseDir
