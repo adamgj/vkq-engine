@@ -33,7 +33,12 @@ fn main() {
         println!("cargo:rerun-if-changed={}", path.display());
         build.file(path);
     }
+    build.file(manifest.join("stubs").join("snprintf_oracle.c"));
     println!("cargo:rerun-if-changed={}", prelude.display());
+    println!(
+        "cargo:rerun-if-changed={}",
+        manifest.join("stubs").join("snprintf_oracle.c").display()
+    );
 
     build.compile("quake_c_ref");
 }

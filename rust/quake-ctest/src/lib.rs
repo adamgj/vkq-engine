@@ -7,6 +7,17 @@ use core::ffi::{c_char, c_int, c_void};
 mod ffi {
     use core::ffi::{c_char, c_int, c_uchar, c_uint, c_void};
     extern "C" {
+        pub fn ctest_snprintf_f(buf: *mut c_char, n: usize, fmt: *const c_char, v: f64) -> c_int;
+        pub fn ctest_snprintf_i32(buf: *mut c_char, n: usize, fmt: *const c_char, v: i32) -> c_int;
+        pub fn ctest_snprintf_u32(buf: *mut c_char, n: usize, fmt: *const c_char, v: u32) -> c_int;
+        pub fn ctest_snprintf_i64(buf: *mut c_char, n: usize, fmt: *const c_char, v: i64) -> c_int;
+        pub fn ctest_snprintf_u64(buf: *mut c_char, n: usize, fmt: *const c_char, v: u64) -> c_int;
+        pub fn ctest_snprintf_str(
+            buf: *mut c_char,
+            n: usize,
+            fmt: *const c_char,
+            v: *const c_char,
+        ) -> c_int;
         pub fn c_ref_CRC_Init(crcvalue: *mut u16);
         pub fn c_ref_CRC_ProcessByte(crcvalue: *mut u16, data: u8);
         pub fn c_ref_CRC_Value(crcvalue: u16) -> u16;
@@ -59,6 +70,71 @@ pub fn c_block_full_checksum(data: &[u8]) -> [u8; 16] {
         )
     };
     out
+}
+
+// --- platform snprintf oracle (ADR-005 conformance) ---
+
+const SNPRINTF_BUF: usize = 1024;
+
+macro_rules! oracle {
+    ($name:ident, $ffi:ident, $ty:ty) => {
+        /// Platform `snprintf` with one argument of the given type. `fmt` must
+        /// be NUL-free ASCII.
+        pub fn $name(fmt: &str, v: $ty) -> String {
+            let mut cfmt = fmt.as_bytes().to_vec();
+            assert!(!cfmt.contains(&0));
+            cfmt.push(0);
+            let mut buf = vec![0u8; SNPRINTF_BUF];
+            // SAFETY: buf/fmt are valid NUL-terminated buffers; the wrapper is
+            // a plain C function compiled in build.rs
+            let n = unsafe {
+                ffi::$ffi(
+                    buf.as_mut_ptr() as *mut c_char,
+                    SNPRINTF_BUF,
+                    cfmt.as_ptr() as *const c_char,
+                    v,
+                )
+            };
+            assert!(
+                n >= 0 && (n as usize) < SNPRINTF_BUF,
+                "oracle buffer too small"
+            );
+            buf.truncate(n as usize);
+            String::from_utf8(buf).unwrap()
+        }
+    };
+}
+
+oracle!(c_snprintf_f, ctest_snprintf_f, f64);
+oracle!(c_snprintf_i32, ctest_snprintf_i32, i32);
+oracle!(c_snprintf_u32, ctest_snprintf_u32, u32);
+oracle!(c_snprintf_i64, ctest_snprintf_i64, i64);
+oracle!(c_snprintf_u64, ctest_snprintf_u64, u64);
+
+/// Platform `snprintf` with one string argument.
+pub fn c_snprintf_str(fmt: &str, v: &[u8]) -> String {
+    let mut cfmt = fmt.as_bytes().to_vec();
+    assert!(!cfmt.contains(&0));
+    cfmt.push(0);
+    let mut cv = v.to_vec();
+    assert!(!cv.contains(&0));
+    cv.push(0);
+    let mut buf = vec![0u8; SNPRINTF_BUF];
+    // SAFETY: all buffers valid and NUL-terminated
+    let n = unsafe {
+        ffi::ctest_snprintf_str(
+            buf.as_mut_ptr() as *mut c_char,
+            SNPRINTF_BUF,
+            cfmt.as_ptr() as *const c_char,
+            cv.as_ptr() as *const c_char,
+        )
+    };
+    assert!(
+        n >= 0 && (n as usize) < SNPRINTF_BUF,
+        "oracle buffer too small"
+    );
+    buf.truncate(n as usize);
+    String::from_utf8(buf).unwrap()
 }
 
 /// Runs the reference q_strlcpy on a copy of `dst`; returns (result, buffer).

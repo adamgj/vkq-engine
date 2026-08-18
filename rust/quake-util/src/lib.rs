@@ -7,4 +7,6 @@
 
 pub mod crc;
 pub mod mdfour;
+pub mod printf;
+pub mod qctype;
 pub mod strl;
