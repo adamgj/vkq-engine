@@ -23,6 +23,8 @@ mod ffi {
         pub fn sqrt(x: c_double) -> c_double;
         pub fn floor(x: c_double) -> c_double;
         pub fn fabs(x: c_double) -> c_double;
+        pub fn sinf(x: f32) -> f32;
+        pub fn cosf(x: f32) -> f32;
         pub fn strtod(nptr: *const c_char, endptr: *mut *mut c_char) -> c_double;
     }
 }
@@ -55,6 +57,16 @@ pub fn floor(x: f64) -> f64 {
 pub fn fabs(x: f64) -> f64 {
     // SAFETY: pure libm function, no preconditions
     unsafe { ffi::fabs(x) }
+}
+
+pub fn sinf(x: f32) -> f32 {
+    // SAFETY: pure libm function, no preconditions
+    unsafe { ffi::sinf(x) }
+}
+
+pub fn cosf(x: f32) -> f32 {
+    // SAFETY: pure libm function, no preconditions
+    unsafe { ffi::cosf(x) }
 }
 
 /// Platform `strtod (nptr, NULL)` over a NUL-terminated byte buffer.

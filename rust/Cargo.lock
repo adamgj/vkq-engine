@@ -168,6 +168,9 @@ version = "0.1.0"
 name = "quake-capi"
 version = "0.1.0"
 dependencies = [
+ "quake-c-sys",
+ "quake-math",
+ "quake-types",
  "quake-util",
 ]
 
@@ -178,6 +181,8 @@ dependencies = [
  "cc",
  "proptest",
  "quake-capi",
+ "quake-math",
+ "quake-types",
  "quake-util",
 ]
 
@@ -204,6 +209,9 @@ version = "0.1.0"
 [[package]]
 name = "quake-math"
 version = "0.1.0"
+dependencies = [
+ "quake-c-sys",
+]
 
 [[package]]
 name = "quake-net"

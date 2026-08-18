@@ -9,6 +9,8 @@ publish.workspace = true
 
 [dependencies]
 quake-util = { path = "../quake-util" }
+quake-math = { path = "../quake-math" }
+quake-types = { path = "../quake-types" }
 quake-capi = { path = "../quake-capi" }
 
 [dev-dependencies]

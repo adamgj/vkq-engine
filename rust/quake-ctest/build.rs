@@ -7,6 +7,7 @@ use std::path::PathBuf;
 
 const C_SOURCES: &[&str] = &[
     "Quake/crc.c",
+    "Quake/mathlib.c",
     "Quake/mdfour.c",
     "Quake/strlcpy.c",
     "Quake/strlcat.c",
@@ -20,7 +21,15 @@ fn main() {
     let mut build = cc::Build::new();
     build
         .include(manifest.join("include"))
-        .include(repo_root.join("Quake"));
+        .include(repo_root.join("Quake"))
+        // ADR-010: the engine pins -ffp-contract=off (meson.build) so C and
+        // Rust agree on FMA behavior; the reference build must match. The
+        // no-builtin flags stop clang fusing adjacent sinf/cosf into Apple's
+        // __sincosf_stret, whose results differ from separate calls by 1 ulp
+        // (renderer-only divergence, accepted in ADR-010's Phase 1 amendment).
+        .flag_if_supported("-ffp-contract=off")
+        .flag_if_supported("-fno-builtin-sinf")
+        .flag_if_supported("-fno-builtin-cosf");
 
     if build.get_compiler().is_like_msvc() {
         build.flag(format!("/FI{}", prelude.display()));
@@ -34,6 +43,8 @@ fn main() {
         build.file(path);
     }
     build.file(manifest.join("stubs").join("snprintf_oracle.c"));
+    build.file(manifest.join("stubs").join("stubs.c"));
+    build.file(manifest.join("stubs").join("anorms_ref.c"));
     println!("cargo:rerun-if-changed={}", prelude.display());
     println!(
         "cargo:rerun-if-changed={}",

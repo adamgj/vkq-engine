@@ -13,6 +13,13 @@ add_project_arguments(cc.get_supported_arguments('-fno-omit-frame-pointer', '/Oy
 # (clang-cl doesn't accept it, and warning-as-error would turn that into a build failure)
 add_project_arguments(cc.get_supported_arguments('-fno-common'), language: 'c')
 
+# ADR-010 (Rust migration): pin FP contraction off so C and Rust builds agree
+# on FMA usage. Compilers default to contracting a*b+c into fused fmadd on
+# targets that have it (arm64), which plain Rust float ops don't reproduce;
+# only arm64 targets change behavior (x86-64 baseline has no FMA). The
+# darwin-arm64 harness goldens were regenerated for this (Phase 1).
+add_project_arguments(cc.get_supported_arguments('-ffp-contract=off', '/clang:-ffp-contract=off'), language: 'c')
+
 if host_machine.system() == 'windows'
     foreach native : [true, false]
         add_project_arguments('-D_CRT_SECURE_NO_WARNINGS', '-D_CRT_NONSTDC_NO_DEPRECATE', '-D_WINSOCK_DEPRECATED_NO_WARNINGS', language : 'c', native : native)
@@ -241,7 +248,6 @@ srcs = [
     'Quake/in_sdl3.c',
     'Quake/keys.c',
     'Quake/main_sdl.c',
-    'Quake/mathlib.c',
     'Quake/mem.c',
     'Quake/menu.c',
     'Quake/net_dgrm.c',
@@ -286,6 +292,7 @@ srcs = [
 # libquake_rs.a instead. Deleted at phase exit (ROADMAP.md Phase 1).
 phase1_c_srcs = [
     'Quake/crc.c',
+    'Quake/mathlib.c',
     'Quake/mdfour.c',
     'Quake/strlcat.c',
     'Quake/strlcpy.c',

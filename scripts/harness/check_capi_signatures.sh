@@ -24,10 +24,27 @@ fi
 # headers of every module ported so far; grows with each Phase 1 module
 cat > "$tmpdir/capi_sig_check.c" <<'EOF'
 #include <stddef.h>
+#include <stdint.h>
 #include "q_types.h"
 #include "quake_rs.h"
 #include "crc.h"
 #include "strl_fn.h"
+/* mathlib.h needs quakedef.h's bit-scan inline */
+#ifdef _MSC_VER
+#include <intrin.h>
+static inline int FindLastBitNonZero (const uint32_t mask)
+{
+	unsigned long result;
+	_BitScanReverse (&result, mask);
+	return (int)result;
+}
+#else
+static inline int FindLastBitNonZero (const uint32_t mask)
+{
+	return 31 ^ __builtin_clz (mask);
+}
+#endif
+#include "mathlib.h"
 EOF
 
 "$CC" -fsyntax-only -Werror -IQuake -I"$header_dir" "$tmpdir/capi_sig_check.c"

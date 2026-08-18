@@ -25,3 +25,27 @@ Rust specifics: `f32::sin`/`cos` lower to LLVM intrinsics that typically call th
 - Demos/saves recorded on platform X by the C engine replay identically on platform X under the Rust engine — the strongest guarantee that is actually achievable.
 - A small set of math call sites is less idiomatic (libc calls instead of method syntax); confined and documented.
 - CI must run real per-platform golden comparisons; a green Linux run says nothing about macOS/Windows parity.
+
+## Amended (Phase 1, 2026-08-17): FP contraction pinned off; sincosf fusion note
+
+The mathlib differential suite found two compiler relaxations empirically (the
+"verified empirically" clause above doing its job):
+
+- **FMA contraction**: the C build never pinned `-ffp-contract`, so clang's
+  default (`on`) fused `a*b + c` into `fmadd` on arm64 — behavior plain Rust
+  float ops cannot reproduce. The build now passes `-ffp-contract=off`
+  (meson.build + common.make + the quake-ctest reference build), per this
+  ADR's intent. Only arm64 targets change behavior (x86-64 baseline has no
+  FMA); the darwin-arm64 goldens were regenerated from the new C build.
+- **Apple sincosf fusion**: at -O2+, clang on Darwin fuses adjacent
+  `sinf`/`cosf` calls into `__sincosf_stret`, whose results differ from
+  separate calls by up to 1 ulp. The engine's only affected function is
+  `RotationMatrix` (renderer-only, gl_rmain.c — pixels, not bytes), so the C
+  build keeps the fusion and the Rust port uses separate platform calls; the
+  quake-ctest reference is compiled with `-fno-builtin-sinf -fno-builtin-cosf`
+  so the differential gate tests source semantics. The double-precision
+  `__sincos_stret` fusion (sim-relevant, e.g. AngleVectors) is bit-identical
+  to separate calls — differentially verified.
+- Libm call-throughs live in `quake-c-sys::libm` as hand-written C-standard
+  externs with safe wrappers (not the `libc` crate, which does not reliably
+  expose math functions on windows-msvc).

@@ -15,6 +15,9 @@ crate-type = ["staticlib", "rlib"]
 
 [dependencies]
 quake-util = { path = "../quake-util" }
+quake-math = { path = "../quake-math" }
+quake-types = { path = "../quake-types" }
+quake-c-sys = { path = "../quake-c-sys" }
 
 [lints]
 workspace = true

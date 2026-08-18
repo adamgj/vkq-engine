@@ -7,5 +7,10 @@ rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
+[dependencies]
+# platform libm call-throughs (ADR-010); safe wrappers only, so this crate
+# stays forbid(unsafe_code)
+quake-c-sys = { path = "../quake-c-sys" }
+
 [lints]
 workspace = true
