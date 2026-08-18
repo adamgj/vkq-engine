@@ -1,4 +1,4 @@
-# GNU Makefile for compiling vkQuake.exe for Windows x64 using MinGW-w64.
+# GNU Makefile for compiling vkqr-engine.exe for Windows x64 using MinGW-w64.
 # Usage: "make -f Makefile.w64"
 # To cross-compile on Linux hosts, see the 'build_cross_win64.sh' script.
 # "make VK_SDK_PATH=/path/to/vksdk" to specify the Vulkan SDK root
@@ -33,7 +33,7 @@ USE_SDL3 := 1
 # ---------------------------
 SYSOBJ_NET := net_win.o net_wins.o
 SYSOBJ_SYS := pl_win.o sys_sdl.o sys_sdl_win.o
-DEFAULT_TARGET := vkQuake.exe
+DEFAULT_TARGET := vkqr-engine.exe
 BINTOC_EXE = ../Shaders/bintoc
 
 # ---------------------------
@@ -67,7 +67,7 @@ COMMON_LIBS:= -lole32 -luuid -lwinmm -ldbghelp
 
 LIBS := $(COMMON_LIBS) $(NET_LIBS) $(CODEC_LINK) $(CODECLIBS) $(VULKAN_LINK) $(VULKAN_LIBS)
 
-SYSOBJ_RES = vkQuake.res
+SYSOBJ_RES = vkqr-engine.res
 
 LIBWINPTHREAD = $(MSYSTEM_PREFIX)/bin/libwinpthread-1.dll
 
@@ -82,7 +82,7 @@ all: $(BINTOC_EXE) .WAIT $(DEFAULT_TARGET) dll
 %.res: ../Windows/%.rc
 	$(WINDRES) -I../Windows -I../Quake --output-format=coff --target=pe-x86-64 -o $@ $<
 
-vkQuake.exe: $(SHADER_OBJS) $(OBJS) $(SYSOBJ_RES)
+vkqr-engine.exe: $(SHADER_OBJS) $(OBJS) $(SYSOBJ_RES)
 	$(LINKER) $(SHADER_OBJS) $(OBJS) $(SYSOBJ_RES) $(LDFLAGS) $(LIBS) $(SDL_LIBS) -o $@
 # Never strip
 #	$(call DO_STRIP,$@)
@@ -94,7 +94,7 @@ dll:
 	cp ../Windows/codecs/x64/*.dll .
 	cp ../Windows/SDL3/lib64/*.dll .
 
-release: vkQuake.exe
+release: vkqr-engine.exe
 debug:
 	$(error Use "make DEBUG=1")
 

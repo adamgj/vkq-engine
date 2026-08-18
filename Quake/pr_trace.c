@@ -1,5 +1,5 @@
 /*
-Copyright (C) 2026 vkQuake contributors
+Copyright (C) 2026 vkqr-engine contributors
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License

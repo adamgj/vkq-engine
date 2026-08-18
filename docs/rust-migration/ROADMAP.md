@@ -1,4 +1,4 @@
-# vkQuake C → Rust Migration Roadmap
+# vkqr-engine C → Rust Migration Roadmap
 
 Companion to [PLAN.md](PLAN.md). Eleven phases, each independently shippable: at every phase exit the engine builds and passes the full differential-verification suite ([PLAN.md §7](PLAN.md#7-verification-strategy-adr-019)) on Windows, Linux, and macOS. C files are deleted at phase exit (after a soak window where noted); transitional `-Duse_rust_<module>` Meson switches are removed with them.
 

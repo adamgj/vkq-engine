@@ -604,7 +604,7 @@ void Sys_Init (void)
 	// by win32_Dwarf_offset
 	// We need to look for the executable to look for the original ImageBase in the binary
 	// ifself BEFORE it got patched in the loaded image...
-	// this is the address we would get by : objdump -p vkQuake.exe | grep ImageBase
+	// this is the address we would get by : objdump -p vkqr-engine.exe | grep ImageBase
 	wchar_t path[MAX_OSPATH];
 
 	if (GetModuleFileNameW (NULL, path, MAX_OSPATH))

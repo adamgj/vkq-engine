@@ -1,7 +1,7 @@
-# vkQuake C → Rust Migration Plan
+# vkqr-engine C → Rust Migration Plan
 
 **Status:** Approved plan, pre-implementation
-**Scope:** Convert as much of vkQuake's engine and game code to Rust as possible while maintaining **100% backwards compatibility** with game logic (QuakeC), art assets, savegames, demos, networking (client and server), mods, mission packs, and 2021 re-release content.
+**Scope:** Convert as much of vkqr-engine's engine and game code to Rust as possible while maintaining **100% backwards compatibility** with game logic (QuakeC), art assets, savegames, demos, networking (client and server), mods, mission packs, and 2021 re-release content.
 **Companion documents:** [ROADMAP.md](ROADMAP.md) (phases and exit criteria), [adr/](adr/README.md) (Architecture Decision Records).
 
 ---
@@ -47,7 +47,7 @@ Full rationale in [ADR-001](adr/ADR-001-migration-strategy.md). Summary:
 ### Why not the alternatives
 
 - *c2rust transpile-then-refactor:* refactoring transpiled code toward idiomatic Rust fights both the original design and the transpiler's artifacts; the intermediate states are unshippable; the result would violate the type-safety requirement for years of calendar time.
-- *Clean-room rewrite (Richter/Seismon-style):* existing Rust Quake engines are protocol-15-only and incomplete; a from-scratch rewrite cannot demonstrate 100% compatibility incrementally and loses vkQuake's decade of accumulated compatibility fixes (QSS extensions, re-release support, Ironwail imports, this fork's pusher physics).
+- *Clean-room rewrite (Richter/Seismon-style):* existing Rust Quake engines are protocol-15-only and incomplete; a from-scratch rewrite cannot demonstrate 100% compatibility incrementally and loses vkqr-engine's decade of accumulated compatibility fixes (QSS extensions, re-release support, Ironwail imports, this fork's pusher physics).
 
 ---
 

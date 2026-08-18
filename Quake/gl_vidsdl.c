@@ -834,9 +834,9 @@ static void GL_InitInstance (void)
 
 	ZEROED_STRUCT (VkApplicationInfo, application_info);
 	application_info.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
-	application_info.pApplicationName = "vkQuake";
+	application_info.pApplicationName = "vkqr-engine";
 	application_info.applicationVersion = 1;
-	application_info.pEngineName = "vkQuake";
+	application_info.pEngineName = "vkqr-engine";
 	application_info.engineVersion = 1;
 	application_info.apiVersion = vulkan_globals.vulkan_1_1_available ? VK_MAKE_VERSION (1, 1, 0) : VK_MAKE_VERSION (1, 0, 0);
 

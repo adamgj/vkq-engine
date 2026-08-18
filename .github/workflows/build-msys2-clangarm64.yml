@@ -78,25 +78,25 @@ jobs:
         set -eu
         parallel="$(getconf _NPROCESSORS_ONLN)"
         make -j"${parallel}" -C Quake -f ${{ matrix.platform.makefile }} all
-    - name: Upload vkQuake
+    - name: Upload vkqr-engine
       uses: actions/upload-artifact@v7
       with:
-        name: vkQuake archive (${{ matrix.platform.name }})
+        name: vkqr-engine archive (${{ matrix.platform.name }})
         path: |
             Quake/*.exe
             Quake/*.dll
     - name: Package
       run: |
         set -eu
-        zip -j vkQuake-${{ steps.version.outputs.version }}_windows_arm64.zip Quake/*.exe Quake/*.dll LICENSE.txt
+        zip -j vkqr-engine-${{ steps.version.outputs.version }}_windows_arm64.zip Quake/*.exe Quake/*.dll LICENSE.txt
     - name: Upload package
       uses: actions/upload-artifact@v7
       with:
-        name: vkQuake package (arm64)
-        path: vkQuake-*_windows_arm64.zip
+        name: vkqr-engine package (arm64)
+        path: vkqr-engine-*_windows_arm64.zip
     - name: Attach to release
       if: startsWith(github.ref, 'refs/tags/')
       uses: softprops/action-gh-release@v2
       with:
         draft: true
-        files: vkQuake-*_windows_arm64.zip
+        files: vkqr-engine-*_windows_arm64.zip

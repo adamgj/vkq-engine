@@ -1,5 +1,5 @@
 project(
-    'vkquake',
+    'vkqr-engine',
     'c',
     meson_version : '>= 1.3',
     default_options : ['c_std=gnu11,c11', 'buildtype=release', 'strip=false', 'debug=true', 'b_ndebug=if-release', 'warning_level=1', 'werror=true'])
@@ -312,7 +312,7 @@ if host_machine.system() == 'windows'
         'Quake/sys_sdl_win.c',
     ]
     srcs += import('windows').compile_resources(
-        'Windows/vkQuake.rc',
+        'Windows/vkqr-engine.rc',
         # the \xA9 copyright escape is Windows-1252; llvm-rc refuses 8 bit
         # codepoints without an explicit codepage. gcc builds use windres,
         # which takes no /C option
@@ -517,7 +517,7 @@ incdirs = [
 ]
 
 executable(
-    'vkquake',
+    'vkqr-engine',
     [srcs, shaders_c],
     dependencies : deps,
     include_directories : incdirs,

@@ -566,12 +566,12 @@ typedef struct md3Shader_s
 
 //===================================================================
 
-// QS limits : vkQuake is no longer constrained by QS limits,
+// QS limits : vkqr-engine is no longer constrained by QS limits,
 // so those values are only used to trace QS incompatibilities.
 #define MAXALIASVERTS_QS 2000 // johnfitz -- was 1024
 #define MAXALIASTRIS_QS	 4096 // ericw -- was 2048
 
-// vkQuake limits:
+// vkqr-engine limits:
 #define MAXALIASVERTS  0x7fff // same as Ironwail. Could we go until 0xFFFF with VK_INDEX_TYPE_UINT16 in vk case ?
 #define MAXALIASFRAMES 2048	  // spike -- was 256
 

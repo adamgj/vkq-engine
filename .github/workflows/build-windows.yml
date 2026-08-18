@@ -67,12 +67,12 @@ jobs:
         meson setup builddir --buildtype=${{ matrix.buildtype }} -Ddebug=true -Dstrip=false -Duse_sdl3=enabled -Duse_rust=disabled
     - name: Build
       run: meson compile -C builddir
-    - name: Upload vkQuake
+    - name: Upload vkqr-engine
       uses: actions/upload-artifact@v7
       with:
-        name: vkQuake meson (${{ matrix.buildtype }}, x64)
+        name: vkqr-engine meson (${{ matrix.buildtype }}, x64)
         path: |
-            builddir/vkquake.exe
+            builddir/vkqr-engine.exe
             builddir/*.dll
             builddir/*.pdb
     - name: Package
@@ -81,31 +81,31 @@ jobs:
         $version = '${{ steps.version.outputs.version }}'
         $srcdir = 'builddir'
         $compress = @{
-          Path = "$srcdir\*.exe", "$srcdir\vkquake.pdb", "$srcdir\*.dll", 'LICENSE.txt'
+          Path = "$srcdir\*.exe", "$srcdir\vkqr-engine.pdb", "$srcdir\*.dll", 'LICENSE.txt'
           CompressionLevel = 'Optimal'
-          DestinationPath = "Packaging\Windows\vkQuake-${version}_windows_x64.zip"
+          DestinationPath = "Packaging\Windows\vkqr-engine-${version}_windows_x64.zip"
         }
         Compress-Archive @compress
         choco install nsis -y --no-progress
         Set-Location Packaging\Windows
-        & "${env:ProgramFiles(x86)}\NSIS\makensis.exe" -V4 '-DSRCDIR=..\..\builddir' '-DPLATFORM=windows_x64' "-DVERSION=$version" vkQuake.nsi
+        & "${env:ProgramFiles(x86)}\NSIS\makensis.exe" -V4 '-DSRCDIR=..\..\builddir' '-DPLATFORM=windows_x64' "-DVERSION=$version" vkqr-engine.nsi
         if (-not $?) { throw "makensis failed" }
     - name: Upload package
       if: matrix.buildtype == 'release'
       uses: actions/upload-artifact@v7
       with:
-        name: vkQuake package (x64)
+        name: vkqr-engine package (x64)
         path: |
-            Packaging\Windows\vkQuake-*.zip
-            Packaging\Windows\vkQuake-Installer-*.exe
+            Packaging\Windows\vkqr-engine-*.zip
+            Packaging\Windows\vkqr-engine-Installer-*.exe
     - name: Attach to release
       if: matrix.buildtype == 'release' && startsWith(github.ref, 'refs/tags/')
       uses: softprops/action-gh-release@v2
       with:
         draft: true
         files: |
-          Packaging/Windows/vkQuake-*.zip
-          Packaging/Windows/vkQuake-Installer-*.exe
+          Packaging/Windows/vkqr-engine-*.zip
+          Packaging/Windows/vkqr-engine-Installer-*.exe
 
   harness-windows:
     name: Harness Windows (shareware)
@@ -158,15 +158,15 @@ jobs:
     - name: Corpus stability (C-only, run-twice)
       run: |
         $env:QUAKE_GAME_DATA = "$PWD\shareware-data"
-        python scripts/harness/run_corpus.py --vkquake build-c/vkquake.exe --stability --tier shareware
+        python scripts/harness/run_corpus.py --vkquake build-c/vkqr-engine.exe --stability --tier shareware
         if ($LASTEXITCODE -ne 0) { throw "corpus stability failed" }
     - name: Mixed build identity (rust vs C-only)
       run: |
         $env:QUAKE_GAME_DATA = "$PWD\shareware-data"
-        python scripts/harness/run_corpus.py --vkquake build-c/vkquake.exe --compare build-rs/vkquake.exe --tier shareware
+        python scripts/harness/run_corpus.py --vkquake build-c/vkqr-engine.exe --compare build-rs/vkqr-engine.exe --tier shareware
         if ($LASTEXITCODE -ne 0) { throw "mixed build differs from C-only" }
     - name: Savegame byte-diff (C-only vs mixed)
       run: |
         $env:QUAKE_GAME_DATA = "$PWD\shareware-data"
-        python scripts/harness/save_diff.py --vkquake build-c/vkquake.exe --vkquake-b build-rs/vkquake.exe
+        python scripts/harness/save_diff.py --vkquake build-c/vkqr-engine.exe --vkquake-b build-rs/vkqr-engine.exe
         if ($LASTEXITCODE -ne 0) { throw "save diff failed" }

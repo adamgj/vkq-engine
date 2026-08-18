@@ -1,4 +1,4 @@
-# GNU Makefile for vkQuake unix x86_64 targets.
+# GNU Makefile for vkqr-engine unix x86_64 targets.
 # You need the SDL3 (or SDL2, see USE_SDL3) library fully installed.
 # "make DEBUG=1" to build a debug client.
 # "make USE_SDL3=0" to build against SDL2 instead of SDL3.
@@ -39,7 +39,7 @@ endif
 # ---------------------------
 SYSOBJ_NET := net_bsd.o net_udp.o
 SYSOBJ_SYS := pl_linux.o sys_sdl.o sys_sdl_unix.o
-DEFAULT_TARGET := vkquake
+DEFAULT_TARGET := vkqr-engine
 BINTOC_EXE = ../Shaders/bintoc
 
 # ---------------------------
@@ -93,13 +93,13 @@ LIBS := $(COMMON_LIBS) $(CODECLIBS)
 # ---------------------------
 all: $(BINTOC_EXE) .WAIT $(DEFAULT_TARGET)
 
-vkquake: $(SHADER_OBJS) $(OBJS)
+vkqr-engine: $(SHADER_OBJS) $(OBJS)
 	$(LINKER) $(SHADER_OBJS) $(OBJS) $(LDFLAGS) $(LIBS) $(SDL_LIBS) -o $@
 
 #Never strip, we want stack traces	
 #	$(call DO_STRIP,$@)
 
-release: vkquake
+release: vkqr-engine
 debug:
 	$(error Use "make DEBUG=1")
 
@@ -117,5 +117,5 @@ sbindir ?= $(exec_prefix)/sbin
 INSTALL ?= install
 INSTALL_PROGRAM ?= $(INSTALL)
 INSTALL_DATA ?= ${INSTALL} -m 644
-install: vkquake
-	$(INSTALL_PROGRAM) $(CURDIR)/vkquake $(DESTDIR)$(bindir)/vkquake
+install: vkqr-engine
+	$(INSTALL_PROGRAM) $(CURDIR)/vkqr-engine $(DESTDIR)$(bindir)/vkqr-engine

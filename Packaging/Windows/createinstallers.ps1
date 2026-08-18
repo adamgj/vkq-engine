@@ -10,8 +10,8 @@ $Version=$VersionMajor + '.' + $VersionMinor + '.' + $PatchVersion + $Suffix
 $SrcDirX64="..\..\builddir-package"
 
 # Cleanup
-Del "vkQuake-*.exe"
-Del "vkQuake-*.zip"
+Del "vkqr-engine-*.exe"
+Del "vkqr-engine-*.zip"
 
 # Clean & build binaries (meson + clang-cl; run from a shell with the MSVC environment loaded)
 $env:CC = 'clang-cl'
@@ -20,13 +20,13 @@ meson compile -C ..\..\builddir-package
 
 # Create NSIS exe installers
 $Nsis="C:\Program Files (x86)\NSIS\Bin\makensis.exe"
-$NsisArguments = '-V4 -DSRCDIR="' + $SrcDirX64 + '" -DPLATFORM=windows_x64 -DVERSION=' + $Version + ' vkQuake.nsi'
+$NsisArguments = '-V4 -DSRCDIR="' + $SrcDirX64 + '" -DPLATFORM=windows_x64 -DVERSION=' + $Version + ' vkqr-engine.nsi'
 Start-Process -Wait -NoNewWindow -PassThru -FilePath $Nsis -ArgumentList $NsisArguments
 
 # Create zip files
 $compress = @{
-  Path = "$SrcDirX64\*.exe", "$SrcDirX64\vkquake.pdb", "$SrcDirX64\*.dll", "..\..\LICENSE.txt"
+  Path = "$SrcDirX64\*.exe", "$SrcDirX64\vkqr-engine.pdb", "$SrcDirX64\*.dll", "..\..\LICENSE.txt"
   CompressionLevel = "Optimal"
-  DestinationPath = "vkQuake-" + $Version + "_windows_x64.zip"
+  DestinationPath = "vkqr-engine-" + $Version + "_windows_x64.zip"
 }
 Compress-Archive @compress

@@ -1,4 +1,4 @@
-# Architecture Decision Records — vkQuake Rust Migration
+# Architecture Decision Records — vkqr-engine Rust Migration
 
 Each ADR captures one decision: its context, the decision itself, and its consequences. Decisions marked **(compat exception)** document a deliberate deviation from Rust best practice made to preserve backwards compatibility; code implementing them carries `// COMPAT:` comments linking back here. Decisions marked **(user decision)** were confirmed with the project owner.
 

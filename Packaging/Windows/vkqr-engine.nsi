@@ -13,11 +13,11 @@
 !include "MUI2.nsh"
 !include LogicLib.nsh
 
-Name "vkQuake"
+Name "vkqr-engine"
 ManifestDPIAware true
 Unicode True
 SetCompressor lzma
-OutFile vkQuake-Installer-${PLATFORM}-${VERSION}.exe
+OutFile vkqr-engine-Installer-${PLATFORM}-${VERSION}.exe
 ShowInstDetails show
 
 Var StartMenuFolder
@@ -53,21 +53,21 @@ Section "Game" GAME
 	SectionIn RO
 	SetOutPath "$INSTDIR"
     File "${SRCDIR}\*.exe"
-	File "${SRCDIR}\vkQuake.pdb"
+	File "${SRCDIR}\vkqr-engine.pdb"
 	File "${SRCDIR}\*.dll"
 	File "..\..\LICENSE.txt"
-	
+
 	!insertmacro MUI_STARTMENU_WRITE_BEGIN Application
 		CreateDirectory "$SMPROGRAMS\$StartMenuFolder"
 		# the engine locates Steam/GOG/Epic Quake installs at startup or asks for the folder, no -basedir needed
-		CreateShortCut "$SMPROGRAMS\$StartMenuFolder\vkQuake (classic).lnk" $OUTDIR\vkQuake.exe "-multiuser -original" \
-			"$OUTDIR\vkQuake.exe" "" "" "" ""
-		CreateShortCut "$SMPROGRAMS\$StartMenuFolder\vkQuake (rerelease).lnk" $OUTDIR\vkQuake.exe "-multiuser -remastered" \
-			"$OUTDIR\vkQuake.exe" "" "" "" ""
-		CreateShortCut "$INSTDIR\vkQuake (classic).lnk" $OUTDIR\vkQuake.exe "-multiuser -original" \
-			"$OUTDIR\vkQuake.exe" "" "" "" ""
-		CreateShortCut "$INSTDIR\vkQuake (rerelease).lnk" $OUTDIR\vkQuake.exe "-multiuser -remastered" \
-			"$OUTDIR\vkQuake.exe" "" "" "" ""
+		CreateShortCut "$SMPROGRAMS\$StartMenuFolder\vkqr-engine (classic).lnk" $OUTDIR\vkqr-engine.exe "-multiuser -original" \
+			"$OUTDIR\vkqr-engine.exe" "" "" "" ""
+		CreateShortCut "$SMPROGRAMS\$StartMenuFolder\vkqr-engine (rerelease).lnk" $OUTDIR\vkqr-engine.exe "-multiuser -remastered" \
+			"$OUTDIR\vkqr-engine.exe" "" "" "" ""
+		CreateShortCut "$INSTDIR\vkqr-engine (classic).lnk" $OUTDIR\vkqr-engine.exe "-multiuser -original" \
+			"$OUTDIR\vkqr-engine.exe" "" "" "" ""
+		CreateShortCut "$INSTDIR\vkqr-engine (rerelease).lnk" $OUTDIR\vkqr-engine.exe "-multiuser -remastered" \
+			"$OUTDIR\vkqr-engine.exe" "" "" "" ""
 	!insertmacro MUI_STARTMENU_WRITE_END
 SectionEnd
 
@@ -76,11 +76,11 @@ SectionEnd
 ;***************************
 Section "-Uninstaller"
 	WriteUninstaller $INSTDIR\uninstaller.exe
-	WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\vkQuake" "DisplayName" "vkQuake"
+	WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\vkQuake" "DisplayName" "vkqr-engine"
 	WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\vkQuake" "UninstallString" "$INSTDIR\uninstaller.exe"
 	WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\vkQuake" "QuietUninstallString" "$\"$INSTDIR\uninstaller.exe$\" /S"
 	WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\vkQuake" "InstallLocation" "$INSTDIR"
-	WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\vkQuake" "Publisher" "vkQuake developers"
+	WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\vkQuake" "Publisher" "vkqr-engine developers"
 	WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\vkQuake" "URLInfoAbout" "https://github.com/Novum/vkQuake"
 	WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\vkQuake" "NoModify" "1"
 	WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\vkQuake" "NoRepair" "1"

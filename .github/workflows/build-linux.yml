@@ -48,24 +48,24 @@ jobs:
       with:
         context: Packaging/AppImage/docker
         platforms: linux/amd64
-        tags: build-vkquake
+        tags: build-vkqr-engine
         load: true
         push: false
         cache-from: type=gha
         cache-to: type=gha
-    - name: Build vkQuake
-      run: docker run --rm --privileged -e VERSION=${{ steps.version.outputs.version }} -v "$PWD:/usr/src/vkQuake" build-vkquake /usr/src/vkQuake/Packaging/AppImage/run-in-docker.sh
-    - name: Upload vkQuake
+    - name: Build vkqr-engine
+      run: docker run --rm --privileged -e VERSION=${{ steps.version.outputs.version }} -v "$PWD:/usr/src/vkqr-engine" build-vkqr-engine /usr/src/vkqr-engine/Packaging/AppImage/run-in-docker.sh
+    - name: Upload vkqr-engine
       uses: actions/upload-artifact@v7
       with:
-        name: vkQuake AppImage
-        path: Packaging/AppImage/vkQuake-*.AppImage
+        name: vkqr-engine AppImage
+        path: Packaging/AppImage/vkqr-engine-*.AppImage
     - name: Attach to release
       if: startsWith(github.ref, 'refs/tags/')
       uses: softprops/action-gh-release@v2
       with:
         draft: true
-        files: Packaging/AppImage/vkQuake-*.AppImage
+        files: Packaging/AppImage/vkqr-engine-*.AppImage
 
   # Rust-migration mixed build + differential harness (the AppImage job above
   # stays C-only; its docker image has no Rust toolchain)
@@ -133,12 +133,12 @@ jobs:
     - name: Corpus stability (C-only, run-twice)
       run: |
         export QUAKE_GAME_DATA="$PWD/shareware-data"
-        python3 scripts/harness/run_corpus.py --vkquake build-c/vkquake --stability --tier shareware
+        python3 scripts/harness/run_corpus.py --vkquake build-c/vkqr-engine --stability --tier shareware
     - name: Mixed build identity (rust vs C-only)
       run: |
         export QUAKE_GAME_DATA="$PWD/shareware-data"
-        python3 scripts/harness/run_corpus.py --vkquake build-c/vkquake --compare build-rs/vkquake --tier shareware
+        python3 scripts/harness/run_corpus.py --vkquake build-c/vkqr-engine --compare build-rs/vkqr-engine --tier shareware
     - name: Savegame byte-diff (C-only vs mixed)
       run: |
         export QUAKE_GAME_DATA="$PWD/shareware-data"
-        python3 scripts/harness/save_diff.py --vkquake build-c/vkquake --vkquake-b build-rs/vkquake
+        python3 scripts/harness/save_diff.py --vkquake build-c/vkqr-engine --vkquake-b build-rs/vkqr-engine
