@@ -26,6 +26,9 @@ unsafe extern "C" {
 pub type qfilesize_t = ::std::os::raw::c_longlong;
 pub type qfileofs_t = ::std::os::raw::c_longlong;
 unsafe extern "C" {
+    pub fn Sys_ftell(file: *mut FILE) -> qfileofs_t;
+}
+unsafe extern "C" {
     pub fn Sys_Error(error: *const ::std::os::raw::c_char, ...) -> !;
 }
 unsafe extern "C" {
@@ -64,6 +67,12 @@ unsafe extern "C" {
     pub fn COM_Rand() -> i32;
 }
 unsafe extern "C" {
+    pub fn COM_ThreadFileSize() -> qfileofs_t;
+}
+unsafe extern "C" {
+    pub fn COM_ThreadFileFromPak() -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
     pub fn COM_FOpenFile(
         filename: *const ::std::os::raw::c_char,
         file: *mut *mut FILE,
@@ -86,6 +95,21 @@ pub struct _fshandle_t {
     pub pos: qfileofs_t,
 }
 pub type fshandle_t = _fshandle_t;
+unsafe extern "C" {
+    pub fn FS_fread(
+        ptr: *mut ::std::os::raw::c_void,
+        size: usize,
+        nmemb: usize,
+        fh: *mut fshandle_t,
+    ) -> usize;
+}
+unsafe extern "C" {
+    pub fn FS_fseek(
+        fh: *mut fshandle_t,
+        offset: qfileofs_t,
+        whence: ::std::os::raw::c_int,
+    ) -> ::std::os::raw::c_int;
+}
 unsafe extern "C" {
     pub fn FS_rewind(fh: *mut fshandle_t);
 }
@@ -110,4 +134,7 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn Con_DPrintf(fmt: *const ::std::os::raw::c_char, ...);
+}
+unsafe extern "C" {
+    pub fn Con_DPrintf2(fmt: *const ::std::os::raw::c_char, ...);
 }

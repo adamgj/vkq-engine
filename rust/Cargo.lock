@@ -169,6 +169,7 @@ name = "quake-capi"
 version = "0.1.0"
 dependencies = [
  "quake-c-sys",
+ "quake-fs",
  "quake-math",
  "quake-types",
  "quake-util",
@@ -180,6 +181,7 @@ version = "0.1.0"
 dependencies = [
  "cc",
  "proptest",
+ "quake-c-sys",
  "quake-capi",
  "quake-math",
  "quake-types",

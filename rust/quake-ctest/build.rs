@@ -13,6 +13,7 @@ const C_SOURCES: &[&str] = &[
     "Quake/mdfour.c",
     "Quake/strlcpy.c",
     "Quake/strlcat.c",
+    "Quake/wad.c",
 ];
 
 fn main() {
@@ -44,15 +45,17 @@ fn main() {
         println!("cargo:rerun-if-changed={}", path.display());
         build.file(path);
     }
-    build.file(manifest.join("stubs").join("snprintf_oracle.c"));
-    build.file(manifest.join("stubs").join("stubs.c"));
-    build.file(manifest.join("stubs").join("anorms_ref.c"));
-    build.file(manifest.join("stubs").join("hashers_ref.c"));
+    for stub in [
+        "snprintf_oracle.c",
+        "stubs.c",
+        "anorms_ref.c",
+        "hashers_ref.c",
+    ] {
+        let path = manifest.join("stubs").join(stub);
+        println!("cargo:rerun-if-changed={}", path.display());
+        build.file(path);
+    }
     println!("cargo:rerun-if-changed={}", prelude.display());
-    println!(
-        "cargo:rerun-if-changed={}",
-        manifest.join("stubs").join("snprintf_oracle.c").display()
-    );
 
     build.compile("quake_c_ref");
 }

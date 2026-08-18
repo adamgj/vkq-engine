@@ -47,4 +47,7 @@ exclude = [
     "HashMap_Size", "HashMap_GetKeyImpl", "HashMap_GetValueImpl", "FfiHashMap",
     "JSON_Parse", "JSON_Free", "JSON_Find", "JSON_FindString", "JSON_FindNumber",
     "JSON_FindBoolean", "Json", "JsonEntry", "JsonValue",
+    "W_LoadWadFile", "W_CleanupName", "W_GetLumpName", "W_LoadWadList",
+    "W_FreeWadList", "W_GetLumpinfoList", "SwapPic", "Wad", "LumpInfo", "QPic",
+    "WadInfo", "wad_numlumps", "wad_lumps", "wad_base",
 ]

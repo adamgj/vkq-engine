@@ -27,9 +27,9 @@ bindgen rust/quake-c-sys/bindings_wrapper.h \
     --raw-line '}' \
     --allowlist-function 'Mem_Alloc|Mem_AllocNonZero|Mem_Realloc|Mem_Free' \
     --allowlist-function 'COM_LoadFile|COM_FOpenFile|COM_FOpenPrefFile|COM_CheckParm|COM_FileBase|COM_AddExtension' \
-    --allowlist-function 'FS_fgets|FS_rewind|FS_fclose' \
-    --allowlist-function 'Cvar_Set|Con_Printf|Con_Warning|Con_DPrintf|Sys_Error' \
-    --allowlist-function 'COM_SeedRand|COM_Rand' \
+    --allowlist-function 'FS_fgets|FS_rewind|FS_fclose|FS_fread|FS_fseek|Sys_ftell' \
+    --allowlist-function 'Cvar_Set|Con_Printf|Con_Warning|Con_DPrintf|Con_DPrintf2|Sys_Error' \
+    --allowlist-function 'COM_SeedRand|COM_Rand|COM_ThreadFileSize|COM_ThreadFileFromPak' \
     --allowlist-var 'com_argc|com_argv' \
     -o rust/quake-c-sys/src/generated.rs \
     -- -IQuake

@@ -12,6 +12,7 @@ pub mod json;
 pub mod mathlib;
 pub mod mdfour;
 pub mod strl;
+pub mod wad;
 
 /// Phase 0 link probe: proves the staticlib is linked and its symbols
 /// resolve from C. Returns the quake-capi crate ABI version.

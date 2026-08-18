@@ -7,5 +7,6 @@
 
 pub mod json;
 pub mod plane;
+pub mod wad;
 
 pub use plane::MPlane;

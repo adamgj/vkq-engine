@@ -280,7 +280,6 @@ srcs = [
 	'Quake/sys_sdl.c',
     'Quake/tasks.c',
     'Quake/view.c',
-    'Quake/wad.c',
     'Quake/world.c',
 	 run_generate_embedded_pak,
 ]
@@ -296,6 +295,7 @@ phase1_c_srcs = [
     'Quake/mdfour.c',
     'Quake/strlcat.c',
     'Quake/strlcpy.c',
+    'Quake/wad.c',
 ]
 
 if host_machine.system() == 'windows'

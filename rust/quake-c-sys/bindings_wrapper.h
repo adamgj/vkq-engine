@@ -17,3 +17,4 @@
 void Con_Printf (const char *fmt, ...) FUNC_PRINTF (1, 2);
 void Con_Warning (const char *fmt, ...) FUNC_PRINTF (1, 2);
 void Con_DPrintf (const char *fmt, ...) FUNC_PRINTF (1, 2);
+void Con_DPrintf2 (const char *fmt, ...) FUNC_PRINTF (1, 2);

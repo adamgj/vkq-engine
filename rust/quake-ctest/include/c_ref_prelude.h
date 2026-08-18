@@ -126,4 +126,27 @@ static inline int FindLastBitNonZero (const uint32_t mask)
 #define JSON_FindNumber	 c_ref_JSON_FindNumber
 #define JSON_FindBoolean c_ref_JSON_FindBoolean
 
+/* wad.c (incl. its global data symbols, which the Rust staticlib also
+ * exports) */
+#define GAMENAME			"id1"
+#define wad_numlumps		c_ref_wad_numlumps
+#define wad_lumps			c_ref_wad_lumps
+#define wad_base			c_ref_wad_base
+#define W_LoadWadFile		c_ref_W_LoadWadFile
+#define W_CleanupName		c_ref_W_CleanupName
+#define W_GetLumpName		c_ref_W_GetLumpName
+#define W_LoadWadList		c_ref_W_LoadWadList
+#define W_FreeWadList		c_ref_W_FreeWadList
+#define W_GetLumpinfoList	c_ref_W_GetLumpinfoList
+#define SwapPic				c_ref_SwapPic
+
+void Con_Printf (const char *fmt, ...);
+void Con_Warning (const char *fmt, ...);
+void Con_DPrintf (const char *fmt, ...);
+void Con_DPrintf2 (const char *fmt, ...);
+
+/* wad.c only includes quakedef.h; hand it wad.h, which pulls the real,
+ * bindgen-clean common.h for the COM_ and FS_ APIs and fshandle_t */
+#include "wad.h"
+
 #endif /* C_REF_PRELUDE_H */

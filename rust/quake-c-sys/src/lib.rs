@@ -7,6 +7,17 @@
 
 pub mod libm;
 
+/// Engine globals whose C types cannot be represented portably in the
+/// committed bindings (platform-dependent array lengths); only the base
+/// address is used from Rust.
+pub mod manual {
+    use core::ffi::c_char;
+    extern "C" {
+        /// char com_basedir[MAX_OSPATH] (MAX_OSPATH is PATH_MAX)
+        pub static mut com_basedir: [c_char; 0];
+    }
+}
+
 #[allow(non_camel_case_types, non_snake_case, non_upper_case_globals)]
 mod generated;
 
