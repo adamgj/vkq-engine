@@ -100,6 +100,12 @@ jobs:
     - name: cargo test
       working-directory: rust
       run: cargo test --workspace --locked --release
+    # debug-profile run so debug_assert! canaries fire (e.g. the hash_map
+    # storage-alignment canary guarding the ADR-013 global allocator)
+    - name: cargo test (debug, canaries)
+      if: matrix.os == 'ubuntu-latest'
+      working-directory: rust
+      run: cargo test --workspace --locked
     - name: snprintf sweep smoke (2^24 stride sample)
       working-directory: rust
       run: cargo run -p quake-ctest --release --locked --bin snprintf_sweep

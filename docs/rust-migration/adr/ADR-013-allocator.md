@@ -16,6 +16,30 @@ The engine replaced Quake's zone/hunk allocators with `mem.c` (`Mem_Alloc`/`Mem_
 - ASan runs on mixed builds in CI to catch violations of the boundary rule.
 - **Revisit at Phase 10:** once no ownership crosses the boundary, choose between keeping mimalloc (perf) or dropping to the system/Rust default allocator (less vendored C). That decision closes or amends this ADR.
 
+## Amendment (Phase 2): hand-declared `mi_*` binding instead of libmimalloc-sys
+
+`libmimalloc-sys` was rejected at implementation time: it compiles and links
+its **own** mimalloc copy, which is exactly the second-allocator situation
+this ADR forbids, and its build overrides for an external library don't fit
+how the engine vendors mimalloc (amalgamated into `mem.c`'s translation unit
+via `#include "mimalloc/static.c"`; the `mi_*` symbols keep external
+linkage). Instead:
+
+- `quake-c-sys::mi` hand-declares `mi_malloc_aligned`/`mi_zalloc_aligned`/
+  `mi_realloc_aligned`/`mi_free`, and `quake_capi::alloc::EngineMiMalloc`
+  implements `GlobalAlloc` over them — zero new crates.
+- The `#[global_allocator]` sits behind the `engine-alloc` cargo feature,
+  set only by the Meson build: plain `cargo test`/`cargo build` binaries
+  don't link `mem.o`, so the symbols don't exist there and tests run on the
+  default allocator.
+- `mem.c` auto-selects `USE_MI_MALLOC` on all three supported platforms; a
+  hypothetical `USE_HELGRIND`/`USE_CRT_MALLOC` C build combined with
+  `-Duse_rust` would fail to link the `mi_*` symbols — loudly, by design.
+- The `TEMP_ALLOC` counterpart is `quake_util::scratch::ScratchBuf` (inline
+  capacity first, heap spill past it). The C macros' per-thread alloca
+  budget only bounds C stack usage and is not observable across the
+  boundary, so the Rust type does not mirror the thread-local counter.
+
 ## Consequences
 
 - Cross-language alloc/free is sound by construction; a whole class of transition bugs is designed out.

@@ -344,10 +344,16 @@ if use_rust
     cflags += '-DUSE_RUST'
     python3 = find_program('python3')
     rust_profile = get_option('buildtype') == 'debug' ? 'debug' : 'release'
+    # engine-alloc binds Rust's global allocator to the mimalloc that mem.c
+    # amalgamates (ADR-013); only the mixed build links those mi_* symbols
+    rust_feature_list = ['engine-alloc']
     # the ported code's debug-only diagnostics must track the C engine's
     # DEBUG/_DEBUG, not the Rust profile: -D_DEBUG is set for every debug*
     # buildtype while the Rust profile is release for debugoptimized
-    rust_features = get_option('buildtype').startswith('debug') ? 'engine-debug' : ''
+    if get_option('buildtype').startswith('debug')
+        rust_feature_list += 'engine-debug'
+    endif
+    rust_features = ','.join(rust_feature_list)
     rust_lib_name = host_machine.system() == 'windows' ? 'quake_rs.lib' : 'libquake_rs.a'
     quake_rs = custom_target(
         'quake_rs',

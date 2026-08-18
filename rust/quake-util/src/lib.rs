@@ -12,4 +12,5 @@ pub mod json;
 pub mod mdfour;
 pub mod printf;
 pub mod qctype;
+pub mod scratch;
 pub mod strl;

@@ -18,6 +18,24 @@ pub mod manual {
     }
 }
 
+/// The engine's vendored mimalloc (amalgamated into mem.c's translation unit
+/// via `#include "mimalloc/static.c"`; the `mi_*` symbols have external
+/// linkage there). Only linked in the Meson mixed build — see quake-capi's
+/// `engine-alloc` feature.
+pub mod mi {
+    use core::ffi::c_void;
+    extern "C" {
+        /// C: `void *mi_malloc_aligned (size_t size, size_t alignment)`
+        pub fn mi_malloc_aligned(size: usize, alignment: usize) -> *mut c_void;
+        /// C: `void *mi_zalloc_aligned (size_t size, size_t alignment)`
+        pub fn mi_zalloc_aligned(size: usize, alignment: usize) -> *mut c_void;
+        /// C: `void *mi_realloc_aligned (void *p, size_t newsize, size_t alignment)`
+        pub fn mi_realloc_aligned(p: *mut c_void, newsize: usize, alignment: usize) -> *mut c_void;
+        /// C: `void mi_free (void *p)`
+        pub fn mi_free(p: *mut c_void);
+    }
+}
+
 #[allow(non_camel_case_types, non_snake_case, non_upper_case_globals)]
 mod generated;
 

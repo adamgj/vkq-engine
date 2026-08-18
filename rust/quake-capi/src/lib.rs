@@ -6,6 +6,8 @@
 //! strl_fn.h, ...). `scripts/harness/check_capi_signatures.sh` enforces that
 //! by compiling the generated quake_rs.h against those headers in one TU.
 
+#[cfg(feature = "engine-alloc")]
+pub mod alloc;
 pub mod cfgfile;
 pub mod crc;
 pub mod hash_map;
