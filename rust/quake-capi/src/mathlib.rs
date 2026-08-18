@@ -26,16 +26,129 @@ unsafe fn store3(p: *mut c_float, v: [f32; 3]) {
     unsafe { *(p as *mut [f32; 3]) = v }
 }
 
+// ---------------------------------------------------------------------------
+// Pointer-conversion combinators.
+//
+// `v3`/`store3` above are the only places a raw `vec3_t` is dereferenced, and
+// these combinators are the only callers. Every shim below goes through one of
+// them, so the "is this pointer really three readable/writable floats?"
+// argument is made once here rather than restated at each of the ~25 entry
+// points -- which is what ADR-004 means by concentrating unsafe.
+//
+// All of them copy inputs into locals before writing any output. That keeps
+// the engine's very common aliasing calls -- `VectorAdd (ent->origin, delta,
+// ent->origin)` -- well-defined, and element-for-element identical to the C.
+// ---------------------------------------------------------------------------
+
+/// `out = f(a)`
+///
+/// # Safety
+/// `a` must point to 3 readable floats, `out` to 3 writable floats.
+#[inline]
+unsafe fn map1(a: *const c_float, out: *mut c_float, f: impl FnOnce(&[f32; 3], &mut [f32; 3])) {
+    // SAFETY: forwarded to the caller's vec3_t contract
+    unsafe {
+        let a = v3(a);
+        let mut o = [0.0f32; 3];
+        f(&a, &mut o);
+        store3(out, o);
+    }
+}
+
+/// `out = f(a, b)`
+///
+/// # Safety
+/// `a`/`b` must point to 3 readable floats, `out` to 3 writable floats.
+#[inline]
+unsafe fn map2(
+    a: *const c_float,
+    b: *const c_float,
+    out: *mut c_float,
+    f: impl FnOnce(&[f32; 3], &[f32; 3], &mut [f32; 3]),
+) {
+    // SAFETY: forwarded to the caller's vec3_t contract
+    unsafe {
+        let (a, b) = (v3(a), v3(b));
+        let mut o = [0.0f32; 3];
+        f(&a, &b, &mut o);
+        store3(out, o);
+    }
+}
+
+/// `f(&mut v)`, writing the result back over `v`.
+///
+/// # Safety
+/// `v` must point to 3 readable and writable floats.
+#[inline]
+unsafe fn inplace<R>(v: *mut c_float, f: impl FnOnce(&mut [f32; 3]) -> R) -> R {
+    // SAFETY: forwarded to the caller's vec3_t contract
+    unsafe {
+        let mut a = v3(v);
+        let r = f(&mut a);
+        store3(v, a);
+        r
+    }
+}
+
+/// `f(a)` with no output vector.
+///
+/// # Safety
+/// `a` must point to 3 readable floats.
+#[inline]
+unsafe fn read1<R>(a: *const c_float, f: impl FnOnce(&[f32; 3]) -> R) -> R {
+    // SAFETY: forwarded to the caller's vec3_t contract
+    f(&unsafe { v3(a) })
+}
+
+/// `f(a, b)` with no output vector.
+///
+/// # Safety
+/// `a`/`b` must point to 3 readable floats.
+#[inline]
+unsafe fn read2<R>(
+    a: *const c_float,
+    b: *const c_float,
+    f: impl FnOnce(&[f32; 3], &[f32; 3]) -> R,
+) -> R {
+    // SAFETY: forwarded to the caller's vec3_t contract
+    let (a, b) = unsafe { (v3(a), v3(b)) };
+    f(&a, &b)
+}
+
+/// `f(a, b, c)` with no output vector.
+///
+/// # Safety
+/// `a`/`b`/`c` must point to 3 readable floats.
+#[inline]
+unsafe fn read3<R>(
+    a: *const c_float,
+    b: *const c_float,
+    c: *const c_float,
+    f: impl FnOnce(&[f32; 3], &[f32; 3], &[f32; 3]) -> R,
+) -> R {
+    // SAFETY: forwarded to the caller's vec3_t contract
+    let (a, b, c) = unsafe { (v3(a), v3(b), v3(c)) };
+    f(&a, &b, &c)
+}
+
+/// `f(&mut out)` over a C `float[16]`.
+///
+/// # Safety
+/// `p` must point to 16 writable floats.
+#[inline]
+unsafe fn mat16_out(p: *mut c_float, f: impl FnOnce(&mut [f32; 16])) {
+    let mut out = [0.0f32; 16];
+    f(&mut out);
+    // SAFETY: caller contract (float[16] parameter)
+    unsafe { *(p as *mut [f32; 16]) = out };
+}
+
 /// # Safety
 /// `dst` must point to 3 writable floats; `src` to 3 readable floats.
 #[no_mangle]
 pub unsafe extern "C" fn PerpendicularVector(dst: *mut c_float, src: *const c_float) {
-    // SAFETY: vec3_t/float-array pointer contracts per mathlib.h (see fn docs)
-    let s = unsafe { v3(src) };
-    let mut d = [0.0f32; 3];
-    m::perpendicular_vector(&mut d, &s);
-    // SAFETY: vec3_t/float-array pointer contracts per mathlib.h (see fn docs)
-    unsafe { store3(dst, d) };
+    // SAFETY: vec3_t contracts per mathlib.h; see this fn's Safety section
+    unsafe { map1(src, dst, |s, d| m::perpendicular_vector(d, s)) }
 }
 
 /// # Safety
@@ -47,12 +160,12 @@ pub unsafe extern "C" fn RotatePointAroundVector(
     point: *const c_float,
     degrees: c_float,
 ) {
-    // SAFETY: vec3_t/float-array pointer contracts per mathlib.h (see fn docs)
-    let (dir, point) = unsafe { (v3(dir), v3(point)) };
-    let mut d = [0.0f32; 3];
-    m::rotate_point_around_vector(&mut d, &dir, &point, degrees);
-    // SAFETY: vec3_t/float-array pointer contracts per mathlib.h (see fn docs)
-    unsafe { store3(dst, d) };
+    // SAFETY: vec3_t contracts per mathlib.h; see this fn's Safety section
+    unsafe {
+        map2(dir, point, dst, |d, p, o| {
+            m::rotate_point_around_vector(o, d, p, degrees)
+        })
+    }
 }
 
 #[no_mangle]
@@ -130,9 +243,8 @@ pub unsafe extern "C" fn AngleVectors(
 /// `v1`/`v2` must point to 3 valid floats.
 #[no_mangle]
 pub unsafe extern "C" fn VectorCompare(v1: *const c_float, v2: *const c_float) -> c_int {
-    // SAFETY: vec3_t/float-array pointer contracts per mathlib.h (see fn docs)
-    let (a, b) = unsafe { (v3(v1), v3(v2)) };
-    m::vector_compare(&a, &b) as c_int
+    // SAFETY: vec3_t contracts per mathlib.h; see this fn's Safety section
+    unsafe { read2(v1, v2, |a, b| m::vector_compare(a, b) as c_int) }
 }
 
 /// # Safety
@@ -144,21 +256,16 @@ pub unsafe extern "C" fn VectorMA(
     vecb: *const c_float,
     vecc: *mut c_float,
 ) {
-    // SAFETY: vec3_t/float-array pointer contracts per mathlib.h (see fn docs)
-    let (a, b) = unsafe { (v3(veca), v3(vecb)) };
-    let mut c = [0.0f32; 3];
-    m::vector_ma(&a, scale, &b, &mut c);
-    // SAFETY: vec3_t/float-array pointer contracts per mathlib.h (see fn docs)
-    unsafe { store3(vecc, c) };
+    // SAFETY: vec3_t contracts per mathlib.h; see this fn's Safety section
+    unsafe { map2(veca, vecb, vecc, |a, b, c| m::vector_ma(a, scale, b, c)) }
 }
 
 /// # Safety
 /// `v1`/`v2` must point to 3 valid floats.
 #[no_mangle]
 pub unsafe extern "C" fn _DotProduct(v1: *const c_float, v2: *const c_float) -> c_float {
-    // SAFETY: vec3_t/float-array pointer contracts per mathlib.h (see fn docs)
-    let (a, b) = unsafe { (v3(v1), v3(v2)) };
-    m::dot_product(&a, &b)
+    // SAFETY: vec3_t contracts per mathlib.h; see this fn's Safety section
+    unsafe { read2(v1, v2, m::dot_product) }
 }
 
 /// # Safety
@@ -169,90 +276,64 @@ pub unsafe extern "C" fn _VectorSubtract(
     vecb: *const c_float,
     out: *mut c_float,
 ) {
-    // SAFETY: vec3_t/float-array pointer contracts per mathlib.h (see fn docs)
-    let (a, b) = unsafe { (v3(veca), v3(vecb)) };
-    let mut o = [0.0f32; 3];
-    m::vector_subtract(&a, &b, &mut o);
-    // SAFETY: vec3_t/float-array pointer contracts per mathlib.h (see fn docs)
-    unsafe { store3(out, o) };
+    // SAFETY: vec3_t contracts per mathlib.h; see this fn's Safety section
+    unsafe { map2(veca, vecb, out, m::vector_subtract) }
 }
 
 /// # Safety
 /// `veca`/`vecb` must point to 3 valid floats, `out` to 3 writable floats.
 #[no_mangle]
 pub unsafe extern "C" fn _VectorAdd(veca: *const c_float, vecb: *const c_float, out: *mut c_float) {
-    // SAFETY: vec3_t/float-array pointer contracts per mathlib.h (see fn docs)
-    let (a, b) = unsafe { (v3(veca), v3(vecb)) };
-    let mut o = [0.0f32; 3];
-    m::vector_add(&a, &b, &mut o);
-    // SAFETY: vec3_t/float-array pointer contracts per mathlib.h (see fn docs)
-    unsafe { store3(out, o) };
+    // SAFETY: vec3_t contracts per mathlib.h; see this fn's Safety section
+    unsafe { map2(veca, vecb, out, m::vector_add) }
 }
 
 /// # Safety
 /// `input` must point to 3 valid floats, `out` to 3 writable floats.
 #[no_mangle]
 pub unsafe extern "C" fn _VectorCopy(input: *const c_float, out: *mut c_float) {
-    // SAFETY: vec3_t/float-array pointer contracts per mathlib.h (see fn docs)
-    let i = unsafe { v3(input) };
-    // SAFETY: vec3_t/float-array pointer contracts per mathlib.h (see fn docs)
-    unsafe { store3(out, i) };
+    // SAFETY: vec3_t contracts per mathlib.h; see this fn's Safety section
+    unsafe { map1(input, out, |i, o| *o = *i) }
 }
 
 /// # Safety
 /// `v1`/`v2` must point to 3 valid floats, `cross` to 3 writable floats.
 #[no_mangle]
 pub unsafe extern "C" fn CrossProduct(v1: *const c_float, v2: *const c_float, cross: *mut c_float) {
-    // SAFETY: vec3_t/float-array pointer contracts per mathlib.h (see fn docs)
-    let (a, b) = unsafe { (v3(v1), v3(v2)) };
-    let mut c = [0.0f32; 3];
-    m::cross_product(&a, &b, &mut c);
-    // SAFETY: vec3_t/float-array pointer contracts per mathlib.h (see fn docs)
-    unsafe { store3(cross, c) };
+    // SAFETY: vec3_t contracts per mathlib.h; see this fn's Safety section
+    unsafe { map2(v1, v2, cross, m::cross_product) }
 }
 
 /// # Safety
 /// `v` must point to 3 valid floats.
 #[no_mangle]
 pub unsafe extern "C" fn VectorLength(v: *const c_float) -> c_float {
-    // SAFETY: vec3_t/float-array pointer contracts per mathlib.h (see fn docs)
-    let a = unsafe { v3(v) };
-    m::vector_length(&a)
+    // SAFETY: vec3_t contracts per mathlib.h; see this fn's Safety section
+    unsafe { read1(v, m::vector_length) }
 }
 
 /// # Safety
 /// `v` must point to 3 writable floats.
 #[no_mangle]
 pub unsafe extern "C" fn VectorNormalize(v: *mut c_float) -> c_float {
-    // SAFETY: vec3_t/float-array pointer contracts per mathlib.h (see fn docs)
-    let mut a = unsafe { v3(v) };
-    let len = m::vector_normalize(&mut a);
-    // SAFETY: vec3_t/float-array pointer contracts per mathlib.h (see fn docs)
-    unsafe { store3(v, a) };
-    len
+    // SAFETY: vec3_t contracts per mathlib.h; see this fn's Safety section
+    unsafe { inplace(v, m::vector_normalize) }
 }
 
 /// # Safety
 /// `v` must point to 3 writable floats.
 #[no_mangle]
 pub unsafe extern "C" fn VectorInverse(v: *mut c_float) {
-    // SAFETY: vec3_t/float-array pointer contracts per mathlib.h (see fn docs)
-    let mut a = unsafe { v3(v) };
-    m::vector_inverse(&mut a);
-    // SAFETY: vec3_t/float-array pointer contracts per mathlib.h (see fn docs)
-    unsafe { store3(v, a) };
+    // SAFETY: vec3_t contracts per mathlib.h; see this fn's Safety section
+    unsafe { inplace(v, m::vector_inverse) }
 }
 
 /// # Safety
 /// `input` must point to 3 valid floats, `out` to 3 writable floats.
 #[no_mangle]
 pub unsafe extern "C" fn VectorScale(input: *const c_float, scale: c_float, out: *mut c_float) {
-    // SAFETY: vec3_t/float-array pointer contracts per mathlib.h (see fn docs)
-    let i = unsafe { v3(input) };
-    let mut o = [0.0f32; 3];
-    m::vector_scale(&i, scale, &mut o);
-    // SAFETY: vec3_t/float-array pointer contracts per mathlib.h (see fn docs)
-    unsafe { store3(out, o) };
+    // SAFETY: vec3_t contracts per mathlib.h; see this fn's Safety section
+    unsafe { map1(input, out, |i, o| m::vector_scale(i, scale, o)) }
 }
 
 /// # Safety
@@ -354,10 +435,8 @@ pub unsafe extern "C" fn RotationMatrix(
     y: c_float,
     z: c_float,
 ) {
-    let mut out = [0.0f32; 16];
-    m::rotation_matrix(&mut out, angle, x, y, z);
-    // SAFETY: matrix points to a writable float[16]
-    unsafe { *(matrix as *mut [f32; 16]) = out };
+    // SAFETY: float[16] contract per mathlib.h; see this fn's Safety section
+    unsafe { mat16_out(matrix, |o| m::rotation_matrix(o, angle, x, y, z)) }
 }
 
 /// # Safety
@@ -369,30 +448,24 @@ pub unsafe extern "C" fn TranslationMatrix(
     y: c_float,
     z: c_float,
 ) {
-    let mut out = [0.0f32; 16];
-    m::translation_matrix(&mut out, x, y, z);
-    // SAFETY: matrix points to a writable float[16]
-    unsafe { *(matrix as *mut [f32; 16]) = out };
+    // SAFETY: float[16] contract per mathlib.h; see this fn's Safety section
+    unsafe { mat16_out(matrix, |o| m::translation_matrix(o, x, y, z)) }
 }
 
 /// # Safety
 /// `matrix` must point to 16 writable floats.
 #[no_mangle]
 pub unsafe extern "C" fn ScaleMatrix(matrix: *mut c_float, x: c_float, y: c_float, z: c_float) {
-    let mut out = [0.0f32; 16];
-    m::scale_matrix(&mut out, x, y, z);
-    // SAFETY: matrix points to a writable float[16]
-    unsafe { *(matrix as *mut [f32; 16]) = out };
+    // SAFETY: float[16] contract per mathlib.h; see this fn's Safety section
+    unsafe { mat16_out(matrix, |o| m::scale_matrix(o, x, y, z)) }
 }
 
 /// # Safety
 /// `matrix` must point to 16 writable floats.
 #[no_mangle]
 pub unsafe extern "C" fn IdentityMatrix(matrix: *mut c_float) {
-    let mut out = [0.0f32; 16];
-    m::identity_matrix(&mut out);
-    // SAFETY: matrix points to a writable float[16]
-    unsafe { *(matrix as *mut [f32; 16]) = out };
+    // SAFETY: float[16] contract per mathlib.h; see this fn's Safety section
+    unsafe { mat16_out(matrix, m::identity_matrix) }
 }
 
 /// # Safety
@@ -403,16 +476,14 @@ pub unsafe extern "C" fn IsOriginWithinMinMax(
     mins: *const c_float,
     maxs: *const c_float,
 ) -> bool {
-    // SAFETY: vec3_t/float-array pointer contracts per mathlib.h (see fn docs)
-    let (o, mi, ma) = unsafe { (v3(origin), v3(mins), v3(maxs)) };
-    m::is_origin_within_min_max(&o, &mi, &ma)
+    // SAFETY: vec3_t contracts per mathlib.h; see this fn's Safety section
+    unsafe { read3(origin, mins, maxs, m::is_origin_within_min_max) }
 }
 
 /// # Safety
 /// `angle` must point to 3 valid floats.
 #[no_mangle]
 pub unsafe extern "C" fn IsAxisAlignedDeg(angle: *const c_float) -> bool {
-    // SAFETY: vec3_t/float-array pointer contracts per mathlib.h (see fn docs)
-    let a = unsafe { v3(angle) };
-    m::is_axis_aligned_deg(&a)
+    // SAFETY: vec3_t contracts per mathlib.h; see this fn's Safety section
+    unsafe { read1(angle, m::is_axis_aligned_deg) }
 }
