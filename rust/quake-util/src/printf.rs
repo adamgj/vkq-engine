@@ -487,7 +487,7 @@ fn fmt_float(out: &mut Vec<u8>, v: f64, flags: Flags, width: usize, precision: u
     let mantissa = bits & 0xf_ffff_ffff_ffff;
 
     if biased_exp == 0x7ff {
-        fmt_nonfinite(out, negative, mantissa, flags, width, upper);
+        fmt_nonfinite(out, negative, mantissa, flags, width, precision, upper);
         return;
     }
 
@@ -582,15 +582,29 @@ fn fmt_nonfinite(
     mantissa: u64,
     flags: Flags,
     width: usize,
+    precision: usize,
     upper: bool,
 ) {
     // '0' flag is ignored for inf/nan on every platform
     let mut f = flags;
     f.zero = false;
+    #[cfg(not(target_os = "windows"))]
+    let _ = precision;
 
     if mantissa == 0 {
-        let body: &[u8] = if upper { b"INF" } else { b"inf" };
-        pad_number(out, body, negative, f, width, None);
+        #[allow(unused_mut)]
+        let mut body: Vec<u8> = if upper {
+            b"INF".to_vec()
+        } else {
+            b"inf".to_vec()
+        };
+        // UCRT's %#.0f forces the decimal point *into* the spelling: "i.nf"
+        // (observed on CI; per-platform match per ADR-005)
+        #[cfg(target_os = "windows")]
+        if f.alt && precision == 0 {
+            body.insert(1, b'.');
+        }
+        pad_number(out, &body, negative, f, width, None);
         return;
     }
 
@@ -617,11 +631,15 @@ fn fmt_nonfinite(
         } else {
             b"nan".to_vec()
         };
-        let body = if upper {
+        let mut body = if upper {
             body.to_ascii_uppercase()
         } else {
             body
         };
+        // UCRT's %#.0f decimal-point insertion, as for inf: "n.an(ind)"
+        if f.alt && precision == 0 {
+            body.insert(1, b'.');
+        }
         pad_number(out, &body, negative, f, width, None);
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
