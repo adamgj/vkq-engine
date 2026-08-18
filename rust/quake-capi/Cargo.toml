@@ -12,6 +12,11 @@ name = "quake_rs"
 # rlib in addition to staticlib so quake-ctest can link the shims into its
 # differential test binaries
 crate-type = ["staticlib", "rlib"]
+# no unit tests here (differential tests live in quake-ctest, which supplies
+# the engine-symbol stubs); a test harness for this crate would fail to link
+# on MSVC, where the staticlib's unresolved engine imports are not stripped
+test = false
+doctest = false
 
 [dependencies]
 quake-util = { path = "../quake-util" }

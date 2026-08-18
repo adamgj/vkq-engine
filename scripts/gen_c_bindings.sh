@@ -19,7 +19,7 @@ cd "$(dirname "$0")/.."
 bindgen rust/quake-c-sys/bindings_wrapper.h \
     --no-layout-tests \
     --no-doc-comments \
-    --blocklist-type 'FILE|__sFILE.*|__sbuf|fpos_t|__darwin_.*|__int64_t|_IO_.*|_iobuf' \
+    --blocklist-type 'FILE|__sFILE.*|__sbuf|fpos_t|__darwin_.*|__int64_t|_IO_.*|_iobuf|__off_t|__off64_t' \
     --raw-line '// opaque stdio FILE: only ever passed through as a pointer' \
     --raw-line '#[repr(C)]' \
     --raw-line 'pub struct FILE {' \
