@@ -13,6 +13,60 @@ use quake_types::json::{
 };
 use quake_util::json::{parse, EntryData};
 
+/// Appends `entry` to `parent`'s child list (json.h's firstchild/lastchild/next).
+///
+/// # Safety
+/// Both must point at `JsonEntry` slots in the same arena; `parent`'s links
+/// must already be initialised (the arena starts zeroed).
+unsafe fn link_child(parent: *mut JsonEntry, entry: *mut JsonEntry) {
+    // SAFETY: caller contract above; lastchild is non-NULL exactly when
+    // firstchild is, since both are set together below
+    unsafe {
+        if (*parent).firstchild.is_null() {
+            (*parent).firstchild = entry;
+        } else {
+            (*(*parent).lastchild).next = entry;
+        }
+        (*parent).lastchild = entry;
+    }
+}
+
+/// Stamps one parsed entry's type tag and union payload into an arena slot.
+///
+/// This is the only place the `jsonentry_t` union is written, so the "which
+/// member is live for this type tag?" argument is made once (ADR-004) instead
+/// of once per match arm.
+///
+/// # Safety
+/// `entry` must point at a zeroed `JsonEntry` in the arena, and `strings` at
+/// that arena's string block, so `EntryData::String` offsets land inside it.
+unsafe fn write_entry(entry: *mut JsonEntry, data: &EntryData, strings: *mut c_char) {
+    // SAFETY: caller contract above
+    unsafe {
+        match *data {
+            EntryData::Invalid => {} // stays zeroed: JSON_INVALID
+            EntryData::Object => (*entry).type_ = JSON_OBJECT,
+            EntryData::Array => (*entry).type_ = JSON_ARRAY,
+            EntryData::String(offset) => {
+                (*entry).type_ = JSON_STRING;
+                (*entry).value.string = strings.add(offset);
+            }
+            EntryData::Number(n) => {
+                (*entry).type_ = JSON_NUMBER;
+                (*entry).value.number = n;
+            }
+            EntryData::Boolean(b) => {
+                (*entry).type_ = JSON_BOOLEAN;
+                (*entry).value.boolean = b;
+            }
+            EntryData::Null => {
+                (*entry).type_ = JSON_NULL;
+                (*entry).value.boolean = false;
+            }
+        }
+    }
+}
+
 /// C: `json_t *JSON_Parse (const char *text);`
 ///
 /// # Safety
@@ -40,9 +94,12 @@ pub unsafe extern "C" fn JSON_Parse(text: *const c_char) -> *mut Json {
         return core::ptr::null_mut();
     }
 
-    // SAFETY: the block is large enough for the json_t header, numtokens
-    // entries, and the strings; layout matches quake-types' asserted mirrors
-    unsafe {
+    // SAFETY: the block is `total` bytes, so the json_t header, the numtokens
+    // entries and the string bytes are carved out of it in that order; layout
+    // matches quake-types' asserted mirrors. The strings are copied verbatim
+    // (each NUL-terminated, plus the final NUL) — offsets in parsed.strings
+    // are the same offsets in the block.
+    let (json, entries, strings) = unsafe {
         let json = block as *mut Json;
         let entries = json.add(1) as *mut JsonEntry;
         let strings = entries.add(numtokens) as *mut c_char;
@@ -51,51 +108,34 @@ pub unsafe extern "C" fn JSON_Parse(text: *const c_char) -> *mut Json {
         (*json).root = entries;
         (*json).strings = strings;
 
-        // strings are copied verbatim (each NUL-terminated, plus the final
-        // NUL) — offsets in parsed.strings are the same offsets in the block
         core::ptr::copy_nonoverlapping(
             parsed.strings.as_ptr(),
             strings as *mut u8,
             parsed.strings.len(),
         );
 
-        for (i, desc) in parsed.entries.iter().enumerate() {
-            let entry = entries.add(i);
-            // link into the parent's child list, in token order
-            if let Some(p) = desc.parent {
-                let parent = entries.add(p);
-                if (*parent).firstchild.is_null() {
-                    (*parent).firstchild = entry;
-                } else {
-                    (*(*parent).lastchild).next = entry;
-                }
-                (*parent).lastchild = entry;
-            }
-            match desc.data {
-                EntryData::Invalid => {} // stays zeroed: JSON_INVALID
-                EntryData::Object => (*entry).type_ = JSON_OBJECT,
-                EntryData::Array => (*entry).type_ = JSON_ARRAY,
-                EntryData::String(offset) => {
-                    (*entry).type_ = JSON_STRING;
-                    (*entry).value.string = strings.add(offset);
-                }
-                EntryData::Number(n) => {
-                    (*entry).type_ = JSON_NUMBER;
-                    (*entry).value.number = n;
-                }
-                EntryData::Boolean(b) => {
-                    (*entry).type_ = JSON_BOOLEAN;
-                    (*entry).value.boolean = b;
-                }
-                EntryData::Null => {
-                    (*entry).type_ = JSON_NULL;
-                    (*entry).value.boolean = false;
-                }
-            }
-        }
+        (json, entries, strings)
+    };
 
-        json
+    for (i, desc) in parsed.entries.iter().enumerate() {
+        // SAFETY: i < numtokens, so this is one of the arena's entry slots
+        let entry = unsafe { entries.add(i) };
+        // link into the parent's child list, in token order
+        if let Some(p) = desc.parent {
+            // quake_util::json::parse only ever names an already-emitted
+            // token as a parent; assert it rather than trusting a cross-crate
+            // invariant that nothing else here would catch if it regressed
+            debug_assert!(p < i, "parse() named a forward parent");
+            // SAFETY: p < i <= numtokens, so that slot is an initialised
+            // arena entry
+            unsafe { link_child(entries.add(p), entry) };
+        }
+        // SAFETY: `entry` is a zeroed arena slot and `strings` is this arena's
+        // string block, which the offsets in `desc` index
+        unsafe { write_entry(entry, &desc.data, strings) };
     }
+
+    json
 }
 
 /// C: `void JSON_Free (json_t *json);`
@@ -125,26 +165,32 @@ pub unsafe extern "C" fn JSON_Find(
     }
     // SAFETY: valid NUL-terminated name per the json.h contract
     let name = unsafe { CStr::from_ptr(name) };
-    // SAFETY: tree pointers all point into the parse arena
-    unsafe {
-        let mut child = (*entry).firstchild;
-        while !child.is_null() {
-            let e = &*child;
-            // C reads `entry->string` from the union without a type check:
-            // for OBJECT/ARRAY/false/null children the union is zero and C
-            // skips them; for number/true children C would strcmp through
-            // garbage union bits (UB, crash in practice). The type check here
-            // skips those safely — divergent only where the C is UB.
-            if e.type_ == JSON_STRING
-                && !e.value.string.is_null()
-                && !e.firstchild.is_null()
-                && CStr::from_ptr(e.value.string) == name
-                && (*e.firstchild).type_ == type_
-            {
+    // SAFETY: `entry` is a tree node, so its links are readable
+    let mut child = unsafe { (*entry).firstchild };
+
+    while !child.is_null() {
+        // SAFETY: tree pointers all point into the parse arena
+        let e = unsafe { &*child };
+        // C reads `entry->string` from the union without a type check:
+        // for OBJECT/ARRAY/false/null children the union is zero and C
+        // skips them; for number/true children C would strcmp through
+        // garbage union bits (UB, crash in practice). The type check here
+        // skips those safely — divergent only where the C is UB.
+        if e.type_ == JSON_STRING {
+            // SAFETY: a JSON_STRING entry's union holds a pointer into the
+            // arena's string block, and firstchild (when non-NULL) is an
+            // arena node; the conditions run in the C's order
+            let matched = unsafe {
+                !e.value.string.is_null()
+                    && !e.firstchild.is_null()
+                    && CStr::from_ptr(e.value.string) == name
+                    && (*e.firstchild).type_ == type_
+            };
+            if matched {
                 return e.firstchild;
             }
-            child = e.next;
         }
+        child = e.next;
     }
     core::ptr::null()
 }

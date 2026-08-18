@@ -58,10 +58,10 @@ unsafe fn read_name(p: *const c_char) -> Vec<u8> {
 /// In-place `W_CleanupName` on a 16-byte lump name.
 unsafe fn cleanup_name_in_place(p: *mut c_char) {
     // SAFETY: p points to a 16-byte name field per the wad.h layout
-    unsafe {
-        let cleaned = cleanup_name(&read_name(p));
-        core::ptr::copy_nonoverlapping(cleaned.as_ptr() as *const c_char, p, 16);
-    }
+    let raw = unsafe { read_name(p) };
+    let cleaned = cleanup_name(&raw);
+    // SAFETY: as above; cleanup_name always yields exactly 16 bytes
+    unsafe { core::ptr::copy_nonoverlapping(cleaned.as_ptr() as *const c_char, p, 16) };
 }
 
 /// C: `void W_CleanupName (const char *in, char *out);`
@@ -71,10 +71,46 @@ unsafe fn cleanup_name_in_place(p: *mut c_char) {
 /// `out` must be writable for 16 bytes. In-place calls are fine, like C.
 #[no_mangle]
 pub unsafe extern "C" fn W_CleanupName(in_: *const c_char, out: *mut c_char) {
-    // SAFETY: caller contract above; read completes before the write
+    // SAFETY: caller contract above
+    let raw = unsafe { read_name(in_) };
+    let cleaned = cleanup_name(&raw);
+    // SAFETY: caller contract above; the read is already complete, so in-place
+    // calls (in_ == out) stay well-defined, like C
+    unsafe { core::ptr::copy_nonoverlapping(cleaned.as_ptr() as *const c_char, out, 16) };
+}
+
+/// The WAD2 magic at the head of a loaded image.
+///
+/// Split from `read_wad_counts` to mirror wad.c's read order: the id first,
+/// the counts only once the id checks out. That narrows but does not close the
+/// short-file window — `COM_LoadFile` allocates `len + 1` and pads to nothing,
+/// so a gfx.wad whose entire contents are `WAD2` still reaches the 12-byte
+/// header read. wad.c gates that read on the id alone too, and staying
+/// bug-for-bug with it is deliberate.
+///
+/// # Safety
+/// `base` must point to at least 4 readable bytes.
+unsafe fn read_wad_ident(base: *const u8) -> [u8; 4] {
+    // SAFETY: caller contract above; the read is unaligned-safe
+    let ident = unsafe { core::ptr::addr_of!((*(base as *const WadInfo)).identification) }
+        .cast::<[u8; 4]>();
+    // SAFETY: as above
+    unsafe { ident.read_unaligned() }
+}
+
+/// The lump-directory location from a WAD2 header: `(numlumps, infotableofs)`.
+///
+/// # Safety
+/// `base` must point to a full readable `wadinfo_t`.
+unsafe fn read_wad_counts(base: *const u8) -> (c_int, i32) {
+    // SAFETY: caller contract above; reads are unaligned-safe, and the file
+    // data is little-endian on disk
     unsafe {
-        let cleaned = cleanup_name(&read_name(in_));
-        core::ptr::copy_nonoverlapping(cleaned.as_ptr() as *const c_char, out, 16);
+        let header = base as *const WadInfo;
+        (
+            i32::from_le(core::ptr::addr_of!((*header).numlumps).read_unaligned()),
+            i32::from_le(core::ptr::addr_of!((*header).infotableofs).read_unaligned()),
+        )
     }
 }
 
@@ -86,24 +122,36 @@ unsafe fn fixup_lump(
     cleanup_first: bool,
     warn: impl Fn(*const c_char, LumpProblem),
 ) {
-    // SAFETY: lump points at a lumpinfo_t inside a readable/writable buffer;
-    // reads/writes are unaligned-safe
+    // SAFETY: `lump` points at a lumpinfo_t inside a readable/writable buffer,
+    // so `name` is its 16-byte field
+    let name = unsafe { core::ptr::addr_of_mut!((*lump).name) as *mut c_char };
+    if cleanup_first {
+        // SAFETY: as above
+        unsafe { cleanup_name_in_place(name) };
+    }
+
+    // SAFETY: as above; the reads are unaligned-safe and the on-disk fields
+    // are little-endian
+    let (mut filepos, mut size, disksize) = unsafe {
+        (
+            i32::from_le(core::ptr::addr_of!((*lump).filepos).read_unaligned()),
+            i32::from_le(core::ptr::addr_of!((*lump).size).read_unaligned()),
+            i32::from_le(core::ptr::addr_of!((*lump).disksize).read_unaligned()),
+        )
+    };
+
+    if let Some(problem) = repair_lump(&mut filepos, &mut size, disksize, file_len) {
+        warn(name as *const c_char, problem);
+    }
+
+    // SAFETY: as above; the writes go back into the fields just read
     unsafe {
-        if cleanup_first {
-            cleanup_name_in_place(core::ptr::addr_of_mut!((*lump).name) as *mut c_char);
-        }
-        let mut filepos = i32::from_le(core::ptr::addr_of!((*lump).filepos).read_unaligned());
-        let mut size = i32::from_le(core::ptr::addr_of!((*lump).size).read_unaligned());
-        let disksize = i32::from_le(core::ptr::addr_of!((*lump).disksize).read_unaligned());
-        let problem = repair_lump(&mut filepos, &mut size, disksize, file_len);
-        if let Some(problem) = problem {
-            warn(core::ptr::addr_of!((*lump).name) as *const c_char, problem);
-        }
         core::ptr::addr_of_mut!((*lump).filepos).write_unaligned(filepos);
         core::ptr::addr_of_mut!((*lump).size).write_unaligned(size);
-        if !cleanup_first {
-            cleanup_name_in_place(core::ptr::addr_of_mut!((*lump).name) as *mut c_char);
-        }
+    }
+    if !cleanup_first {
+        // SAFETY: as above
+        unsafe { cleanup_name_in_place(name) };
     }
 }
 
@@ -114,14 +162,20 @@ unsafe fn fixup_lump(
 #[no_mangle]
 pub unsafe extern "C" fn W_LoadWadFile() {
     let filename = c"gfx.wad";
-    // SAFETY: engine C API calls with valid arguments; wad_base ownership is
-    // this function's, exactly as in the C original
-    unsafe {
+
+    // SAFETY: wad_base ownership is this function's, exactly as in the C
+    // original, and the globals are only touched on the init path
+    let base = unsafe {
         if !wad_base.is_null() {
             quake_c_sys::Mem_Free(wad_base as *const c_void);
         }
         wad_base = quake_c_sys::COM_LoadFile(filename.as_ptr(), core::ptr::null_mut());
-        if wad_base.is_null() {
+        wad_base
+    };
+    if base.is_null() {
+        // SAFETY: engine C API; the format and both arguments are
+        // NUL-terminated strings
+        unsafe {
             quake_c_sys::Sys_Error(
                 c"W_LoadWadFile: couldn't load %s\n\nBasedir is: %s\n\nCheck that this has an id1 subdirectory containing pak0.pak and pak1.pak, or use the -basedir command-line option to specify another directory."
                     .as_ptr(),
@@ -129,46 +183,68 @@ pub unsafe extern "C" fn W_LoadWadFile() {
                 core::ptr::addr_of!(quake_c_sys::manual::com_basedir) as *const c_char,
             );
         }
-        let file_len = quake_c_sys::COM_ThreadFileSize();
+    }
+    // SAFETY: engine C API, reporting on the file COM_LoadFile just read
+    let file_len = unsafe { quake_c_sys::COM_ThreadFileSize() };
 
-        let header = wad_base as *const WadInfo;
-        let ident = core::ptr::addr_of!((*header).identification).read_unaligned();
-        let ident_bytes = [
-            ident[0] as u8,
-            ident[1] as u8,
-            ident[2] as u8,
-            ident[3] as u8,
-        ];
-        let mut infotableofs: i32 = 0;
-        if !wad2_id_ok(&ident_bytes) {
+    // SAFETY: COM_LoadFile returned a non-NULL image. It guarantees only
+    // `len + 1` bytes, so a gfx.wad under 4 bytes reads out of bounds here —
+    // exactly where wad.c's unchecked `header->identification[0..4]` does.
+    let ident = unsafe { read_wad_ident(base) };
+
+    let mut infotableofs: i32 = 0;
+    if !wad2_id_ok(&ident) {
+        // SAFETY: engine C API; NUL-terminated format and argument
+        unsafe {
             quake_c_sys::Con_Printf(
                 c"Wad file %s doesn't have WAD2 id\n".as_ptr(),
                 filename.as_ptr(),
             );
             wad_numlumps = 0;
-        } else {
-            wad_numlumps = i32::from_le(core::ptr::addr_of!((*header).numlumps).read_unaligned());
-            infotableofs =
-                i32::from_le(core::ptr::addr_of!((*header).infotableofs).read_unaligned());
         }
-        // wrapping_offset, not offset: infotableofs is untrusted file data and
-        // this runs *before* the bounds check below (the C leaves wad_lumps
-        // pointing at the bogus address too, so it cannot be reordered).
-        // `offset` is getelementptr inbounds -- immediate UB out of range --
-        // whereas the C is a plain integer add.
-        wad_lumps = wad_base.wrapping_offset(infotableofs as isize) as *mut LumpInfo;
-        if header_extends_beyond(infotableofs, wad_numlumps, file_len) {
+    } else {
+        // SAFETY: wad.c gates the numlumps/infotableofs reads on the WAD2 id
+        // alone, and so does this — a 4-byte "WAD2" file reads 8 bytes past
+        // the COM_LoadFile block, bug-for-bug with the C. The global is only
+        // written on the init path.
+        let (numlumps, ofs) = unsafe { read_wad_counts(base) };
+        infotableofs = ofs;
+        // SAFETY: the global is only written on the init path
+        unsafe { wad_numlumps = numlumps };
+    }
+
+    // wrapping_offset, not offset: infotableofs is untrusted file data and
+    // this runs *before* the bounds check below (the C leaves wad_lumps
+    // pointing at the bogus address too, so it cannot be reordered).
+    // `offset` is getelementptr inbounds -- immediate UB out of range --
+    // whereas the C is a plain integer add.
+    let lumps = base.wrapping_offset(infotableofs as isize) as *mut LumpInfo;
+    // SAFETY: the global is only written on the init path
+    unsafe { wad_lumps = lumps };
+
+    // `wad_numlumps` stays the single source of truth for the count, written
+    // at exactly the points the C writes it; the locals below are snapshots of
+    // it, read on the single-threaded init path.
+    // SAFETY: the global was just settled by the id check above
+    let numlumps = unsafe { wad_numlumps };
+    if header_extends_beyond(infotableofs, numlumps, file_len) {
+        // SAFETY: engine C API; NUL-terminated format and argument
+        unsafe {
             quake_c_sys::Con_Printf(
                 c"Wad file %s header extends beyond end of file\n".as_ptr(),
                 filename.as_ptr(),
             );
             wad_numlumps = 0;
         }
+    }
+    // SAFETY: as above — re-read because the bounds check may have zeroed it
+    let numlumps = unsafe { wad_numlumps };
 
-        for i in 0..wad_numlumps.max(0) {
-            let lump = wad_lumps.add(i as usize);
-            fixup_lump(lump, file_len, false, |name, problem| {
-                match problem {
+    let warn = |name: *const c_char, problem: LumpProblem| {
+        // SAFETY: engine C API; `name` is the lump's 16-byte name field, which
+        // the "%.16s" conversion never reads past
+        unsafe {
+            match problem {
                 LumpProblem::BeginsBeyond { over } => quake_c_sys::Con_Printf(
                     c"Wad file %s lump \"%.16s\" begins %lld bytes beyond end of wad\n".as_ptr(),
                     filename.as_ptr(),
@@ -176,17 +252,31 @@ pub unsafe extern "C" fn W_LoadWadFile() {
                     over,
                 ),
                 LumpProblem::ExtendsBeyond { over, size } => quake_c_sys::Con_Printf(
-                    c"Wad file %s lump \"%.16s\" extends %lld bytes beyond end of wad (lump size: %u)\n".as_ptr(),
+                    c"Wad file %s lump \"%.16s\" extends %lld bytes beyond end of wad (lump size: %u)\n"
+                        .as_ptr(),
                     filename.as_ptr(),
                     name,
                     over,
                     size,
                 ),
             }
-            });
-            if core::ptr::addr_of!((*lump).type_).read_unaligned() == TYP_QPIC {
+        }
+    };
+
+    for i in 0..numlumps.max(0) {
+        // SAFETY: the directory holds `numlumps` entries within the image,
+        // which header_extends_beyond just confirmed
+        let lump = unsafe { lumps.add(i as usize) };
+        // SAFETY: `lump` points at a lumpinfo_t inside the loaded image
+        unsafe { fixup_lump(lump, file_len, false, warn) };
+        // SAFETY: as above
+        let type_ = unsafe { core::ptr::addr_of!((*lump).type_).read_unaligned() };
+        if type_ == TYP_QPIC {
+            // SAFETY: as above; wrapping_offset because filepos is untrusted
+            // file data, exactly as at the directory offset above
+            unsafe {
                 let filepos = core::ptr::addr_of!((*lump).filepos).read_unaligned();
-                SwapPic(wad_base.wrapping_offset(filepos as isize) as *mut QPic);
+                SwapPic(base.wrapping_offset(filepos as isize) as *mut QPic);
             }
         }
     }
@@ -197,21 +287,23 @@ unsafe fn get_lumpinfo(
     numlumps: c_int,
     name: *const c_char,
 ) -> *mut LumpInfo {
-    // SAFETY: lumps/numlumps describe a valid lump array; names are 16-byte
-    // fields compared with C strcmp semantics on cleaned names
-    unsafe {
-        let clean = cleanup_name(&read_name(name));
-        for i in 0..numlumps.max(0) {
-            let lump = lumps.add(i as usize);
-            let lump_name: [u8; 16] = *(core::ptr::addr_of!((*lump).name) as *const [u8; 16]);
-            // both sides are cleaned (zero-filled) 16-byte names, so C's
-            // strcmp equality is exactly 16-byte equality
-            if clean == lump_name {
-                return lump;
-            }
+    // SAFETY: `name` is a NUL-terminated string or a 16-byte name field
+    let raw = unsafe { read_name(name) };
+    let clean = cleanup_name(&raw);
+
+    for i in 0..numlumps.max(0) {
+        // SAFETY: lumps/numlumps describe a valid lump array
+        let lump = unsafe { lumps.add(i as usize) };
+        // SAFETY: the lump's `name` is a 16-byte field
+        let lump_name: [u8; 16] =
+            unsafe { *(core::ptr::addr_of!((*lump).name) as *const [u8; 16]) };
+        // both sides are cleaned (zero-filled) 16-byte names, so C's
+        // strcmp equality is exactly 16-byte equality
+        if clean == lump_name {
+            return lump;
         }
-        core::ptr::null_mut()
     }
+    core::ptr::null_mut()
 }
 
 /// C: `void *W_GetLumpName (const char *name, lumpinfo_t **out_info);`
@@ -223,12 +315,16 @@ pub unsafe extern "C" fn W_GetLumpName(
     name: *const c_char,
     out_info: *mut *mut LumpInfo,
 ) -> *mut c_void {
-    // SAFETY: globals valid after W_LoadWadFile; caller contract above
+    // SAFETY: the globals describe the loaded gfx.wad after W_LoadWadFile;
+    // `name` per the caller contract above
+    let lump = unsafe { get_lumpinfo(wad_lumps, wad_numlumps, name) };
+    if lump.is_null() {
+        return core::ptr::null_mut();
+    }
+    // SAFETY: `out_info` is writable per the contract above; the lump header
+    // is inside the loaded image, and filepos is untrusted file data (hence
+    // wrapping_offset, as in W_LoadWadFile)
     unsafe {
-        let lump = get_lumpinfo(wad_lumps, wad_numlumps, name);
-        if lump.is_null() {
-            return core::ptr::null_mut();
-        }
         *out_info = lump;
         let filepos = core::ptr::addr_of!((*lump).filepos).read_unaligned();
         wad_base.wrapping_offset(filepos as isize) as *mut c_void
@@ -251,83 +347,98 @@ pub unsafe extern "C" fn SwapPic(pic: *mut QPic) {
 }
 
 unsafe fn open_wad_file(filename: *const c_char, fh: *mut quake_c_sys::fshandle_t) -> bool {
-    // SAFETY: engine C API; fh points to a writable fshandle_t
+    let mut f: *mut quake_c_sys::FILE = core::ptr::null_mut();
+    // SAFETY: engine C API; `filename` is NUL-terminated and `f` is a writable
+    // out-parameter
+    let length = unsafe { quake_c_sys::COM_FOpenFile(filename, &mut f, core::ptr::null_mut()) };
+    if length == -1 {
+        return false;
+    }
+    // SAFETY: `fh` points to a writable fshandle_t and `f` is the file just
+    // opened, which is also what COM_ThreadFileFromPak reports on
     unsafe {
-        let mut f: *mut quake_c_sys::FILE = core::ptr::null_mut();
-        let length = quake_c_sys::COM_FOpenFile(filename, &mut f, core::ptr::null_mut());
-        if length == -1 {
-            return false;
-        }
         (*fh).file = f;
         (*fh).start = quake_c_sys::Sys_ftell(f);
         (*fh).pos = 0;
         (*fh).length = length;
         (*fh).pak = quake_c_sys::COM_ThreadFileFromPak() != 0;
-        true
     }
+    true
 }
 
 unsafe fn add_wad_file(name: *const c_char, fh: *mut quake_c_sys::fshandle_t) -> *mut Wad {
-    // SAFETY: fh is an open handle; engine C API calls with valid arguments;
-    // allocations use Mem_Alloc since the wad_t/lump list crosses the FFI
-    // boundary (ADR-013)
+    let mut header = WadInfo {
+        identification: [0; 4],
+        numlumps: 0,
+        infotableofs: 0,
+    };
+    // SAFETY: `header` is a writable wadinfo_t of exactly that size and `fh`
+    // is an open handle; a short read leaves the zeroed fields, like the C
     unsafe {
-        let mut header = WadInfo {
-            identification: [0; 4],
-            numlumps: 0,
-            infotableofs: 0,
-        };
         quake_c_sys::FS_fread(
             core::ptr::addr_of_mut!(header) as *mut c_void,
             1,
             core::mem::size_of::<WadInfo>(),
             fh,
         );
+    }
 
-        let id = i32::from_le_bytes([
-            header.identification[0] as u8,
-            header.identification[1] as u8,
-            header.identification[2] as u8,
-            header.identification[3] as u8,
-        ]);
-        let numlumps = i32::from_le(header.numlumps);
-        let infotableofs = i32::from_le(header.infotableofs);
+    let id = i32::from_le_bytes([
+        header.identification[0] as u8,
+        header.identification[1] as u8,
+        header.identification[2] as u8,
+        header.identification[3] as u8,
+    ]);
+    let numlumps = i32::from_le(header.numlumps);
+    let infotableofs = i32::from_le(header.infotableofs);
 
-        match check_add_wad_header(id, numlumps, infotableofs) {
-            AddWadVerdict::BadId => {
-                quake_c_sys::Con_Warning(c"%s is not a valid WAD\n".as_ptr(), name);
-                return core::ptr::null_mut();
-            }
-            AddWadVerdict::BadCounts => {
+    match check_add_wad_header(id, numlumps, infotableofs) {
+        AddWadVerdict::BadId => {
+            // SAFETY: engine C API; NUL-terminated format and argument
+            unsafe { quake_c_sys::Con_Warning(c"%s is not a valid WAD\n".as_ptr(), name) };
+            return core::ptr::null_mut();
+        }
+        AddWadVerdict::BadCounts => {
+            // SAFETY: engine C API; NUL-terminated format and argument
+            unsafe {
                 quake_c_sys::Con_Warning(
                     c"%s is not a valid WAD (%i lumps, %i info table offset)\n".as_ptr(),
                     name,
                     numlumps,
                     infotableofs,
                 );
-                return core::ptr::null_mut();
             }
-            AddWadVerdict::Empty => {
-                quake_c_sys::Con_DPrintf2(c"WAD file %s has no lumps, ignored\n".as_ptr(), name);
-                return core::ptr::null_mut();
-            }
-            AddWadVerdict::Ok => {}
+            return core::ptr::null_mut();
         }
+        AddWadVerdict::Empty => {
+            // SAFETY: engine C API; NUL-terminated format and argument
+            unsafe {
+                quake_c_sys::Con_DPrintf2(c"WAD file %s has no lumps, ignored\n".as_ptr(), name);
+            }
+            return core::ptr::null_mut();
+        }
+        AddWadVerdict::Ok => {}
+    }
 
-        let lumps = quake_c_sys::Mem_Alloc(numlumps as usize * core::mem::size_of::<LumpInfo>())
-            as *mut LumpInfo;
+    let table_bytes = numlumps as usize * core::mem::size_of::<LumpInfo>();
+    // SAFETY: the verdict above is Ok, so numlumps is positive and the table
+    // size fits; the block stays on Mem_Alloc because the lump array crosses
+    // the FFI boundary (ADR-013), and it is exactly what FS_fread is told to
+    // fill
+    let lumps = unsafe {
+        let lumps = quake_c_sys::Mem_Alloc(table_bytes) as *mut LumpInfo;
         quake_c_sys::FS_fseek(fh, infotableofs as i64, 0 /* SEEK_SET */);
-        quake_c_sys::FS_fread(
-            lumps as *mut c_void,
-            1,
-            numlumps as usize * core::mem::size_of::<LumpInfo>(),
-            fh,
-        );
+        quake_c_sys::FS_fread(lumps as *mut c_void, 1, table_bytes, fh);
+        lumps
+    };
+    // SAFETY: `fh` is an open handle, so its length field is readable
+    let file_len = unsafe { (*fh).length };
 
-        for i in 0..numlumps {
-            let lump = lumps.add(i as usize);
-            fixup_lump(lump, (*fh).length, true, |lump_name, problem| {
-                match problem {
+    let warn = |lump_name: *const c_char, problem: LumpProblem| {
+        // SAFETY: engine C API; `lump_name` is the lump's 16-byte name field,
+        // which the "%.16s" conversion never reads past
+        unsafe {
+            match problem {
                 LumpProblem::BeginsBeyond { over } => quake_c_sys::Con_Warning(
                     c"WAD file %s lump \"%.16s\" begins %lld bytes beyond end of WAD\n".as_ptr(),
                     name,
@@ -335,16 +446,28 @@ unsafe fn add_wad_file(name: *const c_char, fh: *mut quake_c_sys::fshandle_t) ->
                     over,
                 ),
                 LumpProblem::ExtendsBeyond { over, size } => quake_c_sys::Con_Warning(
-                    c"WAD file %s lump \"%.16s\" extends %lld bytes beyond end of WAD (lump size is %i)\n".as_ptr(),
+                    c"WAD file %s lump \"%.16s\" extends %lld bytes beyond end of WAD (lump size is %i)\n"
+                        .as_ptr(),
                     name,
                     lump_name,
                     over,
                     size,
                 ),
             }
-            });
         }
+    };
 
+    for i in 0..numlumps {
+        // SAFETY: i < numlumps, the array just allocated
+        let lump = unsafe { lumps.add(i as usize) };
+        // SAFETY: `lump` points at a lumpinfo_t in that array
+        unsafe { fixup_lump(lump, file_len, true, warn) };
+    }
+
+    // SAFETY: the block is sized for a wad_t and stays on Mem_Alloc because
+    // the node crosses the FFI boundary (ADR-013); `name` is NUL-terminated,
+    // so the truncated copy plus its terminator fit the 64-byte field
+    let wad = unsafe {
         let wad = quake_c_sys::Mem_Alloc(core::mem::size_of::<Wad>()) as *mut Wad;
         let name_bytes = CStr::from_ptr(name).to_bytes();
         let name_field = core::ptr::addr_of_mut!((*wad).name) as *mut u8;
@@ -355,10 +478,12 @@ unsafe fn add_wad_file(name: *const c_char, fh: *mut quake_c_sys::fshandle_t) ->
         (*wad).fh = *fh;
         (*wad).numlumps = numlumps;
         (*wad).lumps = lumps;
-
-        quake_c_sys::Con_DPrintf(c"%s\n".as_ptr(), name);
         wad
-    }
+    };
+
+    // SAFETY: engine C API; NUL-terminated format and argument
+    unsafe { quake_c_sys::Con_DPrintf(c"%s\n".as_ptr(), name) };
+    wad
 }
 
 /// C: `wad_t *W_LoadWadList (const char *names);` — `;`-separated list from
@@ -369,63 +494,82 @@ unsafe fn add_wad_file(name: *const c_char, fh: *mut quake_c_sys::fshandle_t) ->
 /// `names` must be a NUL-terminated string.
 #[no_mangle]
 pub unsafe extern "C" fn W_LoadWadList(names: *const c_char) -> *mut Wad {
-    // SAFETY: names NUL-terminated per the wad.h contract; engine C API calls
-    unsafe {
-        let all = CStr::from_ptr(names).to_bytes();
-        let mut wads: *mut Wad = core::ptr::null_mut();
+    // SAFETY: NUL-terminated per the wad.h contract
+    let all = unsafe { CStr::from_ptr(names) }.to_bytes();
+    let mut wads: *mut Wad = core::ptr::null_mut();
 
-        let mut rest = all;
-        loop {
-            // C: `for (name = newnames; name && *name;)` — an empty remainder
-            // ends the loop; an empty middle segment is still processed
-            // (yielding COM_FileBase's "?model?")
-            if rest.is_empty() {
-                break;
-            }
-            let (seg, next) = match rest.iter().position(|&b| b == b';') {
-                Some(p) => (&rest[..p], Some(&rest[p + 1..])),
-                None => (rest, None),
-            };
+    let mut rest = all;
+    loop {
+        // C: `for (name = newnames; name && *name;)` — an empty remainder
+        // ends the loop; an empty middle segment is still processed
+        // (yielding COM_FileBase's "?model?")
+        if rest.is_empty() {
+            break;
+        }
+        let (seg, next) = match rest.iter().position(|&b| b == b';') {
+            Some(p) => (&rest[..p], Some(&rest[p + 1..])),
+            None => (rest, None),
+        };
 
-            // remove all of the leading garbage left by the map editor
-            let mut seg_z: Vec<u8> = seg.to_vec();
-            seg_z.push(0);
-            let mut filename = [0 as c_char; 64]; // MAX_QPATH
+        // remove all of the leading garbage left by the map editor
+        let mut seg_z: Vec<u8> = seg.to_vec();
+        seg_z.push(0);
+        let mut filename = [0 as c_char; 64]; // MAX_QPATH
+
+        // SAFETY: engine C API; `seg_z` is NUL-terminated and `filename` is
+        // writable for the 64 bytes both calls are told about
+        unsafe {
             quake_c_sys::COM_FileBase(seg_z.as_ptr() as *const c_char, filename.as_mut_ptr(), 64);
             quake_c_sys::COM_AddExtension(filename.as_mut_ptr(), c".wad".as_ptr(), 64);
+        }
 
-            let mut fh: quake_c_sys::fshandle_t = core::mem::zeroed();
-            let mut opened = open_wad_file(filename.as_ptr(), &mut fh);
-            if !opened {
-                // try the "gfx" directory: C memmoves the name up 4 bytes and
-                // stamps "gfx/", re-terminating the last byte
-                core::ptr::copy(filename.as_ptr(), filename.as_mut_ptr().add(4), 60);
-                filename[0] = b'g' as c_char;
-                filename[1] = b'f' as c_char;
-                filename[2] = b'x' as c_char;
-                filename[3] = b'/' as c_char;
-                filename[63] = 0;
-                opened = open_wad_file(filename.as_ptr(), &mut fh);
-            }
+        // SAFETY: fshandle_t is plain C data, so an all-zero value is a
+        // valid (closed) handle; the C leaves this local uninitialised and
+        // only reads it once open_wad_file has filled it in
+        let mut fh: quake_c_sys::fshandle_t = unsafe { core::mem::zeroed() };
+        // SAFETY: `filename` is NUL-terminated and `fh` is writable
+        let mut opened = unsafe { open_wad_file(filename.as_ptr(), &mut fh) };
+        if !opened {
+            // try the "gfx" directory: C memmoves the name up 4 bytes and
+            // stamps "gfx/", re-terminating the last byte
+            // both pointers come from one `as_mut_ptr`: spelling this as
+            // copy(filename.as_ptr(), filename.as_mut_ptr().add(4), ..) reads
+            // through a tag the second retag has already invalidated, which
+            // Miri/Stacked Borrows rejects
+            let p = filename.as_mut_ptr();
+            // SAFETY: source and destination are both inside `filename` and
+            // 4 + 60 == 64; `copy` is the overlap-tolerant memmove
+            unsafe { core::ptr::copy(p, p.add(4), 60) };
+            filename[0] = b'g' as c_char;
+            filename[1] = b'f' as c_char;
+            filename[2] = b'x' as c_char;
+            filename[3] = b'/' as c_char;
+            filename[63] = 0;
+            // SAFETY: as above
+            opened = unsafe { open_wad_file(filename.as_ptr(), &mut fh) };
+        }
 
-            if opened {
-                let wad = add_wad_file(filename.as_ptr(), &mut fh);
-                if !wad.is_null() {
-                    (*wad).next = wads;
-                    wads = wad;
-                } else {
-                    quake_c_sys::FS_fclose(&mut fh);
-                }
-            }
-
-            match next {
-                Some(n) => rest = n,
-                None => break,
+        if opened {
+            // SAFETY: `fh` is now an open handle and `filename` NUL-terminated
+            let wad = unsafe { add_wad_file(filename.as_ptr(), &mut fh) };
+            if !wad.is_null() {
+                // SAFETY: `wad` was just allocated by add_wad_file
+                unsafe { (*wad).next = wads };
+                wads = wad;
+            } else {
+                // SAFETY: add_wad_file rejected the wad without taking the
+                // handle, so it is still open
+                unsafe { quake_c_sys::FS_fclose(&mut fh) };
             }
         }
 
-        wads
+        match next {
+            Some(n) => rest = n,
+            None => break,
+        }
     }
+
+    wads
 }
 
 /// C: `void W_FreeWadList (wad_t *wads);`
@@ -434,15 +578,18 @@ pub unsafe extern "C" fn W_LoadWadList(names: *const c_char) -> *mut Wad {
 /// `wads` must be a list from W_LoadWadList (or NULL).
 #[no_mangle]
 pub unsafe extern "C" fn W_FreeWadList(mut wads: *mut Wad) {
-    // SAFETY: list nodes and lump arrays were Mem_Alloc'd by add_wad_file
-    unsafe {
-        while !wads.is_null() {
+    while !wads.is_null() {
+        // SAFETY: list nodes and lump arrays were Mem_Alloc'd by add_wad_file
+        // and the handle is still open; `next` is read before the node is
+        // freed
+        let next = unsafe {
             quake_c_sys::FS_fclose(core::ptr::addr_of_mut!((*wads).fh));
             quake_c_sys::Mem_Free((*wads).lumps as *const c_void);
             let next = (*wads).next;
             quake_c_sys::Mem_Free(wads as *const c_void);
-            wads = next;
-        }
+            next
+        };
+        wads = next;
     }
 }
 
@@ -457,16 +604,17 @@ pub unsafe extern "C" fn W_GetLumpinfoList(
     name: *const c_char,
     out_wad: *mut *mut Wad,
 ) -> *mut LumpInfo {
-    // SAFETY: caller contract above
-    unsafe {
-        while !wads.is_null() {
-            let info = get_lumpinfo((*wads).lumps, (*wads).numlumps, name);
-            if !info.is_null() {
-                *out_wad = wads;
-                return info;
-            }
-            wads = (*wads).next;
+    while !wads.is_null() {
+        // SAFETY: `wads` is a list node from W_LoadWadList, so its lump array
+        // is valid; `name` per the caller contract above
+        let info = unsafe { get_lumpinfo((*wads).lumps, (*wads).numlumps, name) };
+        if !info.is_null() {
+            // SAFETY: `out_wad` is writable per the contract above
+            unsafe { *out_wad = wads };
+            return info;
         }
-        core::ptr::null_mut()
+        // SAFETY: `wads` is a list node
+        wads = unsafe { (*wads).next };
     }
+    core::ptr::null_mut()
 }
