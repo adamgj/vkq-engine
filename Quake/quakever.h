@@ -34,11 +34,11 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #define QUAKESPASM_VER_SUFFIX // optional version suffix string literal like "-beta1"
 #endif
 
-#define VKQUAKE_VERSION_MAJOR 0
-#define VKQUAKE_VERSION_MINOR 1
+#define VKQUAKE_VERSION_MAJOR 1
+#define VKQUAKE_VERSION_MINOR 0
 #define VKQUAKE_VER_PATCH	  0
 
-#define VKQUAKE_VERSION		   0.1
+#define VKQUAKE_VERSION		   1.0
 #define VKQUAKE_COPYRIGHT_YEAR "2026"
 
 #define LINUX_VERSION VKQUAKE_VERSION
