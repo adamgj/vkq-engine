@@ -225,7 +225,6 @@ srcs = [
     'Quake/cl_tent.c',
     'Quake/cmd.c',
     'Quake/common.c',
-    'Quake/common_fs.c',
     'Quake/console.c',
     'Quake/cvar.c',
     'Quake/gl_draw.c',
@@ -278,7 +277,6 @@ srcs = [
     'Quake/snd_sdl3.c',
     'Quake/snd_umx.c',
     'Quake/snd_wave.c',
-    'Quake/steam.c',
     'Quake/steam_api.c',
     'Quake/sv_main.c',
     'Quake/sv_move.c',
@@ -289,6 +287,14 @@ srcs = [
     'Quake/view.c',
     'Quake/world.c',
 	 run_generate_embedded_pak,
+]
+
+# Phase 2 (Rust migration): the C filesystem, compiled unless -Duse_rust_fs
+# provides these symbols from quake-fs/quake-capi instead. Deleted at phase
+# exit (ROADMAP.md Phase 2).
+phase2_c_srcs = [
+    'Quake/common_fs.c',
+    'Quake/steam.c',
 ]
 
 # Phase 1 (Rust migration): C originals of modules ported to rust/. Compiled
@@ -339,6 +345,9 @@ endif
 
 cargo = find_program('cargo', required : get_option('use_rust'))
 use_rust = cargo.found() and not get_option('use_rust').disabled()
+# Phase 2: first per-module switch; the C filesystem stays the comparison
+# oracle under -Duse_rust_fs=disabled
+use_rust_fs = use_rust and not get_option('use_rust_fs').disabled()
 if use_rust
     cbindgen = find_program('cbindgen', required : true)
     cflags += '-DUSE_RUST'
@@ -352,6 +361,16 @@ if use_rust
     # buildtype while the Rust profile is release for debugoptimized
     if get_option('buildtype').startswith('debug')
         rust_feature_list += 'engine-debug'
+    endif
+    if use_rust_fs
+        rust_feature_list += 'fs'
+    endif
+    # cargo features tracking C defines the fs shims must agree with
+    if use_sdl3
+        rust_feature_list += 'sdl3'
+    endif
+    if get_option('do_userdirs').enabled()
+        rust_feature_list += 'userdirs'
     endif
     rust_features = ','.join(rust_feature_list)
     rust_lib_name = host_machine.system() == 'windows' ? 'quake_rs.lib' : 'libquake_rs.a'
@@ -378,6 +397,11 @@ if use_rust
 else
     # C-only build: keep compiling the originals of the Rust-ported modules
     srcs += phase1_c_srcs
+endif
+
+if not use_rust_fs
+    # the C filesystem stays in as long as the Phase 2 switch is off
+    srcs += phase2_c_srcs
 endif
 
 deps = [

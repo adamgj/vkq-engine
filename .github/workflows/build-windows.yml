@@ -140,6 +140,8 @@ jobs:
         key: quake106-shareware-v1
     - name: Fetch shareware data
       run: python scripts/harness/fetch_shareware.py shareware-data
+    # three configs: C-only, mixed with the Rust fs, mixed with the C fs
+    # (Phase 2 exit criterion: harness green under both -Duse_rust_fs settings)
     - name: Build C-only and mixed
       run: |
         $env:CC = 'clang-cl'
@@ -147,11 +149,15 @@ jobs:
         meson compile -C build-c
         meson setup build-rs -Duse_sdl3=enabled -Duse_rust=enabled
         meson compile -C build-rs
+        meson setup build-rs-cfs -Duse_sdl3=enabled -Duse_rust=enabled -Duse_rust_fs=disabled
+        meson compile -C build-rs-cfs
     - name: FFI signature parity (quake_rs.h vs engine headers)
       shell: bash
       env:
         CC: clang-cl
-      run: ./scripts/harness/check_capi_signatures.sh build-rs/quake_rs.h
+      run: |
+        ./scripts/harness/check_capi_signatures.sh build-rs/quake_rs.h
+        ./scripts/harness/check_capi_signatures.sh build-rs-cfs/quake_rs.h
     # no windows-x86_64 goldens yet, so gate on run-to-run stability and on the
     # mixed build matching C-only; both cover the map entries, i.e. real
     # server/edict state rather than demo playback alone
@@ -160,13 +166,20 @@ jobs:
         $env:QUAKE_GAME_DATA = "$PWD\shareware-data"
         python scripts/harness/run_corpus.py --vkquake build-c/vkqr-engine.exe --stability --tier shareware
         if ($LASTEXITCODE -ne 0) { throw "corpus stability failed" }
-    - name: Mixed build identity (rust vs C-only)
+    - name: Mixed build identity (rust fs vs C-only)
       run: |
         $env:QUAKE_GAME_DATA = "$PWD\shareware-data"
         python scripts/harness/run_corpus.py --vkquake build-c/vkqr-engine.exe --compare build-rs/vkqr-engine.exe --tier shareware
         if ($LASTEXITCODE -ne 0) { throw "mixed build differs from C-only" }
+    - name: Mixed build identity (C fs vs C-only)
+      run: |
+        $env:QUAKE_GAME_DATA = "$PWD\shareware-data"
+        python scripts/harness/run_corpus.py --vkquake build-c/vkqr-engine.exe --compare build-rs-cfs/vkqr-engine.exe --tier shareware
+        if ($LASTEXITCODE -ne 0) { throw "mixed build (C fs) differs from C-only" }
     - name: Savegame byte-diff (C-only vs mixed)
       run: |
         $env:QUAKE_GAME_DATA = "$PWD\shareware-data"
         python scripts/harness/save_diff.py --vkquake build-c/vkqr-engine.exe --vkquake-b build-rs/vkqr-engine.exe
         if ($LASTEXITCODE -ne 0) { throw "save diff failed" }
+        python scripts/harness/save_diff.py --vkquake build-c/vkqr-engine.exe --vkquake-b build-rs-cfs/vkqr-engine.exe
+        if ($LASTEXITCODE -ne 0) { throw "save diff (C fs) failed" }

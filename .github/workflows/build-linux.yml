@@ -121,12 +121,17 @@ jobs:
         key: quake106-shareware-v1
     - name: Fetch shareware data
       run: python3 scripts/harness/fetch_shareware.py shareware-data
+    # three configs: C-only, mixed with the Rust fs, mixed with the C fs
+    # (Phase 2 exit criterion: harness green under both -Duse_rust_fs settings)
     - name: Build C-only and mixed
       run: |
         meson setup build-c -Duse_sdl3=disabled -Duse_rust=disabled && ninja -C build-c
         meson setup build-rs -Duse_sdl3=disabled -Duse_rust=enabled && ninja -C build-rs
+        meson setup build-rs-cfs -Duse_sdl3=disabled -Duse_rust=enabled -Duse_rust_fs=disabled && ninja -C build-rs-cfs
     - name: FFI signature parity (quake_rs.h vs engine headers)
-      run: ./scripts/harness/check_capi_signatures.sh build-rs/quake_rs.h
+      run: |
+        ./scripts/harness/check_capi_signatures.sh build-rs/quake_rs.h
+        ./scripts/harness/check_capi_signatures.sh build-rs-cfs/quake_rs.h
     # no linux-x86_64 goldens yet, so gate on run-to-run stability and on the
     # mixed build matching C-only; both cover the map entries, i.e. real
     # server/edict state rather than demo playback alone
@@ -134,14 +139,19 @@ jobs:
       run: |
         export QUAKE_GAME_DATA="$PWD/shareware-data"
         python3 scripts/harness/run_corpus.py --vkquake build-c/vkqr-engine --stability --tier shareware
-    - name: Mixed build identity (rust vs C-only)
+    - name: Mixed build identity (rust fs vs C-only)
       run: |
         export QUAKE_GAME_DATA="$PWD/shareware-data"
         python3 scripts/harness/run_corpus.py --vkquake build-c/vkqr-engine --compare build-rs/vkqr-engine --tier shareware
+    - name: Mixed build identity (C fs vs C-only)
+      run: |
+        export QUAKE_GAME_DATA="$PWD/shareware-data"
+        python3 scripts/harness/run_corpus.py --vkquake build-c/vkqr-engine --compare build-rs-cfs/vkqr-engine --tier shareware
     - name: Savegame byte-diff (C-only vs mixed)
       run: |
         export QUAKE_GAME_DATA="$PWD/shareware-data"
         python3 scripts/harness/save_diff.py --vkquake build-c/vkqr-engine --vkquake-b build-rs/vkqr-engine
+        python3 scripts/harness/save_diff.py --vkquake build-c/vkqr-engine --vkquake-b build-rs-cfs/vkqr-engine
 
   # ADR-013 / PLAN §7 gate 9: AddressSanitizer on the C side of the mixed
   # build, catching cross-language allocator misuse (alloc on one heap, free
