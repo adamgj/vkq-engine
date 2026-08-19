@@ -1,0 +1,64 @@
+# Fuzzing workspace (Phase 2 exit criterion: fuzzers live for pak/wad/kpf
+# inputs). Deliberately its own workspace, NOT a member of ../Cargo.toml:
+# the root workspace sets panic = "abort" in every profile (ADR-009), but
+# libFuzzer needs unwinding to catch panics, so the fuzz crates must keep
+# the default panic = "unwind".
+[package]
+name = "quake-fuzz"
+version = "0.0.0"
+edition = "2021"
+rust-version = "1.97"
+license = "GPL-2.0-or-later"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+quake-fs = { path = "../quake-fs" }
+quake-util = { path = "../quake-util" }
+quake-types = { path = "../quake-types" }
+
+# Empty table: this package is its own workspace root, so the parent
+# workspace at rust/Cargo.toml (which also lists it in `exclude`) never
+# tries to own it.
+[workspace]
+
+[profile.release]
+debug = 1
+
+[[bin]]
+name = "fuzz_pak"
+path = "fuzz_targets/fuzz_pak.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_wad"
+path = "fuzz_targets/fuzz_wad.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_kpf"
+path = "fuzz_targets/fuzz_kpf.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_loc"
+path = "fuzz_targets/fuzz_loc.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_vdf"
+path = "fuzz_targets/fuzz_vdf.rs"
+test = false
+doc = false
+bench = false

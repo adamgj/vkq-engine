@@ -41,3 +41,20 @@ First dependencies added (dev-only, never linked into the staticlib):
 `cc` and `proptest`, both MIT OR Apache-2.0 → MIT. External CLI tools
 (`cbindgen`, MPL-2.0; `bindgen-cli`, BSD-3-Clause) do not enter the
 dependency graph.
+
+## Amended (Phase 2, 2026-08-18)
+
+Runtime dependency added: `miniz_oxide` ("MIT OR Zlib OR Apache-2.0" → MIT;
+transitively `adler2`, "0BSD OR MIT OR Apache-2.0") for `.kpf` zip inflation
+and the embedded pak, replacing the vendored miniz on the Rust side
+(ADR-012 gate: accept/reject parity with the in-tree miniz, differential-
+and fuzz-tested). The `zip` crate was rejected for its dependency tree and
+because parity with miniz — not generic zip support — is the requirement.
+
+`NCSA` was added to the deny.toml allowlist for exactly one dev-only case:
+`libfuzzer-sys` (cargo-fuzz, its own workspace under `rust/fuzz/`, never
+linked into the engine) is "(MIT OR Apache-2.0) AND NCSA", the NCSA term
+covering the vendored LLVM libFuzzer runtime. NCSA is a permissive
+MIT/BSD-3 hybrid, OSI-approved and GPL-compatible; it is not a copyleft or
+paid license, but as it extends the enforced allowlist this amendment
+records it for owner review.

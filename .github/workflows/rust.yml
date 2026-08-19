@@ -47,6 +47,14 @@ jobs:
       uses: EmbarkStudios/cargo-deny-action@v2
       with:
         manifest-path: rust/Cargo.toml
+    # the fuzz crate is its own workspace (own lockfile), so the main deny
+    # run never sees libfuzzer-sys & co; check it against the same policy
+    - name: cargo deny (fuzz workspace)
+      uses: EmbarkStudios/cargo-deny-action@v2
+      with:
+        manifest-path: rust/fuzz/Cargo.toml
+        arguments: --config rust/deny.toml
+        command: check licenses
 
   # cargo-deny's advisories check already covers RustSec on every PR; this
   # standalone audit only adds value on the weekly cron
@@ -82,6 +90,38 @@ jobs:
       run: |
         ./scripts/gen_c_bindings.sh
         git diff --exit-code rust/quake-c-sys/src/generated.rs
+
+  # Phase 2 exit criterion: fuzzers live for pak/wad/kpf inputs. Short
+  # libFuzzer smoke on every PR/push; the weekly cron (the same event gate
+  # the audit job uses) runs each target longer.
+  fuzz-smoke:
+    name: fuzz smoke (quake-fs parsers)
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v6
+    # nightly: cargo-fuzz builds with -Zsanitizer; the rust/ toolchain file
+    # pins 1.97.1, so every cargo-fuzz call below selects +nightly explicitly
+    - uses: dtolnay/rust-toolchain@nightly
+    - name: Install cargo-fuzz
+      run: cargo install cargo-fuzz --locked
+    - name: Fuzz each target
+      working-directory: rust
+      env:
+        # 45s per target on PR/push; 300s on the weekly cron
+        MAX_TOTAL_TIME: ${{ github.event_name == 'schedule' && 300 || 45 }}
+      run: |
+        for t in fuzz_pak fuzz_wad fuzz_kpf fuzz_loc fuzz_vdf; do
+          mkdir -p "fuzz/corpus/$t"
+          cargo +nightly fuzz run "$t" "fuzz/corpus/$t" "fuzz/corpus-seed/$t" -- \
+            -max_total_time="$MAX_TOTAL_TIME" -rss_limit_mb=4096
+        done
+    - name: Upload crash artifacts
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: fuzz-artifacts
+        path: rust/fuzz/artifacts/
+        if-no-files-found: ignore
 
   # differential tests (Rust ports vs original C via quake-ctest) and unit
   # tests, on every CI OS; release so proptest runs at full speed

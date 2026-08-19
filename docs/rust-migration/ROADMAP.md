@@ -37,7 +37,7 @@ The only phase that ports nothing. Everything later depends on it.
 
 Small, dependency-free code with outsized compatibility leverage. Crates: `quake-util`, `quake-math`, parts of `quake-types` (plus `quake-fs` for the wad logic per [PLAN.md §5](PLAN.md#5-workspace-design)).
 
-**Status (2026-08-17):** implemented on `claude/rust-conversion-phase-1-7c0612`; every exit criterion is met except the C deletions, which are deliberately deferred (user decision) pending the [PLAN.md §3](PLAN.md#3-platform--build-matrix) MinGW/GNU-Makefile decision — deleting now would unlink `-Duse_rust=disabled` (the harness comparison oracle) and the C-only MinGW/clangarm64 legs.
+**Status (2026-08-17):** implemented on `claude/rust-conversion-phase-1-7c0612`; every exit criterion is met except the C deletions, which are deliberately deferred (user decision) pending the [PLAN.md §3](PLAN.md#3-build-integration) MinGW/GNU-Makefile decision — deleting now would unlink `-Duse_rust=disabled` (the harness comparison oracle) and the C-only MinGW/clangarm64 legs.
 - Done: all ten modules ported and wired behind the global `use_rust` switch (no per-module switches — Phase 1 names no soak window, and the leaves are non-interacting; per-module switches begin at Phase 2); differential suites in `rust/quake-ctest` (the C originals compiled as `c_ref_*` into the test binaries via `cc`, property tests + fixed corpora, bit-exact comparisons); ADR-005 formatter with stratified per-PR conformance CI on all three OSes plus a scheduled exhaustive sweep (all 2³² f32 patterns verified green on darwin-arm64, 52 min wall); first real FFI plumbing per ADR-011 (cbindgen-generated `quake_rs.h` in the build dir, committed script-generated bindgen imports with a CI regen-diff, `check_capi_signatures.sh` declaration-conflict gate); `-ffp-contract=off` pinned per ADR-010 (darwin-arm64 goldens regenerated — see the ADR-010 Phase 1 amendment); new behavior-neutral C seams: `COM_ThreadFileSize`/`COM_ThreadFileFromPak` accessors (bindgen cannot reach thread-locals).
 - Deferred: the deletion wave + `c-reference/phase1` tag (blocked on the PLAN §3 decision: either GNU-ABI Rust comes in scope — `cargo --target` in `cargo_build.py`, a cargo step in the Makefiles — or those legs are retired; at deletion time the C files move to `rust/quake-ctest/csrc/` as frozen differential references); `%g`/`%e` formatter conversions (no engine user in the ported set; unreachable today since no C call site is wired to the Rust formatter, but they `panic!` rather than failing to compile — **Phase 6 must check the specifier set of every writer it moves onto `quake_util::printf`**, starting with `csprogsvers/%x.dat`); linux/windows registered-tier goldens (unchanged from Phase 0); c2rust oracle translation of `mathlib.c` (no toolchain on the dev host; the exhaustive differential FFI tests substitute); Miri CI job (run locally on the pure crates instead).
 
@@ -57,10 +57,14 @@ Small, dependency-free code with outsized compatibility leverage. Crates: `quake
 
 ---
 
-## Phase 2 — Infrastructure: memory + filesystem (M) `[ ]`
+## Phase 2 — Infrastructure: memory + filesystem (M) `[~]`
+
+**Status (2026-08-18):** implemented on `feature/rust-conversion-phase-2-165c44`.
+- Done: behavior-neutral C split (`common_fs.c` holds the filesystem/localization/kpf half of `common.c`; the Steam API runtime moved to a new `steam_api.c`, `ChooseQuakeFlavor` to `sys_sdl.c`; `COM_Game_f`/`COM_CheckRegistered` stay in `common.c` as seams); Rust `#[global_allocator]` bound to the in-tree mimalloc via hand-declared `mi_*` (libmimalloc-sys rejected — see the ADR-013 amendment) behind the `engine-alloc` cargo feature, plus the `ScratchBuf` TEMP_ALLOC counterpart; the full fs port (pure logic in `quake-fs`: pak/searchpath/flavor/vdf/egs/loc + a zip reader pinned to the vendored miniz's accept/reject behavior; shims in `quake-capi` behind the `fs` feature) with the first per-module switch `-Duse_rust_fs` and a third CI harness configuration; a mid-run `game`-switch corpus entry (needed a headless-guard fix in `COM_Game_f`); ASan mixed-build smoke job; differential ctest suites and pak/wad/kpf/loc/vdf fuzz targets.
+- Deferred: C deletion wave + `c-reference/phase2` tag (same PLAN §3 MinGW/GNU-Makefile blocker as Phase 1; `common_fs.c`/`steam.c` stay compiled under `-Duse_rust_fs=disabled` as the differential oracle); the Steam API runtime port (`steam_api.c`, ~340 lines of SDL-loaded achievements/rich-presence glue — natural Phase 9 platform material; amendment to the delete list below); `DO_USERDIRS` support in the Rust fs (a `userdirs` cargo feature is plumbed and the combination is a loud `compile_error!`); linux/windows registered-tier goldens (unchanged from Phase 0).
 
 **Scope**
-- `mem.c` shims: Rust `#[global_allocator]` = `libmimalloc-sys` bound to the **same** vendored mimalloc build; `Mem_Alloc`/`Mem_Free` remain the mandatory cross-boundary ownership API ([ADR-013](adr/ADR-013-allocator.md)). `TEMP_ALLOC` stack-alloc pattern gets a Rust equivalent (SmallVec-style or explicit scratch arenas).
+- `mem.c` shims: Rust `#[global_allocator]` bound to the **same** vendored mimalloc build; `Mem_Alloc`/`Mem_Free` remain the mandatory cross-boundary ownership API ([ADR-013](adr/ADR-013-allocator.md)). `TEMP_ALLOC` stack-alloc pattern gets a Rust equivalent (SmallVec-style or explicit scratch arenas).
 - `quake-fs`: the COM_* file layer from `common.c` — searchpaths, `path_id` semantics, PAK loading (+CRC checks), gamedir/mission-pack/flavor logic (original vs remastered, Nightdive addon dir, shareware gating), `.kpf` zip reading + the localization escape parser (golden-tested against `QuakeEX.kpf`), Steam/GOG/EGS discovery (`steam.c`, path logic from `sys_sdl_win.c`/`sys_sdl_unix.c`).
 - **Deliberately deferred:** `tasks.c` stays C until Phase 8 ([ADR-016](adr/ADR-016-task-system.md)) — it is the concurrency spine under the frame graph; porting it early is risk without compatibility payoff.
 
@@ -68,7 +72,7 @@ Small, dependency-free code with outsized compatibility leverage. Crates: `quake
 - Engine boots and runs the harness with the Rust filesystem under both `-Duse_rust_fs` settings; searchpath/gamedir behavior identical on the mod bench (incl. flavor switching and localization).
 - Fuzzers live for pak/wad/kpf inputs.
 
-**Deletes:** filesystem portion of `common.c` (file splits into remaining-C `common_msg.c` etc. as needed), `steam.c`.
+**Deletes:** filesystem portion of `common.c` (file splits into remaining-C `common_msg.c` etc. as needed), `steam.c` *(amended in Phase 2: the achievements/rich-presence runtime half of `steam.c` moved to `steam_api.c`, which stays C until Phase 9 — only the discovery half was ported and is deleted here)*.
 
 ---
 

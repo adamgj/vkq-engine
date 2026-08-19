@@ -22,6 +22,12 @@ allow = [
     "Zlib",
     "Unicode-3.0",
     "GPL-2.0-or-later",
+    # Phase 2, dev-only: libfuzzer-sys is "(MIT OR Apache-2.0) AND NCSA" --
+    # the NCSA term covers the vendored LLVM libFuzzer runtime. NCSA is a
+    # permissive MIT/BSD-3 hybrid (OSI-approved, GPL-compatible) and the
+    # crate never ships in the engine (fuzz workspace only). ADR-003
+    # amendment records this.
+    "NCSA",
 ]
 
 [advisories]
