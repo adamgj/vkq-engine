@@ -543,24 +543,34 @@ typedef struct ctest_findfile_s
 	char	   dir[1024];
 } ctest_findfile_t;
 
-#ifndef _WIN32
 static int ctest_name_cmp (const void *a, const void *b)
 {
 	return strcmp (*(const char *const *)a, *(const char *const *)b);
 }
-#endif
+
+/* Appends one directory entry, applying the extension filter. Shared by both
+ * enumeration backends so the observable name set is identical. */
+static void ctest_find_add (ctest_findfile_t *ff, const char *name, const char *ext, const char *suffix)
+{
+	size_t len = strlen (name);
+	if (!strcmp (name, ".") || !strcmp (name, ".."))
+		return;
+	if (strcmp (ext, "*") != 0)
+	{
+		size_t slen = strlen (suffix);
+		if (len < slen || strcmp (name + len - slen, suffix) != 0)
+			return;
+	}
+	ff->names = (char **)Mem_Realloc (ff->names, sizeof (char *) * (ff->count + 1));
+	ff->names[ff->count] = (char *)Mem_Alloc (len + 1);
+	memcpy (ff->names[ff->count], name, len + 1);
+	ff->count++;
+}
 
 findfile_t *Sys_FindFirst (const char *dir, const char *ext)
 {
-#ifdef _WIN32
-	(void)dir;
-	(void)ext;
-	return NULL; /* not needed by the suites on Windows CI */
-#else
-	DIR			  *d;
-	struct dirent *e;
 	ctest_findfile_t *ff;
-	char		   suffix[64];
+	char			  suffix[64];
 
 	if (!ext)
 		ext = "*";
@@ -568,31 +578,41 @@ findfile_t *Sys_FindFirst (const char *dir, const char *ext)
 		++ext;
 	snprintf (suffix, sizeof (suffix), ".%s", ext);
 
-	d = opendir (dir);
-	if (!d)
-		return NULL;
-
 	ff = (ctest_findfile_t *)Mem_Alloc (sizeof (ctest_findfile_t));
 	snprintf (ff->dir, sizeof (ff->dir), "%s", dir);
 	ff->names = NULL;
 	ff->count = 0;
-	while ((e = readdir (d)) != NULL)
+
+#ifdef _WIN32
 	{
-		size_t len = strlen (e->d_name);
-		if (!strcmp (e->d_name, ".") || !strcmp (e->d_name, ".."))
-			continue;
-		if (strcmp (ext, "*") != 0)
+		struct _finddata_t fd;
+		char			   pattern[1024];
+		intptr_t		   h;
+
+		snprintf (pattern, sizeof (pattern), "%s/*", dir);
+		h = _findfirst (pattern, &fd);
+		if (h != -1)
 		{
-			size_t slen = strlen (suffix);
-			if (len < slen || strcmp (e->d_name + len - slen, suffix) != 0)
-				continue;
+			do
+			{
+				ctest_find_add (ff, fd.name, ext, suffix);
+			} while (_findnext (h, &fd) == 0);
+			_findclose (h);
 		}
-		ff->names = (char **)Mem_Realloc (ff->names, sizeof (char *) * (ff->count + 1));
-		ff->names[ff->count] = (char *)Mem_Alloc (len + 1);
-		memcpy (ff->names[ff->count], e->d_name, len + 1);
-		ff->count++;
 	}
-	closedir (d);
+#else
+	{
+		DIR			  *d = opendir (dir);
+		struct dirent *e;
+
+		if (d)
+		{
+			while ((e = readdir (d)) != NULL)
+				ctest_find_add (ff, e->d_name, ext, suffix);
+			closedir (d);
+		}
+	}
+#endif
 
 	if (!ff->count)
 	{
@@ -603,15 +623,10 @@ findfile_t *Sys_FindFirst (const char *dir, const char *ext)
 	qsort (ff->names, ff->count, sizeof (char *), ctest_name_cmp);
 	ff->index = -1;
 	return Sys_FindNext (&ff->base);
-#endif
 }
 
 findfile_t *Sys_FindNext (findfile_t *find)
 {
-#ifdef _WIN32
-	(void)find;
-	return NULL;
-#else
 	ctest_findfile_t *ff = (ctest_findfile_t *)find;
 	char			  full[2048];
 
@@ -624,7 +639,6 @@ findfile_t *Sys_FindNext (findfile_t *find)
 	snprintf (full, sizeof (full), "%s/%s", ff->dir, ff->names[ff->index]);
 	ff->base.attribs = (Sys_FileType (full) == (1 << 1)) ? FA_DIRECTORY : 0;
 	return find;
-#endif
 }
 
 void Sys_FindClose (findfile_t *find)

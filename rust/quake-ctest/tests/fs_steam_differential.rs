@@ -115,6 +115,17 @@ fn egs_find_compare(
     (ret, buf)
 }
 
+/// Escapes a filesystem path for embedding in a VDF quoted string.
+///
+/// Windows paths contain backslashes and VDB_ParseString treats those as
+/// escape introducers, so a raw path would be mangled (`C:\Users` loses the
+/// `\U`). Real libraryfolders.vdf files double them for exactly this reason,
+/// so the fixture does too — which also exercises the parser's `\\` case.
+/// A no-op on Unix.
+fn vdf_path(p: &std::path::Path) -> String {
+    p.to_str().unwrap().replace('\\', "\\\\")
+}
+
 fn write(root: &std::path::Path, rel: &str, content: &str) {
     let path = root.join(rel);
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -155,8 +166,8 @@ fn steam_differential() {
             "\t}}\n",
             "}}\n"
         ),
-        lib_a.display(),
-        lib_b.display()
+        vdf_path(&lib_a),
+        vdf_path(&lib_b)
     );
     write(&steamroot, "config/libraryfolders.vdf", &vdf);
     write(
