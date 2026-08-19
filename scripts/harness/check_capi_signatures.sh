@@ -37,6 +37,12 @@ cat > "$tmpdir/capi_sig_check.c" <<'EOF'
 #include "json.h"
 #include "cfgfile.h"
 #include "wad.h"
+/* Phase 2: the filesystem surface (the COM_, FS_ and LOC_ families in
+ * common.h, the discovery half of steam.h, mem.h for the Mem_ boundary) */
+#include "sys.h"
+#include "mem.h"
+#include "common.h"
+#include "steam.h"
 /* mathlib.h needs quakedef.h's bit-scan inline */
 #ifdef _MSC_VER
 #include <intrin.h>

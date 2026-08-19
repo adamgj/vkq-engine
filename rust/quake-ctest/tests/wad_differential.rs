@@ -6,7 +6,7 @@
 
 use core::ffi::{c_char, c_int, c_void, CStr};
 use quake_c_sys::fshandle_t;
-use quake_ctest as _; // links the cc-built c_ref_* archive
+use quake_ctest::fs as ctfs; // also links the cc-built c_ref_* archive
 use quake_types::wad::LumpInfo;
 use std::sync::Once;
 
@@ -23,8 +23,6 @@ extern "C" {
         name: *const c_char,
         out_wad: *mut *mut CWad,
     ) -> *mut LumpInfo;
-
-    fn ctest_set_file_dir(dir: *const c_char);
 }
 
 /// wad_t through the same layout the Rust shim asserts.
@@ -40,13 +38,18 @@ struct CWad {
 
 static SETUP: Once = Once::new();
 
+/// Phase 2: the stub filesystem is gone — both wad loaders now go through the
+/// real COM_LoadFile/COM_FOpenFile of their side, so a searchpath (root =
+/// tmp, gamedir "wadgame") is mounted on both. Returns the gamedir the wad
+/// files must be written into. Caller must hold [`ctfs::FS_LOCK`].
 fn file_dir() -> std::path::PathBuf {
-    let dir = std::env::temp_dir().join(format!("quake-ctest-wad-{}", std::process::id()));
+    let root = std::env::temp_dir().join(format!("quake-ctest-wad-{}", std::process::id()));
+    let dir = root.join("wadgame");
     SETUP.call_once(|| {
         std::fs::create_dir_all(dir.join("gfx")).unwrap();
-        let cdir = std::ffi::CString::new(dir.to_str().unwrap()).unwrap();
-        // SAFETY: NUL-terminated path; called once before any loads
-        unsafe { ctest_set_file_dir(cdir.as_ptr()) };
+        for side in ctfs::BOTH {
+            ctfs::setup(side, &[&root], 0, c"wadgame");
+        }
     });
     dir
 }
@@ -136,6 +139,7 @@ fn compare_gfx_wad_load(file_len: usize) {
 
 #[test]
 fn gfx_wad_healthy_and_corrupt() {
+    let _guard = ctfs::lock();
     let dir = file_dir();
 
     let cases: Vec<Vec<u8>> = vec![
@@ -234,6 +238,7 @@ fn cleanup_name_matches() {
 
 #[test]
 fn wad_list_matches() {
+    let _guard = ctfs::lock();
     let dir = file_dir();
 
     // a valid wad reachable directly, one only under gfx/, one invalid, one

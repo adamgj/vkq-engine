@@ -6,7 +6,7 @@ set -e
 
 cd "$(dirname "$0")/../.."
 
-HEADERS="q_types.h q_minmax.h protocol.h modelgen.h spritegn.h bspfile.h pakfile.h wad.h common.h sys.h mem.h"
+HEADERS="q_types.h q_minmax.h protocol.h modelgen.h spritegn.h bspfile.h pakfile.h wad.h common.h sys.h mem.h steam.h"
 
 tmpdir=$(mktemp -d)
 trap 'rm -rf "$tmpdir"' EXIT

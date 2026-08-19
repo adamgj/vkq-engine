@@ -1,0 +1,4 @@
+﻿// comment line
+qc_ammo_shells="You got \"shells\"\n"
+m_gameoptions=Game Options
+fmt_key="{0} picked up {1} items"

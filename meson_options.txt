@@ -9,3 +9,4 @@ option('vorbis_lib', type : 'combo', value : 'vorbis', choices: ['vorbis', 'trem
 option('do_userdirs', type: 'feature', value : 'disabled')
 option('trace', type : 'boolean', value : false, description : 'Compile the progs VM trace hooks (-tracefile) for differential verification')
 option('use_rust', type : 'feature', value : 'disabled', description : 'Build and link the Rust workspace staticlib (Rust migration). Explicit opt-in: cargo always builds for the host default triple, so auto-enabling would break MinGW/cross configurations that PLAN.md section 3 keeps C-only')
+option('use_rust_fs', type : 'feature', value : 'auto', description : 'Use the Rust filesystem (quake-fs: searchpaths, paks, localization, store discovery) instead of common_fs.c/steam.c. Effective only with use_rust; auto follows it (Rust migration Phase 2 transitional switch)')

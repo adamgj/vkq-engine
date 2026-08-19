@@ -1,0 +1,5 @@
+# Runtime fuzzing state; seed inputs live in corpus-seed/ and ARE committed.
+corpus/
+artifacts/
+coverage/
+target/

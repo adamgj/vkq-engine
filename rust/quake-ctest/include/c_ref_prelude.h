@@ -153,8 +153,105 @@ void Con_Warning (const char *fmt, ...);
 void Con_DPrintf (const char *fmt, ...);
 void Con_DPrintf2 (const char *fmt, ...);
 
+/* common_fs.c / steam.c (Phase 2): rename every public symbol so the
+ * reference C filesystem links next to the Rust fs shims (quake-capi's `fs`
+ * feature exports the same names). com_filesize / file_from_pak / com_token
+ * and the COM_Thread* accessors are NOT renamed: they stay stub-owned TLS
+ * state shared by both sides, exactly like the engine keeps them in common.c.
+ */
+#define com_modified					 c_ref_com_modified
+#define standard_quake					 c_ref_standard_quake
+#define rogue							 c_ref_rogue
+#define hipnotic						 c_ref_hipnotic
+#define com_gamenames					 c_ref_com_gamenames
+#define com_gamedir						 c_ref_com_gamedir
+#define com_basedir						 c_ref_com_basedir
+#define com_basedirs					 c_ref_com_basedirs
+#define com_numbasedirs					 c_ref_com_numbasedirs
+#define com_searchpaths					 c_ref_com_searchpaths
+#define com_base_searchpaths			 c_ref_com_base_searchpaths
+#define COM_AddBaseDir					 c_ref_COM_AddBaseDir
+#define COM_WriteFile					 c_ref_COM_WriteFile
+#define COM_FileExists					 c_ref_COM_FileExists
+#define COM_OpenFile					 c_ref_COM_OpenFile
+#define COM_FOpenFile					 c_ref_COM_FOpenFile
+#define COM_CloseFile					 c_ref_COM_CloseFile
+#define COM_LoadFile					 c_ref_COM_LoadFile
+#define COM_LoadMallocFile_TextMode_OSPath c_ref_COM_LoadMallocFile_TextMode_OSPath
+#define COM_GetGameNames				 c_ref_COM_GetGameNames
+#define COM_GameDirMatches				 c_ref_COM_GameDirMatches
+#define COM_ResetGameDirectories		 c_ref_COM_ResetGameDirectories
+#define COM_ModForbiddenChars			 c_ref_COM_ModForbiddenChars
+#define COM_FOpenPrefFile				 c_ref_COM_FOpenPrefFile
+#define COM_WriteSelectedBaseDir		 c_ref_COM_WriteSelectedBaseDir
+#define COM_InitFilesystem				 c_ref_COM_InitFilesystem
+#define COM_Effectinfo_Enumerate		 c_ref_COM_Effectinfo_Enumerate
+#define FS_fread						 c_ref_FS_fread
+#define FS_fseek						 c_ref_FS_fseek
+#define FS_fclose						 c_ref_FS_fclose
+#define FS_ftell						 c_ref_FS_ftell
+#define FS_rewind						 c_ref_FS_rewind
+#define FS_feof							 c_ref_FS_feof
+#define FS_ferror						 c_ref_FS_ferror
+#define FS_fgetc						 c_ref_FS_fgetc
+#define FS_fgets						 c_ref_FS_fgets
+#define FS_filelength					 c_ref_FS_filelength
+#define COM_HashString					 c_ref_COM_HashString
+#define COM_HashBlock					 c_ref_COM_HashBlock
+#define LOC_LoadFile					 c_ref_LOC_LoadFile
+#define LOC_Init						 c_ref_LOC_Init
+#define LOC_Shutdown					 c_ref_LOC_Shutdown
+#define LOC_GetRawString				 c_ref_LOC_GetRawString
+#define LOC_GetString					 c_ref_LOC_GetString
+#define LOC_HasPlaceholders				 c_ref_LOC_HasPlaceholders
+#define LOC_Format						 c_ref_LOC_Format
+#define Steam_IsValidPath				 c_ref_Steam_IsValidPath
+#define Steam_FindGame					 c_ref_Steam_FindGame
+#define Steam_ResolvePath				 c_ref_Steam_ResolvePath
+#define EGS_FindGame					 c_ref_EGS_FindGame
+
 /* wad.c only includes quakedef.h; hand it wad.h, which pulls the real,
  * bindgen-clean common.h for the COM_ and FS_ APIs and fshandle_t */
 #include "wad.h"
+
+/* ---- the quakedef.h slice common_fs.c / steam.c need ---- */
+
+/* scriptable particle system: quakedef.h defines it unconditionally, and
+ * COM_Effectinfo_Enumerate is compiled only under it */
+#define PSET_SCRIPT
+
+#include "cvar.h"
+#include "crc.h" /* common_fs.c CRCs pak directories (via the renames) */
+
+/* quakedef.h host globals (definitions live in stubs.c) */
+typedef struct
+{
+	const char *basedir;
+	const char *userdir; // user's directory on UNIX platforms.
+						 // if user directories are enabled, basedir
+						 // and userdir will point to different
+						 // memory locations, otherwise to the same.
+	int			argc;
+	char	  **argv;
+	int			errstate;
+} quakeparms_t;
+
+extern quakeparms_t *host_parms;
+extern qboolean		 isDedicated;
+extern qboolean		 multiuser;
+extern qboolean		 harness_active;
+extern cvar_t		 developer;
+
+/* cmd.h's registration macro over the real Cmd_AddCommand2 signature (the
+ * stub logs the name); cmd.h itself drags in non-clean headers */
+typedef void (*xcommand_t) (void);
+typedef enum
+{
+	src_client,
+	src_command,
+	src_server
+} cmd_source_t;
+struct cmd_function_s *Cmd_AddCommand2 (const char *cmd_name, xcommand_t function, cmd_source_t srctype, qboolean qcinterceptable);
+#define Cmd_AddCommand(cmdname, func) Cmd_AddCommand2 (cmdname, func, src_command, false)
 
 #endif /* C_REF_PRELUDE_H */
