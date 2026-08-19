@@ -1,30 +1,134 @@
 /* Minimal engine-function stubs for the reference C files compiled into the
- * differential test binaries. */
+ * differential test binaries.
+ *
+ * Phase 2 inversion: common_fs.c/steam.c are now compiled as c_ref_* and are
+ * themselves under test, so this file no longer stubs the filesystem entry
+ * points (COM_LoadFile, COM_FOpenFile, FS_*...). It stubs the engine seams
+ * UNDER the filesystem instead — the Sys_File* handle layer, host_parms, the
+ * store-discovery probes, the console — and both the c_ref C side and the
+ * Rust shims (quake_rs with the `fs` feature) run through these exact same
+ * stubs, so their observable behavior is comparable.
+ */
 
+#include <errno.h>
+#include <setjmp.h>
 #include <stdarg.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+
+#ifdef _WIN32
+#include <direct.h>
+#include <io.h>
+#else
+#include <dirent.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#endif
+
+#include "steam.h" /* steamgame_t / quakeflavor_t for the Steam_Init stub */
+
+/* ---------------------------------------------------------------------------
+ * Sys_Error: setjmp/longjmp trap so tests can differentially compare WHICH
+ * inputs fatal (and with what message) instead of aborting the test binary.
+ * ctest_try() arms the trap around a callback; an unarmed Sys_Error aborts.
+ */
+
+static jmp_buf ctest_sys_error_jmp;
+static int	   ctest_sys_error_armed;
+static char	   ctest_sys_error_msg[2048];
 
 void Sys_Error (const char *error, ...)
 {
 	va_list ap;
 	va_start (ap, error);
-	vfprintf (stderr, error, ap);
+	vsnprintf (ctest_sys_error_msg, sizeof (ctest_sys_error_msg), error, ap);
 	va_end (ap);
+	if (ctest_sys_error_armed)
+	{
+		ctest_sys_error_armed = 0;
+		longjmp (ctest_sys_error_jmp, 1);
+	}
+	fprintf (stderr, "Sys_Error: %s\n", ctest_sys_error_msg);
 	abort ();
 }
 
-void Con_Printf (const char *fmt, ...)
+/* Runs fn(arg) with the Sys_Error trap armed. Returns 1 if Sys_Error fired
+ * (message in ctest_sys_error_message()), 0 if fn returned normally. */
+int ctest_try (void (*fn) (void *), void *arg)
 {
-	va_list ap;
-	va_start (ap, fmt);
-	vfprintf (stderr, fmt, ap);
-	va_end (ap);
+	if (setjmp (ctest_sys_error_jmp))
+		return 1;
+	ctest_sys_error_armed = 1;
+	ctest_sys_error_msg[0] = 0;
+	fn (arg);
+	ctest_sys_error_armed = 0;
+	return 0;
 }
 
-/* Mem_Alloc semantics per Quake/mem.h: zero-initialized */
+const char *ctest_sys_error_message (void)
+{
+	return ctest_sys_error_msg;
+}
+
+/* ---------------------------------------------------------------------------
+ * Console / Sys_Printf capture: both sides print through these stubs, so the
+ * exact line sequences (with a tag for which channel) are comparable.
+ */
+
+#define CTEST_CON_LOG_MAX 256
+static char ctest_con_log[CTEST_CON_LOG_MAX][1024];
+static int	ctest_con_log_count;
+
+static void ctest_con_append (const char *tag, const char *fmt, va_list ap)
+{
+	if (ctest_con_log_count < CTEST_CON_LOG_MAX)
+	{
+		char  *dst = ctest_con_log[ctest_con_log_count];
+		size_t taglen;
+		snprintf (dst, 1024, "%s ", tag);
+		taglen = strlen (dst);
+		vsnprintf (dst + taglen, 1024 - taglen, fmt, ap);
+	}
+	ctest_con_log_count++;
+}
+
+void ctest_clear_con_log (void)
+{
+	ctest_con_log_count = 0;
+}
+
+int ctest_con_log_len (void)
+{
+	return ctest_con_log_count;
+}
+
+const char *ctest_con_log_get (int i)
+{
+	return ctest_con_log[i];
+}
+
+#define CON_STUB(name, tag)                  \
+	void name (const char *fmt, ...)         \
+	{                                        \
+		va_list ap;                          \
+		va_start (ap, fmt);                  \
+		ctest_con_append (tag, fmt, ap);     \
+		va_end (ap);                         \
+	}
+
+CON_STUB (Con_Printf, "[con]")
+CON_STUB (Con_DPrintf, "[dcon]")
+CON_STUB (Con_DPrintf2, "[dcon2]")
+CON_STUB (Con_Warning, "[warn]")
+CON_STUB (Sys_Printf, "[sys]")
+
+/* ---------------------------------------------------------------------------
+ * Memory: Mem_Alloc semantics per Quake/mem.h (zero-initialized)
+ */
+
 void *Mem_Alloc (const size_t size)
 {
 	return calloc (1, size ? size : 1);
@@ -120,11 +224,13 @@ int32_t COM_Rand (void)
 	return result;
 }
 
-/* ---- wad.c dependencies ---- */
+/* ---------------------------------------------------------------------------
+ * Shared thread-local fs state (common.c keeps these; both the c_ref fs and
+ * the Rust shims funnel through the same variables / accessors)
+ */
 
 THREAD_LOCAL qfileofs_t com_filesize;
 THREAD_LOCAL int		file_from_pak;
-char					com_basedir[MAX_OSPATH];
 
 qfileofs_t COM_ThreadFileSize (void)
 {
@@ -136,21 +242,19 @@ int COM_ThreadFileFromPak (void)
 	return file_from_pak;
 }
 
-/* registered file directory: tests write real files here and both the C
- * reference and the Rust shims load them through the same stubs */
-static char ctest_file_dir[1024];
-
-void ctest_set_file_dir (const char *dir)
+void COM_SetThreadFileSize (qfilesize_t size)
 {
-	snprintf (ctest_file_dir, sizeof (ctest_file_dir), "%s", dir);
+	com_filesize = size;
 }
 
-static FILE *ctest_open (const char *path)
+void COM_SetThreadFileFromPak (int from_pak)
 {
-	char full[2048];
-	snprintf (full, sizeof (full), "%s/%s", ctest_file_dir, path);
-	return fopen (full, "rb");
+	file_from_pak = from_pak;
 }
+
+/* ---------------------------------------------------------------------------
+ * stdio helpers (Sys_ftell / Sys_fseek / Sys_filelength / Sys_fopen)
+ */
 
 qfileofs_t Sys_ftell (FILE *file)
 {
@@ -170,138 +274,597 @@ int Sys_fseek (FILE *file, qfileofs_t ofs, int origin)
 #endif
 }
 
-byte *COM_LoadFile (const char *path, unsigned int *path_id)
+qfilesize_t Sys_filelength (FILE *f)
 {
-	(void)path_id;
-	FILE *f = ctest_open (path);
-	if (!f)
-		return NULL;
+	qfileofs_t pos, end;
+
+	pos = Sys_ftell (f);
 	Sys_fseek (f, 0, SEEK_END);
-	qfileofs_t len = Sys_ftell (f);
-	Sys_fseek (f, 0, SEEK_SET);
-	byte *buf = (byte *)Mem_AllocNonZero (len + 1);
-	buf[len] = 0;
-	if (fread (buf, 1, len, f) != (size_t)len)
-	{
-		fclose (f);
-		Mem_Free (buf);
-		return NULL;
-	}
-	fclose (f);
-	com_filesize = len;
-	return buf;
+	end = Sys_ftell (f);
+	Sys_fseek (f, pos, SEEK_SET);
+
+	return end;
 }
 
-qfilesize_t COM_FOpenFile (const char *filename, FILE **file, unsigned int *path_id)
+FILE *Sys_fopen (const char *path, const char *mode)
 {
-	(void)path_id;
-	FILE *f = ctest_open (filename);
-	if (!f)
-	{
-		*file = NULL;
-		com_filesize = -1;
-		return -1;
-	}
-	Sys_fseek (f, 0, SEEK_END);
-	qfileofs_t len = Sys_ftell (f);
-	Sys_fseek (f, 0, SEEK_SET);
-	*file = f;
-	file_from_pak = 0;
-	com_filesize = len;
-	return len;
+	return fopen (path, mode);
 }
 
-/* FS_fread / FS_fseek copied verbatim from Quake/common.c */
-#include <errno.h>
-size_t FS_fread (void *ptr, size_t size, size_t nmemb, fshandle_t *fh)
+void Sys_mkdir (const char *path)
 {
-	qfilesize_t byte_size;
-	qfilesize_t bytes_read;
-	qfilesize_t nmemb_read;
-
-	if (!fh)
-	{
-		errno = EBADF;
-		return 0;
-	}
-	if (!ptr)
-	{
-		errno = EFAULT;
-		return 0;
-	}
-	if (!size || !nmemb)
-	{ /* no error, just zero bytes wanted */
-		errno = 0;
-		return 0;
-	}
-
-	byte_size = nmemb * size;
-	if (byte_size > fh->length - fh->pos) /* just read to end */
-		byte_size = fh->length - fh->pos;
-	bytes_read = fread (ptr, 1, byte_size, fh->file);
-	fh->pos += bytes_read;
-
-	nmemb_read = bytes_read / size;
-	if (bytes_read % size)
-		nmemb_read++;
-
-	return nmemb_read;
+#ifdef _WIN32
+	_mkdir (path);
+#else
+	mkdir (path, 0755);
+#endif
 }
 
-int FS_fseek (fshandle_t *fh, qfileofs_t offset, int whence)
+int Sys_FileType (const char *path)
 {
-	int ret;
-
-	if (!fh)
-	{
-		errno = EBADF;
-		return -1;
-	}
-
-	switch (whence)
-	{
-	case SEEK_SET:
-		break;
-	case SEEK_CUR:
-		offset += fh->pos;
-		break;
-	case SEEK_END:
-		offset = fh->length + offset;
-		break;
-	default:
-		errno = EINVAL;
-		return -1;
-	}
-
-	if (offset < 0)
-	{
-		errno = EINVAL;
-		return -1;
-	}
-
-	if (offset > fh->length)
-		offset = fh->length;
-
-	ret = Sys_fseek (fh->file, fh->start + offset, SEEK_SET);
-	if (ret < 0)
-		return ret;
-
-	fh->pos = offset;
+#ifdef _WIN32
+	struct _stat64 st;
+	if (_stat64 (path, &st) != 0)
+		return 0; /* FS_ENT_NONE */
+	if (st.st_mode & _S_IFDIR)
+		return 1 << 1; /* FS_ENT_DIRECTORY */
+	return 1 << 0;	   /* FS_ENT_FILE */
+#else
+	struct stat st;
+	if (stat (path, &st) != 0)
+		return 0;
+	if (S_ISDIR (st.st_mode))
+		return 1 << 1;
+	if (S_ISREG (st.st_mode))
+		return 1 << 0;
 	return 0;
+#endif
 }
 
-int FS_fclose (fshandle_t *fh)
+/* ---------------------------------------------------------------------------
+ * Sys_File* handle layer: semantics copied from Quake/sys_sdl.c (file- and
+ * memory-backed handles, duplicate-by-reopen, EOF bookkeeping), minus the
+ * mutex — the differential tests serialize all fs access.
+ */
+
+typedef struct ctest_handle_s
 {
-	if (!fh)
+	bool		free;
+	char	   *file_path;
+	FILE	   *file;
+	const byte *memory;
+	qfileofs_t	pos;
+	qfilesize_t size;
+	bool		eof_condition;
+} ctest_handle_t;
+
+#define CTEST_MAX_HANDLES 256
+static ctest_handle_t ctest_handles[CTEST_MAX_HANDLES];
+static int			  ctest_handles_initialized;
+
+static int allocHandle (void)
+{
+	int i;
+	if (!ctest_handles_initialized)
 	{
-		errno = EBADF;
+		for (i = 1; i < CTEST_MAX_HANDLES; i++)
+			ctest_handles[i].free = true;
+		ctest_handles_initialized = 1;
+	}
+	/* index 0 stays invalid by design, like the engine */
+	for (i = 1; i < CTEST_MAX_HANDLES; i++)
+	{
+		if (ctest_handles[i].free)
+		{
+			memset (&ctest_handles[i], 0, sizeof (ctest_handle_t));
+			return i;
+		}
+	}
+	Sys_Error ("out of handles");
+	return -1;
+}
+
+int ctest_open_handle_count (void)
+{
+	int i, n = 0;
+	if (!ctest_handles_initialized)
+		return 0;
+	for (i = 1; i < CTEST_MAX_HANDLES; i++)
+		if (!ctest_handles[i].free)
+			n++;
+	return n;
+}
+
+qfilesize_t Sys_FileOpenRead (const char *path, int *hndl)
+{
+	FILE	   *f;
+	int			i;
+	qfilesize_t retval;
+
+	i = allocHandle ();
+	f = Sys_fopen (path, "rb");
+
+	if (!f)
+	{
+		ctest_handles[i].free = true;
+		*hndl = -1;
+		retval = -1;
+	}
+	else
+	{
+		ctest_handles[i].memory = NULL;
+		ctest_handles[i].file_path = (char *)Mem_Alloc (strlen (path) + 1);
+		memcpy (ctest_handles[i].file_path, path, strlen (path) + 1);
+		ctest_handles[i].file = f;
+		ctest_handles[i].pos = 0;
+		ctest_handles[i].eof_condition = false;
+		*hndl = i;
+		retval = Sys_filelength (f);
+		ctest_handles[i].size = retval;
+	}
+
+	return retval;
+}
+
+void Sys_MemFileOpenRead (const byte *memory, qfilesize_t size, int *hndl)
+{
+	int i = allocHandle ();
+
+	ctest_handles[i].file = NULL;
+	ctest_handles[i].file_path = NULL;
+	ctest_handles[i].memory = memory;
+	ctest_handles[i].size = size;
+	ctest_handles[i].pos = 0;
+	ctest_handles[i].eof_condition = false;
+	*hndl = i;
+}
+
+int Sys_DuplicateHandle (int handle)
+{
+	FILE *new_file = NULL;
+
+	if (ctest_handles[handle].file)
+	{
+		new_file = Sys_fopen (ctest_handles[handle].file_path, "rb");
+		if (!new_file)
+			return -1;
+	}
+
+	int new_handle = allocHandle ();
+	ctest_handles[new_handle] = ctest_handles[handle];
+
+	if (ctest_handles[handle].file)
+	{
+		ctest_handles[new_handle].file = new_file;
+		ctest_handles[new_handle].file_path = (char *)Mem_Alloc (strlen (ctest_handles[handle].file_path) + 1);
+		memcpy (ctest_handles[new_handle].file_path, ctest_handles[handle].file_path, strlen (ctest_handles[handle].file_path) + 1);
+	}
+
+	Sys_FileSeek (new_handle, ctest_handles[handle].pos);
+	return new_handle;
+}
+
+int Sys_FileOpenWrite (const char *path)
+{
+	FILE *f;
+	int	  i;
+
+	i = allocHandle ();
+	f = Sys_fopen (path, "wb");
+	if (!f)
+	{
+		ctest_handles[i].free = true;
 		return -1;
 	}
-	return fclose (fh->file);
+
+	ctest_handles[i].file = f;
+	ctest_handles[i].file_path = (char *)Mem_Alloc (strlen (path) + 1);
+	memcpy (ctest_handles[i].file_path, path, strlen (path) + 1);
+	ctest_handles[i].size = Sys_filelength (f);
+	ctest_handles[i].pos = ctest_handles[i].size;
+	ctest_handles[i].eof_condition = false;
+	ctest_handles[i].memory = NULL;
+	return i;
 }
 
-/* COM_FileGetExtension / COM_FileBase / COM_AddExtension / q_strdup copied
- * verbatim from Quake/common.c (pure helpers) */
+void Sys_FileClose (int handle)
+{
+	if (ctest_handles[handle].file)
+	{
+		fclose (ctest_handles[handle].file);
+		Mem_Free (ctest_handles[handle].file_path);
+	}
+	ctest_handles[handle].free = true;
+}
+
+int Sys_FileSeek (int handle, qfileofs_t position)
+{
+	if (position >= 0)
+	{
+		if (ctest_handles[handle].file)
+			Sys_fseek (ctest_handles[handle].file, position, SEEK_SET);
+		ctest_handles[handle].pos = position;
+		return 0;
+	}
+	return 1;
+}
+
+int Sys_FileRead (int handle, void *dest, int count)
+{
+	if (count <= 0)
+		return 0;
+
+	ctest_handles[handle].eof_condition =
+		ctest_handles[handle].eof_condition || ((ctest_handles[handle].size - ctest_handles[handle].pos) <= 0) ? true : false;
+
+	if (ctest_handles[handle].eof_condition)
+		return 0;
+
+	qfilesize_t computed_read_count = q_min ((qfilesize_t)count, ctest_handles[handle].size - ctest_handles[handle].pos);
+	computed_read_count = q_max (0, computed_read_count);
+
+	if (ctest_handles[handle].file)
+	{
+		qfilesize_t fread_count = fread (dest, 1, count, ctest_handles[handle].file);
+		ctest_handles[handle].pos += fread_count;
+		ctest_handles[handle].eof_condition = feof (ctest_handles[handle].file);
+		return fread_count;
+	}
+	else
+	{
+		memcpy (dest, ctest_handles[handle].memory + ctest_handles[handle].pos, computed_read_count);
+		ctest_handles[handle].pos += computed_read_count;
+		ctest_handles[handle].eof_condition = (computed_read_count < count);
+		return computed_read_count;
+	}
+}
+
+int Sys_FileWrite (int handle, const void *data, int count)
+{
+	const int effective_nb_write = fwrite (data, 1, count, ctest_handles[handle].file);
+	ctest_handles[handle].pos += effective_nb_write;
+	ctest_handles[handle].size += effective_nb_write;
+	return effective_nb_write;
+}
+
+/* ---------------------------------------------------------------------------
+ * Directory enumeration (EGS *.item scan): deterministic sorted order so both
+ * sides observe the same sequence regardless of readdir order.
+ */
+
+typedef struct ctest_findfile_s
+{
+	findfile_t base; /* must stay first: callers use findfile_t* */
+	char	 **names;
+	int		   count;
+	int		   index;
+	char	   dir[1024];
+} ctest_findfile_t;
+
+#ifndef _WIN32
+static int ctest_name_cmp (const void *a, const void *b)
+{
+	return strcmp (*(const char *const *)a, *(const char *const *)b);
+}
+#endif
+
+findfile_t *Sys_FindFirst (const char *dir, const char *ext)
+{
+#ifdef _WIN32
+	(void)dir;
+	(void)ext;
+	return NULL; /* not needed by the suites on Windows CI */
+#else
+	DIR			  *d;
+	struct dirent *e;
+	ctest_findfile_t *ff;
+	char		   suffix[64];
+
+	if (!ext)
+		ext = "*";
+	else if (*ext == '.')
+		++ext;
+	snprintf (suffix, sizeof (suffix), ".%s", ext);
+
+	d = opendir (dir);
+	if (!d)
+		return NULL;
+
+	ff = (ctest_findfile_t *)Mem_Alloc (sizeof (ctest_findfile_t));
+	snprintf (ff->dir, sizeof (ff->dir), "%s", dir);
+	ff->names = NULL;
+	ff->count = 0;
+	while ((e = readdir (d)) != NULL)
+	{
+		size_t len = strlen (e->d_name);
+		if (!strcmp (e->d_name, ".") || !strcmp (e->d_name, ".."))
+			continue;
+		if (strcmp (ext, "*") != 0)
+		{
+			size_t slen = strlen (suffix);
+			if (len < slen || strcmp (e->d_name + len - slen, suffix) != 0)
+				continue;
+		}
+		ff->names = (char **)Mem_Realloc (ff->names, sizeof (char *) * (ff->count + 1));
+		ff->names[ff->count] = (char *)Mem_Alloc (len + 1);
+		memcpy (ff->names[ff->count], e->d_name, len + 1);
+		ff->count++;
+	}
+	closedir (d);
+
+	if (!ff->count)
+	{
+		Mem_Free (ff->names);
+		Mem_Free (ff);
+		return NULL;
+	}
+	qsort (ff->names, ff->count, sizeof (char *), ctest_name_cmp);
+	ff->index = -1;
+	return Sys_FindNext (&ff->base);
+#endif
+}
+
+findfile_t *Sys_FindNext (findfile_t *find)
+{
+#ifdef _WIN32
+	(void)find;
+	return NULL;
+#else
+	ctest_findfile_t *ff = (ctest_findfile_t *)find;
+	char			  full[2048];
+
+	if (++ff->index >= ff->count)
+	{
+		Sys_FindClose (find);
+		return NULL;
+	}
+	snprintf (ff->base.name, sizeof (ff->base.name), "%s", ff->names[ff->index]);
+	snprintf (full, sizeof (full), "%s/%s", ff->dir, ff->names[ff->index]);
+	ff->base.attribs = (Sys_FileType (full) == (1 << 1)) ? FA_DIRECTORY : 0;
+	return find;
+#endif
+}
+
+void Sys_FindClose (findfile_t *find)
+{
+	if (find)
+	{
+		ctest_findfile_t *ff = (ctest_findfile_t *)find;
+		int				  i;
+		for (i = 0; i < ff->count; i++)
+			Mem_Free (ff->names[i]);
+		Mem_Free (ff->names);
+		Mem_Free (ff);
+	}
+}
+
+/* ---------------------------------------------------------------------------
+ * host_parms / userdir seam. Pointer identity matters: the fs compares
+ * userdir != basedir as pointers, so ctest_set_host_dirs with a NULL userdir
+ * aliases the two.
+ */
+
+static char			ctest_host_basedir[1024] = ".";
+static char			ctest_host_userdir[1024];
+static quakeparms_t ctest_parms = {ctest_host_basedir, ctest_host_basedir, 0, NULL, 0};
+quakeparms_t	   *host_parms = &ctest_parms;
+
+void ctest_set_host_dirs (const char *basedir, const char *userdir)
+{
+	snprintf (ctest_host_basedir, sizeof (ctest_host_basedir), "%s", basedir);
+	ctest_parms.basedir = ctest_host_basedir;
+	if (userdir)
+	{
+		snprintf (ctest_host_userdir, sizeof (ctest_host_userdir), "%s", userdir);
+		ctest_parms.userdir = ctest_host_userdir;
+	}
+	else
+	{
+		ctest_parms.userdir = ctest_host_basedir;
+	}
+}
+
+const char *COM_HostBasedir (void)
+{
+	return host_parms->basedir;
+}
+
+const char *COM_HostUserdir (void)
+{
+	return host_parms->userdir;
+}
+
+void COM_SetHostUserdir (const char *dir)
+{
+	host_parms->userdir = dir;
+}
+
+/* ---------------------------------------------------------------------------
+ * Host globals / cvars shared by both sides
+ */
+
+qboolean isDedicated = false;
+qboolean multiuser = false;
+qboolean harness_active = true; /* hermetic: pref files land in com_gamedir */
+
+cvar_t registered = {"registered", "1", CVAR_ROM, 1.0f, NULL, NULL, NULL, NULL};
+cvar_t cmdline = {"cmdline", "", CVAR_ROM, 0.0f, NULL, NULL, NULL, NULL};
+cvar_t developer = {"developer", "0", CVAR_NONE, 0.0f, NULL, NULL, NULL, NULL};
+
+/* pref dir for the non-harness COM_FOpenPrefFile / COM_SetUserPrefDir path */
+static char ctest_pref_path[1024];
+
+void ctest_set_pref_path (const char *path)
+{
+	snprintf (ctest_pref_path, sizeof (ctest_pref_path), "%s", path ? path : "");
+}
+
+char *Sys_GetPrefPath (const char *org, const char *app)
+{
+	(void)org;
+	(void)app;
+	if (!ctest_pref_path[0])
+		return NULL;
+	{
+		size_t len = strlen (ctest_pref_path) + 1;
+		char  *ret = (char *)Mem_Alloc (len);
+		memcpy (ret, ctest_pref_path, len);
+		return ret;
+	}
+}
+
+/* ---------------------------------------------------------------------------
+ * Store discovery seams: test-controllable static paths, default not-found
+ */
+
+static char ctest_steam_dir[1024];
+static char ctest_gog_dir[1024];
+static char ctest_gog_enhanced_dir[1024];
+static char ctest_egs_manifest_dir[1024];
+static char ctest_nightdive_dir[1024];
+static char ctest_egs_launcher_data[8192];
+static int	ctest_egs_launcher_data_set;
+
+void ctest_set_steam_dir (const char *path)
+{
+	snprintf (ctest_steam_dir, sizeof (ctest_steam_dir), "%s", path ? path : "");
+}
+
+void ctest_set_gog_dir (const char *path)
+{
+	snprintf (ctest_gog_dir, sizeof (ctest_gog_dir), "%s", path ? path : "");
+}
+
+void ctest_set_gog_enhanced_dir (const char *path)
+{
+	snprintf (ctest_gog_enhanced_dir, sizeof (ctest_gog_enhanced_dir), "%s", path ? path : "");
+}
+
+void ctest_set_egs_manifest_dir (const char *path)
+{
+	snprintf (ctest_egs_manifest_dir, sizeof (ctest_egs_manifest_dir), "%s", path ? path : "");
+}
+
+void ctest_set_nightdive_dir (const char *path)
+{
+	snprintf (ctest_nightdive_dir, sizeof (ctest_nightdive_dir), "%s", path ? path : "");
+}
+
+void ctest_set_egs_launcher_data (const char *json)
+{
+	if (json)
+	{
+		snprintf (ctest_egs_launcher_data, sizeof (ctest_egs_launcher_data), "%s", json);
+		ctest_egs_launcher_data_set = 1;
+	}
+	else
+	{
+		ctest_egs_launcher_data[0] = 0;
+		ctest_egs_launcher_data_set = 0;
+	}
+}
+
+static qboolean ctest_get_dir (const char *src, char *path, size_t pathsize)
+{
+	if (!src[0])
+		return false;
+	snprintf (path, pathsize, "%s", src);
+	return true;
+}
+
+qboolean Sys_GetSteamDir (char *path, size_t pathsize)
+{
+	return ctest_get_dir (ctest_steam_dir, path, pathsize);
+}
+
+qboolean Sys_GetGOGQuakeDir (char *path, size_t pathsize)
+{
+	return ctest_get_dir (ctest_gog_dir, path, pathsize);
+}
+
+qboolean Sys_GetGOGQuakeEnhancedDir (char *path, size_t pathsize)
+{
+	return ctest_get_dir (ctest_gog_enhanced_dir, path, pathsize);
+}
+
+qboolean Sys_GetEGSManifestDir (char *path, size_t pathsize)
+{
+	return ctest_get_dir (ctest_egs_manifest_dir, path, pathsize);
+}
+
+qboolean Sys_GetNightdiveUserDir (char *path, size_t pathsize, const char *steamlibrary)
+{
+	(void)steamlibrary;
+	return ctest_get_dir (ctest_nightdive_dir, path, pathsize);
+}
+
+const char *Sys_GetEGSLauncherData (void)
+{
+	size_t len;
+	char  *ret;
+	if (!ctest_egs_launcher_data_set)
+		return NULL;
+	len = strlen (ctest_egs_launcher_data) + 1;
+	ret = (char *)Mem_Alloc (len);
+	memcpy (ret, ctest_egs_launcher_data, len);
+	return ret;
+}
+
+/* Steam API runtime / flavor chooser (steam_api.c / sys_sdl.c seams) */
+qboolean Steam_Init (const steamgame_t *game)
+{
+	Con_Printf ("ctest Steam_Init appid=%d\n", game->appid);
+	return false;
+}
+
+quakeflavor_t ChooseQuakeFlavor (void)
+{
+	Con_Printf ("ctest ChooseQuakeFlavor\n");
+	return QUAKE_FLAVOR_REMASTERED;
+}
+
+/* SDL3-only dialogs: unreachable in this build (USE_SDL3 undefined) */
+void Sys_MessageBoxWarning (const char *title, const char *message)
+{
+	(void)title;
+	(void)message;
+	abort ();
+}
+
+void Sys_QuitNoShutdown (void)
+{
+	abort ();
+}
+
+/* ---------------------------------------------------------------------------
+ * Cvar / Cmd registration capture
+ */
+
+void Cvar_RegisterVariable (cvar_t *variable)
+{
+	Con_Printf ("ctest Cvar_RegisterVariable %s\n", variable->name);
+}
+
+struct cmd_function_s *Cmd_AddCommand2 (const char *cmd_name, xcommand_t function, cmd_source_t srctype, qboolean qcinterceptable)
+{
+	(void)function;
+	Con_Printf ("ctest Cmd_AddCommand %s src=%d qc=%d\n", cmd_name, (int)srctype, (int)qcinterceptable);
+	return NULL;
+}
+
+/* Rust migration seams that stay in common.c in the real engine */
+void COM_Game_f (void) {}
+
+void COM_CheckRegistered (void)
+{
+	Con_Printf ("ctest COM_CheckRegistered\n");
+}
+
+/* ---------------------------------------------------------------------------
+ * COM_FileGetExtension / COM_FileBase / COM_AddExtension / q_strdup copied
+ * verbatim from Quake/common.c (pure helpers)
+ */
+
 const char *COM_FileGetExtension (const char *in)
 {
 	const char *src;
@@ -364,97 +927,6 @@ char *q_strdup (const char *str)
 	return newstr;
 }
 
-void Con_Warning (const char *fmt, ...)
-{
-	(void)fmt;
-}
-
-void Con_DPrintf (const char *fmt, ...)
-{
-	(void)fmt;
-}
-
-void Con_DPrintf2 (const char *fmt, ...)
-{
-	(void)fmt;
-}
-
-/* LittleLong is a function pointer in the engine (byte-order dispatch); all
- * targets are little-endian */
-static int ctest_LongNoSwap (int l)
-{
-	return l;
-}
-int (*LittleLong) (int l) = ctest_LongNoSwap;
-
-/* ---- cfgfile.c dependencies ---- */
-
-int FS_feof (fshandle_t *fh)
-{
-	if (!fh)
-	{
-		errno = EBADF;
-		return -1;
-	}
-	if (fh->pos >= fh->length)
-		return -1;
-	return 0;
-}
-
-int FS_ferror (fshandle_t *fh)
-{
-	if (!fh)
-	{
-		errno = EBADF;
-		return -1;
-	}
-	return ferror (fh->file);
-}
-
-char *FS_fgets (char *s, int size, fshandle_t *fh)
-{
-	char *ret;
-
-	if (FS_feof (fh))
-		return NULL;
-
-	if (size > (fh->length - fh->pos) + 1)
-		size = (fh->length - fh->pos) + 1;
-
-	ret = fgets (s, size, fh->file);
-	fh->pos = Sys_ftell (fh->file) - fh->start;
-
-	return ret;
-}
-
-void FS_rewind (fshandle_t *fh)
-{
-	if (!fh)
-		return;
-	clearerr (fh->file);
-	fseek (fh->file, fh->start, SEEK_SET);
-	fh->pos = 0;
-}
-
-qfilesize_t Sys_filelength (FILE *f)
-{
-	qfileofs_t pos, end;
-
-	pos = Sys_ftell (f);
-	Sys_fseek (f, 0, SEEK_END);
-	end = Sys_ftell (f);
-	Sys_fseek (f, pos, SEEK_SET);
-
-	return end;
-}
-
-FILE *COM_FOpenPrefFile (const char *filename, const char *mode)
-{
-	char full[2048];
-	snprintf (full, sizeof (full), "%s/%s", ctest_file_dir, filename);
-	return fopen (full, mode);
-}
-
 int q_strcasecmp (const char *s1, const char *s2)
 {
 	const char *p1 = s1;
@@ -479,7 +951,37 @@ int q_strcasecmp (const char *s1, const char *s2)
 	return (int)(c1 - c2);
 }
 
-/* va: single static buffer is enough for the tests */
+/* q_vsnprintf / q_snprintf copied verbatim from Quake/common.c */
+int q_vsnprintf (char *str, size_t size, const char *format, va_list args)
+{
+	int ret;
+
+	ret = vsnprintf (str, size, format, args);
+
+	if (ret < 0)
+		ret = (int)size;
+	if (size == 0) /* no buffer */
+		return ret;
+	if ((size_t)ret >= size)
+		str[size - 1] = '\0';
+
+	return ret;
+}
+
+int q_snprintf (char *str, size_t size, const char *format, ...)
+{
+	int		ret;
+	va_list argptr;
+
+	va_start (argptr, format);
+	ret = q_vsnprintf (str, size, format, argptr);
+	va_end (argptr);
+
+	return ret;
+}
+
+/* va: single static buffer is enough for the tests (each use is consumed
+ * before the next call on both sides) */
 char *va (const char *format, ...)
 {
 	static char va_buf[1024];
@@ -490,8 +992,18 @@ char *va (const char *format, ...)
 	return va_buf;
 }
 
-/* Cvar_Set capture: both the C reference and the Rust shims funnel through
- * this stub, so tests snapshot and compare the exact call sequences */
+/* LittleLong is a function pointer in the engine (byte-order dispatch); all
+ * targets are little-endian */
+static int ctest_LongNoSwap (int l)
+{
+	return l;
+}
+int (*LittleLong) (int l) = ctest_LongNoSwap;
+
+/* ---------------------------------------------------------------------------
+ * Cvar_Set capture: both the C reference and the Rust shims funnel through
+ * this stub, so tests snapshot and compare the exact call sequences
+ */
 #define CTEST_CVAR_LOG_MAX 128
 static char ctest_cvar_log[CTEST_CVAR_LOG_MAX][2][256];
 static int	ctest_cvar_log_count;
@@ -521,7 +1033,9 @@ const char *ctest_cvar_log_get (int i, int which)
 	return ctest_cvar_log[i][which];
 }
 
-/* command line for COM_CheckParm */
+/* ---------------------------------------------------------------------------
+ * command line for COM_CheckParm / COM_CheckParmNext (verbatim from common.c)
+ */
 #define CTEST_MAX_ARGS 64
 static char *ctest_argv[CTEST_MAX_ARGS];
 int			 com_argc;
@@ -534,17 +1048,128 @@ void ctest_set_args (int argc, char **argv)
 		ctest_argv[i] = argv[i];
 }
 
-int COM_CheckParm (const char *parm)
+int COM_CheckParmNext (int last, const char *parm)
 {
 	int i;
 
-	for (i = 1; i < com_argc; i++)
+	for (i = last + 1; i < com_argc; i++)
 	{
 		if (!com_argv[i])
-			continue;
+			continue; // NEXTSTEP sometimes clears appkit vars.
 		if (!strcmp (parm, com_argv[i]))
 			return i;
 	}
 
 	return 0;
+}
+
+int COM_CheckParm (const char *parm)
+{
+	return COM_CheckParmNext (0, parm);
+}
+
+/* ---------------------------------------------------------------------------
+ * COM_Parse: copied verbatim from Quake/common.c (COM_ParseEx + COM_Parse +
+ * the com_token TLS and its accessor) so token parsing matches the engine for
+ * both sides of COM_Effectinfo_Enumerate.
+ */
+
+THREAD_LOCAL char com_token[COM_PARSE_MAX_TOKEN_SIZE];
+
+const char *COM_ParseEx (const char *data, cpe_mode mode)
+{
+	int c;
+	int len;
+
+	len = 0;
+	com_token[0] = 0;
+
+	if (!data)
+		return NULL;
+
+// skip whitespace
+skipwhite:
+	while ((c = *data) <= ' ')
+	{
+		if (c == 0)
+			return NULL; // end of file
+		data++;
+	}
+
+	// skip // comments
+	if (c == '/' && data[1] == '/')
+	{
+		while (*data && *data != '\n')
+			data++;
+		goto skipwhite;
+	}
+
+	// skip /*..*/ comments
+	if (c == '/' && data[1] == '*')
+	{
+		data += 2;
+		while (*data && !(*data == '*' && data[1] == '/'))
+			data++;
+		if (*data)
+			data += 2;
+		goto skipwhite;
+	}
+
+	// handle quoted strings specially
+	if (c == '\"')
+	{
+		data++;
+		while (1)
+		{
+			if ((c = *data) != 0)
+				++data;
+			if (c == '\"' || !c)
+			{
+				com_token[len] = 0;
+				return data;
+			}
+			if (len < countof (com_token) - 1)
+				com_token[len++] = c;
+			else if (mode == CPE_NOTRUNC)
+				return NULL;
+		}
+	}
+
+	// parse single characters
+	if (c == '{' || c == '}' || c == '(' || c == ')' || c == '\'' || c == ':')
+	{
+		if (len < countof (com_token) - 1)
+			com_token[len++] = c;
+		else if (mode == CPE_NOTRUNC)
+			return NULL;
+		com_token[len] = 0;
+		return data + 1;
+	}
+
+	// parse a regular word
+	do
+	{
+		if (len < countof (com_token) - 1)
+			com_token[len++] = c;
+		else if (mode == CPE_NOTRUNC)
+			return NULL;
+		data++;
+		c = *data;
+		/* commented out the check for ':' so that ip:port works */
+		if (c == '{' || c == '}' || c == '(' || c == ')' || c == '\'' /* || c == ':' */)
+			break;
+	} while (c > 32);
+
+	com_token[len] = 0;
+	return data;
+}
+
+const char *COM_Parse (const char *data)
+{
+	return COM_ParseEx (data, CPE_NOTRUNC);
+}
+
+const char *COM_ThreadToken (void)
+{
+	return com_token;
 }

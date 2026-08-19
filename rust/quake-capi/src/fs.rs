@@ -630,7 +630,7 @@ unsafe fn add_game_directory_root(base: &[u8], dir: &[u8], path_id: c_uint, add_
             if sys::Sys_FileOpenRead(pakfile.as_ptr(), &mut packhandle) == -1 {
                 break;
             }
-            let pak_ptr = load_pack_file(pakfile.as_ptr(), packhandle);
+            let mut pak_ptr = load_pack_file(pakfile.as_ptr(), packhandle);
             if !pak_ptr.is_null() {
                 let search = mem_alloc_zeroed::<SearchPath>();
                 (*search).path_id = path_id;
@@ -665,7 +665,9 @@ unsafe fn add_game_directory_root(base: &[u8], dir: &[u8], path_id: c_uint, add_
                     extracted_size as sys::qfilesize_t,
                     &mut packhandle,
                 );
-                let pak_ptr = load_pack_file(c"vkquake.pak".as_ptr(), packhandle);
+                // C reassigns the same `pak` here, so the loop-tail null check
+                // below tests the embedded pack, not pak0.
+                pak_ptr = load_pack_file(c"vkquake.pak".as_ptr(), packhandle);
                 let search = mem_alloc_zeroed::<SearchPath>();
                 (*search).path_id = path_id;
                 (*search).pack = pak_ptr;

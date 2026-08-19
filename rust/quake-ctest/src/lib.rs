@@ -2,6 +2,8 @@
 //! include/c_ref_prelude.h) so tests can differentially compare the original
 //! C implementations against the Rust ports.
 
+pub mod fs;
+
 use core::ffi::{c_char, c_int, c_void};
 
 mod ffi {

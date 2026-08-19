@@ -195,9 +195,11 @@ name = "quake-ctest"
 version = "0.1.0"
 dependencies = [
  "cc",
+ "miniz_oxide",
  "proptest",
  "quake-c-sys",
  "quake-capi",
+ "quake-fs",
  "quake-math",
  "quake-types",
  "quake-util",
