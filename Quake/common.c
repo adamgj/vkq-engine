@@ -2236,16 +2236,19 @@ void COM_Game_f (void)
 
 		COM_ResetGameDirectories (paths);
 
-		// clear out and reload appropriate data
+		// clear out and reload appropriate data; the renderer reload is
+		// guarded by the same flag that gated its init in Host_Init, so a
+		// headless (-headless harness) client can switch games too
 		Mod_ResetAll ();
 		Sky_ClearAll ();
-		if (!isDedicated)
+		if (!no_rendering)
 		{
 			TexMgr_NewGame ();
 			Draw_NewGame ();
 			R_NewGame ();
-			M_NewGame ();
 		}
+		if (!isDedicated)
+			M_NewGame ();
 		ExtraMaps_NewGame ();
 		Host_Resetdemos ();
 		DemoList_Rebuild ();

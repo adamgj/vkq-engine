@@ -42,6 +42,17 @@
       "requires": [{"path": "id1/PAK1.PAK", "sha256": "94e355836ec42bc464e4cbe794cfb7b5163c6efa1bcc575622bb36475bf1cf30"}]
     },
     {
+      "name": "gamedir-switch",
+      "tier": "registered",
+      "cmds": ["0 map e1m1", "300 game hipnotic", "500 map start", "1200 quit"],
+      "exitafter": 6000,
+      "note": "mid-run 'game' command: exercises the COM_ResetGameDirectories teardown/reload path (Phase 2 fs gate). Registered tier because the game command is shareware-gated",
+      "requires": [
+        {"path": "id1/PAK1.PAK", "sha256": "94e355836ec42bc464e4cbe794cfb7b5163c6efa1bcc575622bb36475bf1cf30"},
+        {"path": "hipnotic/pak0.pak", "sha256": "62b83569ba975015535be73407796ce0829ebcfa75a68fb29c67514649dc655f"}
+      ]
+    },
+    {
       "name": "hipnotic-demo1",
       "tier": "registered",
       "game": "-hipnotic",
