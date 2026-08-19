@@ -127,8 +127,15 @@ fn join_path(a: &[u8], b: &[u8]) -> Vec<u8> {
 ///
 /// # Safety
 /// `handle` must be an open Sys file handle.
-unsafe fn read_all(handle: c_int, size: usize) -> Vec<u8> {
-    let mut buf = vec![0u8; size];
+unsafe fn read_all(handle: c_int, size: usize) -> Option<Vec<u8>> {
+    // The C streams the archive through miniz's read callback in 64 KB
+    // chunks and so never sizes an allocation off the file length; this
+    // buffers the whole image instead (see the module note), which makes a
+    // bogus or hostile length an allocation request. Fail it gracefully into
+    // the caller's existing "Couldn't load" path rather than aborting.
+    let mut buf = Vec::new();
+    buf.try_reserve_exact(size).ok()?;
+    buf.resize(size, 0u8);
     let mut off = 0usize;
     while off < buf.len() {
         let count = (buf.len() - off).min(c_int::MAX as usize) as c_int;
@@ -142,7 +149,7 @@ unsafe fn read_all(handle: c_int, size: usize) -> Vec<u8> {
         }
         off += n as usize;
     }
-    buf
+    Some(buf)
 }
 
 /// C: `void LOC_LoadFile (const char *file);` — non-static in the C but
@@ -235,6 +242,14 @@ unsafe fn loc_load_file(file: *const c_char) {
             // SAFETY: `handle` is the open handle (closed after extraction
             // in the C; the whole image is already read out here)
             unsafe { quake_c_sys::Sys_FileClose(handle) };
+
+            // buffering the image failed (absurd length): same user-visible
+            // outcome as a reader-init failure
+            let Some(kpf) = kpf else {
+                // SAFETY: `file` is NUL-terminated
+                unsafe { print_load_failure(file) };
+                return;
+            };
 
             match ZipArchive::open(&kpf).and_then(|zip| zip.extract(file_bytes)) {
                 Ok(extracted) => bytes = extracted,

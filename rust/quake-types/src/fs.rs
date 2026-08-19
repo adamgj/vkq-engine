@@ -4,9 +4,16 @@
 
 use core::ffi::c_char;
 
-/// C: `MAX_OSPATH` = PATH_MAX (q_types.h). Platform-dependent: _MAX_PATH on
-/// Windows, sys limits elsewhere; sizes below are cross-checked against the
-/// C compiler's sizeof in quake-ctest's layout tests.
+/// C: `MAX_OSPATH` = PATH_MAX (q_types.h). Platform-dependent: `_MAX_PATH` on
+/// Windows, sys limits elsewhere.
+///
+/// This ladder is a guess about the C toolchain — the committed bindgen
+/// output is generated on one host, so the value cannot be imported. It is
+/// verified against the engine's own headers, per platform, by
+/// `quake-ctest/tests/fs_abi.rs`, which also checks every struct size and
+/// field offset below. Add a target here and that test will tell you whether
+/// the arm is right; a wrong arm is silent corruption, because C walks these
+/// structs directly under `-Duse_rust_fs`.
 #[cfg(windows)]
 pub const MAX_OSPATH: usize = 260;
 #[cfg(target_os = "macos")]

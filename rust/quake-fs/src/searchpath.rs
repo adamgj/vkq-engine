@@ -75,12 +75,11 @@ pub fn append_game_name(gamenames: &mut Vec<u8>, dir: &[u8]) {
 }
 
 fn skip_core(mut dirs: &[u8]) -> &[u8] {
-    // ignore a leading GAMENAME component
+    // ignore a leading GAMENAME component. Case-SENSITIVE: the C strips it
+    // with strncmp, and tdirs is server-controlled (MSG_ReadString via
+    // cl_parse.c), so "ID1;..." must reach the comparison unstripped
     let gnl = GAMENAME.len();
-    if dirs.len() >= gnl
-        && dirs[..gnl].eq_ignore_ascii_case(GAMENAME)
-        && (dirs.len() == gnl || dirs[gnl] == b';')
-    {
+    if dirs.len() >= gnl && &dirs[..gnl] == GAMENAME && (dirs.len() == gnl || dirs[gnl] == b';') {
         dirs = &dirs[gnl..];
         if dirs.first() == Some(&b';') {
             dirs = &dirs[1..];
@@ -199,8 +198,12 @@ mod tests {
         assert!(!game_dir_matches(b"rogue", b"hipnotic"));
         // final compare is case-sensitive in the C
         assert!(!game_dir_matches(b"Rogue", b"rogue"));
-        // leading id1 match is case-insensitive
-        assert!(game_dir_matches(b"ID1;rogue", b"rogue"));
+        // ...and so is the leading id1/qw strip (strncmp): a server sending
+        // "ID1;rogue" does NOT get the prefix stripped, so it compares
+        // unequal to a local "rogue" and the gamedir-mismatch warning fires
+        assert!(!game_dir_matches(b"rogue", b"ID1;rogue"));
+        assert!(!game_dir_matches(b"ID1;rogue", b"rogue"));
+        assert!(!game_dir_matches(b"rogue", b"QW;rogue"));
     }
 
     #[test]

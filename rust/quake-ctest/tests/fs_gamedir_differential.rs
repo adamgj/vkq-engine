@@ -76,6 +76,14 @@ fn gamedir_differential() {
             c"hipnotic",
             c"quoth;hipnotic",
             c"HIPNOTIC;QUOTH",
+            // the leading id1/qw strip is strncmp, i.e. case-SENSITIVE, and
+            // tdirs is server-controlled (MSG_ReadString in cl_parse.c), so
+            // these must NOT be stripped
+            c"ID1;hipnotic;quoth",
+            c"Id1;hipnotic;quoth",
+            c"QW;hipnotic;quoth",
+            c"ID1",
+            c"QW",
         ] {
             assert_eq!(
                 dir_matches(Side::C, tdirs),
@@ -88,7 +96,9 @@ fn gamedir_differential() {
     // --- matching with nothing mounted --------------------------------------
     {
         mount_compare(&[&root], 0, c"", "bare");
-        for tdirs in [c"", c"id1", c"qw", c"qw;id1", c"id1;qw", c"tg"] {
+        for tdirs in [
+            c"", c"id1", c"qw", c"qw;id1", c"id1;qw", c"tg", c"ID1", c"QW",
+        ] {
             assert_eq!(
                 dir_matches(Side::C, tdirs),
                 dir_matches(Side::Rust, tdirs),

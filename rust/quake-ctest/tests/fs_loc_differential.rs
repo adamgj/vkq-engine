@@ -458,6 +458,29 @@ fn hash_differential() {
         assert_eq!(c_v, r_v, "COM_HashString({s:?})");
     }
 
+    // Raw high-bit bytes (not expressible in a c"" literal, which must be
+    // UTF-8). `hash ^= *str++` reads a plain `char`, whose signedness is
+    // implementation-defined: signed on x86-64/Apple arm64, unsigned on
+    // AArch64 Linux. These vectors are the ones that diverge if the Rust
+    // port hardcodes one signedness instead of following c_char.
+    for raw in [
+        vec![0x80u8],
+        vec![0xffu8],
+        vec![0xc3, 0xbf],
+        vec![b'k', 0x80, b'y'],
+        (0x80u8..=0xbf).collect::<Vec<u8>>(),
+    ] {
+        let s = std::ffi::CString::new(raw.clone()).unwrap();
+        // SAFETY: NUL-terminated input, pure functions
+        let (c_v, r_v) = unsafe {
+            (
+                (ctfs::fns(Side::C).hash_string)(s.as_ptr()),
+                (ctfs::fns(Side::Rust).hash_string)(s.as_ptr()),
+            )
+        };
+        assert_eq!(c_v, r_v, "COM_HashString(raw {raw:02x?})");
+    }
+
     let blocks: [&[u8]; 6] = [
         b"",
         b"\x00",

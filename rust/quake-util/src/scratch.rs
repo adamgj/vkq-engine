@@ -1,6 +1,21 @@
-//! Scratch buffers: the Rust counterpart of the C `TEMP_ALLOC` macro family
-//! (mem.h): a fixed inline capacity used when it suffices, spilling to the
-//! heap for larger requests.
+//! Scratch buffers: a fixed inline capacity used when it suffices, spilling
+//! to the heap for larger requests. This is the Phase 2 stand-in for the C
+//! `TEMP_ALLOC` macro family (mem.h) that ROADMAP Phase 2 calls for.
+//!
+//! It is a near, not exact, counterpart, and deliberately so:
+//!
+//! - the C macros `alloca` into the *caller's* frame; the inline storage
+//!   here is a struct field, so it lives wherever the `ScratchBuf` does
+//!   (the caller's frame for a local, which is the intended use) and costs
+//!   `N * size_of::<T>()` of stack even on the heap path;
+//! - the C tracks a per-thread `alloca` budget and falls back to
+//!   `Mem_Alloc` past it; the spill threshold here is the const `N`. That
+//!   budget only bounds C stack usage and is not observable across the FFI
+//!   boundary (see the COMPAT note below).
+//!
+//! No Phase 2 code uses it — the ported filesystem has no `TEMP_ALLOC` call
+//! sites. Its consumers are the `TEMP_ALLOC`-heavy modules that arrive with
+//! the formats and renderer phases (`gl_model.c` alone has 65).
 //!
 //! COMPAT: ADR-013 — the C macros guard a per-thread `alloca` budget
 //! (`thread_stack_alloc_size` vs `max_thread_stack_alloc_size`) before

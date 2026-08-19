@@ -292,8 +292,12 @@ fn steam_differential() {
         noinstall.log
     );
 
-    // library path so long the manifest path can't be formatted
-    let long_lib = format!("/{}", "L".repeat(1010));
+    // library path so long the manifest path can't be formatted. Sized off
+    // MAX_OSPATH (PATH_MAX, 260..4096 depending on the platform) rather than
+    // a literal: the C's guard is `q_snprintf(...) >= sizeof (path)` with
+    // path[MAX_OSPATH], so a library at least MAX_OSPATH long always
+    // overflows once "/steamapps/appmanifest_2310.acf" is appended
+    let long_lib = format!("/{}", "L".repeat(MAX_OSPATH));
     write(
         &steamroot,
         "config/libraryfolders.vdf",

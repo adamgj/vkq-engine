@@ -20,14 +20,17 @@
 //!   overflow warning always says `#0`.
 
 /// COM_HashString: FNV-1a, but `hash ^= *str++` goes through plain `char`,
-/// which is signed on the targets the harness oracles run on (x86-64,
-/// Apple arm64), so bytes >= 0x80 XOR in sign-extended. (AArch64 Linux
-/// compiles `char` unsigned and would differ on such bytes; loc keys are
-/// ASCII in practice.) `s` is the key's NUL-free bytes.
+/// whose signedness is implementation-defined — signed on x86-64 and Apple
+/// arm64, unsigned on AArch64/ARM Linux — so a byte >= 0x80 XORs in
+/// sign-extended on some targets and zero-extended on others. Casting
+/// through `c_char` reproduces whichever the C compiler for this target
+/// picked, so the hashes agree per platform rather than only where `char`
+/// happens to be signed. (`COM_HashBlock` reads `const byte *`, i.e. always
+/// unsigned — see `hash_block`.) `s` is the key's NUL-free bytes.
 pub fn hash_string(s: &[u8]) -> u32 {
     let mut hash: u32 = 0x811c9dc5;
     for &b in s {
-        hash ^= b as i8 as i32 as u32;
+        hash ^= b as core::ffi::c_char as i32 as u32;
         hash = hash.wrapping_mul(0x01000193);
     }
     hash

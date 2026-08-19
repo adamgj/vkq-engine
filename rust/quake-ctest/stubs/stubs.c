@@ -19,13 +19,15 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* MSVC declares struct _stat64 / _S_IFDIR here too, so both branches need it */
+#include <sys/stat.h>
+#include <sys/types.h>
+
 #ifdef _WIN32
 #include <direct.h>
 #include <io.h>
 #else
 #include <dirent.h>
-#include <sys/stat.h>
-#include <sys/types.h>
 #endif
 
 #include "steam.h" /* steamgame_t / quakeflavor_t for the Steam_Init stub */

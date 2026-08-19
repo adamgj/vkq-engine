@@ -28,7 +28,8 @@ bindgen rust/quake-c-sys/bindings_wrapper.h \
     --raw-line '}' \
     --raw-line '// MAX_OSPATH is PATH_MAX (q_types.h), platform-dependent: bindgen would' \
     --raw-line '// have baked the generation host'"'"'s value into the arrays below.' \
-    --raw-line '// The values are cross-checked against the C sizeof in quake-ctest.' \
+    --raw-line '// The ladder is verified against the engine headers per platform by' \
+    --raw-line '// quake-ctest/tests/fs_abi.rs (sizes and field offsets too).' \
     --raw-line '#[cfg(windows)]' \
     --raw-line 'pub const MAX_OSPATH: usize = 260;' \
     --raw-line '#[cfg(target_os = "macos")]' \

@@ -346,8 +346,18 @@ endif
 cargo = find_program('cargo', required : get_option('use_rust'))
 use_rust = cargo.found() and not get_option('use_rust').disabled()
 # Phase 2: first per-module switch; the C filesystem stays the comparison
-# oracle under -Duse_rust_fs=disabled
+# oracle under -Duse_rust_fs=disabled. 'auto' follows use_rust; asking for it
+# explicitly without the Rust staticlib is a contradiction, not a downgrade
+if get_option('use_rust_fs').enabled() and not use_rust
+    error('-Duse_rust_fs=enabled requires -Duse_rust=enabled (the filesystem ships in libquake_rs.a)')
+endif
 use_rust_fs = use_rust and not get_option('use_rust_fs').disabled()
+# the Rust filesystem does not implement the DO_USERDIRS lookup branches yet
+# (quake-capi fails this combination with a compile_error!); say so here
+# rather than several minutes into a cargo build
+if use_rust_fs and get_option('do_userdirs').enabled()
+    error('-Ddo_userdirs=enabled is not supported by the Rust filesystem yet; build with -Duse_rust_fs=disabled')
+endif
 if use_rust
     cbindgen = find_program('cbindgen', required : true)
     cflags += '-DUSE_RUST'

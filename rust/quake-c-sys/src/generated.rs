@@ -7,7 +7,8 @@ pub struct FILE {
 }
 // MAX_OSPATH is PATH_MAX (q_types.h), platform-dependent: bindgen would
 // have baked the generation host's value into the arrays below.
-// The values are cross-checked against the C sizeof in quake-ctest.
+// The ladder is verified against the engine headers per platform by
+// quake-ctest/tests/fs_abi.rs (sizes and field offsets too).
 #[cfg(windows)]
 pub const MAX_OSPATH: usize = 260;
 #[cfg(target_os = "macos")]

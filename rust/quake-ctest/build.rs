@@ -109,6 +109,7 @@ fn main() {
     for stub in [
         "snprintf_oracle.c",
         "stubs.c",
+        "abi_probe.c",
         "anorms_ref.c",
         "hashers_ref.c",
         "qctype_ref.c",

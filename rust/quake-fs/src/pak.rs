@@ -88,9 +88,22 @@ pub struct PackEntry {
 ///
 /// q_strlcpy copies from the entry's name field until a NUL, truncated to 63
 /// chars: an unterminated 56-byte name deliberately keeps reading into the
-/// entry's filepos/filelen bytes, like the C. The C would continue past the
-/// directory into stale static-buffer memory; we stop at the slice end (the
-/// only divergence, unreachable with a well-formed directory).
+/// entry's filepos/filelen bytes, like the C.
+///
+/// Two divergences remain, both only reachable with a malformed directory
+/// and both in the safe direction:
+///
+/// 1. where the C would run off the end of its `dpackfile_t info[]` scratch
+///    (the last entry's name unterminated through all 64 bytes), this stops
+///    at the slice end;
+/// 2. the C reads the directory into that scratch, a file-static that is
+///    never cleared between paks, so a SHORT read (truncated pak) leaves the
+///    previously loaded pak's bytes in the tail and folds them into both the
+///    `com_modified` CRC and the parsed entries. The shim hands over a freshly
+///    allocated buffer, so the tail is zeros instead. Reproducing the C
+///    exactly would also mean reproducing a latent overflow: `dirlen` only
+///    has to satisfy `dirlen / 64 <= 2048` to pass the count check, so up to
+///    131135 bytes can be read into that 131072-byte static.
 pub fn parse_entries(dir_bytes: &[u8], numpackfiles: i32) -> Vec<PackEntry> {
     let mut entries = Vec::with_capacity(numpackfiles as usize);
     for i in 0..numpackfiles as usize {

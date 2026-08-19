@@ -21,8 +21,19 @@ const SEEK_SET: c_int = 0;
 const GAMENAME: &CStr = c"id1";
 const CONFIG_NAME: &CStr = c"vkQuake.cfg";
 
-// Layout parity with quake-c-sys' hand-declared platform constant
+// Agreement between the two hand-written cfg ladders. Necessary but NOT
+// sufficient -- both could be wrong together, which is what the ctest check
+// below covers.
 const _: () = assert!(MAX_OSPATH == sys::MAX_OSPATH);
+
+// The real ABI check lives in quake-ctest (tests/fs_abi.rs): it compiles the
+// engine headers on the target platform and compares the C's MAX_OSPATH,
+// sizeof and offsetof against these mirrors at runtime. It has to be done
+// there rather than here because MAX_OSPATH is PATH_MAX, which q_types.h
+// derives from a four-way MAXPATHLEN/_MAX_PATH/PATH_MAX/fallback chain --
+// the Rust cfg ladder is a guess about the C toolchain, and under
+// -Duse_rust_fs the C walks Rust-allocated searchpath_t/pack_t directly, so
+// a wrong guess is silent memory corruption rather than a link error.
 
 /// C: `qboolean com_modified` (set true if using non-id files; also written
 /// by the C COM_Game_f)
@@ -513,6 +524,16 @@ unsafe fn load_pack_file(packfile: *const c_char, packhandle: c_int) -> *mut Pac
         let newfiles = sys::Mem_Alloc(numpackfiles as usize * core::mem::size_of::<PackFile>())
             .cast::<PackFile>();
 
+        // DIVERGENCE (deliberate): the C reads the directory into a
+        // file-static `dpackfile_t info[MAX_FILES_IN_PACK]` that is never
+        // cleared between paks, so a SHORT read (truncated pak) leaves the
+        // previously loaded pak's bytes in the tail, which then feed the
+        // com_modified CRC and the parsed entries. Mirroring that exactly
+        // would mean reproducing a latent overflow as well: dirlen only has
+        // to satisfy dirlen/64 <= 2048 to pass the count check above, so up
+        // to 131135 bytes can be read into that 131072-byte static. This
+        // allocates the directory instead -- zeros where the C had stale
+        // bytes, and no overflow. Only reachable with a malformed pak.
         let mut dir_bytes = vec![0u8; header.dirlen as usize];
         sys::Sys_FileSeek(packhandle, header.dirofs as sys::qfileofs_t);
         sys::Sys_FileRead(packhandle, dir_bytes.as_mut_ptr().cast(), header.dirlen);
@@ -783,10 +804,13 @@ pub unsafe extern "C" fn COM_FOpenPrefFile(
 ) -> *mut sys::FILE {
     // SAFETY: forwarded contract; seams as in C.
     unsafe {
+        // both paths are built with va(), so they truncate at VA_BUFFERLEN,
+        // NOT at MAX_OSPATH -- on Windows those differ (1024 vs 260)
+        let mut path = [0 as c_char; VA_BUFFERLEN];
+
         // harness runs must be hermetic: per-user state is redirected into
         // the disposable gamedir
         if sys::harness_active {
-            let mut path = [0 as c_char; MAX_OSPATH];
             path_join_into(
                 &mut path,
                 bytes_of(&*ptr::addr_of!(com_gamedir)),
@@ -794,9 +818,17 @@ pub unsafe extern "C" fn COM_FOpenPrefFile(
             );
             return sys::Sys_fopen(path.as_ptr(), mode);
         }
+
         let pref_path = sys::Sys_GetPrefPath(c"".as_ptr(), c"vkQuake".as_ptr());
-        let mut path = [0 as c_char; MAX_OSPATH];
-        path_join_into(&mut path, cstr_bytes(pref_path), cstr_bytes(filename));
+        // the C hands a NULL pref_path straight to va("%s/%s", ...); every
+        // platform CRT renders that as "(null)" rather than crashing, so
+        // spell it out instead of dereferencing null here
+        let pref_bytes: &[u8] = if pref_path.is_null() {
+            b"(null)"
+        } else {
+            cstr_bytes(pref_path)
+        };
+        path_join_into(&mut path, pref_bytes, cstr_bytes(filename));
         let f = sys::Sys_fopen(path.as_ptr(), mode);
         sys::Mem_Free(pref_path.cast());
         f
@@ -819,16 +851,13 @@ unsafe fn set_user_pref_dir() {
         }
         strlcpy_into(&mut *ptr::addr_of_mut!(USERPREFDIR), cstr_bytes(pref_path));
         sys::Mem_Free(pref_path.cast());
-        // strip trailing dir separators
+        // strip trailing dir separators, per filenames.h's IS_DIR_SEPARATOR:
+        // '/' or '\\' on Windows, '/' only on the UNIX-ish branch
+        let is_dir_separator = |c: u8| c == b'/' || (cfg!(windows) && c == b'\\');
         let mut len = bytes_of(&*ptr::addr_of!(USERPREFDIR)).len();
-        while len > 0 {
-            let c = USERPREFDIR[len - 1] as u8;
-            if c == b'/' || c == b'\\' {
-                len -= 1;
-                USERPREFDIR[len] = 0;
-            } else {
-                break;
-            }
+        while len > 0 && is_dir_separator(USERPREFDIR[len - 1] as u8) {
+            len -= 1;
+            USERPREFDIR[len] = 0;
         }
         sys::COM_SetHostUserdir((*ptr::addr_of!(USERPREFDIR)).as_ptr());
         sys::Sys_Printf(
@@ -1009,14 +1038,20 @@ fn flavor_of(i: c_int) -> flavor::FlavorRequest {
 unsafe fn is_valid_flavor_dir(dir: &[u8], flavor_i: c_int) -> bool {
     // SAFETY: file probes through the Sys seam, like the C.
     unsafe {
-        let mut path = [0 as c_char; MAX_OSPATH];
-        let mut sub = GAMENAME.to_bytes().to_vec();
-        sub.extend_from_slice(b"/pak0.pak");
-        let classic_exists = path_join_into(&mut path, dir, &sub) < MAX_OSPATH
-            && sys::Sys_FileType(path.as_ptr()) == FS_ENT_FILE;
-        let kpf_exists = path_join_into(&mut path, dir, b"QuakeEX.kpf") < MAX_OSPATH
-            && sys::Sys_FileType(path.as_ptr()) == FS_ENT_FILE;
-        flavor::is_valid_flavor_dir(flavor_of(flavor_i), classic_exists, kpf_exists)
+        // the probes are closures so the pure side keeps the C's
+        // short-circuit: a classic hit never stats QuakeEX.kpf
+        let probe = |sub: &[u8]| {
+            let mut path = [0 as c_char; MAX_OSPATH];
+            path_join_into(&mut path, dir, sub) < MAX_OSPATH
+                && sys::Sys_FileType(path.as_ptr()) == FS_ENT_FILE
+        };
+        let mut classic = GAMENAME.to_bytes().to_vec();
+        classic.extend_from_slice(b"/pak0.pak");
+        flavor::is_valid_flavor_dir(
+            flavor_of(flavor_i),
+            || probe(&classic),
+            || probe(b"QuakeEX.kpf"),
+        )
     }
 }
 
