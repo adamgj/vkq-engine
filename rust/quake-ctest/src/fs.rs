@@ -689,8 +689,14 @@ pub fn rust_fatal_in_child(test_fn_name: &str, case: &str, env: &[(&str, &str)])
     let out = cmd.output().expect("spawn fatal-probe child");
 
     // the child aborts on purpose, so its exit status is expected to be
-    // non-zero; only the captured message matters
-    let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
+    // non-zero; only the captured message matters.
+    //
+    // Windows' CRT opens stderr in text mode, so every '\n' the stub wrote --
+    // including the ones inside the message, since several engine format
+    // strings end in one -- arrives as "\r\n". That is a transport artifact,
+    // not message content (the engine never emits a bare '\r'), so undo it
+    // before comparing against the C side's in-process copy.
+    let stderr = String::from_utf8_lossy(&out.stderr).replace("\r\n", "\n");
     let marker = "Sys_Error: ";
     let at = stderr.rfind(marker)?;
 
