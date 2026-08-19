@@ -231,9 +231,13 @@ pub fn open_handle_count() -> i32 {
 /// Runs `f` with the stub Sys_Error longjmp trap armed. Returns the formatted
 /// Sys_Error message if one fired, None if `f` completed.
 ///
-/// The longjmp unwinds any frames `f` pushed without running destructors —
-/// test-only, and the drivers here keep no droppable state across the
-/// fallible C/Rust calls.
+/// **Only wrap work that either cannot fatal, or runs entirely in C frames**
+/// (i.e. `Side::C`). PLAN.md §4 forbids a longjmp unwinding a Rust frame, and
+/// this is why: the jump skips the Rust shim's frames without running
+/// destructors, which macOS/Linux tolerate but MSVC reports as
+/// STATUS_HEAP_CORRUPTION. Rust-side fatal inputs go through
+/// [`rust_fatal_in_child`] instead. (The shipped engine is unaffected —
+/// `Sys_Error` there ends in `exit(1)`, so nothing unwinds.)
 pub fn catch_sys_error<F: FnMut()>(mut f: F) -> Option<String> {
     unsafe extern "C" fn trampoline<F: FnMut()>(arg: *mut c_void) {
         // SAFETY: arg is the &mut F passed below, alive for the whole call
@@ -660,4 +664,49 @@ pub fn load_file(side: Side, name: &CStr) -> Option<(Vec<u8>, i64, i32, u32)> {
         quake_c_sys::Mem_Free(buf.cast());
         Some((bytes, size, thread_file_from_pak(), path_id))
     }
+}
+
+/// Runs one named fatal scenario in a **child process** and returns the
+/// message it died with (the text after `Sys_Error: `), or None if the child
+/// exited without fataling.
+///
+/// The in-process trap ([`catch_sys_error`]) longjmps, which is legal across
+/// the c_ref side's pure C frames but is UB across the Rust shim's — see the
+/// note there. So Rust-side fatality is probed out-of-process: the child runs
+/// with the trap unarmed, so the stub's `Sys_Error` prints
+/// `Sys_Error: <msg>` to stderr and aborts, and this reads it back.
+///
+/// `test_fn_name` is the `#[test]` in the calling integration test that
+/// dispatches on `CTEST_FATAL_CASE` (by convention `rust_fatal_child`).
+pub fn rust_fatal_in_child(test_fn_name: &str, case: &str, env: &[(&str, &str)]) -> Option<String> {
+    let exe = std::env::current_exe().expect("current_exe");
+    let mut cmd = std::process::Command::new(exe);
+    cmd.args([test_fn_name, "--exact", "--nocapture", "--test-threads=1"])
+        .env("CTEST_FATAL_CASE", case);
+    for (k, v) in env {
+        cmd.env(k, v);
+    }
+    let out = cmd.output().expect("spawn fatal-probe child");
+
+    // the child aborts on purpose, so its exit status is expected to be
+    // non-zero; only the captured message matters
+    let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
+    let marker = "Sys_Error: ";
+    let at = stderr.rfind(marker)?;
+
+    // Take the remainder verbatim rather than splitting on lines: the engine's
+    // messages can themselves end in (or contain) a newline, and the C side's
+    // trapped copy keeps it, so the comparison has to. The stub's fprintf
+    // appends exactly one newline of its own, which is the only one to drop.
+    let mut msg = stderr[at + marker.len()..].to_owned();
+    if msg.ends_with('\n') {
+        msg.pop();
+    }
+    Some(msg)
+}
+
+/// True when this process IS the child spawned by [`rust_fatal_in_child`]
+/// for `case`; the dispatch tests return early otherwise.
+pub fn fatal_child_case() -> Option<String> {
+    std::env::var("CTEST_FATAL_CASE").ok()
 }

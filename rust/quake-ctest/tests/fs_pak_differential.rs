@@ -66,9 +66,27 @@ impl Fixture {
 
     /// Mounts on both sides and asserts every observable output matches.
     /// Returns the (identical) snapshot.
+    ///
+    /// A fatal input longjmps out of the mount. That is legal for the c_ref
+    /// side (pure C frames) but UB across the Rust shim's, so when the C
+    /// fatals the Rust side is probed in a child process and only the
+    /// messages are compared — there is no post-fatal state to diff anyway.
+    /// See fs::catch_sys_error / PLAN.md §4.
     fn mount_both_and_compare(&self, ctx: &str) -> (Option<String>, ctfs::FsSnapshot) {
         let (c_err, c_log) = self.mount(Side::C);
         let c_snap = ctfs::snapshot(Side::C);
+
+        if let Some(c_msg) = &c_err {
+            let r_msg = ctfs::rust_fatal_in_child(
+                "rust_fatal_child",
+                "mount",
+                &[("CTEST_FATAL_ROOT", self.root.to_str().unwrap())],
+            )
+            .unwrap_or_else(|| panic!("the Rust shim must Sys_Error too: {ctx}"));
+            assert_eq!(*c_msg, r_msg, "Sys_Error message parity: {ctx}");
+            return (c_err, c_snap);
+        }
+
         let (r_err, r_log) = self.mount(Side::Rust);
         let r_snap = ctfs::snapshot(Side::Rust);
         assert_eq!(c_err, r_err, "Sys_Error parity: {ctx}");
@@ -489,4 +507,30 @@ fn zero_entry_pak0_with_embedded_divergence() {
     for side in BOTH {
         ctfs::reset(side);
     }
+}
+
+/// Child-process half of the Rust-side fatal probes (see
+/// `ctfs::rust_fatal_in_child`). A no-op unless CTEST_FATAL_CASE selects a
+/// scenario, so it costs nothing in a normal run.
+///
+/// The trap is deliberately NOT armed here: the stub's `Sys_Error` prints
+/// `Sys_Error: <msg>` to stderr and aborts, which is what the parent reads
+/// back. Nothing longjmps through a Rust frame. The fixture is the one the
+/// parent already wrote, reached through CTEST_FATAL_ROOT.
+#[test]
+fn rust_fatal_child() {
+    let Some(case) = ctfs::fatal_child_case() else {
+        return;
+    };
+    assert_eq!(case, "mount", "unknown fatal case");
+
+    let root = std::path::PathBuf::from(std::env::var("CTEST_FATAL_ROOT").expect("root"));
+    ctfs::set_host_dirs("/nonexistent-host-basedir", None);
+    ctfs::set_registered(1.0);
+    ctfs::set_developer(0.0);
+    ctfs::setup(Side::Rust, &[&root], 0, c"tg");
+    panic!(
+        "expected the Rust pak mount to Sys_Error for {}",
+        root.display()
+    );
 }

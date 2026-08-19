@@ -320,7 +320,12 @@ fn init_filesystem_differential() {
     for (args, expect_error, ctx) in arg_sets {
         let _own = ctfs::set_args(&args);
         let mut outputs = Vec::new();
-        for side in BOTH {
+        // A fatal input longjmps out of COM_InitFilesystem. That is legal for
+        // the c_ref side (pure C frames) but UB across the Rust shim's, so the
+        // Rust side of those cases is probed in a child process instead; the
+        // messages are still compared. See fs::catch_sys_error / PLAN.md §4.
+        let sides: &[Side] = if expect_error { &[Side::C] } else { &BOTH };
+        for &side in sides {
             ctfs::reset(side);
             ctfs::clear_logs();
             let err = ctfs::catch_sys_error(|| {
@@ -329,13 +334,27 @@ fn init_filesystem_differential() {
             });
             outputs.push((err, ctfs::con_log(), ctfs::cvar_log(), ctfs::snapshot(side)));
         }
+        if expect_error {
+            let c_msg = outputs[0]
+                .0
+                .clone()
+                .unwrap_or_else(|| panic!("the C must Sys_Error: {ctx}"));
+            let rust_msg = ctfs::rust_fatal_in_child(
+                "rust_fatal_child",
+                "init_filesystem",
+                &[("CTEST_FATAL_ARGS", &args.join("\x1f"))],
+            )
+            .unwrap_or_else(|| panic!("the Rust shim must Sys_Error too: {ctx}"));
+            assert_eq!(c_msg, rust_msg, "Sys_Error message parity: {ctx}");
+            continue;
+        }
         assert_eq!(outputs[0], outputs[1], "COM_InitFilesystem parity: {ctx}");
         assert_eq!(
             outputs[0].0.is_some(),
             expect_error,
             "error expectation: {ctx}"
         );
-        if !expect_error {
+        {
             assert!(
                 outputs[0]
                     .1
@@ -349,4 +368,32 @@ fn init_filesystem_differential() {
     for side in BOTH {
         ctfs::reset(side);
     }
+}
+
+/// Child-process half of the Rust-side fatal probes (see
+/// `ctfs::rust_fatal_in_child`). A no-op unless CTEST_FATAL_CASE selects a
+/// scenario, so it costs nothing in a normal run.
+///
+/// The trap is deliberately NOT armed here: the stub's `Sys_Error` prints
+/// `Sys_Error: <msg>` to stderr and aborts, which is what the parent reads
+/// back. Nothing longjmps through a Rust frame.
+#[test]
+fn rust_fatal_child() {
+    let Some(case) = ctfs::fatal_child_case() else {
+        return;
+    };
+    assert_eq!(case, "init_filesystem", "unknown fatal case");
+
+    let raw = std::env::var("CTEST_FATAL_ARGS").expect("CTEST_FATAL_ARGS");
+    let args: Vec<&str> = raw.split('\x1f').collect();
+
+    ctfs::set_host_dirs("/nonexistent-host-basedir", None);
+    ctfs::set_registered(1.0);
+    ctfs::set_developer(0.0);
+    let _own = ctfs::set_args(&args);
+    ctfs::reset(Side::Rust);
+    // SAFETY: startup call over freshly reset state; this process is
+    // single-threaded and exists only to run this one call
+    unsafe { (ctfs::fns(Side::Rust).init_filesystem)() };
+    panic!("expected the Rust COM_InitFilesystem to Sys_Error for {args:?}");
 }
