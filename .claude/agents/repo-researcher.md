@@ -15,7 +15,7 @@ disallowedTools:
 model: haiku
 effort: low
 permissionMode: plan
-maxTurns: 8
+maxTurns: 14
 ---
 
 Answer only the delegated repository question. Do not modify files or use shell commands that intentionally change repository state.
@@ -31,5 +31,7 @@ Return:
 3. Important call paths, contracts, roadmap phases, or ADR constraints.
 4. Contradictory evidence or unresolved uncertainty.
 5. One next read only if the question cannot yet be answered.
+
+If the turn budget is exhausted before the question is answered, say so explicitly and label the answer incomplete rather than presenting a truncated search as a conclusion.
 
 Do not return full files, directory dumps, or large command output unless explicitly requested.

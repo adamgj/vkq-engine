@@ -6,17 +6,20 @@ This workflow controls repeated exploration, continuous re-planning, unchanged r
 
 `AGENTS.md` contains only durable project constraints and execution discipline. `CLAUDE.md` imports it. Detailed procedures live here and in `.claude/skills/`, so they consume context only when relevant.
 
-For ordinary C/Vulkan/platform work, read the task, relevant source and callers, build configuration, and affected CI workflow. For any Rust-migration work, also read `docs/rust-migration/PLAN.md`, `ROADMAP.md`, the ADR index, every applicable ADR, and `Misc/harness/README.md`. A task plan may refine a roadmap milestone but cannot supersede it silently.
+For ordinary C/Vulkan/platform work, read the task, relevant source and callers, build configuration, and affected CI workflow. For any Rust-migration work, also read `docs/rust-migration/PLAN.md`, `docs/rust-migration/ROADMAP.md`, the ADR index at `docs/rust-migration/adr/README.md`, every applicable ADR, and `Misc/harness/README.md`. A task plan may refine a roadmap milestone but cannot supersede it silently.
 
 ## Model and effort routing
 
-| Work | Model | Effort | Boundary |
-|---|---|---:|---|
-| Architecture/task plan | Fable 5 | xhigh | One read-only pass |
-| Difficult implementation | Fable 5 | high | One approved milestone per turn |
-| Repository discovery | Haiku | low | Read-only, 8 turns |
-| Build/test/harness diagnosis | Sonnet | medium | No edits, 10 turns |
-| Independent integration review | Opus | high | Fresh read-only context, 12 turns |
+| Work | Selected by | Model | Effort | Boundary |
+|---|---|---|---:|---|
+| Architecture/task plan | `/feature-plan` | Fable 5 | xhigh | One read-only pass |
+| Difficult implementation | `/feature-implement` | Fable 5 | high | One approved milestone per turn |
+| Loop diagnosis | `/loop-breaker` | Fable 5 | high | Read-only, one diagnostic |
+| Repository discovery | `repo-researcher` | Haiku | low | Read-only, 14 turns |
+| Build/test/harness diagnosis | `verification-diagnostician` | Sonnet | medium | No edits, 10 turns |
+| Independent integration review | `compatibility-reviewer` (`/integration-review`) | Opus | high | Fresh read-only context, 20 turns |
+
+Model and effort are set in each skill's and agent's frontmatter; the table above is a description of those files, not a second source of truth. `/loop-breaker` deliberately keeps Fable at `high` despite being a short read-only turn: it fires after a budget overrun, and a wrong next action there costs another loop.
 
 The independent reviewer uses a different capable model to reduce shared implementation assumptions. Change it to `model: fable` only for an exceptionally high-risk review whose expected benefit justifies the additional cost.
 
@@ -24,7 +27,7 @@ Do not make Fable the project-wide model in `.claude/settings.json`; the manual 
 
 ## 1. Prepare a decision-ready brief
 
-Copy `docs/ai/FEATURE_PLAN_TEMPLATE.md` to a task-specific path such as `docs/ai/plans/<feature>.md` when a durable plan is warranted. Fill requirements, non-goals, invariants, compatibility surfaces, affected platforms, and testable acceptance criteria.
+Copy `docs/ai/FEATURE_PLAN_TEMPLATE.md` to a task-specific path such as `docs/ai/plans/<feature>.md` when a durable plan is warranted. **Commit the plan.** It is the durable context that survives compaction and the artifact `/feature-implement` and `/integration-review` read back, so it has to exist in a fresh clone or worktree; `docs/**` is excluded from CI, so committing it costs nothing. Fill requirements, non-goals, invariants, compatibility surfaces, affected platforms, and testable acceptance criteria.
 
 For migration work, identify the exact roadmap phase and ADRs before planning. If the requested feature conflicts with phase order, a compat exception, an approved deletion list, or the dependency/unsafe policies, stop and surface the conflict rather than designing around it.
 
@@ -76,29 +79,43 @@ From `rust/`, use the relevant subset first, then the CI-equivalent final gates:
 cargo fmt --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked --release
+cargo test --workspace --locked                 # debug profile: debug_assert! canaries (ADR-013)
 cargo deny check
-cargo audit
+cargo deny check licenses --manifest-path fuzz/Cargo.toml --config deny.toml
 ```
 
-Run `./scripts/harness/check_headers.sh` for core-header/bindgen boundary changes and the binding-regeneration diff/checks required by `.github/workflows/rust.yml` for `quake-c-sys` changes.
+The debug-profile `cargo test` is a real PR gate, not a duplicate of the release run: `rust.yml` runs it so `debug_assert!` canaries fire (the `hash_map` storage-alignment canary guarding the ADR-013 global allocator). `rust/fuzz/` is a separate workspace with its own lockfile, so the main `cargo deny` never sees `libfuzzer-sys` and friends — the second deny run is what enforces ADR-003 licensing on fuzz dependencies. `cargo audit` is **not** a per-change gate; `rust.yml` runs it on the weekly cron only, because cargo-deny's advisories check already covers RustSec on every PR.
+
+Run `./scripts/harness/check_headers.sh` for core-header/bindgen boundary changes and the binding-regeneration diff/checks required by `.github/workflows/rust.yml` for `quake-c-sys` changes. For changes to the `quake-fs` parsers (pak/wad/kpf/loc/vdf), also run the fuzz targets the `fuzz-smoke` job covers.
 
 ### Mixed C/Rust and compatibility-sensitive changes
 
-Build both reference and mixed configurations using the platform's CI commands. On Linux/macOS the core form is:
+Build both reference and mixed configurations using the platform's CI commands. CI gates **three** configurations, not two — during Phase 2 the Rust filesystem is behind its own transitional switch (`-Duse_rust_fs`, `meson_options.txt`), and `build-linux.yml` requires the harness green with it both on and off. Match CI's option set exactly, including `-Duse_sdl3=disabled`: a differently configured build invalidates state-hash and savegame byte comparisons in both directions. On Linux the core form is:
 
 ```text
-meson setup build-c -Duse_rust=disabled && ninja -C build-c
-meson setup build-rs -Duse_rust=enabled && ninja -C build-rs
+meson setup build-c -Duse_sdl3=disabled -Duse_rust=disabled && ninja -C build-c
+meson setup build-rs -Duse_sdl3=disabled -Duse_rust=enabled && ninja -C build-rs
+meson setup build-rs-cfs -Duse_sdl3=disabled -Duse_rust=enabled -Duse_rust_fs=disabled && ninja -C build-rs-cfs
 ./scripts/harness/check_capi_signatures.sh build-rs/quake_rs.h
+./scripts/harness/check_capi_signatures.sh build-rs-cfs/quake_rs.h
 ```
+
+(macOS omits `-Duse_sdl3=disabled` and Windows uses `-Duse_sdl3=enabled`; the affected workflow file is authoritative.)
 
 With `QUAKE_GAME_DATA` pointing to a directory containing `id1/`, select gates required by the affected subsystem and roadmap phase:
 
 ```text
+python3 scripts/harness/run_corpus.py --vkquake build-c/vkqr-engine --check --tier shareware
 python3 scripts/harness/run_corpus.py --vkquake build-c/vkqr-engine --stability --tier shareware
 python3 scripts/harness/run_corpus.py --vkquake build-c/vkqr-engine --compare build-rs/vkqr-engine --tier shareware
+python3 scripts/harness/run_corpus.py --vkquake build-c/vkqr-engine --compare build-rs-cfs/vkqr-engine --tier shareware
 python3 scripts/harness/save_diff.py --vkquake build-c/vkqr-engine --vkquake-b build-rs/vkqr-engine
+python3 scripts/harness/save_diff.py --vkquake build-c/vkqr-engine --vkquake-b build-rs-cfs/vkqr-engine
 ```
+
+`--check` compares against the committed per-frame goldens and is the gate that catches a real regression, so run it wherever `Misc/harness/goldens/` has an entry for the platform — today only `darwin-arm64`, which is why `build-mac.yml` runs `--check` and `build-linux.yml` does not. `--stability` and `--compare` are the fallback where goldens do not exist yet; they cannot substitute for `--check` where they do.
+
+Skipping the `build-rs-cfs` leg reports the harness clean while the C-filesystem-fallback configuration was never differentially compared — a false green on exactly the Phase 2 exit criterion.
 
 Use Windows executable paths and PowerShell environment syntax on Windows, matching `build-windows.yml`. Do not hand-edit or casually regenerate goldens. Goldens follow `Misc/harness/README.md`, ADR-010, c-reference tag, release-build, and same-platform rules.
 

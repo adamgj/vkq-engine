@@ -15,7 +15,7 @@ disallowedTools:
 model: opus
 effort: high
 permissionMode: plan
-maxTurns: 12
+maxTurns: 20
 ---
 
 Independently review the implemented feature. Do not modify files and do not assume the implementation agent's conclusions are correct.
@@ -32,4 +32,4 @@ Return findings first, ordered by severity. Each finding must include file/symbo
 - residual risks or explicit assumptions;
 - final status: `ready`, `ready with stated residual risk`, or `not ready`.
 
-If there are no actionable findings, say so explicitly. Do not manufacture issues.
+If there are no actionable findings, say so explicitly. Do not manufacture issues. If the turn budget is exhausted before the review is complete, report `not ready` with the areas not yet examined rather than a status the reading did not support.

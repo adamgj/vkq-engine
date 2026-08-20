@@ -13,7 +13,7 @@ disallowed-tools:
 
 Create the authoritative task plan for `$ARGUMENTS`. Do not implement code or modify repository files in this turn.
 
-Read `AGENTS.md`, the feature brief, relevant implementation/contracts, tests or harness coverage, and affected CI workflows. If the task touches `rust/`, Rust integration, C deletion, migration verification, or a deferred subsystem, also read `docs/rust-migration/PLAN.md`, `ROADMAP.md`, the ADR index, and every applicable ADR. Identify the current roadmap phase. The task plan is subordinate to those documents and may not change phase ordering or compatibility policy implicitly.
+Read `AGENTS.md`, the feature brief, relevant implementation/contracts, tests or harness coverage, and affected CI workflows. If the task touches `rust/`, Rust integration, C deletion, migration verification, or a deferred subsystem, also read `docs/rust-migration/PLAN.md`, `docs/rust-migration/ROADMAP.md`, and the ADR index at `docs/rust-migration/adr/README.md`; from that index read the ADRs the task actually touches, and name them. Identify the current roadmap phase. The task plan is subordinate to those documents and may not change phase ordering or compatibility policy implicitly.
 
 Investigate only enough to establish requirements, non-goals, invariants, existing patterns, C/Rust ownership boundaries, affected platforms and contracts, migration/data/rollback concerns, risks, and verification. Use `repo-researcher` only for a broad or noisy concrete question.
 
