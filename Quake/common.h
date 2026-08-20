@@ -290,6 +290,7 @@ extern int safemode;
  */
 
 int COM_CheckParm (const char *parm);
+int COM_CheckParmNext (int last, const char *parm);
 
 void COM_Init (void);
 void COM_InitArgv (int argc, char **argv);
@@ -376,10 +377,25 @@ extern THREAD_LOCAL int file_from_pak; // global indicating that file came from 
 
 // Rust migration seam: thread-local globals are not reachable through
 // bindgen, so ported code reads them through these accessors
-qfileofs_t COM_ThreadFileSize (void);
-int		   COM_ThreadFileFromPak (void);
+qfileofs_t	COM_ThreadFileSize (void);
+int			COM_ThreadFileFromPak (void);
+void		COM_SetThreadFileSize (qfilesize_t size);
+void		COM_SetThreadFileFromPak (int from_pak);
+const char *COM_ThreadToken (void);
+
+// Rust migration seam: quakeparms_t lives outside the bindgen-clean headers
+const char *COM_HostBasedir (void);
+const char *COM_HostUserdir (void);
+void		COM_SetHostUserdir (const char *dir);
+
+// Rust migration seams: these stay C while the filesystem is ported (the
+// "game" command tears down and reloads half the engine; the registration
+// check reads the reconstituted command line)
+void COM_Game_f (void);
+void COM_CheckRegistered (void);
 
 void COM_AddBaseDir (const char *dir);
+void COM_ResetGameDirectories (const char *newdirs);
 
 const char *COM_GetGameNames (qboolean full);
 qboolean	COM_GameDirMatches (const char *tdirs);
@@ -459,6 +475,8 @@ char	   *FS_fgets (char *s, int size, fshandle_t *fh);
 qfilesize_t FS_filelength (fshandle_t *fh);
 
 extern struct cvar_s registered;
+extern struct cvar_s cmdline;
+extern qboolean		 com_modified; // set true if using non-id files
 extern qboolean		 standard_quake, rogue, hipnotic;
 
 #endif /* Q_COMMON_H */

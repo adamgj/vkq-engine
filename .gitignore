@@ -18,6 +18,7 @@ Shaders/Compiled/Release/*.d
 Shaders/*.exe
 Shaders/*.obj
 Shaders/bintoc
+Shaders/bintoc.dSYM/
 Packaging/AppImage/AppDir
 Packaging/AppImage/vkquake*
 Packaging/AppImage/vkqr-engine*

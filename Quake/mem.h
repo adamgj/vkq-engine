@@ -46,7 +46,6 @@ void  Mem_Free (const void *ptr);
 		Mem_Free (ptr); \
 		ptr = NULL;     \
 	} while (false)
-#endif
 
 extern THREAD_LOCAL size_t thread_stack_alloc_size;
 extern size_t			   max_thread_stack_alloc_size;
@@ -114,3 +113,5 @@ extern size_t			   max_thread_stack_alloc_size;
 	} while (false)
 
 // clang-format on
+
+#endif /* __MEM_H */

@@ -23,6 +23,15 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 #include "quakedef.h"
 #include "sys.h"
+#include "steam.h"
+
+#if defined(_WIN32) && defined(_MSC_VER)
+// comctl32 v6 activation context: with this in the manifest, SDL_ShowMessageBox
+// takes its native TaskDialogIndirect path instead of the hand-built dialog fallback
+#pragma comment( \
+	linker,      \
+	"\"/manifestdependency:type='win32' name='Microsoft.Windows.Common-Controls' version='6.0.0.0' processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'\"")
+#endif
 
 #include <errno.h>
 
@@ -395,4 +404,55 @@ FUNC_NORETURN void Sys_QuitNoShutdown (void)
 {
 	SDL_Quit ();
 	exit (0);
+}
+
+/*
+========================
+ChooseQuakeFlavor
+
+Shows a simple message box asking the user to choose
+between the original version and the 2021 rerelease
+========================
+*/
+quakeflavor_t ChooseQuakeFlavor (void)
+{
+#ifdef _WIN32
+	// native task dialog with command links; requires comctl32 v6
+	// with the comctl32 v6 manifest above, SDL renders this as a native task dialog
+	static const SDL_MessageBoxButtonData buttons[] = {
+		{SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT, QUAKE_FLAVOR_REMASTERED, "Remastered"},
+		{0, QUAKE_FLAVOR_ORIGINAL, "Original"},
+	};
+	SDL_MessageBoxData messagebox;
+	int				   choice = -1;
+
+	memset (&messagebox, 0, sizeof (messagebox));
+	messagebox.buttons = buttons;
+	messagebox.numbuttons = countof (buttons);
+	messagebox.flags = SDL_MESSAGEBOX_BUTTONS_LEFT_TO_RIGHT;
+	messagebox.title = "vkqr-engine";
+	messagebox.message = "Which Quake version would you like to play?";
+
+#ifdef USE_SDL3
+	if (!SDL_ShowMessageBox (&messagebox, &choice))
+#else
+	if (SDL_ShowMessageBox (&messagebox, &choice) < 0)
+#endif
+	{
+		Sys_Printf ("ChooseQuakeFlavor: %s\n", SDL_GetError ());
+		return QUAKE_FLAVOR_REMASTERED;
+	}
+
+	if (choice == -1)
+	{
+		SDL_Quit ();
+		exit (0);
+	}
+
+	return (quakeflavor_t)choice;
+#else
+	// FIXME: Original version can't be played on OS's with case-sensitive file systems
+	// (due to id1 being named "Id1" and pak0.pak "PAK0.PAK")
+	return QUAKE_FLAVOR_REMASTERED;
+#endif
 }

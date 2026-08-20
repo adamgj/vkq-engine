@@ -29,6 +29,18 @@ quake-c-sys = { path = "../quake-c-sys" }
 # forwarded to the pure crates; set by the Meson build when the C engine is
 # compiled with -D_DEBUG (see quake-math's engine-debug)
 engine-debug = ["quake-math/engine-debug"]
+# installs the #[global_allocator] bound to the engine's vendored mimalloc
+# (ADR-013). Set only by the Meson build: plain cargo test binaries don't
+# link mem.o, so the mi_* symbols don't exist there.
+engine-alloc = []
+# the Phase 2 filesystem shims (COM_*/FS_*/LOC_*/Steam discovery); set by
+# Meson when -Duse_rust_fs is enabled, and by quake-ctest for the
+# differential suites
+fs = []
+# tracks the C build's USE_SDL3 (folder-picker dialog availability)
+sdl3 = []
+# tracks the C build's DO_USERDIRS (extra per-user localization lookups)
+userdirs = []
 
 [lints]
 workspace = true

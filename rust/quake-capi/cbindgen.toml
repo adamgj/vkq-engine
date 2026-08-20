@@ -90,6 +90,12 @@ const char *JSON_FindString(const jsonentry_t *entry, const char *name);
 const double *JSON_FindNumber(const jsonentry_t *entry, const char *name);
 const qboolean *JSON_FindBoolean(const jsonentry_t *entry, const char *name);
 #endif
+/* the searchpath heads use the engine's searchpath_t typedef (Rust mirror:
+ * quake_types::fs::SearchPath), so they are guarded on common.h */
+#ifdef Q_COMMON_H
+extern searchpath_t *com_searchpaths;
+extern searchpath_t *com_base_searchpaths;
+#endif
 #ifdef __cplusplus
 } /* extern "C" -- these hand-written declarations sit outside cbindgen's own
    * cpp_compat guard, so they carry their own */
@@ -116,4 +122,5 @@ exclude = [
     "W_LoadWadFile", "W_CleanupName", "W_GetLumpName", "W_LoadWadList",
     "W_FreeWadList", "W_GetLumpinfoList", "SwapPic", "Wad", "LumpInfo", "QPic",
     "WadInfo", "wad_numlumps", "wad_lumps", "wad_base",
+    "com_searchpaths", "com_base_searchpaths", "SearchPath", "Pack", "PackFile",
 ]

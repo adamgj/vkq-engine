@@ -6,4 +6,11 @@
 
 #![forbid(unsafe_code)] // ADR-004: pure crate
 
+pub mod egs;
+pub mod flavor;
+pub mod loc;
+pub mod pak;
+pub mod searchpath;
+pub mod vdf;
 pub mod wad;
+pub mod zipdir;

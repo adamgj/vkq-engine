@@ -21,6 +21,8 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #ifndef _STEAM_H_
 #define _STEAM_H_
 
+#include "q_types.h"
+
 #define QUAKE_STEAM_APPID 2310
 
 #define QUAKE_EGS_NAMESPACE "f57987ad149c43b3a7a66a7f10828f92"

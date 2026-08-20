@@ -20,6 +20,10 @@ members = [
     "quake-ctest",
     "xtask",
 ]
+# fuzz/ is its own workspace (cargo-fuzz project): the fuzzers must NOT
+# inherit this workspace's panic = "abort" profiles — libFuzzer needs
+# unwinding to catch panics.
+exclude = ["fuzz"]
 # tools/c2rust-oracle is deliberately NOT a workspace member: transpiled
 # oracle output must never be able to break `cargo build/clippy --workspace`
 # (quarantine per PLAN.md section 2).

@@ -239,11 +239,13 @@ OBJS := strlcat.o \
 	wad.o \
 	cmd.o \
 	common.o \
+	common_fs.o \
 	crc.o \
 	cvar.o \
 	cfgfile.o \
 	json.o \
 	steam.o \
+	steam_api.o \
 	harness.o \
 	q_thread_sdl.o \
 	host.o \
