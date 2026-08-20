@@ -51,3 +51,18 @@ Key facts:
 - Don't introduce new build systems, dependencies, or vendored libraries without checking the relevant ADR first — for Rust crates that means the permissive-only, MIT-preferred license rule in ADR-003 above.
 - Prefer targeted reads (specific files/ranges) over dumping whole files or directories into context.
 - When a change touches the Rust migration, name the roadmap phase and/or ADR it relates to in the commit/PR description.
+
+## Execution discipline for large changes
+
+- Correctness, compatibility, security, and sufficient relevant context take priority over token or time savings. Efficiency rules target repeated work and irrelevant context, not necessary investigation or verification.
+- For a large or cross-cutting feature, perform one bounded architecture pass and save an approved task plan before implementation. For Rust-migration work, that task plan is subordinate to `docs/rust-migration/PLAN.md`, `ROADMAP.md`, and applicable ADRs; it must identify the current roadmap phase and must not alter phase ordering implicitly.
+- Treat approved decisions as authoritative during implementation. Re-plan only when repository evidence shows a decision is impossible, unsafe, materially incorrect, or inconsistent with a stated requirement. Record the contradiction and smallest plan amendment before changing direction.
+- Establish a concise context map once: requirements, non-goals, invariants, affected components/contracts, applicable roadmap phase/ADRs, acceptance criteria, and unresolved facts. Do not re-read unchanged files or repeat searches unless new evidence creates a specific question.
+- Implement one coherent milestone at a time. Do not continue into the next milestone, perform adjacent cleanup, or search for extra improvements after the selected scope is complete.
+- Never repeat an unchanged failing command or edit in the hope that it succeeds. One retry is allowed only for evidence of a transient failure. After two failed attempts at the same problem, stop editing and diagnose; after two distinct approaches fail, state what each failure disproved before choosing another.
+- Use targeted verification during implementation and the broader affected CI/harness gates at milestone or final boundaries. Do not claim implemented, fixed, passing, or complete without current evidence; distinguish targeted checks, broad checks, manual checks, and checks not run.
+- Delegate only concrete, bounded questions whose isolated context reduces noise. Require file/symbol evidence, conclusions, uncertainty, and a stop condition; do not request raw file or log dumps. Do not create an agent team unless independent complex workstreams and the expected benefit are documented in the approved plan.
+- Preserve durable context in the approved plan and milestone handoffs: decisions, invariants, changed files, verification evidence, failed approaches that constrain future attempts, remaining risks, and the single next action. Discard raw command output and superseded hypotheses when compacting.
+- Stop when the in-scope acceptance criteria and required verification are satisfied. Pause only for a destructive action, a material scope/architecture change, or information that cannot be derived safely from the repository.
+
+The detailed Claude Code workflow and reusable prompts live in `docs/ai/FABLE5_WORKFLOW.md` and `.claude/skills/`; they are intentionally not duplicated here.

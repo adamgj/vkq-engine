@@ -41,3 +41,7 @@ helgrind.log
 *.user
 rust/target/
 cargo-target/
+
+# Local Claude Code configuration
+CLAUDE.local.md
+.claude/settings.local.json
