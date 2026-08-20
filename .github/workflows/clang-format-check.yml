@@ -8,6 +8,7 @@ on:
       # non-functional files: docs, editor/tooling config
       - '!**.md'
       - '!docs/**'
+      - '!.claude/**'
       - '!.vscode/**'
       - '!.gitignore'
       - '!LICENSE.txt'
