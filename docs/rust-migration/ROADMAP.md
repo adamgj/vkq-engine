@@ -82,7 +82,7 @@ Crates: `quake-formats`, `quake-image`. Pure functions over byte slices — call
 
 **Scope**
 - BSP family: 29, 30 (Valve, incl. palette/sky/lighting differences), BSP2, 2PSB, Quake64; `.lit` (strict size check), external `.vis`, external `.ent` (incl. `@crc` naming); PVS decompression, hull setup, submodels.
-- MDL v6 — producing **byte-exact `aliashdr_t`** and mesh data, since C (`gl_mesh.c`, renderer) remains the consumer this phase; MD3; MD5 (`.md5mesh`/`.md5anim` + JSON metadata via the Phase-1 parser); SPR; LMP/QPIC; PCX; TGA.
+- MDL v6 — producing **byte-exact `aliashdr_t`** and mesh data, since C (`gl_mesh.c`, renderer) remains the consumer this phase; MD3; MD5 (`.md5mesh`/`.md5anim`; the MD5 loader in this tree is a hand-rolled text parser with no JSON metadata — the Phase-1 `json.c` port is not involved); SPR; LMP/QPIC; PCX; TGA.
 - `quake-image`: PNG/JPG/TGA decode via `png`/`image` crates behind the `Image_Load*` seam, gated on a pixel-exact decode corpus vs stb/lodepng; PNG **encode** (screenshots) stays on lodepng until parity is accepted ([ADR-012](adr/ADR-012-vendored-libs.md)).
 - Palette/colormap loading (`palette.c` data stays; loading logic ports).
 
