@@ -185,6 +185,7 @@ version = "0.1.0"
 dependencies = [
  "quake-c-sys",
  "quake-fs",
+ "quake-image",
  "quake-math",
  "quake-types",
  "quake-util",

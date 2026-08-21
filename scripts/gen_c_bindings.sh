@@ -56,7 +56,7 @@ bindgen rust/quake-c-sys/bindings_wrapper.h \
     --allowlist-function 'COM_SeedRand|COM_Rand|COM_ThreadFileSize|COM_ThreadFileFromPak' \
     --allowlist-function 'COM_SetThreadFileSize|COM_SetThreadFileFromPak|COM_ThreadToken|COM_CheckParmNext' \
     --allowlist-function 'COM_HostBasedir|COM_HostUserdir|COM_SetHostUserdir|COM_Game_f|COM_CheckRegistered|COM_Parse' \
-    --allowlist-function 'COM_LoadMallocFile_TextMode_OSPath' \
+    --allowlist-function 'COM_LoadMallocFile_TextMode_OSPath|COM_CloseFile' \
     --allowlist-function 'Sys_FileOpenRead|Sys_FileOpenWrite|Sys_FileClose|Sys_FileSeek|Sys_FileRead|Sys_FileWrite' \
     --allowlist-function 'Sys_FileType|Sys_DuplicateHandle|Sys_MemFileOpenRead|Sys_mkdir|Sys_fopen|Sys_fseek' \
     --allowlist-function 'Sys_FindFirst|Sys_FindNext|Sys_FindClose|Sys_Printf|Sys_GetPrefPath' \

@@ -210,6 +210,12 @@ void Con_DPrintf2 (const char *fmt, ...);
 #define Steam_ResolvePath				 c_ref_Steam_ResolvePath
 #define EGS_FindGame					 c_ref_EGS_FindGame
 
+/* image_decode.c (Phase 3): PCX/LMP decoders; the fs plumbing they call
+ * (COM_CloseFile, com_filesize, Sys_File*) resolves through the renames and
+ * stubs above/below like the rest of the reference fs */
+#define Image_DecodePCX c_ref_Image_DecodePCX
+#define Image_DecodeLMP c_ref_Image_DecodeLMP
+
 /* wad.c only includes quakedef.h; hand it wad.h, which pulls the real,
  * bindgen-clean common.h for the COM_ and FS_ APIs and fshandle_t */
 #include "wad.h"

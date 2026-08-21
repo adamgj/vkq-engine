@@ -22,6 +22,8 @@ pub mod fs;
 #[cfg(feature = "fs")]
 pub mod fs_stdio;
 pub mod hash_map;
+#[cfg(feature = "image")]
+pub mod image_decode;
 pub mod json;
 #[cfg(feature = "fs")]
 pub mod loc;

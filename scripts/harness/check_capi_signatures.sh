@@ -43,6 +43,16 @@ cat > "$tmpdir/capi_sig_check.c" <<'EOF'
 #include "mem.h"
 #include "common.h"
 #include "steam.h"
+/* Phase 3 M2: the PCX/LMP decoders (image_decode.c). image.h forward-
+ * declares enum srcformat (a Microsoft extension under -Werror clang-cl);
+ * its real definition lives in gl_texmgr.h, which pulls Vulkan and cannot
+ * be in this TU, so define a stand-in tag first (only Image_LoadImage,
+ * which stays C, touches it) */
+enum srcformat
+{
+	SRCFORMAT_SIG_CHECK_ONLY
+};
+#include "image.h"
 /* mathlib.h needs quakedef.h's bit-scan inline */
 #ifdef _MSC_VER
 #include <intrin.h>

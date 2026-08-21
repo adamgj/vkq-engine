@@ -22,6 +22,7 @@ doctest = false
 quake-util = { path = "../quake-util" }
 quake-math = { path = "../quake-math" }
 quake-fs = { path = "../quake-fs" }
+quake-image = { path = "../quake-image" }
 quake-types = { path = "../quake-types" }
 quake-c-sys = { path = "../quake-c-sys" }
 
@@ -37,6 +38,10 @@ engine-alloc = []
 # Meson when -Duse_rust_fs is enabled, and by quake-ctest for the
 # differential suites
 fs = []
+# the Phase 3 PCX/LMP image-decoder shims (Image_DecodePCX/Image_DecodeLMP);
+# set by Meson when -Duse_rust_image is enabled, and by quake-ctest for the
+# differential suites
+image = []
 # tracks the C build's USE_SDL3 (folder-picker dialog availability)
 sdl3 = []
 # tracks the C build's DO_USERDIRS (extra per-user localization lookups)

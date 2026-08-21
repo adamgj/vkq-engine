@@ -247,6 +247,7 @@ srcs = [
     'Quake/host.c',
     'Quake/host_cmd.c',
     'Quake/image.c',
+    'Quake/image_stb.c',
     'Quake/in_sdl.c',
     'Quake/in_sdl2.c',
     'Quake/in_sdl3.c',
@@ -290,8 +291,9 @@ srcs = [
 ]
 
 # Phase 3 (Rust migration): C format/asset parsing split out of gl_model.c and
-# image.c. Compiled unconditionally until the -Duse_rust_formats and
-# -Duse_rust_image switches arrive; then these stay the comparison oracles.
+# image.c. model_parse.c is compiled unconditionally until -Duse_rust_formats
+# arrives; image_decode.c (PCX/LMP) is gated by -Duse_rust_image below and
+# stays the comparison oracle. image_stb.c stays C until Phase 3 M8.
 phase3_formats_c_srcs = [
     'Quake/model_parse.c',
 ]
@@ -362,6 +364,12 @@ if get_option('use_rust_fs').enabled() and not use_rust
     error('-Duse_rust_fs=enabled requires -Duse_rust=enabled (the filesystem ships in libquake_rs.a)')
 endif
 use_rust_fs = use_rust and not get_option('use_rust_fs').disabled()
+# Phase 3 M2: PCX/LMP decoders; image_decode.c stays the comparison oracle
+# under -Duse_rust_image=disabled. Same auto-follows-use_rust rule as above
+if get_option('use_rust_image').enabled() and not use_rust
+    error('-Duse_rust_image=enabled requires -Duse_rust=enabled (the image decoders ship in libquake_rs.a)')
+endif
+use_rust_image = use_rust and not get_option('use_rust_image').disabled()
 # the Rust filesystem does not implement the DO_USERDIRS lookup branches yet
 # (quake-capi fails this combination with a compile_error!); say so here
 # rather than several minutes into a cargo build
@@ -384,6 +392,10 @@ if use_rust
     endif
     if use_rust_fs
         rust_feature_list += 'fs'
+    endif
+
+    if use_rust_image
+        rust_feature_list += 'image'
     endif
     # cargo features tracking C defines the fs shims must agree with
     if use_sdl3
@@ -424,10 +436,13 @@ if not use_rust_fs
     srcs += phase2_c_srcs
 endif
 
-# Phase 3 has no switch yet: -Duse_rust_formats / -Duse_rust_image arrive with
-# the ports, and these become the gated comparison oracles then
+# Phase 3: -Duse_rust_formats arrives with the quake-formats port
 srcs += phase3_formats_c_srcs
-srcs += phase3_image_c_srcs
+
+if not use_rust_image
+    # the C PCX/LMP decoders stay in as long as the Phase 3 image switch is off
+    srcs += phase3_image_c_srcs
+endif
 
 deps = [
     cc.find_library('m', required : false),

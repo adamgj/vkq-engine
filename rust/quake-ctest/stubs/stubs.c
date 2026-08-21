@@ -10,6 +10,7 @@
  * stubs, so their observable behavior is comparable.
  */
 
+#include <assert.h>
 #include <errno.h>
 #include <setjmp.h>
 #include <stdarg.h>
@@ -521,6 +522,29 @@ int Sys_FileRead (int handle, void *dest, int count)
 	}
 }
 
+qfileofs_t Sys_FilePos (int handle)
+{
+	return ctest_handles[handle].pos;
+}
+
+/* Sys_fgetc copied verbatim from Quake/sys_sdl.c (image_decode.c streams
+ * PCX RLE data through it) */
+int Sys_fgetc (int handle)
+{
+	if (ctest_handles[handle].eof_condition)
+		return EOF;
+
+	int next_byte_read = 0;
+
+	if (Sys_FileRead (handle, (void *)&next_byte_read, 1) != 1)
+	{
+		assert (ctest_handles[handle].eof_condition);
+		return EOF;
+	}
+
+	return next_byte_read;
+}
+
 int Sys_FileWrite (int handle, const void *data, int count)
 {
 	const int effective_nb_write = fwrite (data, 1, count, ctest_handles[handle].file);
@@ -1015,6 +1039,11 @@ static int ctest_LongNoSwap (int l)
 	return l;
 }
 int (*LittleLong) (int l) = ctest_LongNoSwap;
+static short ctest_ShortNoSwap (short l)
+{
+	return l;
+}
+short (*LittleShort) (short l) = ctest_ShortNoSwap;
 
 /* ---------------------------------------------------------------------------
  * Cvar_Set capture: both the C reference and the Rust shims funnel through

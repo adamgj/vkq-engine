@@ -10,6 +10,7 @@ const C_SOURCES: &[&str] = &[
     "Quake/common_fs.c",
     "Quake/crc.c",
     "Quake/hash_map.c",
+    "Quake/image_decode.c",
     "Quake/json.c",
     "Quake/mathlib.c",
     "Quake/mdfour.c",
