@@ -126,8 +126,12 @@ byte *Image_LoadImage (const char *name, int *width, int *height, enum srcformat
 
 	if (supported_image_formats[best_image_kind_index].loader == STB_IMAGE_LOADER)
 	{
-		*fmt = SRC_RGBA;
-		return Image_DecodeSTB (file_handle, width, height, loadfilename);
+		// *fmt stays untouched on failure, as it was before the decoder split:
+		// TexMgr_ReloadImage passes &glt->source_format and ignores the return
+		byte *data = Image_DecodeSTB (file_handle, width, height, loadfilename);
+		if (data)
+			*fmt = SRC_RGBA;
+		return data;
 	}
 	else if (supported_image_formats[best_image_kind_index].loader == PCX_LOADER)
 	{

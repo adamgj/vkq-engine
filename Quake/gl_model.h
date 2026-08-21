@@ -743,6 +743,11 @@ byte	*Mod_NoVisPVS (qmodel_t *model);
 
 void Mod_SetExtraFlags (qmodel_t *mod);
 
+// gl_model.c internals called from model_parse.c (Rust migration Phase 3 seam)
+qmodel_t  *Mod_FindName (const char *name);
+texture_t *Mod_LoadWadTexture (qmodel_t *mod, wad_t *wads, const char *name);
+void	  *Mod_LoadAllSkins (aliashdr_t *pheader, qmodel_t *mod, byte *mod_base, int numskins, byte *pskintype);
+
 size_t	 Mod_SanitizeMapDescription (char *dst, size_t dstsize, const char *src);
 qboolean Mod_LoadMapDescription (char *desc, size_t maxchars, const char *map);
 

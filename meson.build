@@ -298,8 +298,6 @@ phase3_formats_c_srcs = [
 phase3_image_c_srcs = [
     'Quake/image_decode.c',
 ]
-srcs += phase3_formats_c_srcs
-srcs += phase3_image_c_srcs
 
 # Phase 2 (Rust migration): the C filesystem, compiled unless -Duse_rust_fs
 # provides these symbols from quake-fs/quake-capi instead. Deleted at phase
@@ -425,6 +423,11 @@ if not use_rust_fs
     # the C filesystem stays in as long as the Phase 2 switch is off
     srcs += phase2_c_srcs
 endif
+
+# Phase 3 has no switch yet: -Duse_rust_formats / -Duse_rust_image arrive with
+# the ports, and these become the gated comparison oracles then
+srcs += phase3_formats_c_srcs
+srcs += phase3_image_c_srcs
 
 deps = [
     cc.find_library('m', required : false),

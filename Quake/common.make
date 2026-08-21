@@ -205,14 +205,16 @@ GLOBJS = \
 	gl_warp.o \
 	$(SYSOBJ_GL_VID) \
 	gl_draw.o \
-	image.o \n	image_decode.o \
+	image.o \
+	image_decode.o \
 	gl_texmgr.o \
 	gl_mesh.o \
 	gl_heap.o \
 	r_sprite.o \
 	r_alias.o \
 	r_brush.o \
-	gl_model.o \n	model_parse.o
+	gl_model.o \
+	model_parse.o
 
 OBJS := strlcat.o \
 	strlcpy.o \

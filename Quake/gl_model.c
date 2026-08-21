@@ -261,6 +261,42 @@ mleaf_t *Mod_PointInLeaf (float *p, qmodel_t *model)
 	return NULL; // never reached
 }
 
+static byte *mod_novis;
+static int	 mod_novis_capacity;
+
+/*
+===================
+Mod_LeafPVS
+===================
+*/
+byte *Mod_LeafPVS (mleaf_t *leaf, qmodel_t *model)
+{
+	if (leaf == model->leafs)
+		return Mod_NoVisPVS (model);
+	return Mod_DecompressVis (leaf->compressed_vis, model);
+}
+
+/*
+===================
+Mod_NoVisPVS
+===================
+*/
+byte *Mod_NoVisPVS (qmodel_t *model)
+{
+	int pvsbytes;
+
+	pvsbytes = (model->numleafs + 31) / 8;
+	if (mod_novis == NULL || pvsbytes > mod_novis_capacity)
+	{
+		mod_novis_capacity = pvsbytes;
+		mod_novis = (byte *)Mem_Realloc (mod_novis, mod_novis_capacity);
+		if (!mod_novis)
+			Sys_Error ("Mod_NoVisPVS: realloc() failed on %d bytes", mod_novis_capacity);
+	}
+	memset (mod_novis, 0xff, mod_novis_capacity);
+	return mod_novis;
+}
+
 /*
 ===================
 Mod_FreeSpriteMemory
