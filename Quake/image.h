@@ -28,6 +28,11 @@ enum srcformat;
 
 byte *Image_LoadImage (const char *name, int *width, int *height, enum srcformat *fmt, unsigned int min_path_id);
 
+// decoders (image_decode.c) -- Rust migration Phase 3 seam
+byte *Image_DecodeSTB (int file_handle, int *width, int *height, const char *image_name);
+byte *Image_DecodePCX (int file_handle, int *width, int *height, const char *image_name);
+byte *Image_DecodeLMP (int file_handle, int *width, int *height, const char *image_name);
+
 qboolean Image_WriteTGA (const char *name, byte *data, int width, int height, int bpp, qboolean upsidedown);
 qboolean Image_WritePNG (const char *name, byte *data, int width, int height, int bpp, qboolean upsidedown);
 qboolean Image_WriteJPG (const char *name, byte *data, int width, int height, int bpp, int quality, qboolean upsidedown);

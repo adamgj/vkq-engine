@@ -289,6 +289,16 @@ srcs = [
 	 run_generate_embedded_pak,
 ]
 
+# Phase 3 (Rust migration): C format/asset parsing split out of gl_model.c and
+# image.c. Compiled unconditionally until the -Duse_rust_formats and
+# -Duse_rust_image switches arrive; then these stay the comparison oracles.
+phase3_formats_c_srcs = [
+    'Quake/model_parse.c',
+]
+phase3_image_c_srcs = [
+    'Quake/image_decode.c',
+]
+
 # Phase 2 (Rust migration): the C filesystem, compiled unless -Duse_rust_fs
 # provides these symbols from quake-fs/quake-capi instead. Deleted at phase
 # exit (ROADMAP.md Phase 2).
@@ -413,6 +423,11 @@ if not use_rust_fs
     # the C filesystem stays in as long as the Phase 2 switch is off
     srcs += phase2_c_srcs
 endif
+
+# Phase 3 has no switch yet: -Duse_rust_formats / -Duse_rust_image arrive with
+# the ports, and these become the gated comparison oracles then
+srcs += phase3_formats_c_srcs
+srcs += phase3_image_c_srcs
 
 deps = [
     cc.find_library('m', required : false),
