@@ -62,3 +62,40 @@ The mathlib differential suite found two compiler relaxations empirically (the
 - Libm call-throughs live in `quake-c-sys::libm` as hand-written C-standard
   externs with safe wrappers (not the `libc` crate, which does not reliably
   expose math functions on windows-msvc).
+
+## Amended (Phase 3, 2026-08-22): NaN sign bit on degenerate mathlib inputs
+
+`PerpendicularVector` and `RotatePointAroundVector` divide by
+`DotProduct (dir, dir)`. For a degenerate `dir` — zero length, or large enough
+that the dot product overflows to infinity — `ProjectPointOnPlane` evaluates
+`0 * inf`, and every lane from there on is a default NaN.
+
+*Which* default NaN is not a property of the source. x86 SSE and arm produce
+the negative "indefinite" QNaN (`0xffc00000`) at runtime; a constant-folding
+compiler (LLVM's `APFloat::getQNaN`) produces the positive one (`0x7fc00000`).
+So the C build and the Rust port can legitimately disagree on the NaN **sign
+bit alone** at these call sites depending on optimization level and target,
+with no difference in the ported logic. (Not reproducible on
+`x86_64-pc-windows-msvc` with rustc 1.97.1 / clang-cl: 200k proptest cases and
+a 2.2M-point degenerate grid agree bit-for-bit there. It was observed by a
+random proptest search and is accepted as a general possibility rather than
+chased per-toolchain.)
+
+**Accepted, not fixed.** Both engine callers of these two functions are in the
+FTE particle renderer (`r_part_fte.c`); neither the demo state-hash chain
+(`Harness_HashServer` / `Harness_HashClient`, which cover edicts, progs
+globals and client entity/view state) nor savegames carry particle state, so
+the sign bit is unobservable at the gates ADR-019 defends. The engine's own
+contract also excludes these inputs: `PerpendicularVector` documents "assumes
+`src` is normalized".
+
+The `perpendicular_and_rotate_match` differential therefore compares those two
+functions with the NaN **sign** normalized away
+(`bits3_nan_sign_masked` in `rust/quake-ctest/tests/mathlib_differential.rs`);
+NaN payloads, quiet/signaling bits, NaN-vs-number, and every non-NaN lane are
+still compared bit-exactly, and no other property in the suite is relaxed. The
+degenerate case is pinned two ways: a proptest regression seed replaying
+`dir = [0,0,0], point = [0,0,0]`, and the deterministic
+`zero_dir_is_all_nan_on_both_sides` test. If either function ever acquires a
+simulation-side caller, this exception must come down along with the
+`RotationMatrix` one above.

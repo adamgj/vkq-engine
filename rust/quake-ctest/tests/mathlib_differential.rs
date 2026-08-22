@@ -78,6 +78,31 @@ fn bits3(v: &[f32; 3]) -> [u32; 3] {
     [v[0].to_bits(), v[1].to_bits(), v[2].to_bits()]
 }
 
+/// Same as [`bits3`], but with the sign of a NaN lane normalized away.
+///
+/// COMPAT: ADR-010 (Phase 3 amendment) — a degenerate `dir` (zero length, or
+/// large enough that `DotProduct (dir, dir)` overflows to infinity) makes
+/// `ProjectPointOnPlane` evaluate `0 * inf`, so every lane downstream is a
+/// default NaN. *Which* default NaN is not a property of the source: x86 and
+/// arm hardware produce the negative "indefinite" QNaN (0xffc00000) at
+/// runtime, a constant-folding compiler produces the positive one
+/// (0x7fc00000). C and Rust can therefore disagree on the sign bit alone for
+/// inputs no caller is allowed to pass. Both engine callers of these two
+/// functions are in the FTE particle renderer (r_part_fte.c), and neither the
+/// demo state-hash chain nor savegames carry particle state, so the
+/// divergence is unobservable. NaN payloads and NaN-vs-number differences are
+/// still compared bit-exactly.
+fn bits3_nan_sign_masked(v: &[f32; 3]) -> [u32; 3] {
+    v.map(|f| {
+        let b = f.to_bits();
+        if f.is_nan() {
+            b & 0x7fff_ffff
+        } else {
+            b
+        }
+    })
+}
+
 /// finite floats in the value ranges the engine actually feeds mathlib
 fn game_float() -> impl Strategy<Value = f32> {
     prop_oneof![
@@ -200,13 +225,13 @@ proptest! {
             c_ref_PerpendicularVector(c_dst.as_mut_ptr(), dir.as_ptr());
             let mut r_dst = [0.0f32; 3];
             m::perpendicular_vector(&mut r_dst, &dir);
-            prop_assert_eq!(bits3(&r_dst), bits3(&c_dst));
+            prop_assert_eq!(bits3_nan_sign_masked(&r_dst), bits3_nan_sign_masked(&c_dst));
 
             let mut c_rot = [0.0f32; 3];
             c_ref_RotatePointAroundVector(c_rot.as_mut_ptr(), dir.as_ptr(), point.as_ptr(), degrees);
             let mut r_rot = [0.0f32; 3];
             m::rotate_point_around_vector(&mut r_rot, &dir, &point, degrees);
-            prop_assert_eq!(bits3(&r_rot), bits3(&c_rot));
+            prop_assert_eq!(bits3_nan_sign_masked(&r_rot), bits3_nan_sign_masked(&c_rot));
         }
     }
 
@@ -274,6 +299,33 @@ proptest! {
             );
             prop_assert_eq!(m::is_axis_aligned_deg(&angle), c_ref_IsAxisAlignedDeg(angle.as_ptr()));
         }
+    }
+}
+
+/// The degenerate case behind the `bits3_nan_sign_masked` exception, pinned
+/// deterministically rather than left to the proptest seed corpus: a
+/// zero-length `dir` must produce an all-NaN result on both sides.
+#[test]
+fn zero_dir_is_all_nan_on_both_sides() {
+    let dir = [0.0f32; 3];
+    let point = [0.0f32; 3];
+    // SAFETY: valid vec3 pointers
+    unsafe {
+        let mut c_dst = [0.0f32; 3];
+        c_ref_PerpendicularVector(c_dst.as_mut_ptr(), dir.as_ptr());
+        let mut r_dst = [0.0f32; 3];
+        m::perpendicular_vector(&mut r_dst, &dir);
+        assert!(c_dst.iter().all(|f| f.is_nan()), "C perp: {c_dst:?}");
+        assert!(r_dst.iter().all(|f| f.is_nan()), "Rust perp: {r_dst:?}");
+        assert_eq!(bits3_nan_sign_masked(&r_dst), bits3_nan_sign_masked(&c_dst));
+
+        let mut c_rot = [0.0f32; 3];
+        c_ref_RotatePointAroundVector(c_rot.as_mut_ptr(), dir.as_ptr(), point.as_ptr(), -420.61713);
+        let mut r_rot = [0.0f32; 3];
+        m::rotate_point_around_vector(&mut r_rot, &dir, &point, -420.61713);
+        assert!(c_rot.iter().all(|f| f.is_nan()), "C rot: {c_rot:?}");
+        assert!(r_rot.iter().all(|f| f.is_nan()), "Rust rot: {r_rot:?}");
+        assert_eq!(bits3_nan_sign_masked(&r_rot), bits3_nan_sign_masked(&c_rot));
     }
 }
 
