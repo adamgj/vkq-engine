@@ -15,6 +15,7 @@
 #define C_REF_PRELUDE_H
 
 #define QUAKEDEFS_H
+#define BSP29_VALVE		  /* quakedef.h defines it unconditionally; bspfile.h/model_parse.c gate on it */
 #define _USE_MATH_DEFINES /* M_PI on MSVC */
 #include "q_types.h"
 #include <assert.h>
@@ -30,14 +31,7 @@ size_t UTF8_WriteCodePoint (char *dst, size_t maxbytes, uint32_t codepoint);
 #define YAW	  1
 #define ROLL  2
 
-typedef struct mplane_s
-{
-	vec3_t normal;
-	float  dist;
-	byte   type;
-	byte   signbits;
-	byte   pad[2];
-} mplane_t;
+/* mplane_t comes from the real gl_model.h, included below (Phase 3) */
 
 void Sys_Error (const char *error, ...);
 
@@ -104,7 +98,8 @@ static inline int FindLastBitNonZero (const uint32_t mask)
 #define IsOriginWithinMinMax	 c_ref_IsOriginWithinMinMax
 #define IsAxisAlignedDeg		 c_ref_IsAxisAlignedDeg
 
-#include "mathlib.h"
+/* mathlib.h needs mplane_t, which now comes from gl_model.h; both are
+ * included in the Phase 3 model slice below (after the renames) */
 
 /* hash_map.c */
 #define HashMap_CreateImpl	 c_ref_HashMap_CreateImpl
@@ -209,6 +204,117 @@ void Con_DPrintf2 (const char *fmt, ...);
 #define Steam_FindGame					 c_ref_Steam_FindGame
 #define Steam_ResolvePath				 c_ref_Steam_ResolvePath
 #define EGS_FindGame					 c_ref_EGS_FindGame
+
+/* image_decode.c (Phase 3): PCX/LMP decoders; the fs plumbing they call
+ * (COM_CloseFile, com_filesize, Sys_File*) resolves through the renames and
+ * stubs above/below like the rest of the reference fs */
+#define Image_DecodePCX c_ref_Image_DecodePCX
+#define Image_DecodeLMP c_ref_Image_DecodeLMP
+
+/* model_parse.c (Phase 3): rename every seam symbol from model_parse.h.
+ * Mod_FindName / Mod_LoadWadTexture / Mod_LoadAllSkins (gl_model.h) are NOT
+ * renamed: they stay stub-owned and shared by both sides. */
+#define Mod_DecompressVis		   c_ref_Mod_DecompressVis
+#define Mod_ParseTextures		   c_ref_Mod_ParseTextures
+#define Mod_LoadLighting		   c_ref_Mod_LoadLighting
+#define Mod_LoadVisibility		   c_ref_Mod_LoadVisibility
+#define Mod_LoadEntities		   c_ref_Mod_LoadEntities
+#define Mod_LoadVertexes		   c_ref_Mod_LoadVertexes
+#define Mod_LoadEdges			   c_ref_Mod_LoadEdges
+#define Mod_LoadTexinfo			   c_ref_Mod_LoadTexinfo
+#define CalcSurfaceExtents		   c_ref_CalcSurfaceExtents
+#define Mod_ParseFaces			   c_ref_Mod_ParseFaces
+#define Mod_LoadNodes			   c_ref_Mod_LoadNodes
+#define Mod_LoadLeafs			   c_ref_Mod_LoadLeafs
+#define Mod_LoadClipnodes		   c_ref_Mod_LoadClipnodes
+#define Mod_MakeHull0			   c_ref_Mod_MakeHull0
+#define Mod_LoadMarksurfaces	   c_ref_Mod_LoadMarksurfaces
+#define Mod_LoadSurfedges		   c_ref_Mod_LoadSurfedges
+#define Mod_LoadPlanes			   c_ref_Mod_LoadPlanes
+#define Mod_LoadSubmodels		   c_ref_Mod_LoadSubmodels
+#define Mod_SetupSubmodels		   c_ref_Mod_SetupSubmodels
+#define Mod_FindVisibilityExternal c_ref_Mod_FindVisibilityExternal
+#define Mod_LoadVisibilityExternal c_ref_Mod_LoadVisibilityExternal
+#define Mod_LoadLeafsExternal	   c_ref_Mod_LoadLeafsExternal
+#define Mod_ParseAliasModel		   c_ref_Mod_ParseAliasModel
+#define Mod_CalcAliasBounds		   c_ref_Mod_CalcAliasBounds
+#define Mod_LoadSpriteModel		   c_ref_Mod_LoadSpriteModel
+
+/* ---- the Phase 3 model slice: real bspfile.h + gl_model.h ----
+ *
+ * gl_model.h pulls Vulkan solely through q_render_types.h, and the only
+ * Vk-typed fields are the qmodel_t ray-tracing tail, which parsing never
+ * touches. Pre-defining the include guard and 64-bit handle stand-ins keeps
+ * the ctest build Vulkan-SDK-free (same trick as the capi signature gate). */
+#define __Q_RENDER_TYPES_H
+typedef struct VkAccelerationStructureKHR_T *VkAccelerationStructureKHR;
+typedef struct VkBuffer_T					*VkBuffer;
+typedef struct VkDescriptorSet_T			*VkDescriptorSet; /* aliashdr_t (alias section, still C in M3) */
+typedef uint64_t							 VkDeviceAddress;
+
+/* atomics.h drags in q_stdinc.h -> SDL.h; stand in for the one type/op the
+ * model headers and model_parse.c use. Both real variants (MSVC volatile
+ * struct, C11 _Atomic uint32_t) are a 4-byte u32, so the layout matches. */
+#define __ATOMICS_H
+typedef struct
+{
+	volatile uint32_t value;
+} atomic_uint32_t;
+static inline void Atomic_StoreUInt32 (volatile atomic_uint32_t *atomic, uint32_t desired)
+{
+	atomic->value = desired;
+}
+
+/* quakedef.h slice gl_model.h / model_parse.c need. PSET_SCRIPT is
+ * unconditional in quakedef.h and changes qmodel_t's layout, so it must be
+ * defined before gl_model.h. */
+#define PSET_SCRIPT
+typedef struct efrag_s efrag_t;
+#define MAX_DLIGHTS			  64
+#define MAX_LBM_HEIGHT		  480
+#define MAX_LIGHTSTYLES		  64
+#define ALIAS_BASE_SIZE_RATIO (1.0 / 11.0) /* glquake.h (alias section, still C in M3) */
+
+#include "cvar.h"
+#include "wad.h"
+#include "bspfile.h"
+#include "gl_model.h"
+#include "mathlib.h"
+#include "model_parse.h"
+
+FUNC_NORETURN void Host_Error (const char *error, ...);
+void			   Con_DWarning (const char *fmt, ...);
+
+/* glquake.h declares this and drags in Vulkan; PSET_SCRIPT is on above, so
+ * Mod_SetExtraFlags calls it. Apple clang errors on the implicit declaration
+ * where gcc/cl only warn. */
+void PScript_UpdateModelEffects (qmodel_t *mod);
+
+/* gl_texmgr.h slice for the sprite loader (the real header drags in tasks.h
+ * and Vk-typed structs); values match Quake/gl_texmgr.h */
+enum srcformat
+{
+	SRC_INDEXED,
+	SRC_LIGHTMAP,
+	SRC_RGBA,
+	SRC_SURF_INDICES,
+	SRC_RGBA_CUBEMAP,
+	SRC_INDEXED_PALETTE,
+};
+#define TEXPREF_ALPHA	 0x0008
+#define TEXPREF_PAD		 0x0010
+#define TEXPREF_NOPICMIP 0x0080
+typedef struct gltexture_s gltexture_t;
+gltexture_t *TexMgr_LoadImage (
+	qmodel_t *owner, const char *name, int width, int height, enum srcformat format, byte *data, const char *source_file, src_offset_t source_offset,
+	unsigned flags);
+
+/* server.h slice: model_parse.c reads only sv.modelname */
+typedef struct
+{
+	char modelname[64];
+} ctest_server_stub_t;
+extern ctest_server_stub_t sv;
 
 /* wad.c only includes quakedef.h; hand it wad.h, which pulls the real,
  * bindgen-clean common.h for the COM_ and FS_ APIs and fshandle_t */

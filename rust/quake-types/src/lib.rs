@@ -5,8 +5,10 @@
 
 #![forbid(unsafe_code)] // ADR-004: pure crate
 
+pub mod bspfile;
 pub mod fs;
 pub mod json;
+pub mod model_mem;
 pub mod plane;
 pub mod wad;
 

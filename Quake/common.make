@@ -207,6 +207,7 @@ GLOBJS = \
 	gl_draw.o \
 	image.o \
 	image_decode.o \
+	image_stb.o \
 	gl_texmgr.o \
 	gl_mesh.o \
 	gl_heap.o \

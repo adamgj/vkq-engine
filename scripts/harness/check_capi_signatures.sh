@@ -43,6 +43,16 @@ cat > "$tmpdir/capi_sig_check.c" <<'EOF'
 #include "mem.h"
 #include "common.h"
 #include "steam.h"
+/* Phase 3 M2: the PCX/LMP decoders (image_decode.c). image.h forward-
+ * declares enum srcformat (a Microsoft extension under -Werror clang-cl);
+ * its real definition lives in gl_texmgr.h, which pulls Vulkan and cannot
+ * be in this TU, so define a stand-in tag first (only Image_LoadImage,
+ * which stays C, touches it) */
+enum srcformat
+{
+	SRCFORMAT_SIG_CHECK_ONLY
+};
+#include "image.h"
 /* mathlib.h needs quakedef.h's bit-scan inline */
 #ifdef _MSC_VER
 #include <intrin.h>
@@ -63,4 +73,59 @@ static inline int FindLastBitNonZero (const uint32_t mask)
 EOF
 
 "$CC" -fsyntax-only -Werror -IQuake -I"$header_dir" "$tmpdir/capi_sig_check.c"
+
+# Phase 3 M3: the brush/BSP loader seam. gl_model.h pulls Vulkan (through
+# q_render_types.h) and SDL (through atomics.h), so it cannot join the TU
+# above -- it gets its own, with the same stand-in trick the ctest c_ref
+# prelude uses: pre-define both include guards and supply 64-bit handle and
+# atomic stand-ins, which is all the seam declarations need.
+cat > "$tmpdir/capi_sig_check_model.c" <<'EOF'
+#include <stddef.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <string.h>
+#include "q_types.h"
+#define __Q_RENDER_TYPES_H
+typedef struct VkAccelerationStructureKHR_T *VkAccelerationStructureKHR;
+typedef struct VkBuffer_T *VkBuffer;
+typedef struct VkDescriptorSet_T *VkDescriptorSet;
+typedef uint64_t VkDeviceAddress;
+#define __ATOMICS_H
+typedef struct
+{
+	volatile uint32_t value;
+} atomic_uint32_t;
+/* quakedef.h slice gl_model.h needs; PSET_SCRIPT is unconditional there and
+ * changes qmodel_t's layout, so it must be defined before gl_model.h */
+#define PSET_SCRIPT
+typedef struct efrag_s efrag_t;
+#define MAX_DLIGHTS 64
+#define MAX_LIGHTSTYLES 64
+#ifdef _MSC_VER
+#include <intrin.h>
+static inline int FindLastBitNonZero (const uint32_t mask)
+{
+	unsigned long result;
+	_BitScanReverse (&result, mask);
+	return (int)result;
+}
+#else
+static inline int FindLastBitNonZero (const uint32_t mask)
+{
+	return 31 ^ __builtin_clz (mask);
+}
+#endif
+struct cvar_s; /* cvar.h only uses it in prototypes (-Wvisibility) */
+#include "cvar.h"
+#include "common.h"
+#include "steam.h" /* quake_rs.h declares the Steam_ shims unguarded */
+#include "wad.h"
+#include "bspfile.h"
+#include "gl_model.h"
+#include "mathlib.h"
+#include "model_parse.h"
+#include "quake_rs.h"
+EOF
+
+"$CC" -fsyntax-only -Werror -IQuake -I"$header_dir" "$tmpdir/capi_sig_check_model.c"
 echo "OK: quake_rs.h declarations are compatible with the engine headers"

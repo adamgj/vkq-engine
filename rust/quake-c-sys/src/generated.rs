@@ -28,6 +28,11 @@ pub struct findfile_s {
     pub name: [::std::os::raw::c_char; MAX_OSPATH],
 }
 pub type findfile_t = findfile_s;
+// com_gamedir is char[MAX_OSPATH]: declared by hand for the same
+// platform-dependent-array reason as the structs above.
+extern "C" {
+    pub static mut com_gamedir: [::std::os::raw::c_char; MAX_OSPATH];
+}
 
 pub type byte = ::std::os::raw::c_uchar;
 pub type qboolean = bool;
@@ -200,6 +205,16 @@ unsafe extern "C" {
     ) -> *mut FILE;
 }
 unsafe extern "C" {
+    pub fn COM_SkipPath(pathname: *const ::std::os::raw::c_char) -> *const ::std::os::raw::c_char;
+}
+unsafe extern "C" {
+    pub fn COM_StripExtension(
+        in_: *const ::std::os::raw::c_char,
+        out: *mut ::std::os::raw::c_char,
+        outsize: usize,
+    );
+}
+unsafe extern "C" {
     pub fn COM_FileBase(
         in_: *const ::std::os::raw::c_char,
         out: *mut ::std::os::raw::c_char,
@@ -255,6 +270,9 @@ unsafe extern "C" {
         file: *mut *mut FILE,
         path_id: *mut ::std::os::raw::c_uint,
     ) -> qfilesize_t;
+}
+unsafe extern "C" {
+    pub fn COM_CloseFile(h: ::std::os::raw::c_int);
 }
 unsafe extern "C" {
     pub fn COM_LoadFile(
@@ -414,6 +432,9 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub static mut harness_active: qboolean;
+}
+unsafe extern "C" {
+    pub static mut external_ents: cvar_t;
 }
 unsafe extern "C" {
     pub static vkquake_pak: [::std::os::raw::c_uchar; 0usize];

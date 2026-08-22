@@ -49,6 +49,11 @@ bindgen rust/quake-c-sys/bindings_wrapper.h \
     --raw-line '    pub name: [::std::os::raw::c_char; MAX_OSPATH],' \
     --raw-line '}' \
     --raw-line 'pub type findfile_t = findfile_s;' \
+    --raw-line '// com_gamedir is char[MAX_OSPATH]: declared by hand for the same' \
+    --raw-line '// platform-dependent-array reason as the structs above.' \
+    --raw-line 'extern "C" {' \
+    --raw-line '    pub static mut com_gamedir: [::std::os::raw::c_char; MAX_OSPATH];' \
+    --raw-line '}' \
     --allowlist-function 'Mem_Alloc|Mem_AllocNonZero|Mem_Realloc|Mem_Free' \
     --allowlist-function 'COM_LoadFile|COM_FOpenFile|COM_FOpenPrefFile|COM_CheckParm|COM_FileBase|COM_AddExtension' \
     --allowlist-function 'FS_fgets|FS_rewind|FS_fclose|FS_fread|FS_fseek|FS_feof|FS_ferror|Sys_ftell|Sys_filelength' \
@@ -56,15 +61,16 @@ bindgen rust/quake-c-sys/bindings_wrapper.h \
     --allowlist-function 'COM_SeedRand|COM_Rand|COM_ThreadFileSize|COM_ThreadFileFromPak' \
     --allowlist-function 'COM_SetThreadFileSize|COM_SetThreadFileFromPak|COM_ThreadToken|COM_CheckParmNext' \
     --allowlist-function 'COM_HostBasedir|COM_HostUserdir|COM_SetHostUserdir|COM_Game_f|COM_CheckRegistered|COM_Parse' \
-    --allowlist-function 'COM_LoadMallocFile_TextMode_OSPath' \
+    --allowlist-function 'COM_LoadMallocFile_TextMode_OSPath|COM_CloseFile' \
     --allowlist-function 'Sys_FileOpenRead|Sys_FileOpenWrite|Sys_FileClose|Sys_FileSeek|Sys_FileRead|Sys_FileWrite' \
     --allowlist-function 'Sys_FileType|Sys_DuplicateHandle|Sys_MemFileOpenRead|Sys_mkdir|Sys_fopen|Sys_fseek' \
     --allowlist-function 'Sys_FindFirst|Sys_FindNext|Sys_FindClose|Sys_Printf|Sys_GetPrefPath' \
     --allowlist-function 'Sys_MessageBoxWarning|Sys_QuitNoShutdown|Sys_SelectFolder' \
     --allowlist-function 'Sys_GetSteamDir|Sys_GetGOGQuakeDir|Sys_GetGOGQuakeEnhancedDir|Sys_GetEGSManifestDir|Sys_GetEGSLauncherData|Sys_GetNightdiveUserDir' \
     --allowlist-function 'Steam_Init|ChooseQuakeFlavor|Cvar_RegisterVariable|Cmd_AddCommand2' \
+    --allowlist-function 'COM_StripExtension|COM_SkipPath' \
     --allowlist-var 'com_argc|com_argv' \
-    --allowlist-var 'registered|cmdline|developer|multiuser|isDedicated|harness_active' \
+    --allowlist-var 'registered|cmdline|developer|multiuser|isDedicated|harness_active|external_ents' \
     --allowlist-var 'vkquake_pak|vkquake_pak_size|vkquake_pak_decompressed_size' \
     -o rust/quake-c-sys/src/generated.rs \
     -- -IQuake
