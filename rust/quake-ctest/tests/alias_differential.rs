@@ -8,21 +8,22 @@
 //! offsets, renderer fields masked) plus the console log and the
 //! `Mod_LoadAllSkins` argument stream the shared stub records.
 //!
-//! `stverts`, `triangles` and `poseverts` keep C linkage, so both sides write
-//! through the *same* arrays; the growth counter behind `triangles` does not
-//! (C owns `triangles_size`, Rust owns `TRIANGLES_SIZE`). Both apply
-//! `q_max (size * 2, numtris)` only when `numtris > size`, so a side whose
-//! counter ran ahead can skip a realloc after the other side shrank the
-//! buffer. Every case therefore runs C and then Rust over the same fixture
-//! while holding [`ctfs::lock`], which keeps the two counters in lockstep,
-//! and the fatal fixtures use the smallest legal `numtris` -- C reaches
-//! `check_tris_size` before its "invalid # of frames" `Sys_Error` while Rust
-//! reaches it after, so that is the one asymmetric call in the suite.
+//! `stverts`, `triangles`, `poseverts` and `triangles_size` all keep C
+//! linkage, so both sides write through the *same* arrays and realloc the
+//! `triangles` allocation against the *same* grow counter. That is a
+//! mechanism rather than a property of the fixture set: a private counter on
+//! either side could shrink the buffer below the length the other side
+//! believes it owns, because `q_max (size * 2, numtris)` only runs when
+//! `numtris > size`. Cases still run C before Rust under [`ctfs::lock`], so
+//! the console log and the shared scratch are compared over one ordering.
 
-use core::ffi::{c_char, c_void};
+use core::ffi::{c_char, c_int, c_void};
 use quake_ctest::fs as ctfs;
 use quake_ctest::fs::Side;
-use quake_types::model_mem::{AliasHdr, MTriangle, QModel, MAX_QPATH};
+use quake_types::model_mem::{
+    AliasHdr, MTriangle, Md3XyzNormal, Md5Vert, Md5Vert8, QModel, MAX_QPATH, PV_MD5, PV_MD5_8,
+    PV_QUAKE1, PV_QUAKE3,
+};
 use quake_types::modelgen::{StVert, TriVertX, ALIAS_SINGLE, ALIAS_VERSION};
 
 #[path = "support/model_hash.rs"]
@@ -37,6 +38,12 @@ const MDL_T_SIZE: usize = 84;
 
 extern "C" {
     fn c_ref_Mod_ParseAliasModel(m: *mut QModel, buffer: *mut c_void) -> *mut AliasHdr;
+    fn c_ref_Mod_CalcAliasBounds(
+        m: *mut QModel,
+        a: *mut AliasHdr,
+        numvertexes: c_int,
+        vertexes: *mut u8,
+    );
 
     // shared by both sides: model_parse.c defines these unconditionally
     static mut stverts: [StVert; MAXALIASVERTS];
@@ -415,8 +422,6 @@ fn mixed_frames_and_bounds() {
 #[test]
 fn tall_skin_warns() {
     let _g = ctfs::lock();
-    // the vertex/triangle QS-limit warnings need multi-megabyte fixtures, so
-    // they are covered by quake-formats' unit tests over `mdl::validate`
     let mdl = Mdl {
         skinheight: 481,
         ..Default::default()
@@ -427,6 +432,73 @@ fn tall_skin_warns() {
         "expected the tall-skin warning, got {:?}",
         out.con_log
     );
+}
+
+#[test]
+fn vertex_count_over_qs_limit_warns() {
+    let _g = ctfs::lock();
+    let mdl = Mdl {
+        numverts: 2001,
+        ..Default::default()
+    };
+    let out = compare("verts-over-qs", &mdl);
+    assert!(
+        out.con_log
+            .iter()
+            .any(|l| l.contains("vertex count of 2001")),
+        "expected the QS vertex-limit warning, got {:?}",
+        out.con_log
+    );
+}
+
+#[test]
+fn triangle_count_over_qs_limit_warns() {
+    let _g = ctfs::lock();
+    let mdl = Mdl {
+        numtris: 4097,
+        ..Default::default()
+    };
+    let out = compare("tris-over-qs", &mdl);
+    assert!(
+        out.con_log
+            .iter()
+            .any(|l| l.contains("triangle count of 4097")),
+        "expected the QS triangle-limit warning, got {:?}",
+        out.con_log
+    );
+}
+
+/// Pins the emission order `mdl::validate`'s push order encodes: a fixture
+/// that trips three non-fatal diagnostics at once must produce them in the
+/// same sequence the C's interleaved checks do.
+#[test]
+fn multiple_warnings_keep_c_order() {
+    let _g = ctfs::lock();
+    let mdl = Mdl {
+        skinheight: 481,
+        numverts: 2500,
+        numtris: 5000,
+        ..Default::default()
+    };
+    let out = compare("many-warnings", &mdl);
+    let hits: Vec<&String> = out
+        .con_log
+        .iter()
+        .filter(|l| {
+            l.contains("skin taller than")
+                || l.contains("vertex count of")
+                || l.contains("triangle count of")
+        })
+        .collect();
+    assert_eq!(
+        hits.len(),
+        3,
+        "expected all three warnings, got {:?}",
+        out.con_log
+    );
+    assert!(hits[0].contains("skin taller than"), "{hits:?}");
+    assert!(hits[1].contains("vertex count of"), "{hits:?}");
+    assert!(hits[2].contains("triangle count of"), "{hits:?}");
 }
 
 #[test]
@@ -442,11 +514,137 @@ fn triangles_buffer_grows_in_lockstep() {
 }
 
 // ---------------------------------------------------------------------------
+// Mod_CalcAliasBounds: the MD5/MD3 arms
+//
+// Under -Duse_rust_formats this export also serves the MD5 and MD3 loaders in
+// gl_model.c, which stay C until M5, so `PV_MD5`/`PV_MD5_8`/`PV_QUAKE3` are
+// live in the engine even though M4 ports no MD5/MD3 parsing. It is a leaf
+// function -- no file image, no Mem_Alloc heap, no shared scratch -- so the
+// arms are driven directly off a vertex buffer.
+
+fn bounds_bits(m: &QModel) -> Vec<u32> {
+    [m.mins, m.maxs, m.ymins, m.ymaxs, m.rmins, m.rmaxs]
+        .iter()
+        .flat_map(|v| v.iter().map(|x| x.to_bits()))
+        .collect()
+}
+
+fn md5_bytes(xyz: &[[f32; 3]]) -> Vec<u8> {
+    let stride = core::mem::size_of::<Md5Vert>();
+    let mut v = vec![0u8; xyz.len() * stride];
+    for (i, p) in xyz.iter().enumerate() {
+        for (j, x) in p.iter().enumerate() {
+            let o = i * stride + j * 4;
+            v[o..o + 4].copy_from_slice(&x.to_le_bytes());
+        }
+    }
+    v
+}
+
+fn md5_8_bytes(xyz: &[[f32; 3]]) -> Vec<u8> {
+    let stride = core::mem::size_of::<Md5Vert8>();
+    let mut v = vec![0u8; xyz.len() * stride];
+    for (i, p) in xyz.iter().enumerate() {
+        for (j, x) in p.iter().enumerate() {
+            let o = i * stride + j * 4;
+            v[o..o + 4].copy_from_slice(&x.to_le_bytes());
+        }
+    }
+    v
+}
+
+fn md3_bytes(xyz: &[[i16; 3]]) -> Vec<u8> {
+    let stride = core::mem::size_of::<Md3XyzNormal>();
+    let mut v = vec![0u8; xyz.len() * stride];
+    for (i, p) in xyz.iter().enumerate() {
+        for (j, x) in p.iter().enumerate() {
+            let o = i * stride + j * 2;
+            v[o..o + 2].copy_from_slice(&x.to_le_bytes());
+        }
+    }
+    v
+}
+
+/// Runs both sides of `Mod_CalcAliasBounds` over its own copy of `bytes` and
+/// compares the six output vectors bit-for-bit (so `-0.0` and `FLT_MAX`
+/// seeding are not smoothed over by float equality).
+fn compare_bounds(what: &str, poseverttype: c_int, numvertexes: c_int, bytes: &[u8]) {
+    let _g = ctfs::lock();
+    let mut cm = new_model(MODEL_NAME);
+    let mut rm = new_model(MODEL_NAME);
+    // SAFETY: aliashdr_t comes out of a zeroing Mem_Alloc in the engine too,
+    // and Mod_CalcAliasBounds only reads poseverttype/numposes/numverts and
+    // the two scale vectors, for all of which all-zero is a valid value
+    let mut ch: Box<AliasHdr> = Box::new(unsafe { core::mem::zeroed() });
+    // SAFETY: as above
+    let mut rh: Box<AliasHdr> = Box::new(unsafe { core::mem::zeroed() });
+    ch.poseverttype = poseverttype;
+    rh.poseverttype = poseverttype;
+    let mut cb = bytes.to_vec();
+    let mut rb = bytes.to_vec();
+    // SAFETY: both headers and models are live, and each buffer holds
+    // `numvertexes` records of the stride `poseverttype` selects
+    unsafe {
+        c_ref_Mod_CalcAliasBounds(&raw mut *cm, &raw mut *ch, numvertexes, cb.as_mut_ptr());
+        quake_rs::model_parse::Mod_CalcAliasBounds(
+            &raw mut *rm,
+            &raw mut *rh,
+            numvertexes,
+            rb.as_mut_ptr(),
+        );
+    }
+    assert_eq!(bounds_bits(&cm), bounds_bits(&rm), "{what}: bounds parity");
+}
+
+/// asymmetric about every axis, with a zero and a negative-zero component
+const XYZ: [[f32; 3]; 5] = [
+    [1.0, -2.0, 0.5],
+    [-3.5, 4.0, -0.0],
+    [0.0, 0.25, 12.0],
+    [7.5, -7.5, -1.5],
+    [-0.125, 0.0, 3.0],
+];
+
+#[test]
+fn calc_bounds_md5_parity() {
+    compare_bounds("md5", PV_MD5, XYZ.len() as c_int, &md5_bytes(&XYZ));
+}
+
+#[test]
+fn calc_bounds_md5_8_parity() {
+    compare_bounds("md5_8", PV_MD5_8, XYZ.len() as c_int, &md5_8_bytes(&XYZ));
+}
+
+#[test]
+fn calc_bounds_quake3_parity() {
+    // MD3_XYZ_SCALE (1/64) is applied on this arm and nowhere else
+    let xyz = [
+        [64i16, -128, 32],
+        [-1, 1, 0],
+        [i16::MAX, i16::MIN, 7],
+        [0, 0, 0],
+    ];
+    compare_bounds("quake3", PV_QUAKE3, xyz.len() as c_int, &md3_bytes(&xyz));
+}
+
+/// The empty-stream seeding (`mins = FLT_MAX`, `ymins = [-0.0, -0.0, FLT_MAX]`)
+/// is otherwise only reached transitively through the QUAKE1 path.
+#[test]
+fn calc_bounds_empty_parity() {
+    compare_bounds("md5-empty", PV_MD5, 0, &md5_bytes(&[]));
+    compare_bounds("quake3-empty", PV_QUAKE3, 0, &md3_bytes(&[]));
+    // numposes stays 0 on the zeroed header, so the QUAKE1 arm sees an empty
+    // pose stream without touching `poseverts`
+    compare_bounds("quake1-empty", PV_QUAKE1, 0, &[]);
+}
+
+// ---------------------------------------------------------------------------
 // Sys_Error parity
 
-/// `numtris` stays at the legal minimum in every fatal fixture: the C reaches
-/// `check_tris_size` before its "invalid # of frames" `Sys_Error` and the
-/// Rust does not, so this is the one place the two growth counters can drift.
+/// The C reaches `check_tris_size` before its "invalid # of frames"
+/// `Sys_Error` and the Rust reaches it after, so these fixtures are the one
+/// place the two sides call it a different number of times. `triangles_size`
+/// is shared, so that costs at most one extra grow, never a shrink.
 fn fatal_fixture(case: &str) -> Mdl {
     let base = Mdl {
         numtris: 1,
@@ -460,6 +658,11 @@ fn fatal_fixture(case: &str) -> Mdl {
         },
         "no-triangles" => Mdl { numtris: 0, ..base },
         "no-frames" => Mdl {
+            frames: Vec::new(),
+            ..base
+        },
+        "too-many-vertices" => Mdl {
+            numverts: MAXALIASVERTS as i32 + 1,
             frames: Vec::new(),
             ..base
         },
@@ -505,6 +708,11 @@ fn no_triangles_fatal_parity() {
 #[test]
 fn no_frames_fatal_parity() {
     assert_fatal_parity("no-frames");
+}
+
+#[test]
+fn too_many_vertices_fatal_parity() {
+    assert_fatal_parity("too-many-vertices");
 }
 
 /// Child half of [`ctfs::rust_fatal_in_child`]: runs the Rust loader with the

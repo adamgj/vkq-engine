@@ -29,7 +29,7 @@ pub const DALIASFRAMETYPE_T_SIZE: usize = 4;
 
 // `offsetof (mdl_t, ...)`
 const OFS_IDENT: usize = 0;
-const OFS_VERSION: usize = 4;
+pub const OFS_VERSION: usize = 4;
 const OFS_SCALE: usize = 8;
 const OFS_SCALE_ORIGIN: usize = 20;
 const OFS_BOUNDINGRADIUS: usize = 32;
@@ -98,6 +98,18 @@ pub struct MdlHeader {
     pub flags: i32,
     /// the raw on-disk value; see [`scaled_size`]
     pub size: f32,
+}
+
+/// `offsetof (daliasframe_t, name)`
+pub const OFS_FRAME_NAME: usize = 8;
+
+/// The version field alone, so a caller with an unbounded file image can do
+/// the C's version check before it is entitled to the other 76 bytes.
+///
+/// Panics if `b` is shorter than `OFS_VERSION + 4`.
+pub fn parse_version(b: &[u8]) -> i32 {
+    assert!(b.len() >= OFS_VERSION + 4);
+    i32_at(b, OFS_VERSION)
 }
 
 /// Panics if `b` is shorter than [`MDL_T_SIZE`].
@@ -241,17 +253,16 @@ pub struct FrameHeader {
     /// `trivertx_t::v`, byte values -- no endian swap
     pub bboxmin: [u8; 3],
     pub bboxmax: [u8; 3],
-    pub name: [u8; 16],
 }
 
+/// The `name` field is deliberately not decoded here: the C copies it with
+/// `q_strlcpy`, which walks the source past the 16-byte field when it holds no
+/// NUL, so the C-ABI shim reads it in place at [`OFS_FRAME_NAME`] instead.
 pub fn parse_frame_header(b: &[u8]) -> FrameHeader {
     assert!(b.len() >= DALIASFRAME_T_SIZE);
-    let mut name = [0u8; 16];
-    name.copy_from_slice(&b[8..24]);
     FrameHeader {
         bboxmin: [b[0], b[1], b[2]],
         bboxmax: [b[4], b[5], b[6]],
-        name,
     }
 }
 
@@ -483,7 +494,7 @@ mod tests {
         let fh = parse_frame_header(&f);
         assert_eq!(fh.bboxmin, [1, 2, 3]);
         assert_eq!(fh.bboxmax, [4, 5, 6]);
-        assert_eq!(&fh.name[..4], b"cog1");
+        assert_eq!(&f[OFS_FRAME_NAME..OFS_FRAME_NAME + 4], b"cog1");
 
         let mut g = vec![0u8; DALIASGROUP_T_SIZE];
         g[0..4].copy_from_slice(&4i32.to_le_bytes());

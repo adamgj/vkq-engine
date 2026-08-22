@@ -1809,9 +1809,9 @@ ALIAS MODELS
 stvert_t stverts[MAXALIASVERTS];
 
 mtriangle_t *triangles = NULL;
-#ifndef USE_RUST_FORMATS
-static size_t triangles_size = 0;
-#endif // !USE_RUST_FORMATS
+// grow counter for the shared `triangles` allocation; stays C-owned under
+// USE_RUST_FORMATS so the Rust loader reallocs against the same count
+size_t		 triangles_size = 0;
 
 // a pose is a single set of vertexes.  a frame may be
 // an animating sequence of poses

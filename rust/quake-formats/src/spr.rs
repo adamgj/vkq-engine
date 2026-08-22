@@ -15,12 +15,12 @@ pub const DSPRITEFRAMETYPE_T_SIZE: usize = 4;
 
 // `offsetof (dsprite_t, ...)`
 const OFS_IDENT: usize = 0;
-const OFS_VERSION: usize = 4;
+pub const OFS_VERSION: usize = 4;
 const OFS_TYPE: usize = 8;
 const OFS_BOUNDINGRADIUS: usize = 12;
 const OFS_WIDTH: usize = 16;
 const OFS_HEIGHT: usize = 20;
-const OFS_NUMFRAMES: usize = 24;
+pub const OFS_NUMFRAMES: usize = 24;
 const OFS_BEAMLENGTH: usize = 28;
 const OFS_SYNCTYPE: usize = 32;
 
@@ -55,6 +55,21 @@ pub struct SpriteHeader {
 }
 
 /// Panics if `b` is shorter than [`DSPRITE_T_SIZE`].
+/// The two fields the C checks before it is entitled to the rest of the
+/// header, for a caller holding an unbounded file image.
+///
+/// Panics if `b` is shorter than `OFS_VERSION + 4`.
+pub fn parse_version(b: &[u8]) -> i32 {
+    assert!(b.len() >= OFS_VERSION + 4);
+    i32_at(b, OFS_VERSION)
+}
+
+/// Panics if `b` is shorter than `OFS_NUMFRAMES + 4`.
+pub fn parse_numframes(b: &[u8]) -> i32 {
+    assert!(b.len() >= OFS_NUMFRAMES + 4);
+    i32_at(b, OFS_NUMFRAMES)
+}
+
 pub fn parse_header(b: &[u8]) -> SpriteHeader {
     assert!(b.len() >= DSPRITE_T_SIZE);
     SpriteHeader {

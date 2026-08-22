@@ -1725,16 +1725,20 @@ unsafe extern "C" {
 }
 
 // The three arrays keep C linkage and stay defined in model_parse.c:
-// gl_mesh.c reads all of them after the load. Only the two file-static
-// cursors move to Rust, so nothing outside this file observes them.
+// gl_mesh.c reads all of them after the load. `triangles_size` comes with
+// them: it is the grow counter for the *shared* `triangles` allocation, so a
+// second counter on this side could shrink the buffer below the length the
+// other side believes it owns. Only `posenum` moves to Rust -- it is reset to
+// zero at the top of every Mod_ParseAliasModel, so it carries no state
+// between the two sides.
 #[allow(non_upper_case_globals)]
 unsafe extern "C" {
     static mut stverts: [StVert; MAXALIASVERTS];
     static mut triangles: *mut MTriangle;
+    static mut triangles_size: usize;
     static mut poseverts: [*mut TriVertX; MAXALIASFRAMES];
 }
 
-static mut TRIANGLES_SIZE: usize = 0;
 static mut POSENUM: c_int = 0;
 
 /// `&stverts[i]`
@@ -1796,14 +1800,14 @@ unsafe fn strlcpy_raw(dst: *mut c_char, cap: usize, src: *const c_char) {
 unsafe fn check_tris_size(numtris: usize) {
     // SAFETY: caller guarantees single-threaded use
     unsafe {
-        if numtris > TRIANGLES_SIZE {
-            let new_size = TRIANGLES_SIZE.wrapping_mul(2).max(numtris);
+        if numtris > triangles_size {
+            let new_size = triangles_size.wrapping_mul(2).max(numtris);
             triangles = sys::Mem_Realloc(
                 triangles.cast::<c_void>(),
                 new_size.wrapping_mul(core::mem::size_of::<MTriangle>()),
             )
             .cast::<MTriangle>();
-            TRIANGLES_SIZE = new_size;
+            triangles_size = new_size;
         }
     }
 }
@@ -1830,8 +1834,8 @@ unsafe fn mod_load_alias_frame(pin: *mut u8, pheader: *mut AliasHdr, index: c_in
 
         strlcpy_raw(
             addr_of_mut!((*frame).name).cast::<c_char>(),
-            core::mem::size_of_val(&(*frame).name),
-            pin.add(8).cast::<c_char>(),
+            core::mem::size_of::<[c_char; 16]>(),
+            pin.add(mdl::OFS_FRAME_NAME).cast::<c_char>(),
         );
         (*frame).firstpose = POSENUM;
         (*frame).numposes = 1;
@@ -1995,16 +1999,25 @@ pub unsafe extern "C" fn Mod_ParseAliasModel(m: *mut QModel, buffer: *mut c_void
     // SAFETY: C ABI contract above
     unsafe {
         let mod_base = buffer.cast::<u8>();
-        let h = mdl::parse_header(core::slice::from_raw_parts(mod_base, mdl::MDL_T_SIZE));
 
-        if h.version != mdl::ALIAS_VERSION {
+        // COMPAT: no length reaches this seam, so the touch set is the only
+        // bound there is. The C reads `version` and nothing else before it
+        // bails, so a truncated wrong-version image must not have the whole
+        // 84-byte header materialised over it first.
+        let version =
+            mdl::parse_version(core::slice::from_raw_parts(mod_base, mdl::OFS_VERSION + 4));
+
+        if version != mdl::ALIAS_VERSION {
             sys::Sys_Error(
                 c"%s has wrong version number (%i should be %i)".as_ptr(),
                 model_name(m),
-                h.version,
+                version,
                 mdl::ALIAS_VERSION,
             );
         }
+
+        let h = mdl::parse_header(core::slice::from_raw_parts(mod_base, mdl::MDL_T_SIZE));
+        debug_assert_eq!(h.version, version);
 
         // allocate space for a working header, plus all the data except the
         // frames, skin and group info.
@@ -2279,23 +2292,38 @@ pub unsafe extern "C" fn Mod_LoadSpriteModel(m: *mut QModel, buffer: *mut c_void
     // SAFETY: C ABI contract above
     unsafe {
         let mod_base = buffer.cast::<u8>();
-        let h = spr::parse_header(core::slice::from_raw_parts(mod_base, spr::DSPRITE_T_SIZE));
 
-        if h.version != spr::SPRITE_VERSION {
+        // COMPAT: same unbounded-seam rule as Mod_ParseAliasModel -- the C
+        // reads `version`, then `numframes`, and bails on each before it
+        // touches anything else, so neither field may be reached by
+        // materialising the whole 36-byte header over a possibly shorter
+        // image first.
+        let version =
+            spr::parse_version(core::slice::from_raw_parts(mod_base, spr::OFS_VERSION + 4));
+
+        if version != spr::SPRITE_VERSION {
             sys::Sys_Error(
                 c"%s has wrong version number (%i should be %i)".as_ptr(),
                 model_name(m),
-                h.version,
+                version,
                 spr::SPRITE_VERSION,
             );
         }
 
-        if h.numframes < 1 {
+        let numframes = spr::parse_numframes(core::slice::from_raw_parts(
+            mod_base,
+            spr::OFS_NUMFRAMES + 4,
+        ));
+
+        if numframes < 1 {
             sys::Sys_Error(
                 c"Mod_LoadSpriteModel: Invalid # of frames: %d".as_ptr(),
-                h.numframes,
+                numframes,
             );
         }
+
+        let h = spr::parse_header(core::slice::from_raw_parts(mod_base, spr::DSPRITE_T_SIZE));
+        debug_assert_eq!((h.version, h.numframes), (version, numframes));
 
         // COMPAT: an `int` byte count again, truncated before Mem_Alloc
         // sign-extends it back.
