@@ -17,7 +17,11 @@
 
 use core::ffi::c_char;
 
-use quake_types::model_mem::{MClipnode, MEdge, MLeaf, MNode, MSurface, MTexInfo, QModel, Texture};
+use quake_types::model_mem::{
+    AliasHdr, MAliasFrameDesc, MClipnode, MEdge, MLeaf, MNode, MSprite, MSpriteFrame,
+    MSpriteFrameDesc, MSpriteGroup, MSurface, MTexInfo, MTriangle, QModel, Texture, PV_QUAKE1,
+};
+use quake_types::modelgen::{StVert, TriVertX};
 use quake_types::MPlane;
 
 /// Byte lengths of the two blobs `qmodel_t` owns but does not record a size
@@ -471,4 +475,225 @@ unsafe fn blobs(w: &mut Walker, md: &QModel, lens: BlobLens) {
         let s = unsafe { std::ffi::CStr::from_ptr(md.entities) };
         w.put("entities", format!("{:?}", s.to_string_lossy()));
     }
+}
+
+// ---------------------------------------------------------------------------
+// Alias / sprite models (Phase 3 M4)
+
+/// `spriteframetype_t::SPR_SINGLE` (spritegn.h); the group variants all reuse
+/// the same `frameptr` slot for an `mspritegroup_t`.
+const SPR_SINGLE: i32 = 0;
+
+/// The alias loader's scratch state. `stverts`/`triangles`/`poseverts` keep C
+/// linkage and are shared by both sides, so they are snapshotted right after
+/// each side's parse; `base` is the file image both sides were handed, which
+/// turns the `poseverts` pointers into comparable offsets.
+#[derive(Clone, Copy)]
+pub struct AliasScratch {
+    pub stverts: *const StVert,
+    pub triangles: *const MTriangle,
+    pub poseverts: *const *const TriVertX,
+    pub base: *const u8,
+    pub base_len: usize,
+}
+
+/// The `qmodel_t` fields the alias and sprite loaders write. `extradata` is
+/// reported as "set"/"null" only -- the pointed-to header is walked by the
+/// caller-facing snapshot, and the pointer itself is heap-dependent.
+///
+/// # Safety
+/// `m` must point at a live `qmodel_t`.
+unsafe fn model_fields(w: &mut Walker, m: *const QModel) {
+    // SAFETY: caller's contract
+    let md = unsafe { &*m };
+    w.put("model.type", md.type_);
+    w.put("model.flags", md.flags);
+    w.put("model.numframes", md.numframes);
+    w.put("model.synctype", md.synctype);
+    w.put("model.mins", format!("{:?}", md.mins));
+    w.put("model.maxs", format!("{:?}", md.maxs));
+    w.put("model.ymins", format!("{:?}", md.ymins));
+    w.put("model.ymaxs", format!("{:?}", md.ymaxs));
+    w.put("model.rmins", format!("{:?}", md.rmins));
+    w.put("model.rmaxs", format!("{:?}", md.rmaxs));
+    for (i, e) in md.extradata.iter().enumerate() {
+        w.put(
+            &format!("model.extradata[{i}]"),
+            if e.is_null() { "null" } else { "set" },
+        );
+    }
+}
+
+/// Snapshot of an `aliashdr_t` filled by `Mod_ParseAliasModel`, plus the
+/// scratch arrays it wrote through.
+///
+/// Excluded (renderer-owned, never written by the parse): `gltextures`,
+/// `fbtextures`, `texels`, `nextsurface`, the vertex/index/joints buffer
+/// handles and `vbostofs`.
+///
+/// # Safety
+/// `h` must point at a header `Mod_ParseAliasModel` returned for `m`, and
+/// `scratch` must describe the globals as they stood right after that call.
+pub unsafe fn alias_snapshot(
+    m: *const QModel,
+    h: *const AliasHdr,
+    scratch: AliasScratch,
+) -> Snapshot {
+    let mut w = Walker { lines: Vec::new() };
+    // SAFETY: caller's contract
+    unsafe {
+        model_fields(&mut w, m);
+
+        let a = &*h;
+        w.put("alias.ident", a.ident);
+        w.put("alias.version", a.version);
+        w.put("alias.scale", format!("{:?}", a.scale));
+        w.put("alias.scale_origin", format!("{:?}", a.scale_origin));
+        w.put("alias.boundingradius", a.boundingradius);
+        w.put("alias.eyeposition", format!("{:?}", a.eyeposition));
+        w.put("alias.numskins", a.numskins);
+        w.put("alias.skinwidth", a.skinwidth);
+        w.put("alias.skinheight", a.skinheight);
+        w.put("alias.numverts", a.numverts);
+        w.put("alias.numtris", a.numtris);
+        w.put("alias.numframes", a.numframes);
+        w.put("alias.synctype", a.synctype);
+        w.put("alias.flags", a.flags);
+        w.put("alias.size", a.size);
+        w.put("alias.numindexes", a.numindexes);
+        w.put("alias.numverts_vbo", a.numverts_vbo);
+        w.put("alias.numposes", a.numposes);
+        w.put("alias.numjoints", a.numjoints);
+        w.put("alias.poseverttype", a.poseverttype);
+
+        let frames = core::ptr::addr_of!((*h).frames).cast::<MAliasFrameDesc>();
+        for i in 0..a.numframes.max(0) {
+            let f = &*frames.offset(i as isize);
+            w.put(&format!("alias.frame[{i}].firstpose"), f.firstpose);
+            w.put(&format!("alias.frame[{i}].numposes"), f.numposes);
+            w.put(&format!("alias.frame[{i}].interval"), f.interval);
+            w.put(
+                &format!("alias.frame[{i}].bboxmin"),
+                format!("{:?}", f.bboxmin.v),
+            );
+            w.put(
+                &format!("alias.frame[{i}].bboxmin.lni"),
+                f.bboxmin.lightnormalindex,
+            );
+            w.put(
+                &format!("alias.frame[{i}].bboxmax"),
+                format!("{:?}", f.bboxmax.v),
+            );
+            w.put(
+                &format!("alias.frame[{i}].bboxmax.lni"),
+                f.bboxmax.lightnormalindex,
+            );
+            w.put(&format!("alias.frame[{i}].frame"), f.frame);
+            w.put(&format!("alias.frame[{i}].name"), cstr16(&f.name));
+        }
+
+        for i in 0..a.numverts.max(0) {
+            let v = &*scratch.stverts.offset(i as isize);
+            w.put(
+                &format!("stvert[{i}]"),
+                format!("onseam={} s={} t={}", v.onseam, v.s, v.t),
+            );
+        }
+        for i in 0..a.numtris.max(0) {
+            let t = &*scratch.triangles.offset(i as isize);
+            w.put(
+                &format!("triangle[{i}]"),
+                format!("front={} idx={:?}", t.facesfront, t.vertindex),
+            );
+        }
+        for i in 0..a.numposes.max(0) {
+            let p = *scratch.poseverts.offset(i as isize);
+            w.put(
+                &format!("posevert[{i}]"),
+                blob(
+                    p as *mut u8,
+                    scratch.base as *mut u8,
+                    scratch.base_len,
+                    "file",
+                ),
+            );
+        }
+    }
+    Snapshot { lines: w.lines }
+}
+
+/// Snapshot of an `msprite_t` filled by `Mod_LoadSpriteModel`. The
+/// `gltexture` pointers are excluded (the differential compares the
+/// `TexMgr_LoadImage` argument stream instead).
+///
+/// # Safety
+/// `m` must point at a `qmodel_t` a successful `Mod_LoadSpriteModel` filled.
+pub unsafe fn sprite_snapshot(m: *const QModel) -> Snapshot {
+    let mut w = Walker { lines: Vec::new() };
+    // SAFETY: caller's contract
+    unsafe {
+        model_fields(&mut w, m);
+
+        let s = (*m).extradata[PV_QUAKE1 as usize].cast::<MSprite>();
+        if s.is_null() {
+            w.put("sprite", "null");
+            return Snapshot { lines: w.lines };
+        }
+        let sp = &*s;
+        w.put("sprite.type", sp.type_);
+        w.put("sprite.maxwidth", sp.maxwidth);
+        w.put("sprite.maxheight", sp.maxheight);
+        w.put("sprite.numframes", sp.numframes);
+
+        let descs = core::ptr::addr_of!((*s).frames).cast::<MSpriteFrameDesc>();
+        for i in 0..sp.numframes.max(0) {
+            let d = &*descs.offset(i as isize);
+            w.put(&format!("sprite.frame[{i}].type"), d.type_);
+            if d.type_ == SPR_SINGLE {
+                sprite_frame(&mut w, &format!("sprite.frame[{i}]"), d.frameptr);
+            } else {
+                let g = d.frameptr.cast::<MSpriteGroup>();
+                if g.is_null() {
+                    w.put(&format!("sprite.frame[{i}].group"), "null");
+                    continue;
+                }
+                let gr = &*g;
+                w.put(&format!("sprite.frame[{i}].group.numframes"), gr.numframes);
+                for j in 0..gr.numframes.max(0) {
+                    w.put(
+                        &format!("sprite.frame[{i}].group.interval[{j}]"),
+                        *gr.intervals.offset(j as isize),
+                    );
+                }
+                let sub = core::ptr::addr_of!((*g).frames).cast::<*mut MSpriteFrame>();
+                for j in 0..gr.numframes.max(0) {
+                    sprite_frame(
+                        &mut w,
+                        &format!("sprite.frame[{i}].group[{j}]"),
+                        *sub.offset(j as isize),
+                    );
+                }
+            }
+        }
+    }
+    Snapshot { lines: w.lines }
+}
+
+/// # Safety
+/// `f` must be null or point at a live `mspriteframe_t`.
+unsafe fn sprite_frame(w: &mut Walker, key: &str, f: *mut MSpriteFrame) {
+    if f.is_null() {
+        w.put(key, "null");
+        return;
+    }
+    // SAFETY: caller's contract
+    let fr = unsafe { &*f };
+    w.put(&format!("{key}.width"), fr.width);
+    w.put(&format!("{key}.height"), fr.height);
+    w.put(&format!("{key}.up"), fr.up);
+    w.put(&format!("{key}.down"), fr.down);
+    w.put(&format!("{key}.left"), fr.left);
+    w.put(&format!("{key}.right"), fr.right);
+    w.put(&format!("{key}.smax"), fr.smax);
+    w.put(&format!("{key}.tmax"), fr.tmax);
 }

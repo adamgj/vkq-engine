@@ -112,6 +112,12 @@ void Mod_LoadPlanes(qmodel_t *mod, byte *mod_base, lump_t *l);
 void Mod_LoadSubmodels(qmodel_t *mod, byte *mod_base, lump_t *l);
 FILE *Mod_FindVisibilityExternal(qmodel_t *mod, const char *loadname);
 byte *Mod_LoadVisibilityExternal(FILE *f);
+/* Phase 3 M4: the MDL/SPR half of the same seam. Neither takes a buffer
+ * length -- gl_model.c has none to give -- so both walk the file image raw,
+ * exactly like the C. */
+aliashdr_t *Mod_ParseAliasModel(qmodel_t *mod, void *buffer);
+void Mod_CalcAliasBounds(qmodel_t *mod, aliashdr_t *a, int numvertexes, byte *vertexes);
+void Mod_LoadSpriteModel(qmodel_t *mod, void *buffer);
 /* Host_Error trampolines: the Rust side returns the message C would have
  * raised and Quake/model_parse_glue.c re-raises it from a C frame (PLAN.md
  * 4.3 -- a longjmp must never unwind a Rust frame) */
@@ -123,6 +129,21 @@ int quake_rs_mod_load_leafs_external(qmodel_t *mod, FILE *f, char *err);
 /* called by the Rust shims; these stay in gl_model.c */
 qmodel_t *Mod_FindName(const char *name);
 texture_t *Mod_LoadWadTexture(qmodel_t *mod, wad_t *wads, const char *name);
+void *Mod_LoadAllSkins(aliashdr_t *pheader, qmodel_t *mod, byte *mod_base, int numskins, byte *pskintype);
+/* Mod_SetExtraFlags stays in model_parse.c (r_nolerp_list + particle script) */
+void Mod_SetExtraFlags(qmodel_t *mod);
+/* the alias scratch arrays keep C linkage -- gl_mesh.c reads all three after
+ * the load -- so only the two file-static cursors moved to Rust */
+extern stvert_t stverts[MAXALIASVERTS];
+extern mtriangle_t *triangles;
+extern trivertx_t *poseverts[MAXALIASFRAMES];
+/* gl_texmgr.h cannot be reached from every consumer of this header (it pulls
+ * Vulkan and SDL in), so this one is guarded on that header's own guard */
+#ifdef _GL_TEXMAN_H
+gltexture_t *TexMgr_LoadImage(
+	qmodel_t *owner, const char *name, int width, int height, enum srcformat format, byte *data, const char *source_file, src_offset_t source_offset,
+	unsigned flags);
+#endif
 #endif
 /* the searchpath heads use the engine's searchpath_t typedef (Rust mirror:
  * quake_types::fs::SearchPath), so they are guarded on common.h */
@@ -168,4 +189,9 @@ exclude = [
     "Con_DWarning", "Mod_FindName", "Mod_LoadWadTexture", "fread", "fclose",
     "QModel", "MSurface", "MPlane", "LumpT", "Texture", "MNode", "MLeaf",
     "MClipnode", "Hull", "MTexInfo", "MVertex", "MEdge", "DModel",
+    "Mod_ParseAliasModel", "Mod_CalcAliasBounds", "Mod_LoadSpriteModel",
+    "Mod_LoadAllSkins", "Mod_SetExtraFlags", "TexMgr_LoadImage",
+    "AliasHdr", "MAliasFrameDesc", "MSprite", "MSpriteFrameDesc",
+    "MSpriteFrame", "MSpriteGroup", "StVert", "MTriangle", "TriVertX",
+    "stverts", "triangles", "poseverts",
 ]

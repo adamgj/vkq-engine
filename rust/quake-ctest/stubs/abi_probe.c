@@ -251,6 +251,156 @@ static const ctest_abi_entry_t ctest_abi_bsp_table[] = {
 	OFF ("medge_t", medge_t, cachededgeoffset),
 };
 
+/* Phase 3 M4: the MDL/SPR half of the same seam, in its own table (and its
+ * own lookup) so the two milestones' entries stay independently reviewable. */
+static const ctest_abi_entry_t ctest_abi_alias_table[] = {
+	SZ ("mdl_t", mdl_t),
+	SZ ("stvert_t", stvert_t),
+	SZ ("dtriangle_t", dtriangle_t),
+	SZ ("trivertx_t", trivertx_t),
+	SZ ("daliasframe_t", daliasframe_t),
+	SZ ("daliasgroup_t", daliasgroup_t),
+	SZ ("daliasskingroup_t", daliasskingroup_t),
+	SZ ("daliasinterval_t", daliasinterval_t),
+	SZ ("daliasskininterval_t", daliasskininterval_t),
+	SZ ("daliasframetype_t", daliasframetype_t),
+	SZ ("daliasskintype_t", daliasskintype_t),
+	SZ ("dsprite_t", dsprite_t),
+	SZ ("dspriteframe_t", dspriteframe_t),
+	SZ ("dspritegroup_t", dspritegroup_t),
+	SZ ("dspriteinterval_t", dspriteinterval_t),
+	SZ ("dspriteframetype_t", dspriteframetype_t),
+	SZ ("aliashdr_t", aliashdr_t),
+	SZ ("maliasframedesc_t", maliasframedesc_t),
+	SZ ("mtriangle_t", mtriangle_t),
+	SZ ("md5vert_t", md5vert_t),
+	SZ ("md5vert8_t", md5vert8_t),
+	SZ ("md3XyzNormal_t", md3XyzNormal_t),
+	SZ ("msprite_t", msprite_t),
+	SZ ("mspriteframe_t", mspriteframe_t),
+	SZ ("mspritegroup_t", mspritegroup_t),
+	SZ ("mspriteframedesc_t", mspriteframedesc_t),
+
+	OFF ("mdl_t", mdl_t, ident),
+	OFF ("mdl_t", mdl_t, version),
+	OFF ("mdl_t", mdl_t, scale),
+	OFF ("mdl_t", mdl_t, scale_origin),
+	OFF ("mdl_t", mdl_t, boundingradius),
+	OFF ("mdl_t", mdl_t, eyeposition),
+	OFF ("mdl_t", mdl_t, numskins),
+	OFF ("mdl_t", mdl_t, skinwidth),
+	OFF ("mdl_t", mdl_t, skinheight),
+	OFF ("mdl_t", mdl_t, numverts),
+	OFF ("mdl_t", mdl_t, numtris),
+	OFF ("mdl_t", mdl_t, numframes),
+	OFF ("mdl_t", mdl_t, synctype),
+	OFF ("mdl_t", mdl_t, flags),
+	OFF ("mdl_t", mdl_t, size),
+
+	OFF ("stvert_t", stvert_t, onseam),
+	OFF ("stvert_t", stvert_t, s),
+	OFF ("stvert_t", stvert_t, t),
+
+	OFF ("dtriangle_t", dtriangle_t, facesfront),
+	OFF ("dtriangle_t", dtriangle_t, vertindex),
+
+	OFF ("trivertx_t", trivertx_t, v),
+	OFF ("trivertx_t", trivertx_t, lightnormalindex),
+
+	OFF ("daliasframe_t", daliasframe_t, bboxmin),
+	OFF ("daliasframe_t", daliasframe_t, bboxmax),
+	OFF ("daliasframe_t", daliasframe_t, name),
+
+	OFF ("daliasgroup_t", daliasgroup_t, numframes),
+	OFF ("daliasgroup_t", daliasgroup_t, bboxmin),
+	OFF ("daliasgroup_t", daliasgroup_t, bboxmax),
+
+	OFF ("dsprite_t", dsprite_t, ident),
+	OFF ("dsprite_t", dsprite_t, version),
+	OFF ("dsprite_t", dsprite_t, type),
+	OFF ("dsprite_t", dsprite_t, boundingradius),
+	OFF ("dsprite_t", dsprite_t, width),
+	OFF ("dsprite_t", dsprite_t, height),
+	OFF ("dsprite_t", dsprite_t, numframes),
+	OFF ("dsprite_t", dsprite_t, beamlength),
+	OFF ("dsprite_t", dsprite_t, synctype),
+
+	OFF ("dspriteframe_t", dspriteframe_t, origin),
+	OFF ("dspriteframe_t", dspriteframe_t, width),
+	OFF ("dspriteframe_t", dspriteframe_t, height),
+
+	OFF ("dspritegroup_t", dspritegroup_t, numframes),
+	OFF ("dspriteinterval_t", dspriteinterval_t, interval),
+
+	OFF ("aliashdr_t", aliashdr_t, ident),
+	OFF ("aliashdr_t", aliashdr_t, version),
+	OFF ("aliashdr_t", aliashdr_t, scale),
+	OFF ("aliashdr_t", aliashdr_t, scale_origin),
+	OFF ("aliashdr_t", aliashdr_t, boundingradius),
+	OFF ("aliashdr_t", aliashdr_t, eyeposition),
+	OFF ("aliashdr_t", aliashdr_t, numskins),
+	OFF ("aliashdr_t", aliashdr_t, skinwidth),
+	OFF ("aliashdr_t", aliashdr_t, skinheight),
+	OFF ("aliashdr_t", aliashdr_t, numverts),
+	OFF ("aliashdr_t", aliashdr_t, numtris),
+	OFF ("aliashdr_t", aliashdr_t, numframes),
+	OFF ("aliashdr_t", aliashdr_t, synctype),
+	OFF ("aliashdr_t", aliashdr_t, flags),
+	OFF ("aliashdr_t", aliashdr_t, size),
+	OFF ("aliashdr_t", aliashdr_t, numindexes),
+	OFF ("aliashdr_t", aliashdr_t, numverts_vbo),
+	OFF ("aliashdr_t", aliashdr_t, numposes),
+	OFF ("aliashdr_t", aliashdr_t, nextsurface),
+	OFF ("aliashdr_t", aliashdr_t, numjoints),
+	OFF ("aliashdr_t", aliashdr_t, poseverttype),
+	OFF ("aliashdr_t", aliashdr_t, gltextures),
+	OFF ("aliashdr_t", aliashdr_t, fbtextures),
+	OFF ("aliashdr_t", aliashdr_t, texels),
+	OFF ("aliashdr_t", aliashdr_t, vertex_buffer),
+	OFF ("aliashdr_t", aliashdr_t, vbostofs),
+	OFF ("aliashdr_t", aliashdr_t, joints_set),
+	OFF ("aliashdr_t", aliashdr_t, frames),
+
+	OFF ("maliasframedesc_t", maliasframedesc_t, firstpose),
+	OFF ("maliasframedesc_t", maliasframedesc_t, numposes),
+	OFF ("maliasframedesc_t", maliasframedesc_t, interval),
+	OFF ("maliasframedesc_t", maliasframedesc_t, bboxmin),
+	OFF ("maliasframedesc_t", maliasframedesc_t, bboxmax),
+	OFF ("maliasframedesc_t", maliasframedesc_t, frame),
+	OFF ("maliasframedesc_t", maliasframedesc_t, name),
+
+	OFF ("mtriangle_t", mtriangle_t, facesfront),
+	OFF ("mtriangle_t", mtriangle_t, vertindex),
+
+	OFF ("md5vert_t", md5vert_t, xyz),
+	OFF ("md5vert8_t", md5vert8_t, xyz),
+	OFF ("md3XyzNormal_t", md3XyzNormal_t, xyz),
+	OFF ("md3XyzNormal_t", md3XyzNormal_t, latlong),
+
+	OFF ("msprite_t", msprite_t, type),
+	OFF ("msprite_t", msprite_t, maxwidth),
+	OFF ("msprite_t", msprite_t, maxheight),
+	OFF ("msprite_t", msprite_t, numframes),
+	OFF ("msprite_t", msprite_t, frames),
+
+	OFF ("mspriteframe_t", mspriteframe_t, width),
+	OFF ("mspriteframe_t", mspriteframe_t, height),
+	OFF ("mspriteframe_t", mspriteframe_t, up),
+	OFF ("mspriteframe_t", mspriteframe_t, down),
+	OFF ("mspriteframe_t", mspriteframe_t, left),
+	OFF ("mspriteframe_t", mspriteframe_t, right),
+	OFF ("mspriteframe_t", mspriteframe_t, smax),
+	OFF ("mspriteframe_t", mspriteframe_t, tmax),
+	OFF ("mspriteframe_t", mspriteframe_t, gltexture),
+
+	OFF ("mspritegroup_t", mspritegroup_t, numframes),
+	OFF ("mspritegroup_t", mspritegroup_t, intervals),
+	OFF ("mspritegroup_t", mspritegroup_t, frames),
+
+	OFF ("mspriteframedesc_t", mspriteframedesc_t, type),
+	OFF ("mspriteframedesc_t", mspriteframedesc_t, frameptr),
+};
+
 #undef SZ
 #undef OFF
 
@@ -262,5 +412,14 @@ size_t ctest_abi_bsp_lookup (const char *key)
 	for (i = 0; i < sizeof (ctest_abi_bsp_table) / sizeof (ctest_abi_bsp_table[0]); i++)
 		if (!strcmp (ctest_abi_bsp_table[i].name, key))
 			return ctest_abi_bsp_table[i].value;
+	return (size_t)-1;
+}
+
+size_t ctest_abi_alias_lookup (const char *key)
+{
+	size_t i;
+	for (i = 0; i < sizeof (ctest_abi_alias_table) / sizeof (ctest_abi_alias_table[0]); i++)
+		if (!strcmp (ctest_abi_alias_table[i].name, key))
+			return ctest_abi_alias_table[i].value;
 	return (size_t)-1;
 }

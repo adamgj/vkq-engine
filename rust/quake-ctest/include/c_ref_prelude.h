@@ -249,7 +249,7 @@ void Con_DPrintf2 (const char *fmt, ...);
 #define __Q_RENDER_TYPES_H
 typedef struct VkAccelerationStructureKHR_T *VkAccelerationStructureKHR;
 typedef struct VkBuffer_T					*VkBuffer;
-typedef struct VkDescriptorSet_T			*VkDescriptorSet; /* aliashdr_t (alias section, still C in M3) */
+typedef struct VkDescriptorSet_T			*VkDescriptorSet; /* aliashdr_t */
 typedef uint64_t							 VkDeviceAddress;
 
 /* atomics.h drags in q_stdinc.h -> SDL.h; stand in for the one type/op the
@@ -273,7 +273,7 @@ typedef struct efrag_s efrag_t;
 #define MAX_DLIGHTS			  64
 #define MAX_LBM_HEIGHT		  480
 #define MAX_LIGHTSTYLES		  64
-#define ALIAS_BASE_SIZE_RATIO (1.0 / 11.0) /* glquake.h (alias section, still C in M3) */
+#define ALIAS_BASE_SIZE_RATIO (1.0 / 11.0) /* glquake.h */
 
 #include "cvar.h"
 #include "wad.h"
