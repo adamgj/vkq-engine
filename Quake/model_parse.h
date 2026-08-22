@@ -55,6 +55,11 @@ byte *Mod_LoadVisibilityExternal (FILE *f);
 void  Mod_LoadLeafsExternal (qmodel_t *mod, FILE *f);
 
 // alias model parsing
+// grow counter for the `triangles` scratch array declared in gl_model.h; both
+// the C and the Rust loader realloc that one allocation, so the count is
+// shared rather than file-static
+extern size_t triangles_size;
+
 aliashdr_t *Mod_ParseAliasModel (qmodel_t *mod, void *buffer);
 void		Mod_CalcAliasBounds (qmodel_t *mod, aliashdr_t *a, int numvertexes, byte *vertexes);
 

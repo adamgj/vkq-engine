@@ -39,7 +39,6 @@ static short ReadShortUnaligned (byte *ptr)
 	memcpy (&temp, ptr, sizeof (short));
 	return LittleShort (temp);
 }
-#endif // !USE_RUST_FORMATS
 
 /*
 ===============
@@ -65,7 +64,6 @@ static float ReadFloatUnaligned (byte *ptr)
 	return LittleFloat (temp);
 }
 
-#ifndef USE_RUST_FORMATS
 static byte *mod_decompressed;
 static int	 mod_decompressed_capacity;
 
@@ -1810,14 +1808,19 @@ ALIAS MODELS
 
 stvert_t stverts[MAXALIASVERTS];
 
-mtriangle_t	 *triangles = NULL;
-static size_t triangles_size = 0;
+mtriangle_t *triangles = NULL;
+// grow counter for the shared `triangles` allocation; stays C-owned under
+// USE_RUST_FORMATS so the Rust loader reallocs against the same count
+size_t		 triangles_size = 0;
 
 // a pose is a single set of vertexes.  a frame may be
 // an animating sequence of poses
 trivertx_t *poseverts[MAXALIASFRAMES];
-static int	posenum;
+#ifndef USE_RUST_FORMATS
+static int posenum;
+#endif // !USE_RUST_FORMATS
 
+#ifndef USE_RUST_FORMATS
 /*
 =================
 Mod_LoadAliasFrame
@@ -2041,6 +2044,7 @@ void Mod_CalcAliasBounds (qmodel_t *mod, aliashdr_t *a, int numvertexes, byte *v
 	mod->ymins[2] = mod->mins[2];
 	mod->ymaxs[2] = mod->maxs[2];
 }
+#endif // !USE_RUST_FORMATS
 
 static qboolean nameInList (const char *list, const char *name)
 {
@@ -2103,6 +2107,7 @@ void Mod_SetExtraFlags (qmodel_t *mod)
 #endif
 }
 
+#ifndef USE_RUST_FORMATS
 static void check_tris_size (size_t numtris)
 {
 	// 1. assure that numtris < trinagles_size, else realloc
@@ -2424,3 +2429,4 @@ void Mod_LoadSpriteModel (qmodel_t *mod, void *buffer)
 
 	mod->type = mod_sprite;
 }
+#endif // !USE_RUST_FORMATS

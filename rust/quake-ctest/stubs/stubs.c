@@ -1346,13 +1346,82 @@ texture_t *Mod_LoadWadTexture (qmodel_t *mod, wad_t *wads, const char *name)
 	return NULL;
 }
 
-/* alias/sprite sections of model_parse.c (still C in M3) link these */
+/* Phase 3 M4: the alias/sprite loaders' only side effects outside the
+ * Mem_Alloc'ed structs are these two calls, so both sides share one recorder
+ * and the differential compares the argument streams. */
+#define CTEST_MODELSTUB_MAX 64
+
+typedef struct
+{
+	char	 name[64];
+	int		 width;
+	int		 height;
+	int		 format;
+	int64_t	 data_ofs; /* byte offset from the base passed to the reset */
+	char	 source_file[64];
+	uint64_t source_offset;
+	uint32_t flags;
+} ctest_teximage_call_t;
+
+typedef struct
+{
+	int32_t numskins;
+	int64_t pskintype_ofs;
+} ctest_allskins_call_t;
+
+static const byte		   *ctest_modelstub_base;
+static ctest_teximage_call_t ctest_teximage_log[CTEST_MODELSTUB_MAX];
+static int32_t				 ctest_teximage_n;
+static ctest_allskins_call_t ctest_allskins_log[CTEST_MODELSTUB_MAX];
+static int32_t				 ctest_allskins_n;
+
+void ctest_modelstub_reset (const byte *mod_base)
+{
+	ctest_modelstub_base = mod_base;
+	ctest_teximage_n = 0;
+	ctest_allskins_n = 0;
+	memset (ctest_teximage_log, 0, sizeof (ctest_teximage_log));
+	memset (ctest_allskins_log, 0, sizeof (ctest_allskins_log));
+}
+
+int32_t ctest_teximage_count (void)
+{
+	return ctest_teximage_n;
+}
+
+const ctest_teximage_call_t *ctest_teximage_calls (void)
+{
+	return ctest_teximage_log;
+}
+
+int32_t ctest_allskins_count (void)
+{
+	return ctest_allskins_n;
+}
+
+const ctest_allskins_call_t *ctest_allskins_calls (void)
+{
+	return ctest_allskins_log;
+}
+
+static int64_t ctest_modelstub_ofs (const void *p)
+{
+	if (!p || !ctest_modelstub_base)
+		return INT64_MIN;
+	return (int64_t)((const byte *)p - ctest_modelstub_base);
+}
+
 void *Mod_LoadAllSkins (aliashdr_t *pheader, qmodel_t *mod, byte *mod_base, int numskins, byte *pskintype)
 {
 	(void)pheader;
 	(void)mod;
 	(void)mod_base;
-	(void)numskins;
+	if (ctest_allskins_n < CTEST_MODELSTUB_MAX)
+	{
+		ctest_allskins_log[ctest_allskins_n].numskins = numskins;
+		ctest_allskins_log[ctest_allskins_n].pskintype_ofs = ctest_modelstub_ofs (pskintype);
+	}
+	++ctest_allskins_n;
 	return pskintype;
 }
 
@@ -1361,14 +1430,19 @@ gltexture_t *TexMgr_LoadImage (
 	unsigned flags)
 {
 	(void)owner;
-	(void)name;
-	(void)width;
-	(void)height;
-	(void)format;
-	(void)data;
-	(void)source_file;
-	(void)source_offset;
-	(void)flags;
+	if (ctest_teximage_n < CTEST_MODELSTUB_MAX)
+	{
+		ctest_teximage_call_t *c = &ctest_teximage_log[ctest_teximage_n];
+		q_strlcpy (c->name, name ? name : "", sizeof (c->name));
+		c->width = width;
+		c->height = height;
+		c->format = (int)format;
+		c->data_ofs = ctest_modelstub_ofs (data);
+		q_strlcpy (c->source_file, source_file ? source_file : "", sizeof (c->source_file));
+		c->source_offset = (uint64_t)source_offset;
+		c->flags = (uint32_t)flags;
+	}
+	++ctest_teximage_n;
 	return NULL;
 }
 
