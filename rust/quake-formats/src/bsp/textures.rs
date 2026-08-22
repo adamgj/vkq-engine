@@ -86,7 +86,10 @@ pub struct TexRec {
 /// dummy slots stay NULL). An empty lump also triggers
 /// `Con_Printf ("Mod_LoadTextures: no textures in bsp file\n")` shim-side.
 pub fn parse_textures(lump: &[u8], valve: bool, q64: bool) -> (i32, Vec<TexWork>) {
-    if lump.is_empty() {
+    if lump.len() < 4 {
+        // A 1..3-byte lump makes the C ReadLongUnaligned run past the lump
+        // end (UB); read it as 0 rather than panicking, since `panic =
+        // "abort"` would turn a C load-with-garbage into a hard abort.
         return (0, Vec::new());
     }
     let nummiptex = i32_at(lump, 0);

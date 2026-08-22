@@ -122,17 +122,22 @@ jobs:
         key: quake106-shareware-v1
     - name: Fetch shareware data
       run: python3 scripts/harness/fetch_shareware.py shareware-data
-    # three configs: C-only, mixed with the Rust fs, mixed with the C fs
-    # (Phase 2 exit criterion: harness green under both -Duse_rust_fs settings)
+    # C-only, fully mixed, and each per-module switch in its "keep the C"
+    # position: those legs are the only thing that keeps the C fallback
+    # compiling and linking as modules are ported (Phase 2/3 exit criterion)
     - name: Build C-only and mixed
       run: |
         meson setup build-c -Duse_sdl3=disabled -Duse_rust=disabled && ninja -C build-c
         meson setup build-rs -Duse_sdl3=disabled -Duse_rust=enabled && ninja -C build-rs
         meson setup build-rs-cfs -Duse_sdl3=disabled -Duse_rust=enabled -Duse_rust_fs=disabled && ninja -C build-rs-cfs
+        meson setup build-rs-cimg -Duse_sdl3=disabled -Duse_rust=enabled -Duse_rust_image=disabled && ninja -C build-rs-cimg
+        meson setup build-rs-cfmt -Duse_sdl3=disabled -Duse_rust=enabled -Duse_rust_formats=disabled && ninja -C build-rs-cfmt
     - name: FFI signature parity (quake_rs.h vs engine headers)
       run: |
         ./scripts/harness/check_capi_signatures.sh build-rs/quake_rs.h
         ./scripts/harness/check_capi_signatures.sh build-rs-cfs/quake_rs.h
+        ./scripts/harness/check_capi_signatures.sh build-rs-cimg/quake_rs.h
+        ./scripts/harness/check_capi_signatures.sh build-rs-cfmt/quake_rs.h
     # no linux-x86_64 goldens yet, so gate on run-to-run stability and on the
     # mixed build matching C-only; both cover the map entries, i.e. real
     # server/edict state rather than demo playback alone

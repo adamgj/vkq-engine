@@ -10,6 +10,8 @@
 //! COMPAT: divergence is confined to UB/out-of-resource inputs (task plan
 //! amendment log, docs/ai/plans/rust-conversion-phase-3.md).
 
+use core::ffi::c_char;
+
 /// sizeof(pcxheader_t)
 pub const HEADER_SIZE: usize = 128;
 pub const PALETTE_SIZE: usize = 768;
@@ -19,7 +21,10 @@ pub enum Error {
     /// C: Sys_Error ("'%s' is not a valid PCX file", image_name)
     NotValid,
     /// C: Sys_Error ("'%s' is version %i, should be 5", image_name, pcx.version)
-    BadVersion(i8),
+    /// COMPAT: c_char, not i8 — the C field is a plain `char`, which is
+    /// unsigned on aarch64 Linux, so a version byte >= 0x80 must print as a
+    /// positive number there just like the C Sys_Error does
+    BadVersion(c_char),
     /// C: Sys_Error ("'%s' has wrong encoding or bit depth", image_name)
     BadEncoding,
 }
@@ -42,22 +47,24 @@ pub fn parse_header(file: &[u8]) -> Result<Header, Error> {
     if file.len() < HEADER_SIZE {
         return Err(Error::NotValid);
     }
-    let signature = file[0] as i8;
-    let version = file[1] as i8;
-    let encoding = file[2] as i8;
-    let bits_per_pixel = file[3] as i8;
+    let signature = file[0];
+    let version = file[1];
+    let encoding = file[2];
+    let bits_per_pixel = file[3];
     let xmin = u16::from_le_bytes([file[4], file[5]]);
     let ymin = u16::from_le_bytes([file[6], file[7]]);
     let xmax = u16::from_le_bytes([file[8], file[9]]);
     let ymax = u16::from_le_bytes([file[10], file[11]]);
-    let color_planes = file[65] as i8;
+    let color_planes = file[65];
     let bytes_per_line = u16::from_le_bytes([file[66], file[67]]);
 
     if signature != 0x0A {
         return Err(Error::NotValid);
     }
     if version != 5 {
-        return Err(Error::BadVersion(version));
+        // from_ne_bytes, not `as`: c_char is u8 on aarch64 Linux, where an
+        // `as c_char` would be a same-type cast clippy rejects
+        return Err(Error::BadVersion(c_char::from_ne_bytes([version])));
     }
     if encoding != 1 || bits_per_pixel != 8 || color_planes != 1 {
         return Err(Error::BadEncoding);

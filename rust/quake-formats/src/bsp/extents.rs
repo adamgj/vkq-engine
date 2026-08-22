@@ -69,8 +69,11 @@ pub fn calc_surface_extents(
                 + f64::from(p[1]) * tex_vecs[j][1]
                 + f64::from(p[2]) * tex_vecs[j][2]
                 + tex_vecs[j][3]) as f32;
-            mins[j] = mins[j].min(val);
-            maxs[j] = maxs[j].max(val);
+            // COMPAT: q_min_f/q_max_f are `(a < b) ? a : b`, so a NaN operand
+            // propagates into the accumulator, where f32::min/f32::max would
+            // silently discard it (Quake/q_minmax.h)
+            mins[j] = if mins[j] < val { mins[j] } else { val };
+            maxs[j] = if maxs[j] > val { maxs[j] } else { val };
         }
     }
 
@@ -136,6 +139,18 @@ mod tests {
         let pts = [[0.0, 0.0, 0.0], [65536.0, 0.0, 0.0]];
         let e = calc_surface_extents(pts.into_iter(), &IDENT_VECS, false).unwrap();
         assert_eq!(e.extents[0], 0);
+    }
+
+    #[test]
+    fn nan_propagates_like_q_min_q_max() {
+        // C: q_min/q_max are ternaries, so a NaN val is *stored* and the next
+        // comparison then falls through to that operand. mins/maxs therefore
+        // end up as the last point's value, not the true extrema.
+        let pts = [[3.0, 0.0, 0.0], [f32::NAN, 0.0, 0.0], [1.0, 0.0, 0.0]];
+        let e = calc_surface_extents(pts.into_iter(), &IDENT_VECS, false).unwrap();
+        // mins: MAX -> 3 -> NaN -> 1 ; maxs: MIN -> 3 -> NaN -> 1
+        assert_eq!(e.texturemins, [0, 0]);
+        assert_eq!(e.extents, [16, 0]);
     }
 
     #[test]

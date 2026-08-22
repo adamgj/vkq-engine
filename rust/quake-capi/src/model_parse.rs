@@ -125,6 +125,7 @@ fn cstring(bytes: &[u8]) -> CString {
 
 /// `q_snprintf (dst, sizeof (dst), ...)` of an already-formatted string.
 fn snprintf_into(dst: &mut [u8], s: &str) {
+    debug_assert!(!dst.is_empty(), "q_snprintf needs room for the NUL");
     let n = s.len().min(dst.len() - 1);
     dst[..n].copy_from_slice(&s.as_bytes()[..n]);
     dst[n] = 0;
@@ -133,6 +134,7 @@ fn snprintf_into(dst: &mut [u8], s: &str) {
 /// `q_snprintf (dst, sizeof (dst), ...)` of a byte-wise concatenation, so
 /// non-UTF-8 path bytes survive unchanged.
 fn snprintf_parts(dst: &mut [u8], parts: &[&[u8]]) {
+    debug_assert!(!dst.is_empty(), "q_snprintf needs room for the NUL");
     let cap = dst.len() - 1;
     let mut n = 0usize;
     for p in parts {
