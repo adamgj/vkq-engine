@@ -292,9 +292,10 @@ srcs = [
 
 # Phase 3 (Rust migration): C format/asset parsing split out of gl_model.c and
 # image.c. model_parse.c is always compiled -- -Duse_rust_formats only
-# preprocesses out its brush/BSP half (the alias/sprite half stays C until
-# M4/M5) and adds the Host_Error trampolines; image_decode.c (PCX/LMP) is
-# gated by -Duse_rust_image below and stays the comparison oracle.
+# preprocesses out the ported loaders (Mod_SetExtraFlags and the alias scratch
+# arrays gl_mesh.c reads stay C) and adds the Host_Error trampolines;
+# image_decode.c (PCX/LMP) is gated by -Duse_rust_image below and stays the
+# comparison oracle.
 # image_stb.c stays C until Phase 3 M8.
 phase3_formats_c_srcs = [
     'Quake/model_parse.c',

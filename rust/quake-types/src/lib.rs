@@ -9,7 +9,9 @@ pub mod bspfile;
 pub mod fs;
 pub mod json;
 pub mod model_mem;
+pub mod modelgen;
 pub mod plane;
+pub mod spritegn;
 pub mod wad;
 
 pub use plane::MPlane;

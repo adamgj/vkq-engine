@@ -38,14 +38,18 @@ use quake_formats::bsp::{
     textures::TexWork,
     Bsp2,
 };
+use quake_formats::{mdl, spr};
 use quake_types::bspfile::{
     DModel, LumpT, BSPVERSION_QUAKE64, BSPVERSION_VALVE, MAX_MAP_HULLS, MIPLEVELS, TEX_SPECIAL,
 };
 use quake_types::model_mem::{
-    MClipnode, MEdge, MLeaf, MNode, MSurface, MTexInfo, MVertex, QModel, Texture, MAX_QPATH,
-    SURF_DRAWLAVA, SURF_DRAWSKY, SURF_DRAWSLIME, SURF_DRAWTELE, SURF_DRAWTURB, SURF_DRAWWATER,
-    SURF_PLANEBACK, TEXTYPE_COUNT,
+    AliasHdr, MAliasFrameDesc, MClipnode, MEdge, MLeaf, MNode, MSprite, MSpriteFrame,
+    MSpriteFrameDesc, MSpriteGroup, MSurface, MTexInfo, MTriangle, MVertex, Md3XyzNormal, Md5Vert,
+    Md5Vert8, QModel, Texture, MAX_QPATH, MOD_ALIAS, MOD_SPRITE, PV_MD5, PV_MD5_8, PV_QUAKE1,
+    PV_QUAKE3, SURF_DRAWLAVA, SURF_DRAWSKY, SURF_DRAWSLIME, SURF_DRAWTELE, SURF_DRAWTURB,
+    SURF_DRAWWATER, SURF_PLANEBACK, TEXTYPE_COUNT,
 };
+use quake_types::modelgen::{StVert, TriVertX};
 use quake_types::MPlane;
 use quake_util::crc::crc_block;
 use quake_util::strl::{strlcat, strlcpy};
@@ -1669,5 +1673,680 @@ pub unsafe extern "C" fn quake_rs_mod_load_leafs_external(
         }
         let buf = core::slice::from_raw_parts(in_, filelen as usize);
         process_leafs(m, buf, Bsp2::No, err)
+    }
+}
+
+/*
+==============================================================================
+
+ALIAS MODELS (Phase 3 M4)
+
+==============================================================================
+*/
+
+// COMPAT: neither Mod_ParseAliasModel nor Mod_LoadSpriteModel is given the
+// length of `buffer` -- gl_model.c drops com_filesize before it reaches
+// them -- so, unlike the BSP lumps, these walks are raw and unbounded and a
+// truncated file reads past the end on both sides, exactly as the C does.
+
+const MAXALIASVERTS: usize = mdl::MAXALIASVERTS as usize;
+const MAXALIASFRAMES: usize = mdl::MAXALIASFRAMES as usize;
+
+const SRC_INDEXED: c_int = 0;
+const TEXPREF_ALPHA: c_uint = 0x0008;
+const TEXPREF_PAD: c_uint = 0x0010;
+const TEXPREF_NOPICMIP: c_uint = 0x0080;
+
+unsafe extern "C" {
+    // gl_model.c: skin loading stays C (it is a TexMgr/GPU path)
+    fn Mod_LoadAllSkins(
+        pheader: *mut AliasHdr,
+        m: *mut QModel,
+        mod_base: *mut u8,
+        numskins: c_int,
+        pskintype: *mut u8,
+    ) -> *mut c_void;
+    // model_parse.c: stays C (it reads r_nolerp_list and calls into the
+    // particle script, neither of which is in this milestone's scope)
+    fn Mod_SetExtraFlags(m: *mut QModel);
+    // gl_texmgr.h. `enum srcformat` has no negative or oversized
+    // enumerators, so every compiler in the matrix gives it int rank.
+    fn TexMgr_LoadImage(
+        owner: *mut QModel,
+        name: *const c_char,
+        width: c_int,
+        height: c_int,
+        format: c_int,
+        data: *mut u8,
+        source_file: *const c_char,
+        source_offset: usize,
+        flags: c_uint,
+    ) -> *mut c_void;
+}
+
+// The three arrays keep C linkage and stay defined in model_parse.c:
+// gl_mesh.c reads all of them after the load. Only the two file-static
+// cursors move to Rust, so nothing outside this file observes them.
+#[allow(non_upper_case_globals)]
+unsafe extern "C" {
+    static mut stverts: [StVert; MAXALIASVERTS];
+    static mut triangles: *mut MTriangle;
+    static mut poseverts: [*mut TriVertX; MAXALIASFRAMES];
+}
+
+static mut TRIANGLES_SIZE: usize = 0;
+static mut POSENUM: c_int = 0;
+
+/// `&stverts[i]`
+///
+/// # Safety
+/// `i` must be in `0..MAXALIASVERTS`.
+unsafe fn stverts_slot(i: c_int) -> *mut StVert {
+    // SAFETY: caller guarantees the index is in range
+    unsafe { addr_of_mut!(stverts).cast::<StVert>().offset(i as isize) }
+}
+
+/// `&poseverts[i]`
+///
+/// # Safety
+/// `i` must be in `0..MAXALIASFRAMES`.
+unsafe fn poseverts_slot(i: c_int) -> *mut *mut TriVertX {
+    // SAFETY: caller guarantees the index is in range
+    unsafe {
+        addr_of_mut!(poseverts)
+            .cast::<*mut TriVertX>()
+            .offset(i as isize)
+    }
+}
+
+/// `&pheader->frames[index]` (the variable-sized tail)
+///
+/// # Safety
+/// `pheader` must point at an aliashdr_t allocated with room for `index`.
+unsafe fn alias_frame(pheader: *mut AliasHdr, index: c_int) -> *mut MAliasFrameDesc {
+    // SAFETY: caller guarantees the allocation covers the index
+    unsafe {
+        addr_of_mut!((*pheader).frames)
+            .cast::<MAliasFrameDesc>()
+            .offset(index as isize)
+    }
+}
+
+/// `q_strlcpy (dst, src, cap)` where `src` is a fixed-size on-disk field the
+/// C treats as a C string: a full-width name with no NUL is walked past the
+/// field on both sides (nothing is written past `cap`).
+///
+/// # Safety
+/// `dst` must be writable for `cap` bytes, `cap` non-zero, and `src`
+/// NUL-terminated.
+unsafe fn strlcpy_raw(dst: *mut c_char, cap: usize, src: *const c_char) {
+    // SAFETY: caller guarantees the buffer sizes and the NUL terminator
+    unsafe {
+        let s = cstr_bytes(src);
+        let n = s.len().min(cap - 1);
+        core::ptr::copy_nonoverlapping(s.as_ptr(), dst.cast::<u8>(), n);
+        *dst.add(n) = 0;
+    }
+}
+
+/// C `check_tris_size`: grow the shared `triangles` scratch array.
+///
+/// # Safety
+/// Main-thread only, like the C static pair it replaces.
+unsafe fn check_tris_size(numtris: usize) {
+    // SAFETY: caller guarantees single-threaded use
+    unsafe {
+        if numtris > TRIANGLES_SIZE {
+            let new_size = TRIANGLES_SIZE.wrapping_mul(2).max(numtris);
+            triangles = sys::Mem_Realloc(
+                triangles.cast::<c_void>(),
+                new_size.wrapping_mul(core::mem::size_of::<MTriangle>()),
+            )
+            .cast::<MTriangle>();
+            TRIANGLES_SIZE = new_size;
+        }
+    }
+}
+
+/*
+=================
+Mod_LoadAliasFrame
+=================
+*/
+
+/// # Safety
+/// C ABI contract of Mod_LoadAliasFrame; `pin` points at a daliasframe_t in
+/// the loaded file image.
+unsafe fn mod_load_alias_frame(pin: *mut u8, pheader: *mut AliasHdr, index: c_int) -> *mut u8 {
+    // SAFETY: C ABI contract above
+    unsafe {
+        if POSENUM >= mdl::MAXALIASFRAMES {
+            sys::Sys_Error(c"posenum >= MAXALIASFRAMES".as_ptr());
+        }
+
+        let hdr =
+            mdl::parse_frame_header(core::slice::from_raw_parts(pin, mdl::DALIASFRAME_T_SIZE));
+        let frame = alias_frame(pheader, index);
+
+        strlcpy_raw(
+            addr_of_mut!((*frame).name).cast::<c_char>(),
+            core::mem::size_of_val(&(*frame).name),
+            pin.add(8).cast::<c_char>(),
+        );
+        (*frame).firstpose = POSENUM;
+        (*frame).numposes = 1;
+
+        for i in 0..3 {
+            // these are byte values, so we don't have to worry about
+            // endianness
+            (*frame).bboxmin.v[i] = hdr.bboxmin[i];
+            (*frame).bboxmax.v[i] = hdr.bboxmax[i];
+        }
+
+        let pinframe = pin.add(mdl::DALIASFRAME_T_SIZE);
+
+        *poseverts_slot(POSENUM) = pinframe.cast::<TriVertX>();
+        POSENUM += 1;
+
+        pinframe.wrapping_offset(
+            ((*pheader).numverts as isize).wrapping_mul(mdl::TRIVERTX_T_SIZE as isize),
+        )
+    }
+}
+
+/*
+=================
+Mod_LoadAliasGroup
+=================
+*/
+
+/// # Safety
+/// C ABI contract of Mod_LoadAliasGroup; `pin` points at a daliasgroup_t in
+/// the loaded file image.
+unsafe fn mod_load_alias_group(pin: *mut u8, pheader: *mut AliasHdr, index: c_int) -> *mut u8 {
+    // SAFETY: C ABI contract above
+    unsafe {
+        debug_assert_eq!((*pheader).poseverttype, PV_QUAKE1);
+
+        let g = mdl::parse_group_header(core::slice::from_raw_parts(pin, mdl::DALIASGROUP_T_SIZE));
+        let frame = alias_frame(pheader, index);
+
+        (*frame).firstpose = POSENUM;
+        (*frame).numposes = g.numframes;
+
+        for i in 0..3 {
+            // these are byte values, so we don't have to worry about endianness
+            (*frame).bboxmin.v[i] = g.bboxmin[i];
+            (*frame).bboxmax.v[i] = g.bboxmax[i];
+        }
+
+        let pin_intervals = pin.add(mdl::DALIASGROUP_T_SIZE);
+
+        // only the first interval is kept, like the C
+        (*frame).interval = mdl::parse_interval(core::slice::from_raw_parts(
+            pin_intervals,
+            mdl::DALIASINTERVAL_T_SIZE,
+        ));
+
+        let mut ptemp = pin_intervals.wrapping_offset(
+            (g.numframes as isize).wrapping_mul(mdl::DALIASINTERVAL_T_SIZE as isize),
+        );
+
+        for _ in 0..g.numframes {
+            if POSENUM >= mdl::MAXALIASFRAMES {
+                sys::Sys_Error(c"posenum >= MAXALIASFRAMES".as_ptr());
+            }
+
+            let verts = ptemp.wrapping_add(mdl::DALIASFRAME_T_SIZE);
+            *poseverts_slot(POSENUM) = verts.cast::<TriVertX>();
+            POSENUM += 1;
+
+            ptemp = verts.wrapping_offset(
+                ((*pheader).numverts as isize).wrapping_mul(mdl::TRIVERTX_T_SIZE as isize),
+            );
+        }
+
+        ptemp
+    }
+}
+
+/*
+=================
+Mod_CalcAliasBounds
+=================
+*/
+
+/// # Safety
+/// C ABI contract of Mod_CalcAliasBounds: `m` and `a` are live, and for the
+/// MD5/MD3 pose-vertex types `vertexes` holds `numvertexes` records of the
+/// matching stride.
+#[no_mangle]
+pub unsafe extern "C" fn Mod_CalcAliasBounds(
+    m: *mut QModel,
+    a: *mut AliasHdr,
+    numvertexes: c_int,
+    vertexes: *mut u8,
+) {
+    // SAFETY: C ABI contract above
+    unsafe {
+        let b = match (*a).poseverttype {
+            PV_QUAKE1 => {
+                let (scale, origin) = ((*a).scale, (*a).scale_origin);
+                let (numposes, numverts) = ((*a).numposes, (*a).numverts);
+                mdl::calc_bounds((0..numposes).flat_map(move |i| {
+                    (0..numverts).map(move |j| {
+                        // the frame loaders filled poseverts[i] with
+                        // a pose of numverts trivertx_t
+                        let v = (*(*poseverts_slot(i)).offset(j as isize)).v;
+                        mdl::quake1_vert(v, scale, origin)
+                    })
+                }))
+            }
+            PV_MD5 => {
+                let pv = vertexes.cast::<Md5Vert>();
+                mdl::calc_bounds((0..numvertexes).map(|j| {
+                    // caller guarantees numvertexes md5vert_t
+                    (*pv.offset(j as isize)).xyz
+                }))
+            }
+            PV_MD5_8 => {
+                let pv = vertexes.cast::<Md5Vert8>();
+                mdl::calc_bounds((0..numvertexes).map(|j| {
+                    // caller guarantees numvertexes md5vert8_t
+                    (*pv.offset(j as isize)).xyz
+                }))
+            }
+            PV_QUAKE3 => {
+                let pv = vertexes.cast::<Md3XyzNormal>();
+                mdl::calc_bounds((0..numvertexes).map(|j| {
+                    // caller guarantees numvertexes md3XyzNormal_t
+                    let xyz = (*pv.offset(j as isize)).xyz;
+                    mdl::quake3_vert(xyz)
+                }))
+            }
+            _ => {
+                debug_assert!(false, "unknown poseverttype");
+                mdl::calc_bounds(core::iter::empty())
+            }
+        };
+
+        (*m).mins = b.mins;
+        (*m).maxs = b.maxs;
+        // rbounds will be used when entity has nonzero pitch or roll
+        (*m).rmins = b.rmins;
+        (*m).rmaxs = b.rmaxs;
+        // ybounds will be used when entity has nonzero yaw
+        (*m).ymins = b.ymins;
+        (*m).ymaxs = b.ymaxs;
+    }
+}
+
+/*
+=================
+Mod_ParseAliasModel
+=================
+*/
+
+/// # Safety
+/// C ABI contract of Mod_ParseAliasModel: `buffer` holds a whole .mdl file
+/// image (no length is passed, see the note at the top of this section).
+#[no_mangle]
+pub unsafe extern "C" fn Mod_ParseAliasModel(m: *mut QModel, buffer: *mut c_void) -> *mut AliasHdr {
+    // SAFETY: C ABI contract above
+    unsafe {
+        let mod_base = buffer.cast::<u8>();
+        let h = mdl::parse_header(core::slice::from_raw_parts(mod_base, mdl::MDL_T_SIZE));
+
+        if h.version != mdl::ALIAS_VERSION {
+            sys::Sys_Error(
+                c"%s has wrong version number (%i should be %i)".as_ptr(),
+                model_name(m),
+                h.version,
+                mdl::ALIAS_VERSION,
+            );
+        }
+
+        // allocate space for a working header, plus all the data except the
+        // frames, skin and group info.
+        // COMPAT: the C keeps this byte count in an `int`, so a huge frame
+        // count truncates before Mem_Alloc sign-extends it back.
+        let size = core::mem::size_of::<AliasHdr>().wrapping_add(
+            (h.numframes.wrapping_sub(1) as isize as usize)
+                .wrapping_mul(core::mem::size_of::<MAliasFrameDesc>()),
+        ) as c_int;
+        let pheader = sys::Mem_Alloc(size as isize as usize).cast::<AliasHdr>();
+        (*pheader).poseverttype = PV_QUAKE1;
+
+        (*m).flags = h.flags;
+
+        // COMPAT: the C reads the float `boundingradius` field with
+        // ReadLongUnaligned and assigns the int to a float, so the value is
+        // converted, not reinterpreted.
+        (*pheader).boundingradius = h.boundingradius_as_long as f32;
+        (*pheader).numskins = h.numskins;
+        (*pheader).skinwidth = h.skinwidth;
+        (*pheader).skinheight = h.skinheight;
+        (*pheader).numverts = h.numverts;
+        (*pheader).numtris = h.numtris;
+        (*pheader).numframes = h.numframes;
+        (*pheader).size = mdl::scaled_size(h.size);
+        (*pheader).scale = h.scale;
+        (*pheader).scale_origin = h.scale_origin;
+        (*pheader).eyeposition = h.eyeposition;
+        (*m).synctype = h.synctype;
+        (*m).numframes = h.numframes;
+
+        // COMPAT: the C interleaves these checks with the header writes
+        // above, so on a Sys_Error it has written strictly less of the
+        // header than this shim has. Sys_Error aborts, so only a trapping
+        // harness can see the difference (same divergence as
+        // CalcSurfaceExtents, above).
+        for d in mdl::validate(&h) {
+            match d {
+                mdl::Diag::SkinTooTall { .. } => Con_DWarning(
+                    c"model %s has a skin taller than %d".as_ptr(),
+                    model_name(m),
+                    mdl::MAX_LBM_HEIGHT,
+                ),
+                mdl::Diag::NoVertices => {
+                    sys::Sys_Error(c"model %s has no vertices".as_ptr(), model_name(m))
+                }
+                mdl::Diag::TooManyVertices { numverts } => sys::Sys_Error(
+                    c"model %s has too many vertices (%d; max = %d)".as_ptr(),
+                    model_name(m),
+                    numverts,
+                    mdl::MAXALIASVERTS,
+                ),
+                mdl::Diag::VertsExceedQsLimit { numverts } => Con_DWarning(
+                    c"model %s vertex count of %d exceeds QS limit of %d\n".as_ptr(),
+                    model_name(m),
+                    numverts,
+                    mdl::MAXALIASVERTS_QS,
+                ),
+                mdl::Diag::NoTriangles => {
+                    sys::Sys_Error(c"model %s has no triangles".as_ptr(), model_name(m))
+                }
+                mdl::Diag::TrisExceedQsLimit { numtris } => Con_DWarning(
+                    c"model %s triangle count of %d exceeds QS limit of %d\n".as_ptr(),
+                    model_name(m),
+                    numtris,
+                    mdl::MAXALIASTRIS_QS,
+                ),
+                mdl::Diag::InvalidFrameCount { numframes } => sys::Sys_Error(
+                    c"Mod_LoadAliasModel: Invalid # of frames: %d".as_ptr(),
+                    numframes,
+                ),
+            }
+        }
+
+        check_tris_size(h.numtris as isize as usize);
+
+        // load the skins
+        let mut p = mod_base.add(mdl::MDL_T_SIZE);
+        p = Mod_LoadAllSkins(pheader, m, mod_base, h.numskins, p).cast::<u8>();
+
+        // load base s and t vertices
+        for i in 0..h.numverts {
+            let st = mdl::parse_stvert(core::slice::from_raw_parts(p, mdl::STVERT_T_SIZE));
+            let dst = stverts_slot(i);
+            (*dst).onseam = st[0];
+            (*dst).s = st[1];
+            (*dst).t = st[2];
+            p = p.add(mdl::STVERT_T_SIZE);
+        }
+
+        // load triangle lists
+        for i in 0..h.numtris {
+            let t = mdl::parse_triangle(core::slice::from_raw_parts(p, mdl::DTRIANGLE_T_SIZE));
+            let dst = triangles.offset(i as isize);
+            (*dst).facesfront = t.facesfront;
+            (*dst).vertindex = t.vertindex;
+            p = p.add(mdl::DTRIANGLE_T_SIZE);
+        }
+
+        // load the frames
+        POSENUM = 0;
+
+        for i in 0..h.numframes {
+            let frametype =
+                mdl::parse_i32(core::slice::from_raw_parts(p, mdl::DALIASFRAMETYPE_T_SIZE));
+            let body = p.add(mdl::DALIASFRAMETYPE_T_SIZE);
+            p = if frametype == mdl::ALIAS_SINGLE {
+                mod_load_alias_frame(body, pheader, i)
+            } else {
+                mod_load_alias_group(body, pheader, i)
+            };
+        }
+
+        (*pheader).numposes = POSENUM;
+
+        (*m).type_ = MOD_ALIAS;
+
+        Mod_SetExtraFlags(m);
+
+        Mod_CalcAliasBounds(m, pheader, 0, null_mut());
+
+        pheader
+    }
+}
+
+/*
+=================
+Mod_LoadSpriteFrame
+=================
+*/
+
+/// # Safety
+/// C ABI contract of Mod_LoadSpriteFrame; `pin` points at a dspriteframe_t
+/// in the loaded file image.
+unsafe fn mod_load_sprite_frame(
+    m: *mut QModel,
+    mod_base: *mut u8,
+    pin: *mut u8,
+    ppframe: *mut *mut MSpriteFrame,
+    framenum: c_int,
+) -> *mut u8 {
+    // SAFETY: C ABI contract above
+    unsafe {
+        let g = spr::parse_frame(core::slice::from_raw_parts(pin, spr::DSPRITEFRAME_T_SIZE));
+
+        let pspriteframe =
+            sys::Mem_Alloc(core::mem::size_of::<MSpriteFrame>()).cast::<MSpriteFrame>();
+        *ppframe = pspriteframe;
+
+        (*pspriteframe).width = g.width;
+        (*pspriteframe).height = g.height;
+        (*pspriteframe).up = g.up;
+        (*pspriteframe).down = g.down;
+        (*pspriteframe).left = g.left;
+        (*pspriteframe).right = g.right;
+        (*pspriteframe).smax = g.smax;
+        (*pspriteframe).tmax = g.tmax;
+
+        let mut name = [0u8; 64];
+        let num = framenum.to_string();
+        snprintf_parts(
+            &mut name,
+            &[cstr_bytes(model_name(m)), b":frame", num.as_bytes()],
+        );
+
+        let data = pin.add(spr::DSPRITEFRAME_T_SIZE);
+        let offset = (data as usize).wrapping_sub(mod_base as usize);
+        (*pspriteframe).gltexture = TexMgr_LoadImage(
+            m,
+            name.as_ptr().cast::<c_char>(),
+            g.width,
+            g.height,
+            SRC_INDEXED,
+            data,
+            model_name(m),
+            offset,
+            TEXPREF_PAD | TEXPREF_ALPHA | TEXPREF_NOPICMIP,
+        );
+
+        pin.wrapping_add(spr::DSPRITEFRAME_T_SIZE)
+            .wrapping_offset(g.size as isize)
+    }
+}
+
+/*
+=================
+Mod_LoadSpriteGroup
+=================
+*/
+
+/// # Safety
+/// C ABI contract of Mod_LoadSpriteGroup; `pin` points at a dspritegroup_t
+/// in the loaded file image.
+unsafe fn mod_load_sprite_group(
+    m: *mut QModel,
+    mod_base: *mut u8,
+    pin: *mut u8,
+    ppframe: *mut *mut MSpriteFrame,
+    framenum: c_int,
+    type_: c_int,
+) -> *mut u8 {
+    // SAFETY: C ABI contract above
+    unsafe {
+        let numframes = spr::parse_i32(core::slice::from_raw_parts(pin, spr::DSPRITEGROUP_T_SIZE));
+        if spr::group_frame_count_is_fatal(type_, numframes) {
+            sys::Sys_Error(
+                c"Mod_LoadSpriteGroup: Bad # of frames: %d".as_ptr(),
+                numframes,
+            );
+        }
+
+        let pspritegroup = sys::Mem_Alloc(
+            core::mem::size_of::<MSpriteGroup>().wrapping_add(
+                (numframes.wrapping_sub(1) as isize as usize)
+                    .wrapping_mul(core::mem::size_of::<*mut MSpriteFrame>()),
+            ),
+        )
+        .cast::<MSpriteGroup>();
+
+        (*pspritegroup).numframes = numframes;
+
+        *ppframe = pspritegroup.cast::<MSpriteFrame>();
+
+        let mut pin_intervals = pin.add(spr::DSPRITEGROUP_T_SIZE);
+
+        let poutintervals =
+            sys::Mem_Alloc((numframes as isize as usize).wrapping_mul(core::mem::size_of::<f32>()))
+                .cast::<f32>();
+
+        (*pspritegroup).intervals = poutintervals;
+
+        for i in 0..numframes {
+            let interval = spr::parse_interval(core::slice::from_raw_parts(
+                pin_intervals,
+                spr::DSPRITEINTERVAL_T_SIZE,
+            ));
+            *poutintervals.offset(i as isize) = interval;
+            if spr::interval_is_fatal(interval) {
+                sys::Sys_Error(c"Mod_LoadSpriteGroup: interval<=0".as_ptr());
+            }
+            pin_intervals = pin_intervals.add(spr::DSPRITEINTERVAL_T_SIZE);
+        }
+
+        let mut ptemp = pin_intervals;
+        let frames = addr_of_mut!((*pspritegroup).frames).cast::<*mut MSpriteFrame>();
+
+        for i in 0..numframes {
+            ptemp = mod_load_sprite_frame(
+                m,
+                mod_base,
+                ptemp,
+                frames.offset(i as isize),
+                framenum.wrapping_mul(100).wrapping_add(i),
+            );
+        }
+
+        ptemp
+    }
+}
+
+/*
+=================
+Mod_LoadSpriteModel
+=================
+*/
+
+/// # Safety
+/// C ABI contract of Mod_LoadSpriteModel: `buffer` holds a whole .spr file
+/// image (no length is passed, see the note at the top of this section).
+#[no_mangle]
+pub unsafe extern "C" fn Mod_LoadSpriteModel(m: *mut QModel, buffer: *mut c_void) {
+    // SAFETY: C ABI contract above
+    unsafe {
+        let mod_base = buffer.cast::<u8>();
+        let h = spr::parse_header(core::slice::from_raw_parts(mod_base, spr::DSPRITE_T_SIZE));
+
+        if h.version != spr::SPRITE_VERSION {
+            sys::Sys_Error(
+                c"%s has wrong version number (%i should be %i)".as_ptr(),
+                model_name(m),
+                h.version,
+                spr::SPRITE_VERSION,
+            );
+        }
+
+        if h.numframes < 1 {
+            sys::Sys_Error(
+                c"Mod_LoadSpriteModel: Invalid # of frames: %d".as_ptr(),
+                h.numframes,
+            );
+        }
+
+        // COMPAT: an `int` byte count again, truncated before Mem_Alloc
+        // sign-extends it back.
+        let size = core::mem::size_of::<MSprite>().wrapping_add(
+            (h.numframes.wrapping_sub(1) as isize as usize)
+                .wrapping_mul(core::mem::size_of::<MSpriteFrameDesc>()),
+        ) as c_int;
+
+        let psprite = sys::Mem_Alloc(size as isize as usize).cast::<MSprite>();
+
+        (*m).extradata[PV_QUAKE1 as usize] = psprite.cast::<u8>();
+
+        (*psprite).type_ = h.type_;
+        (*psprite).maxwidth = h.width;
+        (*psprite).maxheight = h.height;
+        (*m).synctype = h.synctype;
+        (*psprite).numframes = h.numframes;
+
+        let (mins, maxs) = spr::model_bounds((*psprite).maxwidth, (*psprite).maxheight);
+        (*m).mins = mins;
+        (*m).maxs = maxs;
+
+        // load the frames
+        (*m).numframes = h.numframes;
+
+        let mut pframetype = mod_base.add(spr::DSPRITE_T_SIZE);
+        let frames = addr_of_mut!((*psprite).frames).cast::<MSpriteFrameDesc>();
+
+        for i in 0..h.numframes {
+            let frametype = spr::parse_i32(core::slice::from_raw_parts(
+                pframetype,
+                spr::DSPRITEFRAMETYPE_T_SIZE,
+            ));
+            let desc = frames.offset(i as isize);
+            (*desc).type_ = frametype;
+
+            let body = pframetype.add(spr::DSPRITEFRAMETYPE_T_SIZE);
+            pframetype = if frametype == spr::SPR_SINGLE {
+                mod_load_sprite_frame(m, mod_base, body, addr_of_mut!((*desc).frameptr), i)
+            } else {
+                mod_load_sprite_group(
+                    m,
+                    mod_base,
+                    body,
+                    addr_of_mut!((*desc).frameptr),
+                    i,
+                    frametype,
+                )
+            };
+        }
+
+        (*m).type_ = MOD_SPRITE;
     }
 }

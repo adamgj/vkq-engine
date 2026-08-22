@@ -122,6 +122,26 @@ struct cvar_s; /* cvar.h only uses it in prototypes (-Wvisibility) */
 #include "wad.h"
 #include "bspfile.h"
 #include "gl_model.h"
+/* Phase 3 M4: the sprite loader calls TexMgr_LoadImage. The real
+ * gl_texmgr.h pulls Vulkan and tasks.h, so -- exactly as the ctest c_ref
+ * prelude does -- hand-copy the slice the seam needs and claim the header's
+ * guard, which is what quake_rs.h keys its declaration off. The residual
+ * risk is drift between this slice and the real header; the engine build is
+ * what catches that. */
+#define _GL_TEXMAN_H
+enum srcformat
+{
+	SRC_INDEXED,
+	SRC_LIGHTMAP,
+	SRC_RGBA,
+	SRC_SURF_INDICES,
+	SRC_RGBA_CUBEMAP,
+	SRC_INDEXED_PALETTE,
+};
+typedef struct gltexture_s gltexture_t;
+gltexture_t *TexMgr_LoadImage (
+	qmodel_t *owner, const char *name, int width, int height, enum srcformat format, byte *data, const char *source_file, src_offset_t source_offset,
+	unsigned flags);
 #include "mathlib.h"
 #include "model_parse.h"
 #include "quake_rs.h"

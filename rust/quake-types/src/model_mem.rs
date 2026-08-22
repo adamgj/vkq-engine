@@ -1,20 +1,23 @@
-//! In-memory brush-model mirrors (`Quake/gl_model.h`). Compat-critical: the
+//! In-memory model mirrors (`Quake/gl_model.h`). Compat-critical: the
 //! Rust loaders in `quake-capi` fill these structs inside `Mem_Alloc`-backed
 //! engine memory that the C renderer and server then walk directly, so every
 //! field offset must match the C build's layout exactly. The layout is
-//! verified per-platform by the ctest ABI probe (`tests/bsp_abi.rs`); the
-//! const asserts below pin the 64-bit layout at compile time.
+//! verified per-platform by the ctest ABI probes (`tests/bsp_abi.rs` for the
+//! brush half, `tests/alias_abi.rs` for the alias/sprite half); the const
+//! asserts below pin the 64-bit layout at compile time.
 //!
 //! `PSET_SCRIPT` fields are included unconditionally — the engine defines
 //! `PSET_SCRIPT` on every platform this mirror targets.
 //!
-//! The Vulkan tail of `QModel` (`blas`/`buffer`/`address`) is mirrored as
-//! pointer-sized stand-ins; valid on 64-bit targets only, where all three Vk
-//! types are 8 bytes. Parsing never touches those fields.
+//! The Vulkan fields of `QModel` (`blas`/`buffer`/`address`) and of
+//! `AliasHdr` (the vertex/index/joints buffer block) are mirrored as
+//! pointer-sized stand-ins; valid on 64-bit targets only, where every Vk
+//! handle type is 8 bytes. Parsing never touches those fields.
 
 use core::ffi::{c_char, c_void};
 
 use crate::bspfile::{DModel, MAXLIGHTMAPS, MAX_MAP_HULLS, MIPLEVELS, NUM_AMBIENTS};
+use crate::modelgen::TriVertX;
 use crate::plane::MPlane;
 
 pub const MAX_QPATH: usize = 64;
@@ -26,6 +29,22 @@ pub const CHAIN_NUM: usize = 9;
 pub const TEXTYPE_COUNT: usize = 7;
 /// `PV_SIZE` extradata slots
 pub const PV_SIZE: usize = 4;
+pub const MAX_SKINS: usize = 32;
+pub const MAX_FRAMEGROUPS: usize = 4;
+
+/// `poseverttype_t`
+pub const PV_QUAKE1: i32 = 0;
+pub const PV_MD5: i32 = 1;
+pub const PV_MD5_8: i32 = 2;
+pub const PV_QUAKE3: i32 = 3;
+
+pub const MAXALIASVERTS_QS: i32 = 2000;
+pub const MAXALIASTRIS_QS: i32 = 4096;
+pub const MAXALIASVERTS: i32 = 0x7fff;
+pub const MAXALIASFRAMES: i32 = 2048;
+
+/// MD3 scale is a constant
+pub const MD3_XYZ_SCALE: f32 = 1.0 / 64.0;
 
 pub const TEXTYPE_DEFAULT: i32 = 0;
 pub const TEXTYPE_CUTOUT: i32 = 1;
@@ -272,6 +291,171 @@ pub struct QModel {
     pub address: u64,
 }
 
+// ---------------------------------------------------------------------------
+// Sprite models
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct MSpriteFrame {
+    pub width: i32,
+    pub height: i32,
+    pub up: f32,
+    pub down: f32,
+    pub left: f32,
+    pub right: f32,
+    pub smax: f32,
+    pub tmax: f32,
+    /// `struct gltexture_s *`
+    pub gltexture: *mut c_void,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct MSpriteGroup {
+    pub numframes: i32,
+    pub intervals: *mut f32,
+    /// variable sized
+    pub frames: [*mut MSpriteFrame; 1],
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct MSpriteFrameDesc {
+    /// `spriteframetype_t`
+    pub type_: i32,
+    pub frameptr: *mut MSpriteFrame,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct MSprite {
+    pub type_: i32,
+    pub maxwidth: i32,
+    pub maxheight: i32,
+    pub numframes: i32,
+    /// variable sized
+    pub frames: [MSpriteFrameDesc; 1],
+}
+
+// ---------------------------------------------------------------------------
+// Alias models
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct MAliasFrameDesc {
+    pub firstpose: i32,
+    pub numposes: i32,
+    pub interval: f32,
+    pub bboxmin: TriVertX,
+    pub bboxmax: TriVertX,
+    pub frame: i32,
+    pub name: [c_char; 16],
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct MTriangle {
+    pub facesfront: i32,
+    pub vertindex: [i32; 3],
+}
+
+/// `md5vert_t` (MD5, up to 4 influences). Only `xyz` is read by the parsing
+/// seam (`Mod_CalcAliasBounds`); the rest is here to pin the stride.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct Md5Vert {
+    pub xyz: [f32; 3],
+    pub norm: [f32; 3],
+    pub st: [f32; 2],
+    pub joint_weights: [u8; 4],
+    pub joint_indices: [u8; 4],
+    pub joint_position_x: [f32; 4],
+    pub joint_position_y: [f32; 4],
+    pub joint_position_z: [f32; 4],
+}
+
+/// `md5vert8_t` (MD5, up to 8 influences)
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct Md5Vert8 {
+    pub xyz: [f32; 3],
+    pub norm: [f32; 3],
+    pub st: [f32; 2],
+    pub joint_weights: [u8; 8],
+    pub joint_indices: [u8; 8],
+    pub joint_position_x: [f32; 8],
+    pub joint_position_y: [f32; 8],
+    pub joint_position_z: [f32; 8],
+}
+
+/// `md3XyzNormal_t`
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct Md3XyzNormal {
+    pub xyz: [i16; 3],
+    pub latlong: [u8; 2],
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct AliasHdr {
+    pub ident: i32,
+    pub version: i32,
+    pub scale: [f32; 3],
+    pub scale_origin: [f32; 3],
+    pub boundingradius: f32,
+    pub eyeposition: [f32; 3],
+    pub numskins: i32,
+    pub skinwidth: i32,
+    pub skinheight: i32,
+    pub numverts: i32,
+    pub numtris: i32,
+    pub numframes: i32,
+    /// `synctype_t`
+    pub synctype: i32,
+    pub flags: i32,
+    pub size: f32,
+    pub numindexes: i32,
+    pub numverts_vbo: i32,
+    pub numposes: i32,
+    pub nextsurface: *mut AliasHdr,
+    /// for md5
+    pub numjoints: i32,
+    /// `poseverttype_t`
+    pub poseverttype: i32,
+    /// `struct gltexture_s *`
+    pub gltextures: [[*mut c_void; MAX_FRAMEGROUPS]; MAX_SKINS],
+    /// `struct gltexture_s *`
+    pub fbtextures: [[*mut c_void; MAX_FRAMEGROUPS]; MAX_SKINS],
+    /// only for player skins
+    pub texels: [*mut u8; MAX_SKINS],
+    // Vk handle stand-ins, 64-bit targets only; parsing never touches these
+    /// `VkBuffer`
+    pub vertex_buffer: *mut c_void,
+    /// `glheapallocation_t *`
+    pub vertex_allocation: *mut c_void,
+    /// `VkDeviceAddress`
+    pub vertex_buffer_address: u64,
+    /// `VkBuffer`
+    pub index_buffer: *mut c_void,
+    /// `glheapallocation_t *`
+    pub index_allocation: *mut c_void,
+    /// `VkDeviceAddress`
+    pub index_buffer_address: u64,
+    /// offset in vbo of hdr->numverts_vbo meshst_t
+    pub vbostofs: i32,
+    /// `VkBuffer`
+    pub joints_buffer: *mut c_void,
+    /// `glheapallocation_t *`
+    pub joints_allocation: *mut c_void,
+    /// `VkDeviceAddress`
+    pub joints_buffer_address: u64,
+    /// `VkDescriptorSet`
+    pub joints_set: *mut c_void,
+    /// variable sized
+    pub frames: [MAliasFrameDesc; 1],
+}
+
 #[cfg(target_pointer_width = "64")]
 mod layout_asserts {
     use super::*;
@@ -313,4 +497,50 @@ mod layout_asserts {
     const _: () = assert!(offset_of!(QModel, bspversion) == 708);
     const _: () = assert!(offset_of!(QModel, extradata) == 744);
     const _: () = assert!(offset_of!(QModel, blas) == 776);
+
+    const _: () = assert!(size_of::<MSpriteFrame>() == 40);
+    const _: () = assert!(offset_of!(MSpriteFrame, up) == 8);
+    const _: () = assert!(offset_of!(MSpriteFrame, smax) == 24);
+    const _: () = assert!(offset_of!(MSpriteFrame, gltexture) == 32);
+    const _: () = assert!(size_of::<MSpriteGroup>() == 24);
+    const _: () = assert!(offset_of!(MSpriteGroup, intervals) == 8);
+    const _: () = assert!(offset_of!(MSpriteGroup, frames) == 16);
+    const _: () = assert!(size_of::<MSpriteFrameDesc>() == 16);
+    const _: () = assert!(offset_of!(MSpriteFrameDesc, frameptr) == 8);
+    const _: () = assert!(size_of::<MSprite>() == 32);
+    const _: () = assert!(offset_of!(MSprite, numframes) == 12);
+    const _: () = assert!(offset_of!(MSprite, frames) == 16);
+
+    const _: () = assert!(size_of::<MAliasFrameDesc>() == 40);
+    const _: () = assert!(offset_of!(MAliasFrameDesc, interval) == 8);
+    const _: () = assert!(offset_of!(MAliasFrameDesc, bboxmin) == 12);
+    const _: () = assert!(offset_of!(MAliasFrameDesc, bboxmax) == 16);
+    const _: () = assert!(offset_of!(MAliasFrameDesc, frame) == 20);
+    const _: () = assert!(offset_of!(MAliasFrameDesc, name) == 24);
+    const _: () = assert!(size_of::<MTriangle>() == 16);
+    const _: () = assert!(size_of::<Md5Vert>() == 88);
+    const _: () = assert!(size_of::<Md5Vert8>() == 144);
+    const _: () = assert!(size_of::<Md3XyzNormal>() == 8);
+    const _: () = assert!(size_of::<AliasHdr>() == 2544);
+    const _: () = assert!(offset_of!(AliasHdr, scale) == 8);
+    const _: () = assert!(offset_of!(AliasHdr, scale_origin) == 20);
+    const _: () = assert!(offset_of!(AliasHdr, boundingradius) == 32);
+    const _: () = assert!(offset_of!(AliasHdr, eyeposition) == 36);
+    const _: () = assert!(offset_of!(AliasHdr, numskins) == 48);
+    const _: () = assert!(offset_of!(AliasHdr, numverts) == 60);
+    const _: () = assert!(offset_of!(AliasHdr, numtris) == 64);
+    const _: () = assert!(offset_of!(AliasHdr, numframes) == 68);
+    const _: () = assert!(offset_of!(AliasHdr, synctype) == 72);
+    const _: () = assert!(offset_of!(AliasHdr, flags) == 76);
+    const _: () = assert!(offset_of!(AliasHdr, size) == 80);
+    const _: () = assert!(offset_of!(AliasHdr, numposes) == 92);
+    const _: () = assert!(offset_of!(AliasHdr, nextsurface) == 96);
+    const _: () = assert!(offset_of!(AliasHdr, poseverttype) == 108);
+    const _: () = assert!(offset_of!(AliasHdr, gltextures) == 112);
+    const _: () = assert!(offset_of!(AliasHdr, fbtextures) == 1136);
+    const _: () = assert!(offset_of!(AliasHdr, texels) == 2160);
+    const _: () = assert!(offset_of!(AliasHdr, vertex_buffer) == 2416);
+    const _: () = assert!(offset_of!(AliasHdr, vbostofs) == 2464);
+    const _: () = assert!(offset_of!(AliasHdr, joints_set) == 2496);
+    const _: () = assert!(offset_of!(AliasHdr, frames) == 2504);
 }
