@@ -137,9 +137,21 @@ void *Mem_Alloc (const size_t size)
 	return calloc (1, size ? size : 1);
 }
 
+/* poisoned rather than left uninitialized: the brush loaders leave a few
+ * msurface_t fields untouched (Phase 3 M3), and a deterministic fill makes
+ * the C and Rust sides agree on those bytes instead of comparing two
+ * different heaps' garbage. Still distinct from Mem_Alloc's zeros. */
+/* zero-filled on purpose: Mod_ParseFaces ORs into msurface_t::styles_bitmap
+ * without initializing it first, so a garbage-filled Mem_AllocNonZero makes
+ * the C oracle non-reproducible. Zeroing keeps both sides deterministic; a
+ * field the Rust port fails to write still shows up as 0 against the C
+ * value whenever that value is non-zero. */
 void *Mem_AllocNonZero (const size_t size)
 {
-	return malloc (size ? size : 1);
+	void *p = malloc (size ? size : 1);
+	if (p)
+		memset (p, 0, size ? size : 1);
+	return p;
 }
 
 void *Mem_Realloc (void *ptr, const size_t size)
@@ -1217,4 +1229,259 @@ const char *COM_Parse (const char *data)
 const char *COM_ThreadToken (void)
 {
 	return com_token;
+}
+
+/* ---------------------------------------------------------------------------
+ * Phase 3 (model_parse.c) stubs: the seams UNDER the brush loaders. Both the
+ * c_ref side and the Rust exports resolve to these same definitions, so the
+ * observable behavior is comparable.
+ */
+
+static float ctest_FloatNoSwap (float f)
+{
+	return f;
+}
+float (*LittleFloat) (float f) = ctest_FloatNoSwap;
+
+CON_STUB (Con_DWarning, "[dwarn]")
+
+/* Host_Error: separate trap from Sys_Error so tests can differentially
+ * compare WHICH error path fired. Unarmed Host_Error aborts. */
+static jmp_buf ctest_host_error_jmp;
+static int	   ctest_host_error_armed;
+static char	   ctest_host_error_msg[2048];
+
+FUNC_NORETURN void Host_Error (const char *error, ...)
+{
+	va_list ap;
+	va_start (ap, error);
+	vsnprintf (ctest_host_error_msg, sizeof (ctest_host_error_msg), error, ap);
+	va_end (ap);
+	if (ctest_host_error_armed)
+	{
+		ctest_host_error_armed = 0;
+		longjmp (ctest_host_error_jmp, 1);
+	}
+	fprintf (stderr, "Host_Error: %s\n", ctest_host_error_msg);
+	abort ();
+}
+
+/* Runs fn(arg) with the Host_Error trap armed. Returns 1 if Host_Error fired
+ * (message in ctest_host_error_message()), 0 if fn returned normally. */
+int ctest_try_host (void (*fn) (void *), void *arg)
+{
+	if (setjmp (ctest_host_error_jmp))
+		return 1;
+	ctest_host_error_armed = 1;
+	ctest_host_error_msg[0] = 0;
+	fn (arg);
+	ctest_host_error_armed = 0;
+	return 0;
+}
+
+const char *ctest_host_error_message (void)
+{
+	return ctest_host_error_msg;
+}
+
+/* sv.modelname is the only server state model_parse.c reads
+ * (Mod_SetupSubmodels submodel-0 check) */
+ctest_server_stub_t sv;
+
+void ctest_set_sv_modelname (const char *name)
+{
+	snprintf (sv.modelname, sizeof (sv.modelname), "%s", name ? name : "");
+}
+
+cvar_t external_ents = {"external_ents", "1", CVAR_ARCHIVE};
+
+void ctest_set_external_ents (float value)
+{
+	external_ents.value = value;
+}
+
+/* Mod_FindName: static pool keyed by name, so submodel chaining
+ * (Mod_SetupSubmodels' "*1".."*n" clones) gets stable identical pointers on
+ * both sides without the real model cache. */
+#define CTEST_MOD_POOL_MAX 64
+static qmodel_t ctest_mod_pool[CTEST_MOD_POOL_MAX];
+static int		ctest_mod_pool_count;
+
+qmodel_t *Mod_FindName (const char *name)
+{
+	int i;
+	for (i = 0; i < ctest_mod_pool_count; i++)
+		if (!strcmp (ctest_mod_pool[i].name, name))
+			return &ctest_mod_pool[i];
+	assert (ctest_mod_pool_count < CTEST_MOD_POOL_MAX);
+	memset (&ctest_mod_pool[ctest_mod_pool_count], 0, sizeof (qmodel_t));
+	snprintf (ctest_mod_pool[ctest_mod_pool_count].name, sizeof (ctest_mod_pool[0].name), "%s", name);
+	ctest_mod_pool[ctest_mod_pool_count].needload = true;
+	return &ctest_mod_pool[ctest_mod_pool_count++];
+}
+
+void ctest_mod_pool_reset (void)
+{
+	ctest_mod_pool_count = 0;
+}
+
+qmodel_t *ctest_mod_pool_get (int i)
+{
+	return (i >= 0 && i < ctest_mod_pool_count) ? &ctest_mod_pool[i] : NULL;
+}
+
+int ctest_mod_pool_len (void)
+{
+	return ctest_mod_pool_count;
+}
+
+/* Mod_LoadWadTexture: wad fallback lookup lives in gl_model.c (GPU-adjacent,
+ * stays C); the ctest fixtures don't mount texture wads, so a NULL return
+ * exercises the missing-texture fallback identically on both sides. */
+texture_t *Mod_LoadWadTexture (qmodel_t *mod, wad_t *wads, const char *name)
+{
+	(void)mod;
+	(void)wads;
+	(void)name;
+	return NULL;
+}
+
+/* alias/sprite sections of model_parse.c (still C in M3) link these */
+void *Mod_LoadAllSkins (aliashdr_t *pheader, qmodel_t *mod, byte *mod_base, int numskins, byte *pskintype)
+{
+	(void)pheader;
+	(void)mod;
+	(void)mod_base;
+	(void)numskins;
+	return pskintype;
+}
+
+gltexture_t *TexMgr_LoadImage (
+	qmodel_t *owner, const char *name, int width, int height, enum srcformat format, byte *data, const char *source_file, src_offset_t source_offset,
+	unsigned flags)
+{
+	(void)owner;
+	(void)name;
+	(void)width;
+	(void)height;
+	(void)format;
+	(void)data;
+	(void)source_file;
+	(void)source_offset;
+	(void)flags;
+	return NULL;
+}
+
+/* COM_SkipPath / COM_StripExtension live in Quake/common.c, which is not in
+ * the c_ref build; verbatim copies here are shared by both sides (the
+ * prelude does not rename them). */
+const char *COM_SkipPath (const char *pathname)
+{
+	const char *last;
+
+	last = pathname;
+	while (*pathname)
+	{
+		if (*pathname == '/')
+			last = pathname + 1;
+		pathname++;
+	}
+	return last;
+}
+
+void COM_StripExtension (const char *in, char *out, size_t outsize)
+{
+	int length;
+
+	if (!*in)
+	{
+		*out = '\0';
+		return;
+	}
+	if (in != out) /* copy when not in-place editing */
+		q_strlcpy (out, in, outsize);
+	length = (int)strlen (out) - 1;
+	while (length > 0 && out[length] != '.')
+	{
+		--length;
+		if (out[length] == '/' || out[length] == '\\')
+			return; /* no extension */
+	}
+	if (length > 0)
+		out[length] = '\0';
+}
+
+/* ---------------------------------------------------------------------------
+ * Tail of model_parse.c that M3 does not port: the alias/sprite half still
+ * references these, and the linker pulls the whole TU in. Only q_strncasecmp
+ * is reachable from the brush range (Mod_TextureTypeFromName), so it is a
+ * verbatim copy of common.c's; the rest are inert stand-ins.
+ */
+
+int q_strncasecmp (const char *s1, const char *s2, size_t n)
+{
+	const char *p1 = s1;
+	const char *p2 = s2;
+	char		c1, c2;
+
+	if (p1 == p2 || n == 0)
+		return 0;
+
+	do
+	{
+		c1 = *p1++;
+		c2 = *p2++;
+		if (c1 >= 'A' && c1 <= 'Z')
+			c1 += 'a' - 'A';
+		if (c2 >= 'A' && c2 <= 'Z')
+			c2 += 'a' - 'A';
+		if (c1 == '\0' || c1 != c2)
+			break;
+	} while (--n > 0);
+
+	return (int)(c1 - c2);
+}
+
+void PScript_UpdateModelEffects (qmodel_t *mod)
+{
+	(void)mod;
+}
+
+#ifndef THREAD_LOCAL
+#ifdef _MSC_VER
+#define THREAD_LOCAL __declspec (thread)
+#else
+#define THREAD_LOCAL _Thread_local
+#endif
+#endif
+
+THREAD_LOCAL size_t thread_stack_alloc_size = 0;
+size_t				max_thread_stack_alloc_size = 0;
+
+cvar_t r_nolerp_list = {
+	"r_nolerp_list",
+	"progs/flame.mdl,progs/flame2.mdl,progs/braztall.mdl,progs/brazshrt.mdl,progs/longtrch.mdl,progs/flame_pyre.mdl,progs/v_saw.mdl,progs/"
+	"v_xfist.mdl,progs/h2stuff/newfire.mdl",
+	CVAR_NONE};
+
+/* gl_model.c's two dummy texture slots: Mod_Init allocates r_notexture_mip /
+ * r_notexture_mip2 and Mod_LoadTextures fills the last two entries of
+ * mod->textures after Mod_ParseTextures returns. Both halves stay C, so the
+ * differential driver replicates the two assignments for either side out of
+ * one shared pair (identical contents keep the snapshots comparable). */
+static texture_t ctest_notexture_mip;
+static texture_t ctest_notexture_mip2;
+
+void ctest_fill_dummy_textures (qmodel_t *mod)
+{
+	memset (&ctest_notexture_mip, 0, sizeof (ctest_notexture_mip));
+	strcpy (ctest_notexture_mip.name, "notexture");
+	ctest_notexture_mip.height = ctest_notexture_mip.width = 32;
+
+	memset (&ctest_notexture_mip2, 0, sizeof (ctest_notexture_mip2));
+	strcpy (ctest_notexture_mip2.name, "notexture2");
+	ctest_notexture_mip2.height = ctest_notexture_mip2.width = 32;
+
+	mod->textures[mod->numtextures - 2] = &ctest_notexture_mip;
+	mod->textures[mod->numtextures - 1] = &ctest_notexture_mip2;
 }

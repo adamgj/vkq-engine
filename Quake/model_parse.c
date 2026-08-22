@@ -27,6 +27,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 extern cvar_t external_ents;
 
+#ifndef USE_RUST_FORMATS
 /*
 ===============
 ReadShortUnaligned
@@ -38,6 +39,7 @@ static short ReadShortUnaligned (byte *ptr)
 	memcpy (&temp, ptr, sizeof (short));
 	return LittleShort (temp);
 }
+#endif // !USE_RUST_FORMATS
 
 /*
 ===============
@@ -63,6 +65,7 @@ static float ReadFloatUnaligned (byte *ptr)
 	return LittleFloat (temp);
 }
 
+#ifndef USE_RUST_FORMATS
 static byte *mod_decompressed;
 static int	 mod_decompressed_capacity;
 
@@ -1795,6 +1798,7 @@ void Mod_SetupSubmodels (qmodel_t *mod)
 		}
 	}
 }
+#endif // !USE_RUST_FORMATS
 
 /*
 ==============================================================================

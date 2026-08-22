@@ -45,6 +45,7 @@ extern qboolean multiuser;	  /* quakedef.h */
 extern qboolean isDedicated;  /* quakedef.h */
 extern cvar_t	developer;	  /* quakedef.h */
 extern qboolean harness_active; /* harness.h */
+extern cvar_t	external_ents;	  /* gl_model.c */
 
 /* embedded pak (generated embedded_pak.c) */
 extern const unsigned char vkquake_pak[];

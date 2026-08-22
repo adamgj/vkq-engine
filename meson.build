@@ -291,11 +291,16 @@ srcs = [
 ]
 
 # Phase 3 (Rust migration): C format/asset parsing split out of gl_model.c and
-# image.c. model_parse.c is compiled unconditionally until -Duse_rust_formats
-# arrives; image_decode.c (PCX/LMP) is gated by -Duse_rust_image below and
-# stays the comparison oracle. image_stb.c stays C until Phase 3 M8.
+# image.c. model_parse.c is always compiled -- -Duse_rust_formats only
+# preprocesses out its brush/BSP half (the alias/sprite half stays C until
+# M4/M5) and adds the Host_Error trampolines; image_decode.c (PCX/LMP) is
+# gated by -Duse_rust_image below and stays the comparison oracle.
+# image_stb.c stays C until Phase 3 M8.
 phase3_formats_c_srcs = [
     'Quake/model_parse.c',
+]
+phase3_formats_glue_c_srcs = [
+    'Quake/model_parse_glue.c',
 ]
 phase3_image_c_srcs = [
     'Quake/image_decode.c',
@@ -370,6 +375,13 @@ if get_option('use_rust_image').enabled() and not use_rust
     error('-Duse_rust_image=enabled requires -Duse_rust=enabled (the image decoders ship in libquake_rs.a)')
 endif
 use_rust_image = use_rust and not get_option('use_rust_image').disabled()
+# Phase 3 M3: brush/BSP loaders; the brush half of model_parse.c stays the
+# comparison oracle under -Duse_rust_formats=disabled. Same
+# auto-follows-use_rust rule as above
+if get_option('use_rust_formats').enabled() and not use_rust
+    error('-Duse_rust_formats=enabled requires -Duse_rust=enabled (the brush/BSP loaders ship in libquake_rs.a)')
+endif
+use_rust_formats = use_rust and not get_option('use_rust_formats').disabled()
 # the Rust filesystem does not implement the DO_USERDIRS lookup branches yet
 # (quake-capi fails this combination with a compile_error!); say so here
 # rather than several minutes into a cargo build
@@ -396,6 +408,10 @@ if use_rust
 
     if use_rust_image
         rust_feature_list += 'image'
+    endif
+
+    if use_rust_formats
+        rust_feature_list += 'formats'
     endif
     # cargo features tracking C defines the fs shims must agree with
     if use_sdl3
@@ -436,8 +452,15 @@ if not use_rust_fs
     srcs += phase2_c_srcs
 endif
 
-# Phase 3: -Duse_rust_formats arrives with the quake-formats port
+# Phase 3: model_parse.c is always compiled; under -Duse_rust_formats its
+# brush/BSP half is preprocessed out and the Host_Error trampolines that call
+# the Rust loaders (PLAN.md 4.3) come in alongside it
 srcs += phase3_formats_c_srcs
+
+if use_rust_formats
+    cflags += '-DUSE_RUST_FORMATS'
+    srcs += phase3_formats_glue_c_srcs
+endif
 
 if not use_rust_image
     # the C PCX/LMP decoders stay in as long as the Phase 3 image switch is off

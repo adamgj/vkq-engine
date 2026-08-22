@@ -184,6 +184,7 @@ name = "quake-capi"
 version = "0.1.0"
 dependencies = [
  "quake-c-sys",
+ "quake-formats",
  "quake-fs",
  "quake-image",
  "quake-math",

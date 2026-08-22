@@ -14,7 +14,7 @@ quake-types = { path = "../quake-types" }
 quake-c-sys = { path = "../quake-c-sys" }
 # Phase 2: the differential suites compare the fs shims against the c_ref_*
 # build of common_fs.c/steam.c, so the fs feature must be on
-quake-capi = { path = "../quake-capi", features = ["fs", "image"] }
+quake-capi = { path = "../quake-capi", features = ["fs", "image", "formats"] }
 quake-fs = { path = "../quake-fs" }
 
 [dev-dependencies]
