@@ -285,6 +285,11 @@ typedef struct efrag_s efrag_t;
 FUNC_NORETURN void Host_Error (const char *error, ...);
 void			   Con_DWarning (const char *fmt, ...);
 
+/* glquake.h declares this and drags in Vulkan; PSET_SCRIPT is on above, so
+ * Mod_SetExtraFlags calls it. Apple clang errors on the implicit declaration
+ * where gcc/cl only warn. */
+void PScript_UpdateModelEffects (qmodel_t *mod);
+
 /* gl_texmgr.h slice for the sprite loader (the real header drags in tasks.h
  * and Vk-typed structs); values match Quake/gl_texmgr.h */
 enum srcformat
