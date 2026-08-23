@@ -91,14 +91,13 @@ fn bits3(v: &[f32; 3]) -> [u32; 3] {
 /// `inv_denom` becomes `0` and the result is a finite `[1, 0, 0]`.
 ///
 /// The *sign* of that NaN is not a property of the source, and it is not a
-/// per-architecture constant either: on `x86_64-pc-windows-msvc` the two
-/// degenerate families reach the NaN by different routes (`0 * inf` in
-/// `ProjectPointOnPlane` for a zero `dir`, `-inf * 0` in `VectorNormalize`
-/// for an underflowing one) and land on *opposite* signs in the same build.
-/// C also reaches `sqrt` as a compiler builtin, free to be inlined, lowered
-/// or folded, where the port calls the platform `sqrt` opaquely through FFI
-/// (`quake_c_sys::libm`). C and Rust can therefore disagree on the sign bit
-/// alone for inputs no caller is allowed to pass.
+/// per-architecture constant either — it falls out of the instruction
+/// sequence the toolchain happens to emit. See ADR-010 for the measurement:
+/// on one x86_64 host, two builds of this identical C source disagree on the
+/// sign for a zero `dir`. C and Rust do not share that sequence (C reaches
+/// `sqrt` as an inlinable compiler builtin, the port calls the platform
+/// `sqrt` opaquely through `quake_c_sys::libm`), so the two sides can
+/// disagree on the sign bit alone for inputs no caller is allowed to pass.
 ///
 /// Nothing else is relaxed: NaN payloads, quiet/signaling bits, NaN-vs-number,
 /// and every lane of every non-degenerate input stay bit-exact.

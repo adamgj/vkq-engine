@@ -74,22 +74,25 @@ family: an *overflowing* dot product makes `inv_denom` zero and
 `c_ref_` build; `overflowing_dir_is_not_degenerate` pins it).
 
 *Which* default NaN comes out is not a property of the source, and it is not a
-per-architecture constant either. Measured on `x86_64-pc-windows-msvc`, the two
-degenerate inputs reach the NaN by different routes and land on **opposite**
-signs in the same build:
+per-architecture constant either. Measured on one `x86_64-pc-windows-msvc`
+host, two builds of the *identical* C source disagree:
 
-| `dir` | route to NaN | result |
+| build of `PerpendicularVector` | `dir = [0, 0, 0]` | `dir = [1e-30; 3]` |
 | --- | --- | --- |
-| `[0, 0, 0]` | `0 * inf` in `ProjectPointOnPlane` | `0x7fc00000` |
-| `[1e-30; 3]` | `-inf * 0` in `VectorNormalize` | `0xffc00000` |
+| `c_ref_` archive (`mathlib.c` as its own TU, no cross-function inlining) | `0xffc00000` | `0xffc00000` |
+| single-TU copy, clang `-O0` and clang-cl `-O2` alike | `0x7fc00000` | `0xffc00000` |
 
-So any statement of the form "architecture X produces sign Y here" is wrong;
-the sign falls out of the exact instruction sequence the toolchain emits. The
-two sides do not share that sequence: the C build reaches `sqrt` as a compiler
-builtin, free to be inlined, lowered to a hardware instruction, or folded,
-while the port calls the platform `sqrt` opaquely through FFI
-(`quake_c_sys::libm`). C and Rust can therefore disagree on the NaN **sign bit
-alone** at these call sites with no difference in the ported logic.
+The two degenerate inputs also reach the NaN by different routes — `0 * inf`
+in `ProjectPointOnPlane` for a zero `dir`, `-inf * 0` in `VectorNormalize` for
+an underflowing one — and in the single-TU build those routes land on opposite
+signs. So any statement of the form "architecture X produces sign Y here" is
+wrong; the sign falls out of the exact instruction sequence the toolchain
+emits, and inlining alone is enough to flip it. The two sides do not share
+that sequence: the C build reaches `sqrt` as a compiler builtin, free to be
+inlined, lowered to a hardware instruction, or folded, while the port calls
+the platform `sqrt` opaquely through FFI (`quake_c_sys::libm`). C and Rust can
+therefore disagree on the NaN **sign bit alone** at these call sites with no
+difference in the ported logic.
 
 The specific divergence that prompted this amendment (C `0xffc00000` vs Rust
 `0x7fc00000`) was seen once in a random proptest search and has **not** been
