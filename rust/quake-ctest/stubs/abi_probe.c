@@ -401,6 +401,94 @@ static const ctest_abi_entry_t ctest_abi_alias_table[] = {
 	OFF ("mspriteframedesc_t", mspriteframedesc_t, frameptr),
 };
 
+
+/* Phase 3 M5: the MD3/MD5 half of the same seam -- the on-disk MD3 records,
+ * the MD5 in-memory vertex layouts the shim writes through, jointpose_t /
+ * aliasmesh_t (handed to GLMesh_UploadBuffers) and the skin-definition block
+ * the MD3 loader Mem_Allocs for the still-C .skin plumbing. */
+static const ctest_abi_entry_t ctest_abi_mdx_table[] = {
+	SZ ("md3Header_t", md3Header_t),
+	SZ ("md3Frame_t", md3Frame_t),
+	SZ ("md3Surface_t", md3Surface_t),
+	SZ ("md3Triangle_t", md3Triangle_t),
+	SZ ("md3St_t", md3St_t),
+	SZ ("md3Shader_t", md3Shader_t),
+	SZ ("jointpose_t", jointpose_t),
+	SZ ("aliasmesh_t", aliasmesh_t),
+	SZ ("qpath_str_t", qpath_str_t),
+	SZ ("skin_def_t", skin_def_t),
+	SZ ("surface_def_t", surface_def_t),
+	SZ ("all_surfaces_def_t", all_surfaces_def_t),
+
+	OFF ("md3Header_t", md3Header_t, ident),
+	OFF ("md3Header_t", md3Header_t, version),
+	OFF ("md3Header_t", md3Header_t, name),
+	OFF ("md3Header_t", md3Header_t, flags),
+	OFF ("md3Header_t", md3Header_t, numFrames),
+	OFF ("md3Header_t", md3Header_t, numTags),
+	OFF ("md3Header_t", md3Header_t, numSurfaces),
+	OFF ("md3Header_t", md3Header_t, numSkins),
+	OFF ("md3Header_t", md3Header_t, ofsFrames),
+	OFF ("md3Header_t", md3Header_t, ofsTags),
+	OFF ("md3Header_t", md3Header_t, ofsSurfaces),
+	OFF ("md3Header_t", md3Header_t, ofsEnd),
+
+	OFF ("md3Frame_t", md3Frame_t, bounds),
+	OFF ("md3Frame_t", md3Frame_t, localOrigin),
+	OFF ("md3Frame_t", md3Frame_t, radius),
+	OFF ("md3Frame_t", md3Frame_t, name),
+
+	OFF ("md3Surface_t", md3Surface_t, ident),
+	OFF ("md3Surface_t", md3Surface_t, name),
+	OFF ("md3Surface_t", md3Surface_t, flags),
+	OFF ("md3Surface_t", md3Surface_t, numFrames),
+	OFF ("md3Surface_t", md3Surface_t, numShaders),
+	OFF ("md3Surface_t", md3Surface_t, numVerts),
+	OFF ("md3Surface_t", md3Surface_t, numTriangles),
+	OFF ("md3Surface_t", md3Surface_t, ofsTriangles),
+	OFF ("md3Surface_t", md3Surface_t, ofsShaders),
+	OFF ("md3Surface_t", md3Surface_t, ofsSt),
+	OFF ("md3Surface_t", md3Surface_t, ofsXyzNormals),
+	OFF ("md3Surface_t", md3Surface_t, ofsEnd),
+
+	OFF ("md3Triangle_t", md3Triangle_t, indexes),
+	OFF ("md3St_t", md3St_t, s),
+	OFF ("md3St_t", md3St_t, t),
+	OFF ("md3Shader_t", md3Shader_t, name),
+	OFF ("md3Shader_t", md3Shader_t, shaderIndex),
+
+	OFF ("jointpose_t", jointpose_t, mat),
+	OFF ("aliasmesh_t", aliasmesh_t, st),
+	OFF ("aliasmesh_t", aliasmesh_t, vertindex),
+
+	OFF ("md5vert_t", md5vert_t, xyz),
+	OFF ("md5vert_t", md5vert_t, norm),
+	OFF ("md5vert_t", md5vert_t, st),
+	OFF ("md5vert_t", md5vert_t, joint_weights),
+	OFF ("md5vert_t", md5vert_t, joint_indices),
+	OFF ("md5vert_t", md5vert_t, joint_position_x),
+	OFF ("md5vert_t", md5vert_t, joint_position_y),
+	OFF ("md5vert_t", md5vert_t, joint_position_z),
+
+	OFF ("md5vert8_t", md5vert8_t, xyz),
+	OFF ("md5vert8_t", md5vert8_t, norm),
+	OFF ("md5vert8_t", md5vert8_t, st),
+	OFF ("md5vert8_t", md5vert8_t, joint_weights),
+	OFF ("md5vert8_t", md5vert8_t, joint_indices),
+	OFF ("md5vert8_t", md5vert8_t, joint_position_x),
+	OFF ("md5vert8_t", md5vert8_t, joint_position_y),
+	OFF ("md5vert8_t", md5vert8_t, joint_position_z),
+
+	OFF ("qpath_str_t", qpath_str_t, c_str),
+	OFF ("skin_def_t", skin_def_t, framegroups),
+	OFF ("skin_def_t", skin_def_t, numframegroups),
+	OFF ("surface_def_t", surface_def_t, surfname),
+	OFF ("surface_def_t", surface_def_t, skins),
+	OFF ("surface_def_t", surface_def_t, numskins),
+	OFF ("all_surfaces_def_t", all_surfaces_def_t, surfaces),
+	OFF ("all_surfaces_def_t", all_surfaces_def_t, numsurfaces),
+};
+
 #undef SZ
 #undef OFF
 
@@ -421,5 +509,14 @@ size_t ctest_abi_alias_lookup (const char *key)
 	for (i = 0; i < sizeof (ctest_abi_alias_table) / sizeof (ctest_abi_alias_table[0]); i++)
 		if (!strcmp (ctest_abi_alias_table[i].name, key))
 			return ctest_abi_alias_table[i].value;
+	return (size_t)-1;
+}
+
+size_t ctest_abi_mdx_lookup (const char *key)
+{
+	size_t i;
+	for (i = 0; i < sizeof (ctest_abi_mdx_table) / sizeof (ctest_abi_mdx_table[0]); i++)
+		if (!strcmp (ctest_abi_mdx_table[i].name, key))
+			return ctest_abi_mdx_table[i].value;
 	return (size_t)-1;
 }

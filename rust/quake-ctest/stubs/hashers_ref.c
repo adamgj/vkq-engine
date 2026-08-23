@@ -4,7 +4,9 @@
  * are renamed by the same prelude, which is fine for these wrappers. */
 
 #include <string.h>
-#include "hash_map.h"
+/* hash_map.h has no include guard and the prelude now includes it (Phase 3 M5
+ * needs it for MD5_ComputeNormals), so including it again here would redefine
+ * the static inlines. */
 
 uint32_t c_ref_HashInt32 (const void *const val)
 {
