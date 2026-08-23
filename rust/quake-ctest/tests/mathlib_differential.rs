@@ -1,6 +1,8 @@
 //! Differential tests: quake-math (and the quake-capi shims) vs the original
-//! mathlib.c compiled as c_ref_*. All comparisons are bit-exact (to_bits) so
-//! NaN propagation and negative zero are covered.
+//! mathlib.c compiled as c_ref_*. Comparisons are bit-exact (to_bits) so NaN
+//! propagation and negative zero are covered; the single documented exception
+//! is the NaN sign bit on degenerate `PerpendicularVector` /
+//! `RotatePointAroundVector` input (see [`bits3_nan_sign_masked`]).
 
 use core::ffi::{c_double, c_float, c_int};
 use proptest::prelude::*;
@@ -78,24 +80,33 @@ fn bits3(v: &[f32; 3]) -> [u32; 3] {
     [v[0].to_bits(), v[1].to_bits(), v[2].to_bits()]
 }
 
-/// Same as [`bits3`], but with the sign of a NaN lane normalized away.
+/// Same as [`bits3`], but with the sign of a NaN lane normalized away — and
+/// only for the one input family that can produce a NaN at all.
 ///
-/// COMPAT: ADR-010 (Phase 3 amendment) — a degenerate `dir` (zero length, or
-/// large enough that `DotProduct (dir, dir)` overflows to infinity) makes
-/// `ProjectPointOnPlane` evaluate `0 * inf`, so every lane downstream is a
-/// default NaN. *Which* default NaN is not a property of the source: x86 and
-/// arm hardware produce the negative "indefinite" QNaN (0xffc00000) at
-/// runtime, a constant-folding compiler produces the positive one
-/// (0x7fc00000). C and Rust can therefore disagree on the sign bit alone for
-/// inputs no caller is allowed to pass. Both engine callers of these two
-/// functions are in the FTE particle renderer (r_part_fte.c), and neither the
-/// demo state-hash chain nor savegames carry particle state, so the
-/// divergence is unobservable. NaN payloads and NaN-vs-number differences are
-/// still compared bit-exactly.
-fn bits3_nan_sign_masked(v: &[f32; 3]) -> [u32; 3] {
+/// COMPAT: ADR-010 (Phase 3 amendment) — `PerpendicularVector` and
+/// `RotatePointAroundVector` reach `1.0f / DotProduct (dir, dir)`. When that
+/// dot product is exactly `0.0` — `dir` is zero, or its components are small
+/// enough that the squares underflow to zero — every lane of the result is a
+/// default NaN on both sides. An *overflowing* dot product is not degenerate:
+/// `inv_denom` becomes `0` and the result is a finite `[1, 0, 0]`.
+///
+/// The *sign* of that NaN is not a property of the source, and it is not a
+/// per-architecture constant either: on `x86_64-pc-windows-msvc` the two
+/// degenerate families reach the NaN by different routes (`0 * inf` in
+/// `ProjectPointOnPlane` for a zero `dir`, `-inf * 0` in `VectorNormalize`
+/// for an underflowing one) and land on *opposite* signs in the same build.
+/// C also reaches `sqrt` as a compiler builtin, free to be inlined, lowered
+/// or folded, where the port calls the platform `sqrt` opaquely through FFI
+/// (`quake_c_sys::libm`). C and Rust can therefore disagree on the sign bit
+/// alone for inputs no caller is allowed to pass.
+///
+/// Nothing else is relaxed: NaN payloads, quiet/signaling bits, NaN-vs-number,
+/// and every lane of every non-degenerate input stay bit-exact.
+fn bits3_nan_sign_masked(v: &[f32; 3], dir: &[f32; 3]) -> [u32; 3] {
+    let degenerate = m::dot_product(dir, dir) == 0.0;
     v.map(|f| {
         let b = f.to_bits();
-        if f.is_nan() {
+        if degenerate && f.is_nan() {
             b & 0x7fff_ffff
         } else {
             b
@@ -225,13 +236,19 @@ proptest! {
             c_ref_PerpendicularVector(c_dst.as_mut_ptr(), dir.as_ptr());
             let mut r_dst = [0.0f32; 3];
             m::perpendicular_vector(&mut r_dst, &dir);
-            prop_assert_eq!(bits3_nan_sign_masked(&r_dst), bits3_nan_sign_masked(&c_dst));
+            prop_assert_eq!(
+                bits3_nan_sign_masked(&r_dst, &dir),
+                bits3_nan_sign_masked(&c_dst, &dir)
+            );
 
             let mut c_rot = [0.0f32; 3];
             c_ref_RotatePointAroundVector(c_rot.as_mut_ptr(), dir.as_ptr(), point.as_ptr(), degrees);
             let mut r_rot = [0.0f32; 3];
             m::rotate_point_around_vector(&mut r_rot, &dir, &point, degrees);
-            prop_assert_eq!(bits3_nan_sign_masked(&r_rot), bits3_nan_sign_masked(&c_rot));
+            prop_assert_eq!(
+                bits3_nan_sign_masked(&r_rot, &dir),
+                bits3_nan_sign_masked(&c_rot, &dir)
+            );
         }
     }
 
@@ -302,30 +319,85 @@ proptest! {
     }
 }
 
-/// The degenerate case behind the `bits3_nan_sign_masked` exception, pinned
-/// deterministically rather than left to the proptest seed corpus: a
-/// zero-length `dir` must produce an all-NaN result on both sides.
+/// The degenerate family behind the `bits3_nan_sign_masked` exception, pinned
+/// deterministically rather than left to the proptest seed corpus: whenever
+/// `DotProduct (dir, dir)` is exactly `0.0`, both sides must produce an
+/// all-NaN result.
 #[test]
-fn zero_dir_is_all_nan_on_both_sides() {
-    let dir = [0.0f32; 3];
-    let point = [0.0f32; 3];
-    // SAFETY: valid vec3 pointers
-    unsafe {
-        let mut c_dst = [0.0f32; 3];
-        c_ref_PerpendicularVector(c_dst.as_mut_ptr(), dir.as_ptr());
-        let mut r_dst = [0.0f32; 3];
-        m::perpendicular_vector(&mut r_dst, &dir);
-        assert!(c_dst.iter().all(|f| f.is_nan()), "C perp: {c_dst:?}");
-        assert!(r_dst.iter().all(|f| f.is_nan()), "Rust perp: {r_dst:?}");
-        assert_eq!(bits3_nan_sign_masked(&r_dst), bits3_nan_sign_masked(&c_dst));
+fn degenerate_dir_is_all_nan_on_both_sides() {
+    // zero, negative zero, and two vectors whose squares underflow to zero
+    for dir in [
+        [0.0f32; 3],
+        [-0.0f32; 3],
+        [1e-30f32; 3],
+        [1e-40f32, 0.0, 0.0],
+    ] {
+        assert_eq!(
+            m::dot_product(&dir, &dir),
+            0.0,
+            "{dir:?} is not the degenerate family this test is for"
+        );
+        let point = [0.0f32; 3];
+        // SAFETY: valid vec3 pointers
+        unsafe {
+            let mut c_dst = [0.0f32; 3];
+            c_ref_PerpendicularVector(c_dst.as_mut_ptr(), dir.as_ptr());
+            let mut r_dst = [0.0f32; 3];
+            m::perpendicular_vector(&mut r_dst, &dir);
+            assert!(
+                c_dst.iter().all(|f| f.is_nan()),
+                "C perp {dir:?}: {c_dst:?}"
+            );
+            assert!(
+                r_dst.iter().all(|f| f.is_nan()),
+                "Rust perp {dir:?}: {r_dst:?}"
+            );
+            assert_eq!(
+                bits3_nan_sign_masked(&r_dst, &dir),
+                bits3_nan_sign_masked(&c_dst, &dir)
+            );
 
-        let mut c_rot = [0.0f32; 3];
-        c_ref_RotatePointAroundVector(c_rot.as_mut_ptr(), dir.as_ptr(), point.as_ptr(), -420.61713);
-        let mut r_rot = [0.0f32; 3];
-        m::rotate_point_around_vector(&mut r_rot, &dir, &point, -420.61713);
-        assert!(c_rot.iter().all(|f| f.is_nan()), "C rot: {c_rot:?}");
-        assert!(r_rot.iter().all(|f| f.is_nan()), "Rust rot: {r_rot:?}");
-        assert_eq!(bits3_nan_sign_masked(&r_rot), bits3_nan_sign_masked(&c_rot));
+            let mut c_rot = [0.0f32; 3];
+            c_ref_RotatePointAroundVector(
+                c_rot.as_mut_ptr(),
+                dir.as_ptr(),
+                point.as_ptr(),
+                -420.61713,
+            );
+            let mut r_rot = [0.0f32; 3];
+            m::rotate_point_around_vector(&mut r_rot, &dir, &point, -420.61713);
+            assert!(c_rot.iter().all(|f| f.is_nan()), "C rot {dir:?}: {c_rot:?}");
+            assert!(
+                r_rot.iter().all(|f| f.is_nan()),
+                "Rust rot {dir:?}: {r_rot:?}"
+            );
+            assert_eq!(
+                bits3_nan_sign_masked(&r_rot, &dir),
+                bits3_nan_sign_masked(&c_rot, &dir)
+            );
+        }
+    }
+}
+
+/// The neighbouring non-degenerate case, pinned so the mask above can never
+/// quietly widen: an *overflowing* `DotProduct (dir, dir)` yields no NaN at
+/// all, so it is still compared fully bit-exactly.
+#[test]
+fn overflowing_dir_is_not_degenerate() {
+    for dir in [[1e30f32; 3], [1e38f32, 1e38, 1e38]] {
+        assert!(m::dot_product(&dir, &dir).is_infinite());
+        // SAFETY: valid vec3 pointers
+        unsafe {
+            let mut c_dst = [0.0f32; 3];
+            c_ref_PerpendicularVector(c_dst.as_mut_ptr(), dir.as_ptr());
+            let mut r_dst = [0.0f32; 3];
+            m::perpendicular_vector(&mut r_dst, &dir);
+            assert!(
+                c_dst.iter().all(|f| f.is_finite()),
+                "C perp {dir:?}: {c_dst:?}"
+            );
+            assert_eq!(bits3(&r_dst), bits3(&c_dst));
+        }
     }
 }
 

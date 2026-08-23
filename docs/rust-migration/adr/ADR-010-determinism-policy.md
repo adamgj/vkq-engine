@@ -65,37 +65,77 @@ The mathlib differential suite found two compiler relaxations empirically (the
 
 ## Amended (Phase 3, 2026-08-22): NaN sign bit on degenerate mathlib inputs
 
-`PerpendicularVector` and `RotatePointAroundVector` divide by
-`DotProduct (dir, dir)`. For a degenerate `dir` — zero length, or large enough
-that the dot product overflows to infinity — `ProjectPointOnPlane` evaluates
-`0 * inf`, and every lane from there on is a default NaN.
+`PerpendicularVector` and `RotatePointAroundVector` reach
+`1.0f / DotProduct (dir, dir)`. When that dot product is exactly `0.0` — `dir`
+is zero, or its components are small enough that the squares underflow to zero
+— every lane of the result is a default NaN. That is the *only* degenerate
+family: an *overflowing* dot product makes `inv_denom` zero and
+`PerpendicularVector` returns a finite `[1, 0, 0]` (verified against the
+`c_ref_` build; `overflowing_dir_is_not_degenerate` pins it).
 
-*Which* default NaN is not a property of the source. x86 SSE and arm produce
-the negative "indefinite" QNaN (`0xffc00000`) at runtime; a constant-folding
-compiler (LLVM's `APFloat::getQNaN`) produces the positive one (`0x7fc00000`).
-So the C build and the Rust port can legitimately disagree on the NaN **sign
-bit alone** at these call sites depending on optimization level and target,
-with no difference in the ported logic. (Not reproducible on
-`x86_64-pc-windows-msvc` with rustc 1.97.1 / clang-cl: 200k proptest cases and
-a 2.2M-point degenerate grid agree bit-for-bit there. It was observed by a
-random proptest search and is accepted as a general possibility rather than
-chased per-toolchain.)
+*Which* default NaN comes out is not a property of the source, and it is not a
+per-architecture constant either. Measured on `x86_64-pc-windows-msvc`, the two
+degenerate inputs reach the NaN by different routes and land on **opposite**
+signs in the same build:
 
-**Accepted, not fixed.** Both engine callers of these two functions are in the
-FTE particle renderer (`r_part_fte.c`); neither the demo state-hash chain
-(`Harness_HashServer` / `Harness_HashClient`, which cover edicts, progs
-globals and client entity/view state) nor savegames carry particle state, so
-the sign bit is unobservable at the gates ADR-019 defends. The engine's own
-contract also excludes these inputs: `PerpendicularVector` documents "assumes
-`src` is normalized".
+| `dir` | route to NaN | result |
+| --- | --- | --- |
+| `[0, 0, 0]` | `0 * inf` in `ProjectPointOnPlane` | `0x7fc00000` |
+| `[1e-30; 3]` | `-inf * 0` in `VectorNormalize` | `0xffc00000` |
+
+So any statement of the form "architecture X produces sign Y here" is wrong;
+the sign falls out of the exact instruction sequence the toolchain emits. The
+two sides do not share that sequence: the C build reaches `sqrt` as a compiler
+builtin, free to be inlined, lowered to a hardware instruction, or folded,
+while the port calls the platform `sqrt` opaquely through FFI
+(`quake_c_sys::libm`). C and Rust can therefore disagree on the NaN **sign bit
+alone** at these call sites with no difference in the ported logic.
+
+The specific divergence that prompted this amendment (C `0xffc00000` vs Rust
+`0x7fc00000`) was seen once in a random proptest search and has **not** been
+reproduced on the reference platform: on `x86_64-pc-windows-msvc` with rustc
+1.97.1 / clang-cl, 200k proptest cases and a 2.2M-point degenerate grid agree
+bit-for-bit. Its exact mechanism is therefore unconfirmed — the builtin-vs-FFI
+`sqrt` asymmetry above is the leading candidate, not a diagnosis. The exception
+is accepted as a general possibility rather than chased per-toolchain.
+
+**Accepted, not fixed.** Every engine caller of these two functions is in the
+FTE particle renderer: `PerpendicularVector` at `r_part_fte.c:4390`,
+`RotatePointAroundVector` at `:4485` and `:7262` (nothing outside
+`r_part_fte.c` calls either). Particle *storage* is outside the demo
+state-hash chain and savegames, but particle *execution* is not entirely
+outside the hash: `Harness_Frame` mixes `COM_RandState` into the
+chain (`Quake/harness.c:299`) and `frandom()` (`r_part_fte.c:37`) draws from
+that same stream, so "the renderer is unhashed" is not on its own a sufficient
+argument. A NaN **sign bit** specifically cannot reach the hash: every
+comparison against a NaN is false regardless of sign, so no branch, no
+`COM_Rand ()` draw count, and no stored value can depend on it. The engine's
+own contract also excludes these inputs: `PerpendicularVector` documents
+"assumes `src` is normalized".
 
 The `perpendicular_and_rotate_match` differential therefore compares those two
-functions with the NaN **sign** normalized away
-(`bits3_nan_sign_masked` in `rust/quake-ctest/tests/mathlib_differential.rs`);
-NaN payloads, quiet/signaling bits, NaN-vs-number, and every non-NaN lane are
-still compared bit-exactly, and no other property in the suite is relaxed. The
-degenerate case is pinned two ways: a proptest regression seed replaying
-`dir = [0,0,0], point = [0,0,0]`, and the deterministic
-`zero_dir_is_all_nan_on_both_sides` test. If either function ever acquires a
-simulation-side caller, this exception must come down along with the
-`RotationMatrix` one above.
+functions with the NaN **sign** normalized away, and only for inputs where
+`DotProduct (dir, dir) == 0.0` (`bits3_nan_sign_masked` in
+`rust/quake-ctest/tests/mathlib_differential.rs`). NaN payloads,
+quiet/signaling bits, NaN-vs-number, and every lane of every non-degenerate
+input are still compared bit-exactly. The degenerate family is pinned two ways:
+a proptest regression seed, and the deterministic
+`degenerate_dir_is_all_nan_on_both_sides` test, which covers zero, negative
+zero and two underflowing vectors and asserts the `DotProduct == 0.0` trigger
+directly — the seed line is a ChaCha seed, not a recorded input, so it silently
+reroutes if `game_float()` ever changes and the deterministic test is the
+durable half of that pair.
+
+Two related relaxations already in this suite, recorded here so the exception
+list stays honest:
+
+- `matrices_match` compares `R_ConcatRotations` / `R_ConcatTransforms` by
+  `Debug` string rather than by bits, which also erases NaN sign (and payload).
+- `RotationMatrix` evaluates `x * x * (1.0f - c)`, which is `inf * 0` whenever
+  `|axis|` overflows and `cosf (angle)` rounds to exactly `1.0f`. That is the
+  same NaN-producing construct, compared bit-exactly and *not* masked. It has
+  never been observed to diverge; if it ever does, extend this exception rather
+  than widening the mask silently.
+
+If either function ever acquires a simulation-side caller, this exception must
+come down along with the `RotationMatrix` one above.
