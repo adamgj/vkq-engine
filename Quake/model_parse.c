@@ -2439,6 +2439,7 @@ MD5 / MD3 MODELS
 ==============================================================================
 */
 
+#ifndef USE_RUST_FORMATS
 /*
 =================================================================
 MD5 Models, for compat with the rerelease and NOT doom3.
@@ -3549,7 +3550,6 @@ error:
 	return false;
 }
 
-#ifndef USE_RUST_FORMATS
 /*
 =====================
 Mod_LoadMD3Model

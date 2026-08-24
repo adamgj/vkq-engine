@@ -1467,6 +1467,9 @@ typedef struct
 	int32_t numposes, numframes, numjoints, poseverttype, numskins;
 	int32_t has_next_surface, has_desc, has_joints;
 	int32_t index_bytes, vertex_bytes, desc_bytes, joint_bytes;
+	/* FNV-1a over each buffer, always computed: a real model's vertex block
+	 * can outgrow the byte copy below, and the hash still compares. */
+	uint64_t index_hash, vertex_hash, desc_hash, joint_hash;
 	int32_t truncated;
 	byte	data[CTEST_UPLOAD_BYTES]; /* indexes | vertexes | desc | joints */
 } ctest_upload_call_t;
@@ -1544,9 +1547,24 @@ static size_t ctest_pose_vertex_size (int poseverttype)
 	}
 }
 
-static void ctest_upload_append (ctest_upload_call_t *c, size_t *used, const void *src, size_t n, int32_t *out_bytes)
+static uint64_t ctest_fnv1a (const void *src, size_t n)
+{
+	const byte *p = (const byte *)src;
+	uint64_t	h = 1469598103934665603ull;
+	size_t		i;
+	for (i = 0; i < n; i++)
+	{
+		h ^= p[i];
+		h *= 1099511628211ull;
+	}
+	return h;
+}
+
+static void ctest_upload_append (
+	ctest_upload_call_t *c, size_t *used, const void *src, size_t n, int32_t *out_bytes, uint64_t *out_hash)
 {
 	*out_bytes = (int32_t)n;
+	*out_hash = (src && n) ? ctest_fnv1a (src, n) : 0;
 	if (!src || n == 0)
 		return;
 	if (*used + n > CTEST_UPLOAD_BYTES)
@@ -1584,11 +1602,13 @@ void GLMesh_UploadBuffers (qmodel_t *mod, aliashdr_t *hdr, unsigned short *index
 		c->has_desc = desc != NULL;
 		c->has_joints = joints != NULL;
 
-		ctest_upload_append (c, &used, indexes, (size_t)hdr->numindexes * sizeof (unsigned short), &c->index_bytes);
-		ctest_upload_append (c, &used, vertexes, vert_records * vsize, &c->vertex_bytes);
-		ctest_upload_append (c, &used, desc, desc ? (size_t)hdr->numverts * sizeof (aliasmesh_t) : 0, &c->desc_bytes);
+		ctest_upload_append (c, &used, indexes, (size_t)hdr->numindexes * sizeof (unsigned short), &c->index_bytes, &c->index_hash);
+		ctest_upload_append (c, &used, vertexes, vert_records * vsize, &c->vertex_bytes, &c->vertex_hash);
 		ctest_upload_append (
-			c, &used, joints, joints ? (size_t)hdr->numjoints * (size_t)hdr->numframes * sizeof (jointpose_t) : 0, &c->joint_bytes);
+			c, &used, desc, desc ? (size_t)hdr->numverts * sizeof (aliasmesh_t) : 0, &c->desc_bytes, &c->desc_hash);
+		ctest_upload_append (
+			c, &used, joints, joints ? (size_t)hdr->numjoints * (size_t)hdr->numframes * sizeof (jointpose_t) : 0, &c->joint_bytes,
+			&c->joint_hash);
 	}
 	++ctest_upload_n;
 }

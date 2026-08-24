@@ -121,6 +121,7 @@ void Mod_LoadSpriteModel(qmodel_t *mod, void *buffer);
 /* Phase 3 M5: the MD3/MD5 half. Same no-length seam; both call back into
  * gl_model.c for the .skin plumbing and into gl_mesh.c for the GPU upload. */
 void Mod_LoadMD3Model(qmodel_t *mod, const void *buffer);
+qboolean Mod_LoadMD5MeshModel(qmodel_t *mod, const void *buffer);
 /* Host_Error trampolines: the Rust side returns the message C would have
  * raised and Quake/model_parse_glue.c re-raises it from a C frame (PLAN.md
  * 4.3 -- a longjmp must never unwind a Rust frame) */
@@ -204,6 +205,8 @@ exclude = [
     "Mod_ParseAliasModel", "Mod_CalcAliasBounds", "Mod_LoadSpriteModel",
     "Mod_LoadAllSkins", "Mod_SetExtraFlags", "TexMgr_LoadImage",
     "Mod_LoadMD3Model", "Mod_LoadMD3SkinDefinitions", "Mod_LoadMD3SurfaceSkins",
+    "Mod_LoadMD5MeshModel", "Mod_LoadMD5SurfaceSkins", "GLMesh_DeleteMeshBuffers",
+    "strtoull", "strtol",
     "GLMesh_UploadBuffers", "AliasMesh", "AllSurfacesDef", "JointPose",
     "QPathStr", "SkinDef", "SurfaceDef", "Md3XyzNormal", "Md5Vert", "Md5Vert8",
     "AliasHdr", "MAliasFrameDesc", "MSprite", "MSpriteFrameDesc",

@@ -7,5 +7,15 @@ rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
+[dependencies]
+# in-workspace pure crates (ADR-004: both are #![forbid(unsafe_code)]).
+# quake-math supplies the bit-exact vector ops MD5_ComputeNormals needs and
+# quake-util the hash_map.c port its position->normal map is built on.
+quake-math = { path = "../quake-math" }
+quake-util = { path = "../quake-util" }
+# platform libm call-throughs (ADR-010): MD5_ComputeNormals' acos must be the
+# same implementation the C build linked, never a Rust reimplementation
+quake-c-sys = { path = "../quake-c-sys" }
+
 [lints]
 workspace = true

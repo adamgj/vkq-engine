@@ -41,7 +41,7 @@ const OFS_NUMVERTS: usize = 60;
 const OFS_NUMTRIS: usize = 64;
 const OFS_NUMFRAMES: usize = 68;
 const OFS_SYNCTYPE: usize = 72;
-const OFS_FLAGS: usize = 76;
+pub const OFS_FLAGS: usize = 76;
 const OFS_SIZE: usize = 80;
 
 pub const ALIAS_VERSION: i32 = 6;

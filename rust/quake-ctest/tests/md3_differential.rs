@@ -19,8 +19,13 @@ use quake_ctest::fs as ctfs;
 use quake_ctest::fs::Side;
 use quake_types::model_mem::{QModel, MAX_QPATH, PV_QUAKE3};
 
+#[path = "support/mdx_record.rs"]
+mod mdx_record;
 #[path = "support/model_hash.rs"]
 mod model_hash;
+use mdx_record::{
+    ctest_mdxstub_reset, ctest_skindefs_count, recorded_skins, recorded_uploads, MdxSkin, Upload,
+};
 use model_hash::{mdx_snapshot, Snapshot};
 
 const MD3_HEADER_SIZE: usize = 108;
@@ -33,144 +38,7 @@ const MAX_SURFACES: i32 = 32;
 
 extern "C" {
     fn c_ref_Mod_LoadMD3Model(m: *mut QModel, buffer: *const c_void);
-
     fn ctest_modelstub_reset(base: *const u8);
-    fn ctest_mdxstub_reset(skins_result: i32);
-    fn ctest_upload_count() -> i32;
-    fn ctest_upload_calls() -> *const UploadCall;
-    fn ctest_mdxskin_count() -> i32;
-    fn ctest_mdxskin_calls() -> *const MdxSkinCall;
-    fn ctest_skindefs_count() -> i32;
-}
-
-const CTEST_UPLOAD_BYTES: usize = 65536;
-
-/// Mirror of `ctest_upload_call_t` in `stubs/stubs.c`.
-#[repr(C)]
-struct UploadCall {
-    numverts: i32,
-    numverts_vbo: i32,
-    numtris: i32,
-    numindexes: i32,
-    numposes: i32,
-    numframes: i32,
-    numjoints: i32,
-    poseverttype: i32,
-    numskins: i32,
-    has_next_surface: i32,
-    has_desc: i32,
-    has_joints: i32,
-    index_bytes: i32,
-    vertex_bytes: i32,
-    desc_bytes: i32,
-    joint_bytes: i32,
-    truncated: i32,
-    data: [u8; CTEST_UPLOAD_BYTES],
-}
-
-/// Mirror of `ctest_mdxskin_call_t` in `stubs/stubs.c`.
-#[repr(C)]
-struct MdxSkinCall {
-    name: [c_char; 64],
-    surf_index: i32,
-    numsurfaces: i64,
-    numskins: i64,
-    kind: i32,
-}
-
-/// Comparable, printable form of one recorded upload.
-#[derive(Clone, Debug, PartialEq)]
-pub struct Upload {
-    pub numverts: i32,
-    pub numverts_vbo: i32,
-    pub numtris: i32,
-    pub numindexes: i32,
-    pub numposes: i32,
-    pub numframes: i32,
-    pub numjoints: i32,
-    pub poseverttype: i32,
-    pub numskins: i32,
-    pub has_next_surface: bool,
-    pub has_desc: bool,
-    pub has_joints: bool,
-    pub index_bytes: i32,
-    pub vertex_bytes: i32,
-    pub desc_bytes: i32,
-    pub joint_bytes: i32,
-    pub payload: Vec<u8>,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-struct MdxSkin {
-    name: String,
-    surf_index: i32,
-    numsurfaces: i64,
-    numskins: i64,
-    kind: i32,
-}
-
-fn cstr(buf: &[c_char]) -> String {
-    let bytes: Vec<u8> = buf.iter().map(|&c| c as u8).collect();
-    let end = bytes.iter().position(|&b| b == 0).unwrap_or(bytes.len());
-    String::from_utf8_lossy(&bytes[..end]).into_owned()
-}
-
-impl From<&UploadCall> for Upload {
-    fn from(c: &UploadCall) -> Self {
-        assert_eq!(c.truncated, 0, "upload recorder overflowed its buffer");
-        let n = (c.index_bytes + c.vertex_bytes + c.desc_bytes + c.joint_bytes).max(0) as usize;
-        Upload {
-            numverts: c.numverts,
-            numverts_vbo: c.numverts_vbo,
-            numtris: c.numtris,
-            numindexes: c.numindexes,
-            numposes: c.numposes,
-            numframes: c.numframes,
-            numjoints: c.numjoints,
-            poseverttype: c.poseverttype,
-            numskins: c.numskins,
-            has_next_surface: c.has_next_surface != 0,
-            has_desc: c.has_desc != 0,
-            has_joints: c.has_joints != 0,
-            index_bytes: c.index_bytes,
-            vertex_bytes: c.vertex_bytes,
-            desc_bytes: c.desc_bytes,
-            joint_bytes: c.joint_bytes,
-            payload: c.data[..n].to_vec(),
-        }
-    }
-}
-
-/// Reads the shared recorders. Caller must hold [`ctfs::lock`].
-pub fn recorded_uploads() -> Vec<Upload> {
-    // SAFETY: the recorder holds `ctest_upload_count` valid entries
-    unsafe {
-        let n = ctest_upload_count();
-        let p = ctest_upload_calls();
-        (0..n as isize)
-            .map(|i| Upload::from(&*p.offset(i)))
-            .collect()
-    }
-}
-
-fn recorded_skins() -> Vec<MdxSkin> {
-    // SAFETY: the recorder holds `ctest_mdxskin_count` valid entries
-    unsafe {
-        let n = ctest_mdxskin_count();
-        let p = ctest_mdxskin_calls();
-        (0..n as isize)
-            .map(|i| {
-                let c = &*p.offset(i);
-                MdxSkin {
-                    name: cstr(&c.name),
-                    surf_index: c.surf_index,
-                    numsurfaces: c.numsurfaces,
-                    numskins: c.numskins,
-                    kind: c.kind,
-                }
-            })
-            .collect()
-    }
 }
 
 type LoadFn = unsafe extern "C" fn(*mut QModel, *const c_void);

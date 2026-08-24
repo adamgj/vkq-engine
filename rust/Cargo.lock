@@ -214,6 +214,11 @@ version = "0.1.0"
 [[package]]
 name = "quake-formats"
 version = "0.1.0"
+dependencies = [
+ "quake-c-sys",
+ "quake-math",
+ "quake-util",
+]
 
 [[package]]
 name = "quake-fs"
