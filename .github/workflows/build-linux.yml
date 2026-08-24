@@ -158,6 +158,23 @@ jobs:
         export QUAKE_GAME_DATA="$PWD/shareware-data"
         python3 scripts/harness/save_diff.py --vkquake build-c/vkqr-engine --vkquake-b build-rs/vkqr-engine
         python3 scripts/harness/save_diff.py --vkquake build-c/vkqr-engine --vkquake-b build-rs-cfs/vkqr-engine
+    # Phase 3 M6: gl_model.c fans model loading out over task workers and the
+    # Rust loaders run on those workers, so changing the worker count must not
+    # perturb the simulation. -pinnedworkers overrides the count (tasks.c:366).
+    #
+    # Scope, precisely: the harness state hash covers edicts, qcvm globals and
+    # client entity state (Quake/harness.c:159-233) -- nothing produced by
+    # Mod_LoadSkinTask/Mod_LoadMDXSkinTask enters it. So this catches a loader
+    # that Sys_Errors, deadlocks, or corrupts state the simulation reads; it
+    # does NOT gate those two task bodies' own output for order independence.
+    # Decoder-level order independence is covered by the threaded_parse ctest.
+    - name: Worker count does not perturb the simulation (1 vs 8, mixed build)
+      run: |
+        export QUAKE_GAME_DATA="$PWD/shareware-data"
+        python3 scripts/harness/run_corpus.py --vkquake build-rs/vkqr-engine \
+          --compare build-rs/vkqr-engine --tier shareware \
+          --extra-args "-pinnedworkers 0" \
+          --compare-extra-args "-pinnedworkers 0,1,2,3,4,5,6,7"
 
   # ADR-013 / PLAN §7 gate 9: AddressSanitizer on the C side of the mixed
   # build, catching cross-language allocator misuse (alloc on one heap, free
@@ -222,3 +239,16 @@ jobs:
         # exit-time leaks are pre-existing engine behavior, not boundary bugs
         export ASAN_OPTIONS=detect_leaks=0
         python3 scripts/harness/run_demo.py --vkquake build-asan/vkqr-engine --demo demo1 --out asan-demo1.hash
+    # Phase 3 M6 / AC8: a map load reaches the alias and MD5/MD3 skin task
+    # dispatches (gl_model.c:1997, :2205) that demo playback alone barely
+    # exercises, and the forced eight-worker run makes the fan-out real on a
+    # small CI runner. Both go through the Rust loaders (use_rust_formats and
+    # use_rust_image follow use_rust to `auto` -> on).
+    - name: Map load under ASan, forced multi-worker
+      run: |
+        export QUAKE_GAME_DATA="$PWD/shareware-data"
+        export ASAN_OPTIONS=detect_leaks=0
+        printf '0 map e1m2\n900 quit\n' > asan-map.cmds
+        python3 scripts/harness/run_demo.py --vkquake build-asan/vkqr-engine \
+          --cmds asan-map.cmds --exitafter 1000 --out asan-map.hash \
+          --extra-args "-pinnedworkers 0,1,2,3,4,5,6,7"

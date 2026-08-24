@@ -138,15 +138,14 @@ void *Mem_Alloc (const size_t size)
 	return calloc (1, size ? size : 1);
 }
 
-/* poisoned rather than left uninitialized: the brush loaders leave a few
- * msurface_t fields untouched (Phase 3 M3), and a deterministic fill makes
- * the C and Rust sides agree on those bytes instead of comparing two
- * different heaps' garbage. Still distinct from Mem_Alloc's zeros. */
-/* zero-filled on purpose: Mod_ParseFaces ORs into msurface_t::styles_bitmap
- * without initializing it first, so a garbage-filled Mem_AllocNonZero makes
- * the C oracle non-reproducible. Zeroing keeps both sides deterministic; a
- * field the Rust port fails to write still shows up as 0 against the C
- * value whenever that value is non-zero. */
+/* zero-filled rather than left uninitialized: the brush loaders leave a few
+ * msurface_t fields untouched (Phase 3 M3), so a deterministic fill makes the
+ * C and Rust sides agree on those bytes instead of comparing two different
+ * heaps' garbage. A field the Rust port fails to write still shows up as 0
+ * against the C value whenever that value is non-zero.
+ * The one field that *required* the fill to be zero rather than any other
+ * constant -- msurface_t::styles_bitmap, OR-ed into without initialization --
+ * is initialized by Mod_ParseFaces itself since Phase 3 M6 (RA12). */
 void *Mem_AllocNonZero (const size_t size)
 {
 	void *p = malloc (size ? size : 1);
@@ -341,11 +340,50 @@ int Sys_FileType (const char *path)
  * Sys_File* handle layer: semantics copied from Quake/sys_sdl.c (file- and
  * memory-backed handles, duplicate-by-reopen, EOF bookkeeping), minus the
  * mutex — the differential tests serialize all fs access.
+ *
+ * One exception (Phase 3 M6): threaded_parse.rs opens, decodes and closes
+ * concurrently. Only the `free` flag crosses threads, so it is the only field
+ * made atomic, and allocHandle claims a slot with a compare-and-swap rather
+ * than a scan-then-take pair — which is the same job the real engine's
+ * Sys_FileOpenRead mutex does. Every other field in a slot is touched solely
+ * by the thread that owns it, between the claim and the close.
+ *
+ * The one-time table init below is deliberately *not* synchronized: callers
+ * must perform at least one open before spawning threads (threaded_parse.rs
+ * does its serial C decodes first), exactly as the engine initializes its
+ * handle table on the main thread before any task worker runs.
  */
+
+/* The handle-table free flag is the one stub field that genuinely crosses
+ * threads, so it gets real atomics rather than the prelude's stand-in
+ * Atomic_StoreUInt32 (which is a plain volatile store -- the prelude cannot
+ * include the engine's atomics.h, because that drags in q_stdinc.h -> SDL.h).
+ * MSVC is split out because it does not ship <stdatomic.h> reliably under
+ * /std:c11; _InterlockedExchange/_InterlockedCompareExchange are intrinsics
+ * with full-fence semantics, which is stronger than needed here. */
+#ifdef _MSC_VER
+#include <intrin.h>
+typedef volatile long ctest_flag_t;
+#define CTEST_FLAG_STORE(p, v) ((void)_InterlockedExchange ((p), (v)))
+#define CTEST_FLAG_LOAD(p)	   (_InterlockedCompareExchange ((p), 0, 0))
+/* claim: 1 (free) -> 0 (in use), atomically */
+#define CTEST_FLAG_CLAIM(p) (_InterlockedCompareExchange ((p), 0, 1) == 1)
+#else
+#include <stdatomic.h>
+typedef _Atomic unsigned int ctest_flag_t;
+#define CTEST_FLAG_STORE(p, v) atomic_store ((p), (v))
+#define CTEST_FLAG_LOAD(p)	   atomic_load ((p))
+static inline bool ctest_flag_claim (ctest_flag_t *p)
+{
+	unsigned int expected = 1;
+	return atomic_compare_exchange_strong (p, &expected, 0u);
+}
+#define CTEST_FLAG_CLAIM(p) ctest_flag_claim (p)
+#endif
 
 typedef struct ctest_handle_s
 {
-	bool		free;
+	ctest_flag_t free; /* written by the closing thread, scanned by allocHandle */
 	char	   *file_path;
 	FILE	   *file;
 	const byte *memory;
@@ -364,15 +402,25 @@ static int allocHandle (void)
 	if (!ctest_handles_initialized)
 	{
 		for (i = 1; i < CTEST_MAX_HANDLES; i++)
-			ctest_handles[i].free = true;
+			CTEST_FLAG_STORE (&ctest_handles[i].free, 1);
 		ctest_handles_initialized = 1;
 	}
 	/* index 0 stays invalid by design, like the engine */
 	for (i = 1; i < CTEST_MAX_HANDLES; i++)
 	{
-		if (ctest_handles[i].free)
+		/* claim atomically: a plain "is it free? then take it" pair would let
+		 * two threads pick the same slot, which is why the real engine's
+		 * Sys_FileOpenRead holds a mutex here. Doing it with a CAS instead
+		 * lets threaded_parse.rs run its opens fully concurrently. */
+		if (CTEST_FLAG_CLAIM (&ctest_handles[i].free))
 		{
-			memset (&ctest_handles[i], 0, sizeof (ctest_handle_t));
+			/* the slot is now owned by this thread alone */
+			ctest_handles[i].file_path = NULL;
+			ctest_handles[i].file = NULL;
+			ctest_handles[i].memory = NULL;
+			ctest_handles[i].pos = 0;
+			ctest_handles[i].size = 0;
+			ctest_handles[i].eof_condition = false;
 			return i;
 		}
 	}
@@ -386,7 +434,7 @@ int ctest_open_handle_count (void)
 	if (!ctest_handles_initialized)
 		return 0;
 	for (i = 1; i < CTEST_MAX_HANDLES; i++)
-		if (!ctest_handles[i].free)
+		if (!CTEST_FLAG_LOAD (&ctest_handles[i].free))
 			n++;
 	return n;
 }
@@ -402,7 +450,7 @@ qfilesize_t Sys_FileOpenRead (const char *path, int *hndl)
 
 	if (!f)
 	{
-		ctest_handles[i].free = true;
+		CTEST_FLAG_STORE (&ctest_handles[i].free, 1);
 		*hndl = -1;
 		retval = -1;
 	}
@@ -469,7 +517,7 @@ int Sys_FileOpenWrite (const char *path)
 	f = Sys_fopen (path, "wb");
 	if (!f)
 	{
-		ctest_handles[i].free = true;
+		CTEST_FLAG_STORE (&ctest_handles[i].free, 1);
 		return -1;
 	}
 
@@ -490,7 +538,7 @@ void Sys_FileClose (int handle)
 		fclose (ctest_handles[handle].file);
 		Mem_Free (ctest_handles[handle].file_path);
 	}
-	ctest_handles[handle].free = true;
+	CTEST_FLAG_STORE (&ctest_handles[handle].free, 1);
 }
 
 int Sys_FileSeek (int handle, qfileofs_t position)

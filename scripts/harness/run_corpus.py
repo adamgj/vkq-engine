@@ -74,9 +74,11 @@ def entry_available(entry, game_data):
     return None
 
 
-def run_entry(vkquake, entry, game_data, out):
+def run_entry(vkquake, entry, game_data, out, extra_args=""):
     cmd = [sys.executable, RUN_DEMO, "--vkquake", vkquake,
            "--game-data", game_data, "--out", out]
+    if extra_args:
+        cmd += ["--extra-args", extra_args]
     if entry.get("demo"):
         cmd += ["--demo", entry["demo"]]
     if entry.get("game"):
@@ -102,10 +104,24 @@ def main():
     mode.add_argument("--check", action="store_true")
     mode.add_argument("--stability", action="store_true")
     mode.add_argument("--compare", metavar="OTHER_VKQUAKE", default=None)
+    # engine argv appended to every run. --compare-extra-args differs only for
+    # the second binary, so the same build can be compared against itself under
+    # different flags -- e.g. the Phase 3 M6 worker sweep,
+    #   --compare <same exe> --extra-args "-pinnedworkers 0" \
+    #                        --compare-extra-args "-pinnedworkers 0,1,2,3,4,5,6,7"
+    # which is what gates the parallel model loaders on order independence.
+    p.add_argument("--extra-args", default="")
+    p.add_argument("--compare-extra-args", default=None,
+                   help="engine argv for the --compare/--stability second run "
+                        "(defaults to --extra-args)")
     args = p.parse_args()
+    args_b = args.extra_args if args.compare_extra_args is None else args.compare_extra_args
 
     if not args.game_data:
         sys.exit("error: pass --game-data or set QUAKE_GAME_DATA")
+    # goldens must describe a canonical run, not one under ad-hoc engine flags
+    if args.generate and (args.extra_args or args.compare_extra_args):
+        sys.exit("error: --generate does not accept --extra-args/--compare-extra-args")
 
     with open(CORPUS) as f:
         corpus = json.load(f)
@@ -134,7 +150,7 @@ def main():
         golden = os.path.join(golden_dir, f"{name}.hash")
         if args.generate:
             os.makedirs(golden_dir, exist_ok=True)
-            ok = run_entry(exe, entry, data_root, golden)
+            ok = run_entry(exe, entry, data_root, golden, args.extra_args)
             print(f"{'generated' if ok else 'FAILED'}: {name}")
             (ran if ok else failed).append(name)
         elif args.check:
@@ -142,7 +158,7 @@ def main():
                 skipped.append((name, f"no golden for {plat}"))
                 continue
             out = tempfile.NamedTemporaryFile(suffix=".hash", delete=False).name
-            ok = run_entry(exe, entry, data_root, out)
+            ok = run_entry(exe, entry, data_root, out, args.extra_args)
             if not ok:
                 print(f"RUN FAILED: {name} (no hash produced)")
                 failed.append(name)
@@ -156,7 +172,8 @@ def main():
             a = tempfile.NamedTemporaryFile(suffix=".hash", delete=False).name
             b = tempfile.NamedTemporaryFile(suffix=".hash", delete=False).name
             other = os.path.abspath(args.compare) if args.compare else exe
-            ok = run_entry(exe, entry, data_root, a) and run_entry(other, entry, data_root, b)
+            ok = (run_entry(exe, entry, data_root, a, args.extra_args)
+                  and run_entry(other, entry, data_root, b, args_b))
             if not ok:
                 print(f"RUN FAILED: {name} (no hash produced)")
                 failed.append(name)
