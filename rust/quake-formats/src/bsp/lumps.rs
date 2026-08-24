@@ -213,14 +213,12 @@ pub fn parse_faces(lump: &[u8], bsp2: bool) -> Result<Vec<FaceRec>, FunnySize> {
                 )
             };
             let mut styles = [0u8; 4];
-            // COMPAT (divergence, not bug-for-bug): Mod_ParseFaces ORs into
-            // msurface_t::styles_bitmap without ever initializing it, and the
-            // surfaces come from Mem_AllocNonZero, so the C result depends on
-            // whatever the allocator left behind. Starting at 0 is what the C
-            // plainly meant; it makes the field deterministic where C is not.
-            // See the risk row in docs/ai/plans/rust-conversion-phase-3.md —
-            // this must be settled in the C engine before the AC7 corpus
-            // state-hash legs (M7) compare the two builds.
+            // Historically a divergence: Mod_ParseFaces used to OR into
+            // msurface_t::styles_bitmap without initializing it, over a
+            // Mem_AllocNonZero block, so the C result depended on whatever the
+            // allocator left behind while this port started at 0. Phase 3 M6
+            // fixed the C (RA12 in docs/ai/plans/rust-conversion-phase-3.md);
+            // both sides now start at 0 and the two agree by construction.
             let mut styles_bitmap = 0u32;
             let mut warned_styles = Vec::new();
             for i in 0..4 {

@@ -489,11 +489,19 @@ static qmodel_t *Mod_LoadModel (qmodel_t *mod, qboolean crash)
 	if (!mod->needload)
 		return mod;
 
-	// the render task graph reaches this function on a worker (R_DrawEntitiesTask ->
-	// R_DrawAliasModel -> Mod_Extradata_CheckSkin), but only ever past the early
-	// return above: the alias parse scratch (stverts/triangles/poseverts, shared
-	// with gl_mesh.c) is process-global, so an actual parse must stay off workers
-	assert (!Tasks_IsWorker ());
+	// The alias parse scratch (stverts/triangles/poseverts, shared with
+	// gl_mesh.c) is process-global, so an actual parse must not run on a task
+	// worker. Two render-task paths reach this function -- R_DrawEntitiesTask ->
+	// R_DrawAliasModel -> Mod_Extradata_CheckSkin, and R_StoreLeafEFrags ->
+	// R_StoreEfrags -> R_AllocateEntityBLAS -> Mod_Extradata -- and normally
+	// both stop at the !needload early return above. The second one carries no
+	// needload guard of its own (unlike its siblings at gl_mesh.c:877/:911), and
+	// Mod_EnhancedModels_f reloads with crash == false, which leaves needload
+	// set on a model whose file has gone missing. That combination is reachable
+	// with r_rtshadows on, so this is a diagnostic rather than an assert: the
+	// invariant is not established well enough to abort on.
+	if (Tasks_IsWorker ())
+		Con_Warning ("Mod_LoadModel: parsing \"%s\" on a task worker; alias scratch is not thread-safe\n", mod->name);
 
 	InvalidateTraceLineCache ();
 

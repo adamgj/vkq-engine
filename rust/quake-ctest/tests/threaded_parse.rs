@@ -34,7 +34,7 @@ use quake_ctest::fs as ctfs;
 use quake_ctest::fs::Side;
 use quake_types::bspfile::TEX_SPECIAL;
 use quake_types::model_mem::{MEdge, MSurface, MTexInfo, MVertex, QModel};
-use std::sync::{Mutex, Once};
+use std::sync::Once;
 
 #[path = "support/image_fixture.rs"]
 mod image_fixture;
@@ -303,13 +303,6 @@ fn extents_concurrent_matches_serial_and_c() {
 // Image_Decode{PCX,LMP} (dispatch sites 1, 3 and 4)
 
 static IMAGE_SETUP: Once = Once::new();
-/// `allocHandle` (stubs.c:361) scans a shared free-slot table, unlike the real
-/// `Sys_FileOpenRead`, so the *open* is serialized here. The decode — the code
-/// under test — is not. The decoder's own `COM_CloseFile` still runs
-/// unserialized, which is sound because a slot is only ever marked free by the
-/// thread that owns it, and `allocHandle`, the only reader of that flag, is
-/// behind this lock.
-static OPEN_LOCK: Mutex<()> = Mutex::new(());
 
 fn image_dir() -> std::path::PathBuf {
     let root = std::env::temp_dir().join(format!("quake-ctest-thr-{}", std::process::id()));
@@ -330,11 +323,13 @@ fn image_dir() -> std::path::PathBuf {
 fn decode_one(side: Side, name: &std::ffi::CStr, pcx: bool, buf_len: usize) -> Vec<u8> {
     let mut handle: c_int = -1;
     let mut path_id: c_uint = 0;
-    let size = {
-        let _open = OPEN_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        // SAFETY: the side's searchpaths are mounted; out-params are valid
-        unsafe { (ctfs::fns(side).open_file)(name.as_ptr(), &mut handle, &mut path_id) }
-    };
+    // Nothing is serialized here: the stub's handle table claims slots with a
+    // CAS and its `free` flag is atomic, mirroring the mutex the real
+    // Sys_FileOpenRead holds. Serializing the open would be the wrong shape for
+    // this test anyway — it would keep the workers queued instead of inside the
+    // decoder together, which is where the concurrency actually matters.
+    // SAFETY: the side's searchpaths are mounted; out-params are valid
+    let size = unsafe { (ctfs::fns(side).open_file)(name.as_ptr(), &mut handle, &mut path_id) };
     assert!(size >= 0, "fixture {name:?} must open on {side:?}");
 
     let decoder: unsafe extern "C" fn(c_int, *mut c_int, *mut c_int, *const c_char) -> *mut u8 =
@@ -367,52 +362,74 @@ extern "C" {
         -> *mut u8;
 }
 
-/// Rounds per worker. High enough that the window between a would-be shared
-/// scratch buffer being filled and being copied out is actually hit: at 16
-/// rounds a deliberately race-y decoder passed this test, at this count it
-/// fails it (see the M6 mutation log).
-const IMAGE_ROUNDS: usize = 4000;
+/// Rounds per worker. Detection depends on workers actually being inside the
+/// decoder together, which needs two things: fixtures large enough that the
+/// decode dominates (~12k and ~6k pixels below), and nothing serializing the
+/// open. A deliberately race-y decoder — resource bytes routed through a
+/// process-global buffer — survived 4000 rounds of 48-pixel fixtures behind a
+/// serialized open, and is caught on every run at this count with neither.
+const IMAGE_ROUNDS: usize = 250;
 
 /// The four fixtures the concurrent decode cycles through: (name, is_pcx,
 /// allocation size). All are happy-path — a reject would write the
 /// unsynchronized console log, or (for the PCX header gates) `Sys_Error`.
 const IMAGE_FIXTURES: [(&std::ffi::CStr, bool, usize); 4] = [
-    (c"gfx/thr_a.pcx", true, (8 * 6 + 1) * 4),
-    (c"gfx/thr_b.pcx", true, (5 * 4 + 1) * 4),
-    (c"gfx/thr_a.lmp", false, 8 * 6),
-    (c"gfx/thr_b.lmp", false, 5 * 4),
+    (c"gfx/thr_a.pcx", true, (128 * 96 + 1) * 4),
+    (c"gfx/thr_b.pcx", true, (96 * 64 + 1) * 4),
+    (c"gfx/thr_a.lmp", false, 128 * 96),
+    (c"gfx/thr_b.lmp", false, 96 * 64),
 ];
+
+/// PCX RLE for `h` rows of exactly `bpl` decoded pixels each — the decoder
+/// consumes `bytes_per_line` pixels per row, so a stream that comes up short
+/// runs off the end of the input (see the `Mod_DecompressVis` note; same trap).
+/// Row 0 is emitted as literals to exercise the non-run arm.
+fn rle_rows(bpl: usize, h: usize) -> Vec<u8> {
+    let mut out = Vec::new();
+    for y in 0..h {
+        if y == 0 {
+            // literals must stay below 0xC0 or they would read as run markers
+            for x in 0..bpl {
+                out.push((x % 0xC0) as u8);
+            }
+            continue;
+        }
+        let (mut left, mut n) = (bpl, 0usize);
+        while left > 0 {
+            let run = left.min(63);
+            out.push(0xC0 | run as u8);
+            out.push(((y * 7 + n * 31) % 251) as u8);
+            left -= run;
+            n += 1;
+        }
+    }
+    out
+}
 
 #[test]
 fn image_decode_concurrent_matches_serial_and_c() {
     let _guard = ctfs::lock();
     ctfs::clear_logs();
     let dir = image_dir();
-    // thr_a: a literal row then five run-encoded rows (bytes_per_line == w, so
-    // each row consumes exactly w pixels). thr_b: bytes_per_line == w + 1, so
-    // every row spills one pixel into the next row's region and the last row
-    // lands in the +1 padding slot the C decoder allocates.
+    // Deliberately large (~12k and ~6k pixels): each decode must be long enough
+    // that workers are genuinely inside it at the same time — see IMAGE_ROUNDS.
+    // thr_a has bytes_per_line == w; thr_b has bytes_per_line == w + 1, so every
+    // row spills one pixel into the next row's region and the last row lands in
+    // the +1 padding slot the C decoder allocates.
     std::fs::write(
         dir.join("gfx/thr_a.pcx"),
-        build_pcx(
-            8,
-            6,
-            8,
-            &[
-                1, 2, 3, 4, 5, 6, 7, 8, 0xC8, 11, 0xC8, 13, 0xC8, 17, 0xC8, 19, 0xC8, 23,
-            ],
-        ),
+        build_pcx(128, 96, 128, &rle_rows(128, 96)),
     )
     .unwrap();
     std::fs::write(
         dir.join("gfx/thr_b.pcx"),
-        build_pcx(5, 4, 6, &[0xC6, 21, 0xC6, 22, 0xC6, 23, 0xC6, 24]),
+        build_pcx(96, 64, 97, &rle_rows(97, 64)),
     )
     .unwrap();
-    let px_a: Vec<u8> = (0..8 * 6u32).map(|i| (i * 3 % 251) as u8).collect();
-    let px_b: Vec<u8> = (0..5 * 4u32).map(|i| (i * 17 % 241) as u8).collect();
-    std::fs::write(dir.join("gfx/thr_a.lmp"), build_lmp(8, 6, &px_a)).unwrap();
-    std::fs::write(dir.join("gfx/thr_b.lmp"), build_lmp(5, 4, &px_b)).unwrap();
+    let px_a: Vec<u8> = (0..128 * 96u32).map(|i| (i * 3 % 251) as u8).collect();
+    let px_b: Vec<u8> = (0..96 * 64u32).map(|i| (i * 17 % 241) as u8).collect();
+    std::fs::write(dir.join("gfx/thr_a.lmp"), build_lmp(128, 96, &px_a)).unwrap();
+    std::fs::write(dir.join("gfx/thr_b.lmp"), build_lmp(96, 64, &px_b)).unwrap();
 
     let expected: Vec<Vec<u8>> = IMAGE_FIXTURES
         .iter()

@@ -158,13 +158,17 @@ jobs:
         export QUAKE_GAME_DATA="$PWD/shareware-data"
         python3 scripts/harness/save_diff.py --vkquake build-c/vkqr-engine --vkquake-b build-rs/vkqr-engine
         python3 scripts/harness/save_diff.py --vkquake build-c/vkqr-engine --vkquake-b build-rs-cfs/vkqr-engine
-    # Phase 3 M6 / AC8: gl_model.c fans model loading out over task workers, and
-    # the Rust loaders run on those workers. -pinnedworkers overrides the worker
-    # count (tasks.c:366), so one worker vs eight must produce the same hash
-    # chain -- the order-independence gate for the two dispatch sites a headless
-    # run can reach (Mod_LoadSkinTask, Mod_LoadMDXSkinTask; the other two sit
-    # behind !no_rendering and are covered by the threaded_parse ctest instead).
-    - name: Task-worker order independence (1 worker vs 8, mixed build)
+    # Phase 3 M6: gl_model.c fans model loading out over task workers and the
+    # Rust loaders run on those workers, so changing the worker count must not
+    # perturb the simulation. -pinnedworkers overrides the count (tasks.c:366).
+    #
+    # Scope, precisely: the harness state hash covers edicts, qcvm globals and
+    # client entity state (Quake/harness.c:159-233) -- nothing produced by
+    # Mod_LoadSkinTask/Mod_LoadMDXSkinTask enters it. So this catches a loader
+    # that Sys_Errors, deadlocks, or corrupts state the simulation reads; it
+    # does NOT gate those two task bodies' own output for order independence.
+    # Decoder-level order independence is covered by the threaded_parse ctest.
+    - name: Worker count does not perturb the simulation (1 vs 8, mixed build)
       run: |
         export QUAKE_GAME_DATA="$PWD/shareware-data"
         python3 scripts/harness/run_corpus.py --vkquake build-rs/vkqr-engine \

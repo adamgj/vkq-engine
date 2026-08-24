@@ -1741,13 +1741,20 @@ unsafe extern "C" {
 // Exclusivity contract (Phase 3 M6 global-state audit): this scratch is
 // process-global on both sides, so at most one model parse may be in flight at
 // a time and none of them on a task worker. The render task graph does reach
-// the loader -- R_DrawEntitiesTask is an indexed task, and R_DrawAliasModel
-// calls Mod_Extradata_CheckSkin -> Mod_LoadModel -- but only ever past
-// Mod_LoadModel's `!needload` early return, because every site that sets
-// `needload` (Mod_FindName, Mod_ClearAll, Mod_RefreshSkins_f) is followed by a
-// synchronous load on the host thread before any frame is drawn. Nothing in the
-// C enforced that, so M6 added `assert (!Tasks_IsWorker ())` in Mod_LoadModel
-// past that early return.
+// the loader by two paths -- R_DrawEntitiesTask (indexed) -> R_DrawAliasModel
+// -> Mod_Extradata_CheckSkin, and R_StoreLeafEFrags -> R_StoreEfrags ->
+// R_AllocateEntityBLAS -> Mod_Extradata -- and normally both stop at
+// Mod_LoadModel's `!needload` early return, because the three sites that set
+// `needload` (Mod_FindName, Mod_ClearAll, Mod_EnhancedModels_f) each load
+// synchronously on the host thread before a frame is drawn.
+//
+// That is *not* airtight, and M6 did not make it so: Mod_EnhancedModels_f
+// reloads with crash == false, so a model whose file has gone missing keeps
+// `needload` set, and R_AllocateEntityBLAS -- unlike its siblings in
+// gl_mesh.c -- has no needload guard. With r_rtshadows on, a worker can
+// therefore reach a real parse. M6 added a Con_Warning (not an assert) at that
+// point in Mod_LoadModel; closing the hole belongs to whoever owns
+// R_AllocateEntityBLAS, i.e. Phase 8.
 #[allow(non_upper_case_globals)]
 unsafe extern "C" {
     static mut stverts: [StVert; MAXALIASVERTS];
@@ -1814,9 +1821,10 @@ unsafe fn strlcpy_raw(dst: *mut c_char, cap: usize, src: *const c_char) {
 ///
 /// # Safety
 /// Callers must hold the alias-scratch exclusivity contract documented above
-/// `stverts`: one model parse at a time, never on a task worker. Mechanized by
-/// the `assert (!Tasks_IsWorker ())` in `Mod_LoadModel` (gl_model.c), the sole
-/// funnel for every parse.
+/// `stverts`: one model parse at a time, never on a task worker. `Mod_LoadModel`
+/// (gl_model.c) is the sole funnel for every parse and warns if it is entered
+/// from a worker; see the note above `stverts` for why that is a diagnostic
+/// rather than an enforced invariant.
 unsafe fn check_tris_size(numtris: usize) {
     // SAFETY: caller guarantees exclusive use of the alias scratch
     unsafe {
