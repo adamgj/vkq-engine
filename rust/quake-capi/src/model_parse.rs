@@ -3176,7 +3176,7 @@ unsafe fn md5anim_load_body(
             aj.mesh_index = -1;
 
             for (k, joint) in joints.iter().enumerate().take(numjoints) {
-                if cstr_bytes(joint.name.as_ptr().cast::<c_char>()) == cstr_slice(&anim_name) {
+                if cstr_slice(&joint.name) == cstr_slice(&anim_name) {
                     mesh_index = k as isize;
                     break;
                 }
@@ -3529,6 +3529,15 @@ unsafe fn md5_load_data_body(
         buffer = sys::COM_Parse(buffer);
 
         // 2. Compute absolute animation joints
+        //
+        // COMPAT: this walks `anim.numjoints`, which a successful
+        // `MD5Anim_Load` has just set to `numjoints`. The one path that
+        // leaves it at the *anim file's* count is the early return on a
+        // `.md5anim` that ends right after `frameRate` -- there the C
+        // dereferences a NULL `posedata` and indexes `joint_infos` out of
+        // range, and this indexes out of range and aborts (panic = "abort",
+        // never an unwind into C). Both crash on that input; only the
+        // diagnostic differs.
         for pose_index in 0..st.anim.numposes {
             let in_pose = st.anim.posedata.add(pose_index * st.anim.numjoints);
             for joint_index in 0..st.anim.numjoints {

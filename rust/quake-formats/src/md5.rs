@@ -433,6 +433,10 @@ pub fn compute_normals(vertexes: &mut [u8], vertex_size: usize, numverts: usize,
         put_vec3(&mut vertexes[v * vertex_size..], OFS_NORM, &[0.0, 0.0, 0.0]);
     }
 
+    // COMPAT: the C strides `t += 3` up to `numindexes` and would read one
+    // or two indices past the end if `numindexes` were not a multiple of
+    // three. It always is (`numindexes = numtris * 3`), so bounding the walk
+    // here only removes an unreachable out-of-bounds read.
     let mut t = 0usize;
     while t + 3 <= indexes.len() {
         let xyz: [Vec3; 3] = [
