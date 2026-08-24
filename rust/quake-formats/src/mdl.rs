@@ -14,8 +14,9 @@
 //! of that image, so the bounds here are only a backstop.
 //!
 //! The layout constants duplicate `quake_types::modelgen` on purpose: this
-//! crate has no dependencies (ADR-003), and `tests/alias_abi.rs` gates the
-//! mirrors those constants shadow.
+//! crate does not depend on `quake-types` (only on the pure in-workspace
+//! `quake-math`/`quake-util` and the `quake-c-sys` libm call-throughs), and
+//! `tests/alias_abi.rs` gates the mirrors those constants shadow.
 
 // on-disk record sizes (`modelgen.h`)
 pub const MDL_T_SIZE: usize = 84;

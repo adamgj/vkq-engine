@@ -13,8 +13,9 @@
 //! are only a backstop.
 //!
 //! The layout constants duplicate `quake_types::md3` on purpose: this crate
-//! has no dependencies (ADR-003), and `tests/mdx_abi.rs` gates the mirrors
-//! those constants shadow.
+//! does not depend on `quake-types` (only on the pure in-workspace
+//! `quake-math`/`quake-util` and the `quake-c-sys` libm call-throughs), and
+//! `tests/mdx_abi.rs` gates the mirrors those constants shadow.
 
 // on-disk record sizes (`gl_model.h`, "MD3 MODELS")
 pub const MD3_HEADER_SIZE: usize = 108;

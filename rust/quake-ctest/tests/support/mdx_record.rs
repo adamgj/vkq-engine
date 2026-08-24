@@ -14,7 +14,14 @@
 use core::ffi::c_char;
 
 const CTEST_UPLOAD_BYTES: usize = 65536;
-const CTEST_UPLOAD_MAX: i32 = 16;
+/// Mirrors `CTEST_UPLOAD_MAX` in `stubs/stubs.c`. Sized at MD3's own
+/// `MAX_SURFACES` so a format-legal MD3 can never outrun the recorder;
+/// MD5's `nummeshes` has no upper bound, hence the assert in
+/// [`recorded_uploads`].
+const CTEST_UPLOAD_MAX: i32 = 32;
+/// Mirrors `CTEST_MODELSTUB_MAX` in `stubs/stubs.c`, the skin-callback log's
+/// capacity.
+const CTEST_MDXSKIN_MAX: i32 = 64;
 
 /// Mirror of `ctest_upload_call_t`.
 #[repr(C)]
@@ -163,12 +170,23 @@ pub fn recorded_upload_count() -> i32 {
     unsafe { ctest_upload_count() }
 }
 
-/// Reads the upload recorder, clamped to the log's capacity. Caller must
-/// hold the ctest fs lock.
+/// Reads the upload recorder. Caller must hold the ctest fs lock.
+///
+/// Panics rather than clamping if the loader uploaded more surfaces than the
+/// log holds: both sides would truncate identically, so a silent clamp turns
+/// "surfaces past the cap were never compared" into a green assertion — and
+/// the upload payload is the only place the parsed MD3/MD5 data is
+/// observable at all.
 pub fn recorded_uploads() -> Vec<Upload> {
-    // SAFETY: the recorder holds min(count, CTEST_UPLOAD_MAX) valid entries
+    // SAFETY: the assert establishes that all `n` entries were written
     unsafe {
-        let n = ctest_upload_count().min(CTEST_UPLOAD_MAX);
+        let n = ctest_upload_count();
+        assert!(
+            n <= CTEST_UPLOAD_MAX,
+            "{n} GLMesh_UploadBuffers calls exceeded the recorder's \
+             {CTEST_UPLOAD_MAX}-entry log; surfaces past #{CTEST_UPLOAD_MAX} \
+             would compare as nothing"
+        );
         let p = ctest_upload_calls();
         (0..n as isize)
             .map(|i| Upload::from(&*p.offset(i)))
@@ -177,10 +195,19 @@ pub fn recorded_uploads() -> Vec<Upload> {
 }
 
 /// Reads the skin-callback recorder. Caller must hold the ctest fs lock.
+///
+/// Same contract as [`recorded_uploads`]: the stub increments its counter
+/// unconditionally but only writes below the cap, so reading `count` entries
+/// unguarded would run off the end of the log.
 pub fn recorded_skins() -> Vec<MdxSkin> {
-    // SAFETY: the recorder holds `ctest_mdxskin_count` valid entries
+    // SAFETY: the assert establishes that all `n` entries were written
     unsafe {
         let n = ctest_mdxskin_count();
+        assert!(
+            n <= CTEST_MDXSKIN_MAX,
+            "{n} skin callbacks exceeded the recorder's \
+             {CTEST_MDXSKIN_MAX}-entry log"
+        );
         let p = ctest_mdxskin_calls();
         (0..n as isize)
             .map(|i| {

@@ -302,7 +302,12 @@ pub fn bake_influences(
         put_f32(vertex, OFS_ST, vi.st[0]);
         put_f32(vertex, OFS_ST + 4, vi.st[1]);
 
-        if vi.firstweight + vi.count as usize > numweights {
+        // COMPAT: the C is `size_t + unsigned int` with no overflow check, so
+        // a `firstweight` near SIZE_MAX (it comes straight off the file via
+        // strtoull) wraps rather than trapping, and the wrapped sum is what
+        // decides the recoverable reject below. A checked add here would
+        // abort a debug build on the very input this reject path exists for.
+        if vi.firstweight.wrapping_add(vi.count as usize) > numweights {
             return Err(BakeError::WeightIndexOutOfBounds);
         }
         if max_influences < vi.count {
@@ -649,6 +654,26 @@ mod tests {
         assert_eq!(get_f32(&verts, V4_OFS_POS_X), 0.0);
         assert_eq!(get_f32(&verts, OFS_ST), 0.25);
         assert_eq!(get_f32(&verts, OFS_ST + 4), 0.75);
+    }
+
+    #[test]
+    fn firstweight_overflow_takes_the_reject_path_instead_of_trapping() {
+        // COMPAT regression: the C's `firstweight + count` is a wrapping
+        // size_t add, and a file-controlled firstweight can reach SIZE_MAX.
+        // SIZE_MAX + 5 == 4, which still exceeds numweights, so the C rejects
+        // -- a checked add here would abort a debug build instead.
+        let poses = [[0.0f32; 12]];
+        let vinfo = [VertInfo {
+            firstweight: usize::MAX,
+            count: 5,
+            st: [0.0, 0.0],
+        }];
+        let weight = [WeightInfo::default(); 3];
+        let mut verts = vec![0u8; MD5VERT_SIZE];
+        assert_eq!(
+            bake_influences(&poses, &mut verts, false, &vinfo, &weight, 1, 3),
+            Err(BakeError::WeightIndexOutOfBounds)
+        );
     }
 
     #[test]

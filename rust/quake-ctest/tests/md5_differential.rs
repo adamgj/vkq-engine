@@ -924,6 +924,14 @@ fn reject_fixture(case: &str) -> Md5 {
             // a vertex whose weight range runs past numweights
             md5.meshes[0].verts[0].count = 4;
         }
+        "bake-firstweight-wraps" => {
+            // firstweight + count overflows size_t: the C wraps (SIZE_MAX + 5
+            // == 4) and the *wrapped* sum still exceeds numweights, so it
+            // takes the same recoverable reject. A checked add on the Rust
+            // side would abort a debug build here instead.
+            md5.meshes[0].verts[0].firstweight = usize::MAX;
+            md5.meshes[0].verts[0].count = 5;
+        }
         "anim-no-poses" => {
             let mut a = basic_anim();
             a.numframes = 0;
@@ -1004,9 +1012,36 @@ fn mesh_level_rejects_match() {
         "weight-index-oob",
         "weight-joint-oob",
         "bake-weight-oob",
+        "bake-firstweight-wraps",
     ] {
         assert_reject_parity(case, false);
     }
+}
+
+/// `numAnimatedComponents` is `strtoull` off the file with no upper bound, and
+/// the C sizes its scratch with `rawcount + 6` -- size_t wraparound, not a
+/// trap. With no `frame` blocks the wrapped-small buffer is never indexed, so
+/// both sides load the model successfully off the baseframe alone.
+#[test]
+fn anim_animated_component_count_wraps() {
+    let _g = ctfs::lock();
+    let mut md5 = basic();
+    let mut a = basic_anim();
+    a.num_animated_components = Some(usize::MAX);
+    a.numframes = 1;
+    a.frames.clear();
+    md5.anim = Some(a);
+
+    let out = compare("anim-rawcount-wraps", &md5);
+    assert!(out.ok, "expected the load to succeed");
+    // the only warning is the fixture's stubbed-out skin search; nothing
+    // complained about the anim
+    assert_eq!(
+        out.con_log,
+        vec!["[warn] MD5: progs/tst.md5mesh, no skins found for surf 'progs/tst_skin' (0)\n"]
+    );
+    // one pose, straight from the baseframe
+    assert_eq!(field(&out.snap, "mdx.surf[0].numframes"), "1");
 }
 
 #[test]

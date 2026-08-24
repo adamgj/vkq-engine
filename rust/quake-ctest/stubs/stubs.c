@@ -1458,7 +1458,9 @@ gltexture_t *TexMgr_LoadImage (
  * both sides record by the same rule. The tests assert the recorded lengths
  * against what the fixture implies, so a mis-derived length fails loudly
  * instead of silently comparing nothing. */
-#define CTEST_UPLOAD_MAX   16
+/* MD3's own MAX_SURFACES, so a format-legal MD3 can never outrun the log;
+ * the Rust reader asserts rather than clamps (tests/support/mdx_record.rs) */
+#define CTEST_UPLOAD_MAX   32
 #define CTEST_UPLOAD_BYTES 65536
 
 typedef struct

@@ -2543,6 +2543,18 @@ pub unsafe extern "C" fn Mod_LoadMD3Model(m: *mut QModel, buffer: *const c_void)
                 sys::Sys_Error(c"MD3: %s mismatched framecounts".as_ptr(), model_name(m));
             }
 
+            // COMPAT (read ordering): the C reads numVerts/numTriangles and
+            // the four ofs* fields *after* `q_strtrim (pinsurface->name)` has
+            // rewritten the name in place -- `ofsEnd` right at the bottom of
+            // the iteration -- while this snapshots the whole 108-byte header
+            // before it. Equivalent only because `md3Surface_t::name` spans
+            // +4..+68 and every field read here sits at >= 72, and because
+            // q_strtrim never writes outside `name`: on an all-whitespace
+            // name its `strlen (str_start) - 1` underflows to SIZE_MAX and it
+            // *probes* name[-1], which is the top byte of `ident` -- '3' for
+            // any surface that passed the ident gate above, so the scan
+            // breaks without storing. Reordering the fields, widening `name`
+            // or relaxing that gate would each break this equivalence.
             let sh = md3::parse_surface_header(core::slice::from_raw_parts(
                 pinsurface,
                 md3::MD3_SURFACE_SIZE,
@@ -3113,7 +3125,14 @@ unsafe fn md5anim_load_body(
         md5_expect(&mut buffer, fname, c"numAnimatedComponents")?;
         let rawcount = md5_uint(&mut buffer);
 
-        let mut raw = vec![0.0f32; rawcount + 6];
+        // COMPAT: `rawcount` is unbounded (strtoull off numAnimatedComponents)
+        // and the C's `TEMP_ALLOC_ASSIGN_ZEROED (raw, rawcount + 6)` sizes the
+        // block with size_t wraparound, not a trap. A merely *huge* count
+        // (large enough to fail the allocation, not to wrap) kills both
+        // sides, the C through Mem_Alloc's Sys_Error and this through
+        // handle_alloc_error; only the diagnostic differs, same shape as the
+        // truncated-.md5anim divergence documented below.
+        let mut raw = vec![0.0f32; rawcount.wrapping_add(6)];
         let mut ab = vec![AnimJoint::default(); animjoints];
         let mut mesh_to_anim = vec![0isize; numjoints];
         let mut mapped_mesh_parent = vec![0isize; numjoints];
