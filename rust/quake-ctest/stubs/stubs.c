@@ -138,15 +138,14 @@ void *Mem_Alloc (const size_t size)
 	return calloc (1, size ? size : 1);
 }
 
-/* poisoned rather than left uninitialized: the brush loaders leave a few
- * msurface_t fields untouched (Phase 3 M3), and a deterministic fill makes
- * the C and Rust sides agree on those bytes instead of comparing two
- * different heaps' garbage. Still distinct from Mem_Alloc's zeros. */
-/* zero-filled on purpose: Mod_ParseFaces ORs into msurface_t::styles_bitmap
- * without initializing it first, so a garbage-filled Mem_AllocNonZero makes
- * the C oracle non-reproducible. Zeroing keeps both sides deterministic; a
- * field the Rust port fails to write still shows up as 0 against the C
- * value whenever that value is non-zero. */
+/* zero-filled rather than left uninitialized: the brush loaders leave a few
+ * msurface_t fields untouched (Phase 3 M3), so a deterministic fill makes the
+ * C and Rust sides agree on those bytes instead of comparing two different
+ * heaps' garbage. A field the Rust port fails to write still shows up as 0
+ * against the C value whenever that value is non-zero.
+ * The one field that *required* the fill to be zero rather than any other
+ * constant -- msurface_t::styles_bitmap, OR-ed into without initialization --
+ * is initialized by Mod_ParseFaces itself since Phase 3 M6 (RA12). */
 void *Mem_AllocNonZero (const size_t size)
 {
 	void *p = malloc (size ? size : 1);

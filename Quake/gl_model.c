@@ -489,6 +489,12 @@ static qmodel_t *Mod_LoadModel (qmodel_t *mod, qboolean crash)
 	if (!mod->needload)
 		return mod;
 
+	// the render task graph reaches this function on a worker (R_DrawEntitiesTask ->
+	// R_DrawAliasModel -> Mod_Extradata_CheckSkin), but only ever past the early
+	// return above: the alias parse scratch (stverts/triangles/poseverts, shared
+	// with gl_mesh.c) is process-global, so an actual parse must stay off workers
+	assert (!Tasks_IsWorker ());
+
 	InvalidateTraceLineCache ();
 
 	if (mod->type == mod_alias)

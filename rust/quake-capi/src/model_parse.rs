@@ -197,8 +197,14 @@ static mut MOD_DECOMPRESSED_CAPACITY: c_int = 0;
 /// row inside `model->visdata`, `model` a live qmodel_t.
 #[no_mangle]
 pub unsafe extern "C" fn Mod_DecompressVis(in_: *mut u8, model: *mut QModel) -> *mut u8 {
-    // SAFETY: C ABI contract above; the cache statics are only touched from
-    // the main thread, exactly like the C file-scope pair they replace.
+    // SAFETY: C ABI contract above. The cache statics are inherited verbatim
+    // from the C file-scope `mod_decompressed` pair, including their
+    // synchronization argument: this runs on whichever thread owns the current
+    // PVS query -- a task worker under R_MarkSurfacesPrepare
+    // (r_world.c:1037), or the host thread under SV_WriteEntitiesToClient and
+    // the pr_cmds.c/pr_ext.c builtins -- and at most one such query is live at
+    // a time, because the render task graph is Task_Join'ed inside the frame
+    // before the host loop advances. Not main-thread-only, and no new race.
     unsafe {
         let row = ((*model).numleafs + 31) / 8;
         if MOD_DECOMPRESSED.is_null() || row > MOD_DECOMPRESSED_CAPACITY {
@@ -1731,6 +1737,17 @@ unsafe extern "C" {
 // other side believes it owns. Only `posenum` moves to Rust -- it is reset to
 // zero at the top of every Mod_ParseAliasModel, so it carries no state
 // between the two sides.
+//
+// Exclusivity contract (Phase 3 M6 global-state audit): this scratch is
+// process-global on both sides, so at most one model parse may be in flight at
+// a time and none of them on a task worker. The render task graph does reach
+// the loader -- R_DrawEntitiesTask is an indexed task, and R_DrawAliasModel
+// calls Mod_Extradata_CheckSkin -> Mod_LoadModel -- but only ever past
+// Mod_LoadModel's `!needload` early return, because every site that sets
+// `needload` (Mod_FindName, Mod_ClearAll, Mod_RefreshSkins_f) is followed by a
+// synchronous load on the host thread before any frame is drawn. Nothing in the
+// C enforced that, so M6 added `assert (!Tasks_IsWorker ())` in Mod_LoadModel
+// past that early return.
 #[allow(non_upper_case_globals)]
 unsafe extern "C" {
     static mut stverts: [StVert; MAXALIASVERTS];
@@ -1796,9 +1813,12 @@ unsafe fn strlcpy_raw(dst: *mut c_char, cap: usize, src: *const c_char) {
 /// C `check_tris_size`: grow the shared `triangles` scratch array.
 ///
 /// # Safety
-/// Main-thread only, like the C static pair it replaces.
+/// Callers must hold the alias-scratch exclusivity contract documented above
+/// `stverts`: one model parse at a time, never on a task worker. Mechanized by
+/// the `assert (!Tasks_IsWorker ())` in `Mod_LoadModel` (gl_model.c), the sole
+/// funnel for every parse.
 unsafe fn check_tris_size(numtris: usize) {
-    // SAFETY: caller guarantees single-threaded use
+    // SAFETY: caller guarantees exclusive use of the alias scratch
     unsafe {
         if numtris > triangles_size {
             let new_size = triangles_size.wrapping_mul(2).max(numtris);
@@ -2752,7 +2772,18 @@ MD5 MODELS
 
 unsafe extern "C" {
     // gl_model.c: the MD5 skin search stays C (Phase 3 NG3); the wrapper
-    // keeps the skin_base_name_fn table private to that file
+    // keeps the skin_base_name_fn table private to that file.
+    //
+    // This one submits Mod_LoadMDXSkinTask and Task_Joins it (gl_model.c:2202),
+    // so a Rust frame stays live across the join -- the only place in the seam
+    // where that happens (Phase 3 M6 audit, RA16). It is sound because the
+    // frame holds no lock and no &mut into shared state while blocked, and
+    // nothing Rust-*owned* crosses into the workers: the task argument struct
+    // is a C local (Mod_LoadMDXSkinsByIndex), and the two pointers this side
+    // hands over both address Mem_Alloc'ed memory (ADR-013), not a Rust
+    // allocation. Each worker writes only the aliashdr_t skin slots for its own
+    // index; the blocked frame's live raw pointers into that header are never
+    // written outside the indices the workers own.
     fn Mod_LoadMD5SurfaceSkins(
         m: *mut QModel,
         surf: *mut AliasHdr,
