@@ -4,6 +4,7 @@
 
 pub mod drivers;
 pub mod fs;
+pub mod image_fixture;
 pub mod mdx_record;
 pub mod model_hash;
 

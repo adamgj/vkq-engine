@@ -213,11 +213,13 @@ pub fn parse_faces(lump: &[u8], bsp2: bool) -> Result<Vec<FaceRec>, FunnySize> {
                 )
             };
             let mut styles = [0u8; 4];
-            // Parity here depends on Mod_ParseFaces zeroing styles_bitmap
-            // before its OR loop (model_parse.c, the M7 RA12 fix in
-            // docs/ai/plans/rust-conversion-phase-3.md) — reverting that C
-            // line reopens the nondeterministic-oracle divergence this site
-            // used to carry a COMPAT note for.
+            // Historically a divergence: Mod_ParseFaces used to OR into
+            // msurface_t::styles_bitmap without initializing it, over a
+            // Mem_AllocNonZero block, so the C result depended on whatever the
+            // allocator left behind while this port started at 0. Phase 3 M6
+            // fixed the C (RA12 in docs/ai/plans/rust-conversion-phase-3.md);
+            // both sides now start at 0 and the two agree by construction —
+            // parity here depends on that model_parse.c line staying in place.
             let mut styles_bitmap = 0u32;
             let mut warned_styles = Vec::new();
             for i in 0..4 {

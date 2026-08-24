@@ -16,6 +16,8 @@ use quake_ctest::fs as ctfs; // also links the cc-built c_ref_* archive
 use quake_ctest::fs::Side;
 use std::sync::Once;
 
+use quake_ctest::image_fixture::{build_lmp, build_pcx};
+
 extern "C" {
     fn c_ref_Image_DecodePCX(
         file_handle: c_int,
@@ -134,35 +136,6 @@ fn pcx_buf_len(w: c_int, h: c_int) -> usize {
 
 fn lmp_buf_len(w: c_int, h: c_int) -> usize {
     (w as u32).wrapping_mul(h as u32) as usize
-}
-
-/// Same builder as quake-image's unit tests: minimal valid PCX with a
-/// deterministic non-trivial palette.
-fn build_pcx(w: u16, h: u16, bytes_per_line: u16, rle: &[u8]) -> Vec<u8> {
-    let mut f = vec![0u8; 128];
-    f[0] = 0x0A;
-    f[1] = 5;
-    f[2] = 1;
-    f[3] = 8;
-    f[8..10].copy_from_slice(&(w - 1).to_le_bytes());
-    f[10..12].copy_from_slice(&(h - 1).to_le_bytes());
-    f[65] = 1;
-    f[66..68].copy_from_slice(&bytes_per_line.to_le_bytes());
-    f.extend_from_slice(rle);
-    let mut palette = [0u8; 768];
-    for (i, b) in palette.iter_mut().enumerate() {
-        *b = (i % 251) as u8;
-    }
-    f.extend_from_slice(&palette);
-    f
-}
-
-fn build_lmp(w: u32, h: u32, pixels: &[u8]) -> Vec<u8> {
-    let mut f = Vec::new();
-    f.extend_from_slice(&w.to_le_bytes());
-    f.extend_from_slice(&h.to_le_bytes());
-    f.extend_from_slice(pixels);
-    f
 }
 
 #[test]

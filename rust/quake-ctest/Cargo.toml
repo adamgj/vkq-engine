@@ -16,6 +16,10 @@ quake-c-sys = { path = "../quake-c-sys" }
 # build of common_fs.c/steam.c, so the fs feature must be on
 quake-capi = { path = "../quake-capi", features = ["fs", "image", "formats"] }
 quake-fs = { path = "../quake-fs" }
+# Phase 3 M6: threaded_parse asserts the pure parsers' outputs are Send/Sync
+# (ADR-016), so it needs the crates directly, not just through quake-capi
+quake-formats = { path = "../quake-formats" }
+quake-image = { path = "../quake-image" }
 
 [dev-dependencies]
 # ADR-003 review: proptest is MIT OR Apache-2.0 (MIT preferred), dev-only;
