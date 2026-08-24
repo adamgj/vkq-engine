@@ -84,6 +84,12 @@ fuzz_target!(|data: &[u8]| {
         .collect();
     let weight: Vec<md5::WeightInfo> = (0..numweights)
         .map(|_| md5::WeightInfo {
+            // masked in-bounds on purpose: bake_influences indexes
+            // outposes[w.joint_index] directly — its contract is that the
+            // shim's text parse already rejected bad joint indices, so an
+            // out-of-range value here would be a panic *by design*, not a
+            // finding. The recoverable reject this target exercises is the
+            // firstweight/count vs numweights one below.
             joint_index: (c.u32() % 4) as usize,
             pos: c.vec4(),
         })

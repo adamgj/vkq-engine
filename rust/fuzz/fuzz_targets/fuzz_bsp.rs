@@ -30,9 +30,10 @@ fuzz_target!(|data: &[u8]| {
     let (dia, bsp2, _valve, _q64) = dialect(data[0]);
     // numleafs reaches vis_row/parse_nodes from mod->numleafs, which the
     // shim sets from parse_leafs — capped at 32767 (LeafError::TooMany), so
-    // it is always a small non-negative count here, never near i32::MAX
+    // it is always a small non-negative count there, never near i32::MAX
     // (where (numleafs + 31) would overflow in the pure row calc as it wraps
-    // in the C int). Mask to that realistic domain.
+    // in the C int). The u16 mask keeps this in [0, 65535] — a superset of
+    // the shim's real domain, still comfortably below the wrap hazard.
     let numleafs = i32::from(u16::from_le_bytes([data[1], data[2]]));
     // the rest of the input is one shared lump body, fed to every parser so
     // the funny-size gate is exercised at each record width
@@ -76,7 +77,7 @@ fuzz_target!(|data: &[u8]| {
 
     // marksurfaces: FunnySize <=> len % rec, BadSurface <=> an index is out
     // of [0, numsurfaces); the shim replays whichever the C fired
-    let numsurfaces = i32::from_le_bytes([data[5], data[6], data[7], data[1]]);
+    let numsurfaces = i32::from_le_bytes([data[4], data[5], data[6], data[7]]);
     let mark = lumps::parse_marksurfaces(lump, bsp2, numsurfaces);
     let mrec = if bsp2 { 4 } else { 2 };
     match mark.error {

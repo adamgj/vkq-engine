@@ -84,6 +84,10 @@ def main():
         names = sorted(discover(args.game_data, gd))
         print(f"# gamedir {gd}: {len(names)} assets", file=out)
         if not names:
+            # a gate that silently verified nothing must not go green: an
+            # empty discovery is the signature of a broken layout/fetch
+            print(f"ERROR: no assets discovered under {gd}", file=sys.stderr)
+            failed = True
             continue
         cmd = [
             "cargo", "run", "-p", "quake-ctest", "--locked", "--bin", "formats_corpus",

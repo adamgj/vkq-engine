@@ -41,6 +41,11 @@ fuzz_target!(|data: &[u8]| {
     let mut out = vec![0u8; cap];
 
     // Must return Ok or Err(NotValid) — never panic, never write past `out`
-    // (Rust bounds every store; a panic here would be the bug).
-    let _ = pcx::decode(data, &header, &mut out);
+    // (Rust bounds every store; a panic here would be the bug) — and must be
+    // deterministic: a second decode into a fresh zeroed buffer of the same
+    // size reproduces both the status and every byte.
+    let status = pcx::decode(data, &header, &mut out);
+    let mut again = vec![0u8; cap];
+    assert_eq!(status, pcx::decode(data, &header, &mut again));
+    assert_eq!(out, again);
 });

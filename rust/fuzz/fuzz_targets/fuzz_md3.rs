@@ -25,7 +25,20 @@ fuzz_target!(|data: &[u8]| {
     let surfaces_ok = counts.num_surfaces != 0 && counts.num_surfaces <= md3::MAX_SURFACES;
     let header_accepts = version_ok && frames_ok && surfaces_ok;
 
-    let _ = md3::parse_header_offsets(&data[..md3::MD3_HEADER_OFFSETS_PREFIX]);
+    // prefix-stability: the shim reads counts/offsets off short prefixes of
+    // the header; parsing the same fields from the full header must agree
+    let offsets = md3::parse_header_offsets(&data[..md3::MD3_HEADER_OFFSETS_PREFIX]);
+    assert_eq!(
+        offsets,
+        md3::parse_header_offsets(&data[..md3::MD3_HEADER_SIZE])
+    );
+    assert_eq!(
+        counts,
+        md3::parse_header_counts(&data[..md3::MD3_HEADER_SIZE])
+    );
+    // the header decision itself has no second pure implementation to diff
+    // against in-process; its reject parity is carried by md3_differential's
+    // fatal-parity cases (version/frames/surfaces, in shim order)
     let _ = header_accepts;
 
     // Per-surface gates over the first surface block, if the input reaches
@@ -37,14 +50,14 @@ fuzz_target!(|data: &[u8]| {
         let sh = md3::parse_surface_header(&surf[..md3::MD3_SURFACE_SIZE]);
         assert_eq!(sh.ident, sident);
         assert_eq!(sh.num_frames, snf);
-        // the shim's per-surface fatals
-        let _ = sident != md3::IDMD3HEADER;
-        let _ = snf != counts.num_frames;
-
-        // record parsers must not panic (native texcoord read is the C bug)
-        let _ = md3::parse_triangle_indexes(&[0u8; 12]);
-        if surf.len() >= 8 {
-            let _ = md3::parse_st_native(&surf[..8]);
+        // record parsers over fuzzed surface bytes must not panic, and the
+        // triangle-index narrowing must match a direct re-read of the file
+        // i32s (the u16 cast is the C's own narrowing, kept bug-for-bug)
+        let tri = md3::parse_triangle_indexes(&surf[..12]);
+        for (j, &idx) in tri.iter().enumerate() {
+            let raw = i32::from_le_bytes(surf[j * 4..j * 4 + 4].try_into().unwrap());
+            assert_eq!(idx, raw as u16);
         }
+        let _ = md3::parse_st_native(&surf[..8]);
     }
 });

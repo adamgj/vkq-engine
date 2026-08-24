@@ -36,6 +36,10 @@ use quake_types::modelgen::{StVert, TriVertX};
 pub const MAXALIASVERTS: usize = 0x7fff;
 pub const MAXALIASFRAMES: usize = 2048;
 
+/// Mirrors `CTEST_MODELSTUB_MAX` in `stubs/stubs.c`: the capacity of the
+/// `Mod_LoadAllSkins` / `TexMgr_LoadImage` call logs.
+const CTEST_MODELSTUB_MAX: i32 = 64;
+
 extern "C" {
     fn c_ref_Mod_ParseTextures(
         m: *mut QModel,
@@ -230,18 +234,26 @@ pub struct BspLoaded {
 /// seam call reaches `Sys_Error`, which would abort the process.
 pub unsafe fn bsp_load_side(
     side: Side,
+    name: &str,
     data: &[u8],
     sv_modelname: &CStr,
     external_ents: f32,
     lens: BlobLens,
 ) -> BspLoaded {
-    let d = data.to_vec();
-    let base = d.as_ptr() as *mut u8;
+    let mut d = data.to_vec();
     let version = i32::from_le_bytes(d[..4].try_into().unwrap());
-    let mut model = new_model("maps/fuzz.bsp", version);
+    // snapshot the lump descriptors before taking the mutable pointer, so no
+    // shared reborrow of `d` is live across the C calls that write through it
+    let lumps: [LumpT; HEADER_LUMPS] = core::array::from_fn(|i| lump_of(&d, i));
+    let base = d.as_mut_ptr();
+    // the name is a loader input, not a label: Mod_LoadLighting derives the
+    // `.lit` sidecar path from it, Mod_LoadEntities the `.ent` one, and
+    // Mod_SetupSubmodels compares it against sv.modelname for the
+    // world-model clipbox branch
+    let mut model = new_model(name, version);
     let m: *mut QModel = &raw mut *model;
     let bsp2 = bsp2_of(version);
-    let lump = |i: usize| lump_of(&d, i);
+    let lump = |i: usize| lumps[i];
 
     // SAFETY: stub globals written under the fs lock the caller holds
     unsafe {
@@ -453,10 +465,18 @@ pub struct AliasLoaded {
 /// for the counts it declares, and `numskins == 0` unless `advance_skins`);
 /// on `Side::Rust` the caller must have established the parse does not
 /// reach `Sys_Error`.
-pub unsafe fn alias_load_side(side: Side, image: &[u8], advance_skins: bool) -> AliasLoaded {
+pub unsafe fn alias_load_side(
+    side: Side,
+    name: &str,
+    image: &[u8],
+    advance_skins: bool,
+) -> AliasLoaded {
     let mut data = image.to_vec();
     let base = data.as_mut_ptr();
-    let mut model = new_model("progs/fuzz.mdl", 0);
+    // the name is a loader input: Mod_SetExtraFlags matches it against
+    // r_nolerp_list and the flame/boss fullbright hack, and it prefixes the
+    // per-frame texture names
+    let mut model = new_model(name, 0);
     let m: *mut QModel = &raw mut *model;
 
     ctfs::clear_logs();
@@ -499,9 +519,15 @@ pub unsafe fn alias_load_side(side: Side, image: &[u8], advance_skins: bool) -> 
     } else {
         None
     };
-    // SAFETY: the recorder holds `ctest_allskins_count` valid entries
+    // SAFETY: the assert establishes that all `n` entries were written —
+    // the stub increments its counter unconditionally but only writes below
+    // the cap, so an unclamped read would walk off the end of the log
     let skins = unsafe {
         let n = ctest_allskins_count();
+        assert!(
+            n <= CTEST_MODELSTUB_MAX,
+            "Mod_LoadAllSkins recorder overflowed ({n} calls > {CTEST_MODELSTUB_MAX})"
+        );
         let p = ctest_allskins_calls();
         (0..n as isize).map(|i| *p.offset(i)).collect()
     };
@@ -562,9 +588,15 @@ impl From<&TexImageCall> for TexImage {
 }
 
 fn recorded_teximages() -> Vec<TexImage> {
-    // SAFETY: the recorder holds `ctest_teximage_count` valid entries
+    // SAFETY: the assert establishes that all `n` entries were written —
+    // TexMgr_LoadImage fires once per sprite frame, so real assets can
+    // outrun the 64-entry log where the synthetic fixtures never did
     unsafe {
         let n = ctest_teximage_count();
+        assert!(
+            n <= CTEST_MODELSTUB_MAX,
+            "TexMgr_LoadImage recorder overflowed ({n} calls > {CTEST_MODELSTUB_MAX})"
+        );
         let p = ctest_teximage_calls();
         (0..n as isize)
             .map(|i| TexImage::from(&*p.offset(i)))
@@ -586,10 +618,10 @@ pub struct SpriteLoaded {
 /// # Safety
 /// Same contract as [`alias_load_side`]: domain-checked image, and on
 /// `Side::Rust` a pre-established non-fatal decision.
-pub unsafe fn sprite_load_side(side: Side, image: &[u8]) -> SpriteLoaded {
+pub unsafe fn sprite_load_side(side: Side, name: &str, image: &[u8]) -> SpriteLoaded {
     let mut data = image.to_vec();
     let base = data.as_mut_ptr();
-    let mut model = new_model("progs/fuzz.spr", 0);
+    let mut model = new_model(name, 0);
     let m: *mut QModel = &raw mut *model;
 
     ctfs::clear_logs();
@@ -639,10 +671,10 @@ pub struct Md3Loaded {
 ///
 /// # Safety
 /// Same contract as [`alias_load_side`].
-pub unsafe fn md3_load_side(side: Side, image: &[u8], skins_result: i32) -> Md3Loaded {
+pub unsafe fn md3_load_side(side: Side, name: &str, image: &[u8], skins_result: i32) -> Md3Loaded {
     let mut data = image.to_vec();
     let base = data.as_mut_ptr();
-    let mut model = new_model("progs/fuzz.md3", 0);
+    let mut model = new_model(name, 0);
     let m: *mut QModel = &raw mut *model;
 
     ctfs::clear_logs();
@@ -697,9 +729,9 @@ pub struct Md5Loaded {
 ///
 /// # Safety
 /// `model_name` selects the companion-file paths; the image is text and the
-/// parser is bounded by the NUL, but the caller must keep the declared
-/// `numMeshes` within the upload recorder's capacity and `numFrames` within
-/// `MAXALIASFRAMES` (see the fuzz target's pre-scan).
+/// parser is bounded by the NUL. A model whose mesh count outruns the
+/// upload recorder's capacity fails loudly, not unsafely: `recorded_uploads`
+/// asserts on overflow rather than clamping (see `mdx_record.rs`).
 pub unsafe fn md5_load_side(
     side: Side,
     model_name: &str,
@@ -738,13 +770,22 @@ pub unsafe fn md5_load_side(
     }
 }
 
-/// Everything one side observes from a PCX/LMP decode call.
+/// Everything one side observes from a PCX/LMP decode call — the same
+/// streams `image_differential::Outcome` compares, so the corpus gate is
+/// not weaker than the fixture suite on this seam.
 #[derive(Debug, PartialEq, Eq)]
 pub struct ImageOutcome {
     pub width: c_int,
     pub height: c_int,
     /// `None` for a NULL return or a trapped `Sys_Error`
     pub data: Option<Vec<u8>>,
+    /// `com_filesize` after the open — the value the LMP size gate keys on
+    pub file_size: i64,
+    /// change in open handles across the call (after the force-close on a
+    /// trapped fatal): 0 proves the decoder closed its handle. A delta, not
+    /// an absolute count — mounted pak files hold handles open for the
+    /// process lifetime
+    pub open_handles: i32,
     pub con_log: Vec<String>,
     pub error: Option<String>,
 }
@@ -765,11 +806,13 @@ pub unsafe fn image_decode_side(
     buf_len: impl Fn(c_int, c_int) -> usize,
 ) -> ImageOutcome {
     ctfs::clear_logs();
+    let handles_before = ctfs::open_handle_count();
     let mut handle: c_int = -1;
     let mut path_id: c_uint = 0;
     // SAFETY: side's searchpaths are mounted; out-params are valid
     let size = unsafe { (ctfs::fns(side).open_file)(name.as_ptr(), &mut handle, &mut path_id) };
     assert!(size >= 0, "fixture {name:?} must open on {side:?}");
+    let file_size = ctfs::thread_file_size();
 
     let mut width: c_int = -1;
     let mut height: c_int = -1;
@@ -829,6 +872,8 @@ pub unsafe fn image_decode_side(
         width,
         height,
         data,
+        file_size,
+        open_handles: ctfs::open_handle_count() - handles_before,
         con_log: ctfs::con_log(),
         error,
     }

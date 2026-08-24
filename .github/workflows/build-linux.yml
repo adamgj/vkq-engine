@@ -168,13 +168,16 @@ jobs:
         python3 scripts/harness/run_formats_corpus.py \
           --game-data "$PWD/shareware-data" --gamedir id1 \
           --out formats-corpus-linux-x86_64.txt
+        # belt-and-braces vacuous-pass floor: grep -c exits 1 on zero OK lines
+        grep -c '^OK ' formats-corpus-linux-x86_64.txt
         tail -1 formats-corpus-linux-x86_64.txt
     - name: Upload formats manifest
       uses: actions/upload-artifact@v4
       with:
         name: formats-corpus-manifest
         path: formats-corpus-linux-x86_64.txt
-        if-no-files-found: warn
+        # the manifest is always written on success; its absence is an error
+        if-no-files-found: error
 
   # ADR-013 / PLAN §7 gate 9: AddressSanitizer on the C side of the mixed
   # build, catching cross-language allocator misuse (alloc on one heap, free

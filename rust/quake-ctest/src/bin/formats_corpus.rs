@@ -13,8 +13,10 @@
 //! assets (loose files plus pak directories) and diffs manifests between
 //! runs or platforms.
 //!
-//! Exit status: 0 when every listed asset is OK/REJECT/SKIP with C/Rust
-//! parity; a parity divergence panics with a line-level diff.
+//! Exit status: 0 when every listed asset held C/Rust parity *and* at
+//! least one produced a parity-verified OK (an all-SKIP run — the signature
+//! of a broken mount — exits 1); a parity divergence panics with a
+//! line-level diff.
 
 use std::ffi::CString;
 use std::io::Read;
@@ -107,11 +109,16 @@ fn run_bsp(name: &str) -> Outcome {
         lightdata: drv::lit_replacement_len(side, name, path_id, light.filelen)
             .unwrap_or_else(|| drv::expanded_light_len(version, light.filelen)),
     };
+    // sv_modelname == mod->name makes every map the world model, so
+    // Mod_SetupSubmodels' clipbox-skip branch runs for submodel 0 while the
+    // i > 0 clones still take the copy — both arms in one pass (RA13). The
+    // real name also routes the `.lit`/`.ent` sidecar probes (AC4).
+    let sv_modelname = cname.clone();
     // SAFETY: the descriptors were bounds-checked above and the asset is a
     // shipped map (in the loaders' defined domain); C runs first, so a
     // C-side fatal is trapped before the Rust side ever runs
     let c =
-        unsafe { drv::bsp_load_side(Side::C, &data, c"maps/corpus.bsp", 1.0, lens_for(Side::C)) };
+        unsafe { drv::bsp_load_side(Side::C, name, &data, &sv_modelname, 1.0, lens_for(Side::C)) };
     if let Some(drv::LoadError::Sys(msg)) = c.error {
         return Outcome::Reject(msg);
     }
@@ -119,8 +126,9 @@ fn run_bsp(name: &str) -> Outcome {
     let r = unsafe {
         drv::bsp_load_side(
             Side::Rust,
+            name,
             &data,
-            c"maps/corpus.bsp",
+            &sv_modelname,
             1.0,
             lens_for(Side::Rust),
         )
@@ -144,12 +152,12 @@ fn run_mdl(name: &str) -> Outcome {
     };
     // SAFETY: shipped .mdl files are in the parser's domain; C runs first
     // and a fatal is trapped, in which case the Rust side is skipped
-    let c = unsafe { drv::alias_load_side(Side::C, &data, true) };
+    let c = unsafe { drv::alias_load_side(Side::C, name, &data, true) };
     if let Some(msg) = c.error {
         return Outcome::Reject(msg);
     }
     // SAFETY: as above — C accepted
-    let r = unsafe { drv::alias_load_side(Side::Rust, &data, true) };
+    let r = unsafe { drv::alias_load_side(Side::Rust, name, &data, true) };
     assert_eq!(c.con_log, r.con_log, "{name}: console log parity");
     assert_eq!(c.skins, r.skins, "{name}: Mod_LoadAllSkins argument parity");
     let (cs, rs) = (c.snap.unwrap(), r.snap.unwrap());
@@ -167,12 +175,12 @@ fn run_spr(name: &str) -> Outcome {
         return Outcome::Skip("unreadable");
     };
     // SAFETY: shipped .spr files are in the parser's domain; C-first
-    let c = unsafe { drv::sprite_load_side(Side::C, &data) };
+    let c = unsafe { drv::sprite_load_side(Side::C, name, &data) };
     if let Some(msg) = c.error {
         return Outcome::Reject(msg);
     }
     // SAFETY: as above — C accepted
-    let r = unsafe { drv::sprite_load_side(Side::Rust, &data) };
+    let r = unsafe { drv::sprite_load_side(Side::Rust, name, &data) };
     assert_eq!(c.con_log, r.con_log, "{name}: console log parity");
     assert_eq!(c.textures, r.textures, "{name}: TexMgr_LoadImage parity");
     let (cs, rs) = (c.snap.unwrap(), r.snap.unwrap());
@@ -190,12 +198,12 @@ fn run_md3(name: &str) -> Outcome {
         return Outcome::Skip("unreadable");
     };
     // SAFETY: shipped .md3 files are in the parser's domain; C-first
-    let c = unsafe { drv::md3_load_side(Side::C, &data, 0) };
+    let c = unsafe { drv::md3_load_side(Side::C, name, &data, 0) };
     if let Some(msg) = c.error {
         return Outcome::Reject(msg);
     }
     // SAFETY: as above — C accepted
-    let r = unsafe { drv::md3_load_side(Side::Rust, &data, 0) };
+    let r = unsafe { drv::md3_load_side(Side::Rust, name, &data, 0) };
     assert_eq!(c.con_log, r.con_log, "{name}: console log parity");
     assert_eq!(c.skins, r.skins, "{name}: skin-callback parity");
     assert_eq!(c.uploads, r.uploads, "{name}: GLMesh_UploadBuffers parity");
@@ -259,6 +267,7 @@ fn run_image(name: &str, pcx: bool) -> Outcome {
     // SAFETY: C accepted, establishing the decision
     let r = unsafe { drv::image_decode_side(Side::Rust, &cname, pcx, buf_len) };
     assert_eq!(c, r, "{name}: decode parity");
+    assert_eq!(c.open_handles, 0, "{name}: decoder must close the handle");
     let mut h = Hasher::new();
     h.debug(&(c.width, c.height));
     if let Some(d) = &c.data {
@@ -342,4 +351,10 @@ fn main() {
         "# {ok} ok, {reject} reject, {skip} skip, {} total",
         names.len()
     );
+    // a broken mount makes every asset SKIP("unreadable"), which must not
+    // be indistinguishable from success at the exit-code level
+    if !names.is_empty() && ok == 0 {
+        eprintln!("formats_corpus: no asset produced a parity-verified OK outcome");
+        std::process::exit(1);
+    }
 }

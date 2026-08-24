@@ -92,12 +92,15 @@ jobs:
         ./scripts/gen_c_bindings.sh
         git diff --exit-code rust/quake-c-sys/src/generated.rs
 
-  # Phase 2 exit criterion: fuzzers live for pak/wad/kpf inputs. Short
+  # Phase 2 exit criterion (pak/wad/kpf inputs) plus the Phase 3 M7
+  # differential targets over the quake-formats/quake-image parsers. Short
   # libFuzzer smoke on every PR/push; the weekly cron (the same event gate
-  # the audit job uses) runs each target longer.
+  # the audit job uses) runs each target longer — 12 targets x 300s is a
+  # deliberate ~60min weekly soak, bounded by timeout-minutes below.
   fuzz-smoke:
-    name: fuzz smoke (quake-fs parsers)
+    name: fuzz smoke (fs + formats + image parsers)
     runs-on: ubuntu-latest
+    timeout-minutes: 120
     steps:
     - uses: actions/checkout@v6
     # nightly: cargo-fuzz builds with -Zsanitizer; the rust/ toolchain file
