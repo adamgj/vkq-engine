@@ -5,5 +5,6 @@
 #![forbid(unsafe_code)] // ADR-004: pure crate
 
 pub mod bsp;
+pub mod md3;
 pub mod mdl;
 pub mod spr;

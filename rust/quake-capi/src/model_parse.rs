@@ -38,16 +38,16 @@ use quake_formats::bsp::{
     textures::TexWork,
     Bsp2,
 };
-use quake_formats::{mdl, spr};
+use quake_formats::{md3, mdl, spr};
 use quake_types::bspfile::{
     DModel, LumpT, BSPVERSION_QUAKE64, BSPVERSION_VALVE, MAX_MAP_HULLS, MIPLEVELS, TEX_SPECIAL,
 };
 use quake_types::model_mem::{
-    AliasHdr, MAliasFrameDesc, MClipnode, MEdge, MLeaf, MNode, MSprite, MSpriteFrame,
-    MSpriteFrameDesc, MSpriteGroup, MSurface, MTexInfo, MTriangle, MVertex, Md3XyzNormal, Md5Vert,
-    Md5Vert8, QModel, Texture, MAX_QPATH, MOD_ALIAS, MOD_SPRITE, PV_MD5, PV_MD5_8, PV_QUAKE1,
-    PV_QUAKE3, SURF_DRAWLAVA, SURF_DRAWSKY, SURF_DRAWSLIME, SURF_DRAWTELE, SURF_DRAWTURB,
-    SURF_DRAWWATER, SURF_PLANEBACK, TEXTYPE_COUNT,
+    AliasHdr, AliasMesh, AllSurfacesDef, JointPose, MAliasFrameDesc, MClipnode, MEdge, MLeaf,
+    MNode, MSprite, MSpriteFrame, MSpriteFrameDesc, MSpriteGroup, MSurface, MTexInfo, MTriangle,
+    MVertex, Md3XyzNormal, Md5Vert, Md5Vert8, QModel, Texture, MAX_QPATH, MOD_ALIAS, MOD_SPRITE,
+    PV_MD5, PV_MD5_8, PV_QUAKE1, PV_QUAKE3, SURF_DRAWLAVA, SURF_DRAWSKY, SURF_DRAWSLIME,
+    SURF_DRAWTELE, SURF_DRAWTURB, SURF_DRAWWATER, SURF_PLANEBACK, TEXTYPE_COUNT,
 };
 use quake_types::modelgen::{StVert, TriVertX};
 use quake_types::MPlane;
@@ -2376,5 +2376,356 @@ pub unsafe extern "C" fn Mod_LoadSpriteModel(m: *mut QModel, buffer: *mut c_void
         }
 
         (*m).type_ = MOD_SPRITE;
+    }
+}
+
+/*
+==============================================================================
+
+MD3 MODELS
+
+==============================================================================
+*/
+
+/// `MAX_SKINS` as the size_t parameter the skin loaders take
+const MAX_SKINS_C: usize = quake_types::model_mem::MAX_SKINS;
+
+/// `sizeof (aliashdr_t) - sizeof (outhdr->frames)`: the header without its
+/// one-element trailing frame array.
+const ALIASHDR_HEAD_SIZE: usize =
+    core::mem::size_of::<AliasHdr>() - core::mem::size_of::<MAliasFrameDesc>();
+/// `sizeof (outhdr->frames)` — `maliasframedesc_t frames[1]`
+const ALIASHDR_FRAME_SIZE: usize = core::mem::size_of::<MAliasFrameDesc>();
+
+unsafe extern "C" {
+    // gl_model.c: the .skin-file plumbing and the MD3 skin search order stay
+    // C this phase (Phase 3 NG3)
+    fn Mod_LoadMD3SkinDefinitions(m: *mut QModel, surf_defs: *mut AllSurfacesDef);
+    fn Mod_LoadMD3SurfaceSkins(
+        m: *mut QModel,
+        surf: *mut AliasHdr,
+        surfaces_def: *mut AllSurfacesDef,
+        surface_name: *const c_char,
+        surface_index: c_int,
+        numsurfs: usize,
+        numskins: usize,
+    ) -> c_int;
+    // gl_mesh.c: GPU upload stays C (Phase 3 NG2). glquake.h is not a
+    // bindgen-clean root, so the declarations are by hand and must match it
+    // exactly; the signature gate diffs them against a copied slice.
+    fn GLMesh_UploadBuffers(
+        m: *mut QModel,
+        hdr: *mut AliasHdr,
+        indexes: *mut u16,
+        vertexes: *mut u8,
+        desc: *mut AliasMesh,
+        joints: *mut JointPose,
+    );
+}
+
+/// `(byte *)outhdr + index * hdrsize` — the MD3/MD5 loaders allocate all
+/// `aliashdr_t`s of a model as one block of `hdrsize`-strided headers and
+/// chain them through `nextsurface`.
+///
+/// # Safety
+/// `outhdr` must point at a block of at least `(index + 1) * hdrsize` bytes.
+unsafe fn hdr_slot(outhdr: *mut AliasHdr, index: usize, hdrsize: usize) -> *mut AliasHdr {
+    // SAFETY: caller guarantees the block is big enough
+    unsafe {
+        outhdr
+            .cast::<u8>()
+            .add(index.wrapping_mul(hdrsize))
+            .cast::<AliasHdr>()
+    }
+}
+
+/*
+=====================
+Mod_LoadMD3Model
+=====================
+*/
+
+/// # Safety
+/// C ABI contract of Mod_LoadMD3Model: `buffer` holds a whole .md3 file
+/// image (no length is passed, see the note at the top of the alias
+/// section).
+#[no_mangle]
+pub unsafe extern "C" fn Mod_LoadMD3Model(m: *mut QModel, buffer: *const c_void) {
+    // SAFETY: C ABI contract above
+    unsafe {
+        let base = buffer.cast::<u8>().cast_mut();
+
+        // COMPAT: unbounded seam, same rule as Mod_ParseAliasModel -- each
+        // field is read off the smallest prefix the C has touched by that
+        // point, so a truncated image is never over-read past the C's own
+        // touch set before the matching Sys_Error fires.
+        let version =
+            md3::parse_version(core::slice::from_raw_parts(base, md3::OFS_HDR_VERSION + 4));
+        if version != md3::MD3_VERSION {
+            sys::Sys_Error(
+                c"MD3: %s has wrong version number (%d should be %d)".as_ptr(),
+                model_name(m),
+                version,
+                md3::MD3_VERSION,
+            );
+        }
+
+        let counts = md3::parse_header_counts(core::slice::from_raw_parts(
+            base,
+            md3::MD3_HEADER_COUNTS_PREFIX,
+        ));
+        let numsurfs = counts.num_surfaces;
+        let numframes = counts.num_frames;
+
+        if numframes > md3::MAXALIASFRAMES {
+            sys::Sys_Error(
+                c"MD3: %s has too many frames (%i vs %i)".as_ptr(),
+                model_name(m),
+                numframes,
+                md3::MAXALIASFRAMES,
+            );
+        }
+
+        if numsurfs == 0 {
+            sys::Sys_Error(c"MD3: %s has no surfaces".as_ptr(), model_name(m));
+        }
+
+        if numsurfs > md3::MAX_SURFACES {
+            sys::Sys_Error(
+                c"MD3: %s has too many surfaces : %d (max %d)".as_ptr(),
+                model_name(m),
+                numsurfs,
+                md3::MAX_SURFACES,
+            );
+        }
+
+        // Collect the skin definitions from .skin files, if any
+        let surf_def =
+            sys::Mem_Alloc(core::mem::size_of::<AllSurfacesDef>()).cast::<AllSurfacesDef>();
+        Mod_LoadMD3SkinDefinitions(m, surf_def);
+
+        let offsets = md3::parse_header_offsets(core::slice::from_raw_parts(
+            base,
+            md3::MD3_HEADER_OFFSETS_PREFIX,
+        ));
+        let pinframes = base.wrapping_offset(offsets.ofs_frames as isize);
+
+        // COMPAT: `numframes` reaches this size_t arithmetic as an int, so a
+        // negative count sign-extends rather than saturating, exactly as in
+        // the C.
+        let hdrsize = ALIASHDR_HEAD_SIZE
+            .wrapping_add(ALIASHDR_FRAME_SIZE.wrapping_mul(numframes as isize as usize));
+
+        // alloc all aliashdr_t and their chained nextsurface, a.k.a numsurfs,
+        // in one array
+        let outhdr =
+            sys::Mem_Alloc(hdrsize.wrapping_mul(numsurfs as isize as usize)).cast::<AliasHdr>();
+
+        // total_numverts and total_vertexes accumulate all vertices of the
+        // surface, just to be able to Mod_CalcAliasBounds at the end.
+        let mut total_numverts: usize = 0;
+        let mut total_vertexes: *mut Md3XyzNormal = null_mut();
+
+        let mut pinsurface = base.wrapping_offset(offsets.ofs_surfaces as isize);
+        for isurf in 0..numsurfs {
+            if md3::parse_surface_ident(core::slice::from_raw_parts(
+                pinsurface,
+                md3::MD3_SURFACE_IDENT_PREFIX,
+            )) != md3::IDMD3HEADER
+            {
+                sys::Sys_Error(c"MD3: %s corrupt surface ident".as_ptr(), model_name(m));
+            }
+            if md3::parse_surface_numframes(core::slice::from_raw_parts(
+                pinsurface,
+                md3::MD3_SURFACE_NUMFRAMES_PREFIX,
+            )) != numframes
+            {
+                sys::Sys_Error(c"MD3: %s mismatched framecounts".as_ptr(), model_name(m));
+            }
+
+            let sh = md3::parse_surface_header(core::slice::from_raw_parts(
+                pinsurface,
+                md3::MD3_SURFACE_SIZE,
+            ));
+
+            // go to the surf, chaining the next nextsurface
+            let surf = hdr_slot(outhdr, isurf as usize, hdrsize);
+            (*surf).nextsurface = if isurf + 1 < numsurfs {
+                hdr_slot(outhdr, isurf as usize + 1, hdrsize)
+            } else {
+                null_mut()
+            };
+
+            (*surf).poseverttype = PV_QUAKE3;
+
+            // the number of vertices per-frame
+            (*surf).numverts = sh.num_verts;
+            (*surf).numverts_vbo = sh.num_verts;
+
+            // All the vertices for this surface, concat of the vertices of
+            // each of the numframes, one frame after another
+            let pinvertexes = pinsurface.wrapping_offset(sh.ofs_xyz_normals as isize);
+
+            let poutvertexes = sys::Mem_Alloc(
+                (numframes.wrapping_mul(sh.num_verts) as isize as usize)
+                    .wrapping_mul(md3::MD3_XYZNORMAL_SIZE),
+            )
+            .cast::<u8>();
+
+            // Load skins for that surface. COMPAT: q_strtrim rewrites the
+            // surface name in the loaded file image, and the warning below
+            // prints the field, not the trimmed pointer -- both as in the C.
+            let surface_name = pinsurface.add(md3::OFS_SURF_NAME).cast::<c_char>();
+            (*surf).numskins = Mod_LoadMD3SurfaceSkins(
+                m,
+                surf,
+                surf_def,
+                sys::q_strtrim(surface_name),
+                isurf,
+                numsurfs as isize as usize,
+                MAX_SKINS_C,
+            );
+
+            if (*surf).numskins == 0 {
+                sys::Con_Warning(
+                    c"MD3: %s, no skins found for surf '%s' (%d)\n".as_ptr(),
+                    model_name(m),
+                    surface_name,
+                    isurf,
+                );
+            }
+
+            // for each frame: only 1 pose for MD3, it have frames instead
+            (*surf).numposes = 1;
+
+            let frames = addr_of_mut!((*surf).frames).cast::<MAliasFrameDesc>();
+            let mut pv = poutvertexes;
+            let mut pinv = pinvertexes;
+            for ival in 0..numframes {
+                let f = frames.offset(ival as isize);
+                (*f).firstpose = ival;
+                (*f).numposes = 1;
+                (*f).interval = 0.1;
+
+                // COMPAT: the C never advances `pinframes`, so every frame of
+                // every surface is named after md3 frame 0.
+                strlcpy_raw(
+                    addr_of_mut!((*f).name).cast::<c_char>(),
+                    16,
+                    pinframes.add(md3::OFS_FRAME_NAME).cast::<c_char>(),
+                );
+
+                for j in 0..3 {
+                    // fixme...
+                    (*f).bboxmin.v[j] = 0;
+                    (*f).bboxmax.v[j] = 255;
+                }
+
+                for j in 0..sh.num_verts {
+                    let o = (j as isize).wrapping_mul(md3::MD3_XYZNORMAL_SIZE as isize);
+                    core::ptr::copy_nonoverlapping(
+                        pinv.offset(o),
+                        pv.offset(o),
+                        md3::MD3_XYZNORMAL_SIZE,
+                    );
+                }
+
+                let stride = (sh.num_verts as isize).wrapping_mul(md3::MD3_XYZNORMAL_SIZE as isize);
+                pv = pv.wrapping_offset(stride);
+                pinv = pinv.wrapping_offset(stride);
+            }
+            (*surf).numframes = numframes;
+
+            (*surf).numtris = sh.num_triangles;
+            (*surf).numindexes = sh.num_triangles.wrapping_mul(3);
+
+            let pintriangle = pinsurface.wrapping_offset(sh.ofs_triangles as isize);
+
+            let poutindexes = sys::Mem_Alloc(
+                core::mem::size_of::<u16>().wrapping_mul((*surf).numindexes as isize as usize),
+            )
+            .cast::<u16>();
+
+            for ival in 0..(*surf).numtris {
+                let idx = md3::parse_triangle_indexes(core::slice::from_raw_parts(
+                    pintriangle
+                        .offset((ival as isize).wrapping_mul(md3::MD3_TRIANGLE_SIZE as isize)),
+                    md3::MD3_TRIANGLE_SIZE,
+                ));
+                let dst = poutindexes.offset((ival as isize).wrapping_mul(3));
+                for (j, v) in idx.iter().enumerate() {
+                    *dst.add(j) = *v;
+                }
+            }
+
+            for j in 0..3 {
+                (*surf).scale_origin[j] = 0.0;
+                (*surf).scale[j] = md3::MD3_XYZ_SCALE;
+            }
+
+            // and figure out the texture coords properly, now we know the
+            // actual sizes.
+            let pinst = pinsurface.wrapping_offset(sh.ofs_st as isize);
+            let poutst = sys::Mem_Alloc(
+                core::mem::size_of::<AliasMesh>().wrapping_mul(sh.num_verts as isize as usize),
+            )
+            .cast::<AliasMesh>();
+
+            for j in 0..sh.num_verts {
+                let st = md3::parse_st_native(core::slice::from_raw_parts(
+                    pinst.offset((j as isize).wrapping_mul(md3::MD3_ST_SIZE as isize)),
+                    md3::MD3_ST_SIZE,
+                ));
+                let d = poutst.offset(j as isize);
+                // how is this useful?
+                (*d).vertindex = j as u16;
+                (*d).st = st;
+            }
+
+            // Upload to GPU that surface/mesh
+            GLMesh_UploadBuffers(m, surf, poutindexes, poutvertexes, poutst, null_mut());
+
+            // concat surface vertices to total_vertexes
+            let nbytes = md3::MD3_XYZNORMAL_SIZE.wrapping_mul(sh.num_verts as isize as usize);
+            total_vertexes = sys::Mem_Realloc(
+                total_vertexes.cast::<c_void>(),
+                md3::MD3_XYZNORMAL_SIZE
+                    .wrapping_mul(total_numverts.wrapping_add(sh.num_verts as isize as usize)),
+            )
+            .cast::<Md3XyzNormal>();
+            core::ptr::copy_nonoverlapping(
+                poutvertexes,
+                total_vertexes.add(total_numverts).cast::<u8>(),
+                nbytes,
+            );
+            total_numverts = total_numverts.wrapping_add(sh.num_verts as isize as usize);
+
+            sys::Mem_Free(poutst.cast::<c_void>());
+            sys::Mem_Free(poutvertexes.cast::<c_void>());
+            sys::Mem_Free(poutindexes.cast::<c_void>());
+
+            // go to the next surface
+            pinsurface = pinsurface.wrapping_offset(sh.ofs_end as isize);
+        }
+
+        // small violation of the spec, but it seems like noone else uses it.
+        (*m).flags = md3::parse_flags(core::slice::from_raw_parts(
+            base,
+            md3::MD3_HEADER_FLAGS_PREFIX,
+        ));
+
+        (*m).type_ = MOD_ALIAS;
+        (*m).extradata[PV_QUAKE3 as usize] = outhdr.cast::<u8>();
+
+        // calc alias bounds of the whole surfaces model
+        Mod_CalcAliasBounds(
+            m,
+            outhdr,
+            total_numverts as c_int,
+            total_vertexes.cast::<u8>(),
+        );
+
+        sys::Mem_Free(total_vertexes.cast::<c_void>());
+        sys::Mem_Free(surf_def.cast::<c_void>());
     }
 }

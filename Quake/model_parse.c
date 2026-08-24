@@ -3549,6 +3549,7 @@ error:
 	return false;
 }
 
+#ifndef USE_RUST_FORMATS
 /*
 =====================
 Mod_LoadMD3Model
@@ -3728,3 +3729,4 @@ void Mod_LoadMD3Model (qmodel_t *mod, const void *buffer)
 	Mem_Free (total_vertexes);
 	Mem_Free (surf_def);
 }
+#endif // !USE_RUST_FORMATS

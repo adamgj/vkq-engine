@@ -31,6 +31,7 @@
 #include <dirent.h>
 #endif
 
+#include "q_ctype.h" /* q_isspace, for the q_strtrim copy below */
 #include "steam.h" /* steamgame_t / quakeflavor_t for the Steam_Init stub */
 
 /* ---------------------------------------------------------------------------
@@ -1444,6 +1445,227 @@ gltexture_t *TexMgr_LoadImage (
 	}
 	++ctest_teximage_n;
 	return NULL;
+}
+
+/* Phase 3 M5: the MD3/MD5 loaders' side effects outside their Mem_Alloc'ed
+ * aliashdr_t block are the skin-loading callbacks (which stay in gl_model.c)
+ * and the mesh upload (gl_mesh.c). The upload is where the *parsed* payload
+ * goes -- baked MD5 influences, generated normals, MD3 vertex/texcoord
+ * streams -- so the recorder copies the buffers, not just the pointers; that
+ * copy is the primary AC6 evidence.
+ *
+ * Buffer lengths are derived from the aliashdr_t the loader just filled, so
+ * both sides record by the same rule. The tests assert the recorded lengths
+ * against what the fixture implies, so a mis-derived length fails loudly
+ * instead of silently comparing nothing. */
+#define CTEST_UPLOAD_MAX   16
+#define CTEST_UPLOAD_BYTES 65536
+
+typedef struct
+{
+	int32_t numverts, numverts_vbo, numtris, numindexes;
+	int32_t numposes, numframes, numjoints, poseverttype, numskins;
+	int32_t has_next_surface, has_desc, has_joints;
+	int32_t index_bytes, vertex_bytes, desc_bytes, joint_bytes;
+	int32_t truncated;
+	byte	data[CTEST_UPLOAD_BYTES]; /* indexes | vertexes | desc | joints */
+} ctest_upload_call_t;
+
+typedef struct
+{
+	char	name[64];
+	int32_t surf_index;
+	int64_t numsurfaces;
+	int64_t numskins;
+	int32_t kind; /* 0 = MD5 shader name, 1 = MD3 surface name */
+} ctest_mdxskin_call_t;
+
+static ctest_upload_call_t	ctest_upload_log[CTEST_UPLOAD_MAX];
+static int32_t				ctest_upload_n;
+static ctest_mdxskin_call_t ctest_mdxskin_log[CTEST_MODELSTUB_MAX];
+static int32_t				ctest_mdxskin_n;
+static int32_t				ctest_skindefs_n;
+static int32_t				ctest_deletemesh_n;
+static int32_t				ctest_mdxskin_result;
+
+void ctest_mdxstub_reset (int32_t skins_result)
+{
+	ctest_upload_n = 0;
+	ctest_mdxskin_n = 0;
+	ctest_skindefs_n = 0;
+	ctest_deletemesh_n = 0;
+	ctest_mdxskin_result = skins_result;
+	memset (ctest_upload_log, 0, sizeof (ctest_upload_log));
+	memset (ctest_mdxskin_log, 0, sizeof (ctest_mdxskin_log));
+}
+
+int32_t ctest_upload_count (void)
+{
+	return ctest_upload_n;
+}
+
+const ctest_upload_call_t *ctest_upload_calls (void)
+{
+	return ctest_upload_log;
+}
+
+int32_t ctest_mdxskin_count (void)
+{
+	return ctest_mdxskin_n;
+}
+
+const ctest_mdxskin_call_t *ctest_mdxskin_calls (void)
+{
+	return ctest_mdxskin_log;
+}
+
+int32_t ctest_skindefs_count (void)
+{
+	return ctest_skindefs_n;
+}
+
+int32_t ctest_deletemesh_count (void)
+{
+	return ctest_deletemesh_n;
+}
+
+static size_t ctest_pose_vertex_size (int poseverttype)
+{
+	switch (poseverttype)
+	{
+	case PV_MD5:
+		return sizeof (md5vert_t);
+	case PV_MD5_8:
+		return sizeof (md5vert8_t);
+	case PV_QUAKE3:
+		return sizeof (md3XyzNormal_t);
+	default:
+		return sizeof (trivertx_t);
+	}
+}
+
+static void ctest_upload_append (ctest_upload_call_t *c, size_t *used, const void *src, size_t n, int32_t *out_bytes)
+{
+	*out_bytes = (int32_t)n;
+	if (!src || n == 0)
+		return;
+	if (*used + n > CTEST_UPLOAD_BYTES)
+	{
+		c->truncated = 1;
+		return;
+	}
+	memcpy (c->data + *used, src, n);
+	*used += n;
+}
+
+void GLMesh_UploadBuffers (qmodel_t *mod, aliashdr_t *hdr, unsigned short *indexes, byte *vertexes, aliasmesh_t *desc, jointpose_t *joints)
+{
+	(void)mod;
+	if (ctest_upload_n < CTEST_UPLOAD_MAX)
+	{
+		ctest_upload_call_t *c = &ctest_upload_log[ctest_upload_n];
+		size_t				 used = 0;
+		size_t				 vsize = ctest_pose_vertex_size (hdr->poseverttype);
+		/* MD3 hands over numframes poses of numverts; MD5 hands over the one
+		 * skinned pose (numposes == 1 there too, but the vertex stream is not
+		 * per-frame). */
+		size_t				 vert_records = (hdr->poseverttype == PV_QUAKE3) ? (size_t)hdr->numframes * (size_t)hdr->numverts : (size_t)hdr->numverts;
+
+		c->numverts = hdr->numverts;
+		c->numverts_vbo = hdr->numverts_vbo;
+		c->numtris = hdr->numtris;
+		c->numindexes = hdr->numindexes;
+		c->numposes = hdr->numposes;
+		c->numframes = hdr->numframes;
+		c->numjoints = hdr->numjoints;
+		c->poseverttype = (int32_t)hdr->poseverttype;
+		c->numskins = hdr->numskins;
+		c->has_next_surface = hdr->nextsurface != NULL;
+		c->has_desc = desc != NULL;
+		c->has_joints = joints != NULL;
+
+		ctest_upload_append (c, &used, indexes, (size_t)hdr->numindexes * sizeof (unsigned short), &c->index_bytes);
+		ctest_upload_append (c, &used, vertexes, vert_records * vsize, &c->vertex_bytes);
+		ctest_upload_append (c, &used, desc, desc ? (size_t)hdr->numverts * sizeof (aliasmesh_t) : 0, &c->desc_bytes);
+		ctest_upload_append (
+			c, &used, joints, joints ? (size_t)hdr->numjoints * (size_t)hdr->numframes * sizeof (jointpose_t) : 0, &c->joint_bytes);
+	}
+	++ctest_upload_n;
+}
+
+void GLMesh_DeleteMeshBuffers (aliashdr_t *mainhdr)
+{
+	(void)mainhdr;
+	++ctest_deletemesh_n;
+}
+
+void Mod_LoadMD3SkinDefinitions (qmodel_t *mod, all_surfaces_def_t *surf_defs)
+{
+	(void)mod;
+	(void)surf_defs;
+	++ctest_skindefs_n;
+}
+
+static int ctest_record_mdxskin (const char *name, int surf_index, size_t numsurfaces, size_t numskins, int kind)
+{
+	if (ctest_mdxskin_n < CTEST_MODELSTUB_MAX)
+	{
+		ctest_mdxskin_call_t *c = &ctest_mdxskin_log[ctest_mdxskin_n];
+		q_strlcpy (c->name, name ? name : "", sizeof (c->name));
+		c->surf_index = surf_index;
+		c->numsurfaces = (int64_t)numsurfaces;
+		c->numskins = (int64_t)numskins;
+		c->kind = kind;
+	}
+	++ctest_mdxskin_n;
+	return ctest_mdxskin_result;
+}
+
+int Mod_LoadMD3SurfaceSkins (
+	qmodel_t *mod, aliashdr_t *surf, all_surfaces_def_t *surfaces_def, const char *surface_name, int surface_index, size_t numsurfs, size_t numskins)
+{
+	(void)mod;
+	(void)surf;
+	(void)surfaces_def;
+	return ctest_record_mdxskin (surface_name, surface_index, numsurfs, numskins, 1);
+}
+
+size_t Mod_LoadMD5SurfaceSkins (qmodel_t *mod, aliashdr_t *surf, int surf_index, size_t numsurfaces, const char *shader_name)
+{
+	(void)mod;
+	(void)surf;
+	return (size_t)ctest_record_mdxskin (shader_name, surf_index, numsurfaces, MAX_SKINS, 0);
+}
+
+/* q_strtrim lives in Quake/common.c, which is not in the c_ref build; verbatim
+ * copy shared by both sides (the prelude does not rename it). The size_t
+ * last_index underflow on an all-whitespace field is the C's, kept as-is. */
+char *q_strtrim (char *str)
+{
+	// trim leading and ending whitespaces:
+	char *str_start = (char *)str;
+
+	// trim leading:
+	while (q_isspace ((unsigned char)*str))
+		str++;
+
+	// trim ending :
+	size_t last_index = strlen (str_start) - 1;
+
+	while (last_index >= 0)
+	{
+		if (q_isspace (str_start[last_index]))
+		{
+			str_start[last_index] = '\0';
+		}
+		else
+		{
+			break;
+		}
+		last_index--;
+	}
+
+	return str;
 }
 
 /* COM_SkipPath / COM_StripExtension live in Quake/common.c, which is not in
