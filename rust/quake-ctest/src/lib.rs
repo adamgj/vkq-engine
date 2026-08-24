@@ -2,7 +2,10 @@
 //! include/c_ref_prelude.h) so tests can differentially compare the original
 //! C implementations against the Rust ports.
 
+pub mod drivers;
 pub mod fs;
+pub mod mdx_record;
+pub mod model_hash;
 
 use core::ffi::{c_char, c_int, c_void};
 

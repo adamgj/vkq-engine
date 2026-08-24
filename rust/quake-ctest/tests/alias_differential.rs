@@ -4,7 +4,7 @@
 //!
 //! Both sides are handed their own copy of the same synthetic .mdl image and
 //! fill their own `Mem_Alloc` heap; the comparison is the canonical deep-walk
-//! snapshot from `support/model_hash.rs` (pointers resolved to indices/blob
+//! snapshot from `quake_ctest::model_hash` (pointers resolved to indices/blob
 //! offsets, renderer fields masked) plus the console log and the
 //! `Mod_LoadAllSkins` argument stream the shared stub records.
 //!
@@ -26,9 +26,8 @@ use quake_types::model_mem::{
 };
 use quake_types::modelgen::{StVert, TriVertX, ALIAS_SINGLE, ALIAS_VERSION};
 
-#[path = "support/model_hash.rs"]
-mod model_hash;
 use model_hash::{alias_snapshot, AliasScratch, Snapshot};
+use quake_ctest::model_hash;
 
 /// `gl_model.h` -- the shared scratch arrays are declared with these bounds.
 const MAXALIASVERTS: usize = 0x7fff;

@@ -4,7 +4,7 @@
 //!
 //! Same shape as `alias_differential.rs`: each side walks its own copy of one
 //! synthetic .spr image into its own `Mem_Alloc` heap, and the comparison is
-//! the canonical deep-walk snapshot (`support/model_hash.rs`) plus the
+//! the canonical deep-walk snapshot (`quake_ctest::model_hash`) plus the
 //! console log plus the `TexMgr_LoadImage` argument stream the shared stub
 //! records -- the pixel pointer is compared as a byte offset into that side's
 //! own image, so the two heaps' addresses never leak into the diff.
@@ -18,9 +18,8 @@ use quake_ctest::fs as ctfs;
 use quake_ctest::fs::Side;
 use quake_types::model_mem::{QModel, MAX_QPATH};
 
-#[path = "support/model_hash.rs"]
-mod model_hash;
 use model_hash::{sprite_snapshot, Snapshot};
+use quake_ctest::model_hash;
 
 const DSPRITE_T_SIZE: usize = 36;
 const DSPRITEFRAME_T_SIZE: usize = 16;

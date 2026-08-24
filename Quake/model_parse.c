@@ -736,6 +736,7 @@ void Mod_ParseFaces (qmodel_t *mod, byte *mod_base, lump_t *l, qboolean bsp2)
 
 	for (surfnum = 0; surfnum < count; surfnum++, out++)
 	{
+		out->styles_bitmap = 0; // OR-ed into below; the allocation is non-zeroing
 		if (bsp2)
 		{
 			out->firstedge = ReadLongUnaligned (inl + offsetof (dlface_t, firstedge));

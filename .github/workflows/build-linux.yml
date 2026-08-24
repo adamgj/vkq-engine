@@ -158,6 +158,23 @@ jobs:
         export QUAKE_GAME_DATA="$PWD/shareware-data"
         python3 scripts/harness/save_diff.py --vkquake build-c/vkqr-engine --vkquake-b build-rs/vkqr-engine
         python3 scripts/harness/save_diff.py --vkquake build-c/vkqr-engine --vkquake-b build-rs-cfs/vkqr-engine
+    # Phase 3 M7 (D9 / AC4-7): drive every model/image asset of the shareware
+    # id1 through both the c_ref C loaders and the Rust ports in-process and
+    # assert bit-for-bit parity of the parsed structs, console log, and
+    # upload payloads. Any divergence aborts the binary, failing this step;
+    # the emitted manifest is uploaded for cross-run/platform diffing.
+    - name: Formats corpus gate (C vs Rust, shareware)
+      run: |
+        python3 scripts/harness/run_formats_corpus.py \
+          --game-data "$PWD/shareware-data" --gamedir id1 \
+          --out formats-corpus-linux-x86_64.txt
+        tail -1 formats-corpus-linux-x86_64.txt
+    - name: Upload formats manifest
+      uses: actions/upload-artifact@v4
+      with:
+        name: formats-corpus-manifest
+        path: formats-corpus-linux-x86_64.txt
+        if-no-files-found: warn
 
   # ADR-013 / PLAN §7 gate 9: AddressSanitizer on the C side of the mixed
   # build, catching cross-language allocator misuse (alloc on one heap, free

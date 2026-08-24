@@ -1304,7 +1304,10 @@ void ctest_set_external_ents (float value)
 /* Mod_FindName: static pool keyed by name, so submodel chaining
  * (Mod_SetupSubmodels' "*1".."*n" clones) gets stable identical pointers on
  * both sides without the real model cache. */
-#define CTEST_MOD_POOL_MAX 64
+/* sized for real maps: the M7 corpus gate loads shipped BSPs whose
+ * submodel counts (one Mod_FindName clone each) far exceed the synthetic
+ * fixtures' (id1 tops out around 256) */
+#define CTEST_MOD_POOL_MAX 1024
 static qmodel_t ctest_mod_pool[CTEST_MOD_POOL_MAX];
 static int		ctest_mod_pool_count;
 
@@ -1375,14 +1378,26 @@ static ctest_teximage_call_t ctest_teximage_log[CTEST_MODELSTUB_MAX];
 static int32_t				 ctest_teximage_n;
 static ctest_allskins_call_t ctest_allskins_log[CTEST_MODELSTUB_MAX];
 static int32_t				 ctest_allskins_n;
+static int					 ctest_allskins_advance;
 
 void ctest_modelstub_reset (const byte *mod_base)
 {
 	ctest_modelstub_base = mod_base;
 	ctest_teximage_n = 0;
 	ctest_allskins_n = 0;
+	ctest_allskins_advance = 0;
 	memset (ctest_teximage_log, 0, sizeof (ctest_teximage_log));
 	memset (ctest_allskins_log, 0, sizeof (ctest_allskins_log));
+}
+
+/* Phase 3 M7: the synthetic differential fixtures all use numskins == 0, but
+ * the formats-corpus gate feeds real skinned .mdl files, whose parse depends
+ * on Mod_LoadAllSkins returning the cursor advanced past the skin data. When
+ * enabled, the stub replicates the frozen gl_model.c cursor walk (and its
+ * numskins Sys_Error) without loading anything. Reset clears the flag. */
+void ctest_allskins_set_advance (int on)
+{
+	ctest_allskins_advance = on;
 }
 
 int32_t ctest_teximage_count (void)
@@ -1423,6 +1438,28 @@ void *Mod_LoadAllSkins (aliashdr_t *pheader, qmodel_t *mod, byte *mod_base, int 
 		ctest_allskins_log[ctest_allskins_n].pskintype_ofs = ctest_modelstub_ofs (pskintype);
 	}
 	++ctest_allskins_n;
+	if (ctest_allskins_advance)
+	{
+		/* the frozen gl_model.c cursor walk, minus the texture loads */
+		if (numskins < 1 || numskins > 32 /* MAX_SKINS */)
+			Sys_Error ("Mod_LoadAliasModel: Invalid # of skins: %d", numskins);
+		int size = pheader->skinwidth * pheader->skinheight;
+		for (int i = 0; i < numskins; i++)
+		{
+			int32_t type;
+			memcpy (&type, pskintype, sizeof (type));
+			if (type == 0 /* ALIAS_SKIN_SINGLE */)
+			{
+				pskintype += sizeof (int32_t) + size;
+			}
+			else
+			{
+				int32_t groupskins;
+				memcpy (&groupskins, pskintype + sizeof (int32_t), sizeof (groupskins));
+				pskintype += 2 * sizeof (int32_t) + groupskins * (int32_t)sizeof (int32_t) + groupskins * size;
+			}
+		}
+	}
 	return pskintype;
 }
 

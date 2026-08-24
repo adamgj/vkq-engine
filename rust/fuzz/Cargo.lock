@@ -89,6 +89,15 @@ name = "quake-c-sys"
 version = "0.1.0"
 
 [[package]]
+name = "quake-formats"
+version = "0.1.0"
+dependencies = [
+ "quake-c-sys",
+ "quake-math",
+ "quake-util",
+]
+
+[[package]]
 name = "quake-fs"
 version = "0.1.0"
 dependencies = [
@@ -102,9 +111,22 @@ name = "quake-fuzz"
 version = "0.0.0"
 dependencies = [
  "libfuzzer-sys",
+ "quake-formats",
  "quake-fs",
+ "quake-image",
  "quake-types",
  "quake-util",
+]
+
+[[package]]
+name = "quake-image"
+version = "0.1.0"
+
+[[package]]
+name = "quake-math"
+version = "0.1.0"
+dependencies = [
+ "quake-c-sys",
 ]
 
 [[package]]
