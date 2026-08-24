@@ -118,6 +118,10 @@ byte *Mod_LoadVisibilityExternal(FILE *f);
 aliashdr_t *Mod_ParseAliasModel(qmodel_t *mod, void *buffer);
 void Mod_CalcAliasBounds(qmodel_t *mod, aliashdr_t *a, int numvertexes, byte *vertexes);
 void Mod_LoadSpriteModel(qmodel_t *mod, void *buffer);
+/* Phase 3 M5: the MD3/MD5 half. Same no-length seam; both call back into
+ * gl_model.c for the .skin plumbing and into gl_mesh.c for the GPU upload. */
+void Mod_LoadMD3Model(qmodel_t *mod, const void *buffer);
+qboolean Mod_LoadMD5MeshModel(qmodel_t *mod, const void *buffer);
 /* Host_Error trampolines: the Rust side returns the message C would have
  * raised and Quake/model_parse_glue.c re-raises it from a C frame (PLAN.md
  * 4.3 -- a longjmp must never unwind a Rust frame) */
@@ -130,6 +134,10 @@ int quake_rs_mod_load_leafs_external(qmodel_t *mod, FILE *f, char *err);
 qmodel_t *Mod_FindName(const char *name);
 texture_t *Mod_LoadWadTexture(qmodel_t *mod, wad_t *wads, const char *name);
 void *Mod_LoadAllSkins(aliashdr_t *pheader, qmodel_t *mod, byte *mod_base, int numskins, byte *pskintype);
+size_t Mod_LoadMD5SurfaceSkins(qmodel_t *mod, aliashdr_t *surf, int surf_index, size_t numsurfaces, const char *shader_name);
+void Mod_LoadMD3SkinDefinitions(qmodel_t *mod, all_surfaces_def_t *surf_defs);
+int Mod_LoadMD3SurfaceSkins(
+	qmodel_t *mod, aliashdr_t *surf, all_surfaces_def_t *surfaces_def, const char *surface_name, int surface_index, size_t numsurfs, size_t numskins);
 /* Mod_SetExtraFlags stays in model_parse.c (r_nolerp_list + particle script) */
 void Mod_SetExtraFlags(qmodel_t *mod);
 /* the alias scratch arrays keep C linkage -- gl_mesh.c reads all three after
@@ -143,6 +151,11 @@ extern trivertx_t *poseverts[MAXALIASFRAMES];
 gltexture_t *TexMgr_LoadImage(
 	qmodel_t *owner, const char *name, int width, int height, enum srcformat format, byte *data, const char *source_file, src_offset_t source_offset,
 	unsigned flags);
+#endif
+/* likewise glquake.h, for the MD3/MD5 mesh upload the Rust loaders call */
+#ifdef GLQUAKE_H
+void GLMesh_UploadBuffers(qmodel_t *mod, aliashdr_t *hdr, unsigned short *indexes, byte *vertexes, aliasmesh_t *desc, jointpose_t *joints);
+void GLMesh_DeleteMeshBuffers(aliashdr_t *mainhdr);
 #endif
 #endif
 /* the searchpath heads use the engine's searchpath_t typedef (Rust mirror:
@@ -191,6 +204,11 @@ exclude = [
     "MClipnode", "Hull", "MTexInfo", "MVertex", "MEdge", "DModel",
     "Mod_ParseAliasModel", "Mod_CalcAliasBounds", "Mod_LoadSpriteModel",
     "Mod_LoadAllSkins", "Mod_SetExtraFlags", "TexMgr_LoadImage",
+    "Mod_LoadMD3Model", "Mod_LoadMD3SkinDefinitions", "Mod_LoadMD3SurfaceSkins",
+    "Mod_LoadMD5MeshModel", "Mod_LoadMD5SurfaceSkins", "GLMesh_DeleteMeshBuffers",
+    "strtoull", "strtol",
+    "GLMesh_UploadBuffers", "AliasMesh", "AllSurfacesDef", "JointPose",
+    "QPathStr", "SkinDef", "SurfaceDef", "Md3XyzNormal", "Md5Vert", "Md5Vert8",
     "AliasHdr", "MAliasFrameDesc", "MSprite", "MSpriteFrameDesc",
     "MSpriteFrame", "MSpriteGroup", "StVert", "MTriangle", "TriVertX",
     "stverts", "triangles", "poseverts",

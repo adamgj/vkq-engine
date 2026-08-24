@@ -66,4 +66,8 @@ void		Mod_CalcAliasBounds (qmodel_t *mod, aliashdr_t *a, int numvertexes, byte *
 // sprite model parsing
 void Mod_LoadSpriteModel (qmodel_t *mod, void *buffer);
 
+// MD5 / MD3 replacement-model parsing
+qboolean Mod_LoadMD5MeshModel (qmodel_t *mod, const void *buffer);
+void	 Mod_LoadMD3Model (qmodel_t *mod, const void *buffer);
+
 #endif /* MODEL_PARSE_H */

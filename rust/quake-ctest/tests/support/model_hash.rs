@@ -622,6 +622,118 @@ pub unsafe fn alias_snapshot(
     Snapshot { lines: w.lines }
 }
 
+/// Snapshot of the `aliashdr_t` chain an MD3 or MD5 load produced
+/// (Phase 3 M5). The headers are one `Mem_Alloc` block of `hdrsize`-strided
+/// entries linked through `nextsurface`, so the walk follows the chain and
+/// records each link as `#i` (its index in that block) or `null` -- the raw
+/// pointer is heap-dependent.
+///
+/// Excluded, as in [`alias_snapshot`]: `gltextures`, `fbtextures`, `texels`,
+/// the vertex/index/joints buffer handles and `vbostofs`. The *contents* the
+/// loader parsed are not in the header at all -- they go straight to
+/// `GLMesh_UploadBuffers` -- so the differential compares the recorded upload
+/// buffers alongside this snapshot.
+///
+/// # Safety
+/// `m` must point at a `qmodel_t` a successful MD3/MD5 load filled, and
+/// `slot` must be the `extradata` index that load wrote.
+pub unsafe fn mdx_snapshot(m: *const QModel, slot: usize) -> Snapshot {
+    let mut w = Walker { lines: Vec::new() };
+    // SAFETY: caller's contract
+    unsafe {
+        model_fields(&mut w, m);
+
+        let head = (*m).extradata[slot].cast::<AliasHdr>();
+        if head.is_null() {
+            w.put("mdx.head", "null");
+            return Snapshot { lines: w.lines };
+        }
+
+        // The block stride: every header in the chain is `hdrsize` apart, so
+        // the first link gives it. A single-surface model has no link, and
+        // then no index resolution is needed either.
+        let stride = {
+            let next = (*head).nextsurface;
+            if next.is_null() {
+                0usize
+            } else {
+                (next.cast::<u8>()).offset_from(head.cast::<u8>()) as usize
+            }
+        };
+        w.put("mdx.hdrsize", stride);
+
+        let mut surf = head;
+        let mut index = 0usize;
+        while !surf.is_null() {
+            let a = &*surf;
+            let k = |f: &str| format!("mdx.surf[{index}].{f}");
+            let link = if a.nextsurface.is_null() {
+                "null".to_string()
+            } else {
+                let delta = (a.nextsurface.cast::<u8>()).offset_from(head.cast::<u8>()) as usize;
+                // stride is 0 only when the head has no link at all, so a
+                // non-null link with an unknown stride cannot be resolved
+                match delta.checked_div(stride) {
+                    Some(i) => format!("#{i}"),
+                    None => "extern".to_string(),
+                }
+            };
+            w.put(&k("nextsurface"), link);
+            w.put(&k("ident"), a.ident);
+            w.put(&k("version"), a.version);
+            w.put(&k("scale"), format!("{:?}", a.scale));
+            w.put(&k("scale_origin"), format!("{:?}", a.scale_origin));
+            w.put(&k("boundingradius"), a.boundingradius);
+            w.put(&k("eyeposition"), format!("{:?}", a.eyeposition));
+            w.put(&k("numskins"), a.numskins);
+            w.put(&k("skinwidth"), a.skinwidth);
+            w.put(&k("skinheight"), a.skinheight);
+            w.put(&k("numverts"), a.numverts);
+            w.put(&k("numtris"), a.numtris);
+            w.put(&k("numframes"), a.numframes);
+            w.put(&k("synctype"), a.synctype);
+            w.put(&k("flags"), a.flags);
+            w.put(&k("size"), a.size);
+            w.put(&k("numindexes"), a.numindexes);
+            w.put(&k("numverts_vbo"), a.numverts_vbo);
+            w.put(&k("numposes"), a.numposes);
+            w.put(&k("numjoints"), a.numjoints);
+            w.put(&k("poseverttype"), a.poseverttype);
+
+            let frames = core::ptr::addr_of!((*surf).frames).cast::<MAliasFrameDesc>();
+            for i in 0..a.numframes.max(0) {
+                let f = &*frames.offset(i as isize);
+                w.put(&k(&format!("frame[{i}].firstpose")), f.firstpose);
+                w.put(&k(&format!("frame[{i}].numposes")), f.numposes);
+                w.put(&k(&format!("frame[{i}].interval")), f.interval);
+                w.put(
+                    &k(&format!("frame[{i}].bboxmin")),
+                    format!("{:?}", f.bboxmin.v),
+                );
+                w.put(
+                    &k(&format!("frame[{i}].bboxmin.lni")),
+                    f.bboxmin.lightnormalindex,
+                );
+                w.put(
+                    &k(&format!("frame[{i}].bboxmax")),
+                    format!("{:?}", f.bboxmax.v),
+                );
+                w.put(
+                    &k(&format!("frame[{i}].bboxmax.lni")),
+                    f.bboxmax.lightnormalindex,
+                );
+                w.put(&k(&format!("frame[{i}].frame")), f.frame);
+                w.put(&k(&format!("frame[{i}].name")), cstr16(&f.name));
+            }
+
+            surf = a.nextsurface;
+            index += 1;
+        }
+        w.put("mdx.numsurfaces", index);
+    }
+    Snapshot { lines: w.lines }
+}
+
 /// Snapshot of an `msprite_t` filled by `Mod_LoadSpriteModel`. The
 /// `gltexture` pointers are excluded (the differential compares the
 /// `TexMgr_LoadImage` argument stream instead).

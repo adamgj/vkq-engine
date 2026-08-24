@@ -239,6 +239,8 @@ void Con_DPrintf2 (const char *fmt, ...);
 #define Mod_ParseAliasModel		   c_ref_Mod_ParseAliasModel
 #define Mod_CalcAliasBounds		   c_ref_Mod_CalcAliasBounds
 #define Mod_LoadSpriteModel		   c_ref_Mod_LoadSpriteModel
+#define Mod_LoadMD5MeshModel	   c_ref_Mod_LoadMD5MeshModel
+#define Mod_LoadMD3Model		   c_ref_Mod_LoadMD3Model
 
 /* ---- the Phase 3 model slice: real bspfile.h + gl_model.h ----
  *
@@ -280,6 +282,7 @@ typedef struct efrag_s efrag_t;
 #include "bspfile.h"
 #include "gl_model.h"
 #include "mathlib.h"
+#include "hash_map.h" /* MD5_ComputeNormals; the HashMap_ renames are above */
 #include "model_parse.h"
 
 FUNC_NORETURN void Host_Error (const char *error, ...);
@@ -308,6 +311,12 @@ typedef struct gltexture_s gltexture_t;
 gltexture_t *TexMgr_LoadImage (
 	qmodel_t *owner, const char *name, int width, int height, enum srcformat format, byte *data, const char *source_file, src_offset_t source_offset,
 	unsigned flags);
+
+/* glquake.h slice: the MD3/MD5 loaders hand their parsed index/vertex/joint
+ * buffers to the mesh uploader and release them on the MD5 error path. The
+ * real header pulls Vulkan; the stubs record the arguments instead. */
+void GLMesh_UploadBuffers (qmodel_t *mod, aliashdr_t *hdr, unsigned short *indexes, byte *vertexes, aliasmesh_t *desc, jointpose_t *joints);
+void GLMesh_DeleteMeshBuffers (aliashdr_t *mainhdr);
 
 /* server.h slice: model_parse.c reads only sv.modelname */
 typedef struct

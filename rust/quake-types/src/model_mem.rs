@@ -31,6 +31,14 @@ pub const TEXTYPE_COUNT: usize = 7;
 pub const PV_SIZE: usize = 4;
 pub const MAX_SKINS: usize = 32;
 pub const MAX_FRAMEGROUPS: usize = 4;
+/// `MAX_SURFACES` (skin-definition tables)
+pub const MAX_SURFACES: usize = 32;
+pub const NUM_JOINT_INFLUENCES_4_WEIGHT: usize = 4;
+pub const NUM_JOINT_INFLUENCES_8_WEIGHT: usize = 8;
+/// `('M' << 0) + ('D' << 8) + ('5' << 16) + ('V' << 24)`
+pub const IDMD5HEADER: i32 = 0x5635_444du32 as i32;
+/// `MD5_VERSION` — the C compares the token against this string
+pub const MD5_VERSION: &str = "10";
 
 /// `poseverttype_t`
 pub const PV_QUAKE1: i32 = 0;
@@ -388,6 +396,58 @@ pub struct Md5Vert8 {
     pub joint_position_z: [f32; 8],
 }
 
+/// `jointpose_t` — pose data for a single joint (row-major 3x4)
+#[repr(C)]
+#[derive(Clone, Copy, Default, PartialEq)]
+pub struct JointPose {
+    pub mat: [f32; 12],
+}
+
+/// `aliasmesh_t` — the per-vertex texcoord/index record `GLMesh_UploadBuffers`
+/// consumes
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct AliasMesh {
+    pub st: [f32; 2],
+    pub vertindex: u16,
+}
+
+/// `qpath_str_t`
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct QPathStr {
+    pub c_str: [c_char; MAX_QPATH],
+}
+
+/// `skin_def_t`
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SkinDef {
+    pub framegroups: [QPathStr; MAX_FRAMEGROUPS],
+    pub numframegroups: usize,
+}
+
+/// `surface_def_t`
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SurfaceDef {
+    pub surfname: QPathStr,
+    pub skins: [SkinDef; MAX_SKINS],
+    pub numskins: usize,
+}
+
+/// `all_surfaces_def_t`. Opaque to the Rust loaders: the MD3 shim only
+/// allocates one (`Mem_Alloc (sizeof (all_surfaces_def_t))`, exactly like the
+/// C) and hands it to the still-C `Mod_LoadMD3SkinDefinitions`. The mirror
+/// exists so the allocation size is pinned by a layout assert and an ABI probe
+/// rather than by a magic number.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct AllSurfacesDef {
+    pub surfaces: [SurfaceDef; MAX_SURFACES],
+    pub numsurfaces: usize,
+}
+
 /// `md3XyzNormal_t`
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -521,6 +581,17 @@ mod layout_asserts {
     const _: () = assert!(size_of::<Md5Vert>() == 88);
     const _: () = assert!(size_of::<Md5Vert8>() == 144);
     const _: () = assert!(size_of::<Md3XyzNormal>() == 8);
+    const _: () = assert!(size_of::<JointPose>() == 48);
+    const _: () = assert!(size_of::<AliasMesh>() == 12);
+    const _: () = assert!(offset_of!(AliasMesh, vertindex) == 8);
+    const _: () = assert!(size_of::<QPathStr>() == 64);
+    const _: () = assert!(size_of::<SkinDef>() == 264);
+    const _: () = assert!(offset_of!(SkinDef, numframegroups) == 256);
+    const _: () = assert!(size_of::<SurfaceDef>() == 8520);
+    const _: () = assert!(offset_of!(SurfaceDef, skins) == 64);
+    const _: () = assert!(offset_of!(SurfaceDef, numskins) == 8512);
+    const _: () = assert!(size_of::<AllSurfacesDef>() == 272648);
+    const _: () = assert!(offset_of!(AllSurfacesDef, numsurfaces) == 272640);
     const _: () = assert!(size_of::<AliasHdr>() == 2544);
     const _: () = assert!(offset_of!(AliasHdr, scale) == 8);
     const _: () = assert!(offset_of!(AliasHdr, scale_origin) == 20);

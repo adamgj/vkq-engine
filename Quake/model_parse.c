@@ -2430,3 +2430,1303 @@ void Mod_LoadSpriteModel (qmodel_t *mod, void *buffer)
 	mod->type = mod_sprite;
 }
 #endif // !USE_RUST_FORMATS
+
+/*
+==============================================================================
+
+MD5 / MD3 MODELS
+
+==============================================================================
+*/
+
+#ifndef USE_RUST_FORMATS
+/*
+=================================================================
+MD5 Models, for compat with the rerelease and NOT doom3.
+=================================================================
+md5mesh:
+MD5Version 10
+commandline ""
+numJoints N
+numMeshes N
+joints {
+	"name" ParentIdx ( Pos_X Y Z ) ( Quat_X Y Z )
+}
+mesh {
+	shader "name"	//file-relative path, with _%02d_%02d postfixed for skin/framegroup support. unlike doom3.
+	numverts N
+	vert # ( S T ) FirstWeight count
+	numtris N
+	tri # A B C
+	numweights N
+	weight # JointIdx Scale ( X Y Z )
+}
+
+md5anim:
+MD5Version 10
+commandline ""
+numFrames N
+numJoints N
+frameRate FPS
+numAnimatedComponents N	//joints*6ish
+hierachy {
+	"name" ParentIdx Flags DataStart
+}
+bounds {
+	( X Y Z ) ( X Y Z )
+}
+baseframe {
+	( pos_X Y Z ) ( quad_X Y Z )
+}
+frame # {
+	RAW ...
+}
+
+We'll unpack the animation to separate framegroups (one-pose per, for consistency with most q1 models).
+*/
+
+/*
+================
+MD5_ParseCheck
+================
+*/
+static qboolean MD5_ParseCheck (const char *s, const void **buffer)
+{
+	if (strcmp (com_token, s))
+		return false;
+	*buffer = COM_Parse (*buffer);
+	return true;
+}
+
+/*
+================
+MD5_ParseUInt
+================
+*/
+static size_t MD5_ParseUInt (const void **buffer)
+{
+	size_t i = strtoull (com_token, NULL, 0);
+	*buffer = COM_Parse (*buffer);
+	return i;
+}
+
+/*
+================
+MD5_ParseSInt
+================
+*/
+static long MD5_ParseSInt (const void **buffer)
+{
+	long i = strtol (com_token, NULL, 0);
+	*buffer = COM_Parse (*buffer);
+	return i;
+}
+
+/*
+================
+MD5_ParseFloat
+================
+*/
+static double MD5_ParseFloat (const void **buffer)
+{
+	double i = strtod (com_token, NULL);
+	*buffer = COM_Parse (*buffer);
+	return i;
+}
+
+static size_t MD5_CountAnimatedComponents (unsigned int flags)
+{
+	size_t count = 0;
+	for (unsigned int bit = 1; bit <= 32; bit <<= 1)
+		if (flags & bit)
+			count++;
+	return count;
+}
+
+#define MD5ERROR(...)              \
+	do                             \
+	{                              \
+		Con_Warning (__VA_ARGS__); \
+		goto error;                \
+	} while (0)
+
+#define MD5EXPECT(s)                                                                                     \
+	do                                                                                                   \
+	{                                                                                                    \
+		if (strcmp (com_token, s))                                                                       \
+			MD5ERROR ("Mod_LoadMD5MeshModel(%s): expected \"%s\", found \"%s\"\n", fname, s, com_token); \
+		buffer = COM_Parse (buffer);                                                                     \
+	} while (0)
+#define MD5UINT()	MD5_ParseUInt (&buffer)
+#define MD5SINT()	MD5_ParseSInt (&buffer)
+#define MD5FLOAT()	MD5_ParseFloat (&buffer)
+#define MD5CHECK(s) MD5_ParseCheck (s, &buffer)
+#define MD5IGNORE() buffer = COM_Parse (buffer)
+
+/*
+================
+md5vertinfo_s
+================
+*/
+typedef struct md5vertinfo_s
+{
+	size_t		 firstweight;
+	unsigned int count;
+	float		 st[2];
+} md5vertinfo_t;
+
+/*
+================
+md5weightinfo_s
+================
+*/
+typedef struct md5weightinfo_s
+{
+	size_t joint_index;
+	vec4_t pos;
+} md5weightinfo_t;
+
+/*
+================
+jointinfo_s
+================
+*/
+typedef struct jointinfo_s
+{
+	ssize_t		parent; //-1 for a root joint
+	ssize_t		poseparent;
+	char		name[32];
+	jointpose_t inverse;
+} jointinfo_t;
+
+typedef struct md5animjoint_s
+{
+	unsigned int flags, offset;
+	ssize_t		 parent;
+	ssize_t		 mesh_index;
+	vec3_t		 basepos;
+	vec4_t		 basequat;
+} md5animjoint_t;
+
+static qboolean MD5_ResolveMappedMeshParent (
+	jointinfo_t *joints, size_t numjoints, const ssize_t *mesh_to_anim, ssize_t *mapped_mesh_parent, byte *mapped_mesh_parent_state, size_t mesh_index)
+{
+	ssize_t parent;
+
+	if (mapped_mesh_parent_state[mesh_index] == 2)
+		return true;
+	if (mapped_mesh_parent_state[mesh_index] == 1)
+		return false;
+
+	mapped_mesh_parent_state[mesh_index] = 1;
+	parent = joints[mesh_index].parent;
+	if (parent < 0)
+		mapped_mesh_parent[mesh_index] = -1;
+	else if ((size_t)parent >= numjoints)
+		return false;
+	else if (mesh_to_anim[parent] >= 0)
+		mapped_mesh_parent[mesh_index] = parent;
+	else
+	{
+		if (!MD5_ResolveMappedMeshParent (joints, numjoints, mesh_to_anim, mapped_mesh_parent, mapped_mesh_parent_state, (size_t)parent))
+			return false;
+		mapped_mesh_parent[mesh_index] = mapped_mesh_parent[parent];
+	}
+
+	mapped_mesh_parent_state[mesh_index] = 2;
+	return true;
+}
+
+/*
+================
+Matrix3x4_RM_Transform4
+================
+*/
+static void Matrix3x4_RM_Transform4 (const float *matrix, const float *vector, float *product)
+{
+	product[0] = matrix[0] * vector[0] + matrix[1] * vector[1] + matrix[2] * vector[2] + matrix[3] * vector[3];
+	product[1] = matrix[4] * vector[0] + matrix[5] * vector[1] + matrix[6] * vector[2] + matrix[7] * vector[3];
+	product[2] = matrix[8] * vector[0] + matrix[9] * vector[1] + matrix[10] * vector[2] + matrix[11] * vector[3];
+}
+
+/*
+================
+GenMatrixPosQuat4Scale
+================
+*/
+static void GenMatrixPosQuat4Scale (const vec3_t pos, const vec4_t quat, const vec3_t scale, float result[12])
+{
+	const float x2 = quat[0] + quat[0];
+	const float y2 = quat[1] + quat[1];
+	const float z2 = quat[2] + quat[2];
+
+	const float xx = quat[0] * x2;
+	const float xy = quat[0] * y2;
+	const float xz = quat[0] * z2;
+	const float yy = quat[1] * y2;
+	const float yz = quat[1] * z2;
+	const float zz = quat[2] * z2;
+	const float xw = quat[3] * x2;
+	const float yw = quat[3] * y2;
+	const float zw = quat[3] * z2;
+
+	result[0 * 4 + 0] = scale[0] * (1.0f - (yy + zz));
+	result[1 * 4 + 0] = scale[0] * (xy + zw);
+	result[2 * 4 + 0] = scale[0] * (xz - yw);
+
+	result[0 * 4 + 1] = scale[1] * (xy - zw);
+	result[1 * 4 + 1] = scale[1] * (1.0f - (xx + zz));
+	result[2 * 4 + 1] = scale[1] * (yz + xw);
+
+	result[0 * 4 + 2] = scale[2] * (xz + yw);
+	result[1 * 4 + 2] = scale[2] * (yz - xw);
+	result[2 * 4 + 2] = scale[2] * (1.0f - (xx + yy));
+
+	result[0 * 4 + 3] = pos[0];
+	result[1 * 4 + 3] = pos[1];
+	result[2 * 4 + 3] = pos[2];
+}
+
+/*
+================
+Matrix3x4_Invert_Simple
+================
+*/
+static void Matrix3x4_Invert_Simple (const float *in1, float *out)
+{
+	// we only support uniform scaling, so assume the first row is enough
+	// (note the lack of sqrt here, because we're trying to undo the scaling,
+	// this means multiplying by the inverse scale twice - squaring it, which
+	// makes the sqrt a waste of time)
+	const double scale = 1.0 / ((double)in1[0] * (double)in1[0] + (double)in1[1] * (double)in1[1] + (double)in1[2] * (double)in1[2]);
+
+	// invert the rotation by transposing and multiplying by the squared
+	// reciprocal of the input matrix scale as described above
+	double temp[12];
+	temp[0] = in1[0] * scale;
+	temp[1] = in1[4] * scale;
+	temp[2] = in1[8] * scale;
+	temp[4] = in1[1] * scale;
+	temp[5] = in1[5] * scale;
+	temp[6] = in1[9] * scale;
+	temp[8] = in1[2] * scale;
+	temp[9] = in1[6] * scale;
+	temp[10] = in1[10] * scale;
+
+	// invert the translate
+	temp[3] = -(in1[3] * temp[0] + in1[7] * temp[1] + in1[11] * temp[2]);
+	temp[7] = -(in1[3] * temp[4] + in1[7] * temp[5] + in1[11] * temp[6]);
+	temp[11] = -(in1[3] * temp[8] + in1[7] * temp[9] + in1[11] * temp[10]);
+
+	for (int i = 0; i < 12; ++i)
+		out[i] = (float)temp[i];
+}
+
+/*
+================
+MD5_BakeInfluences
+================
+*/
+static qboolean MD5_BakeInfluences (
+	const char *fname, jointpose_t *outposes, byte *vertexes, poseverttype_t poseverttype, struct md5vertinfo_s *vinfo, struct md5weightinfo_s *weight,
+	size_t numverts, size_t numweights)
+{
+	struct md5weightinfo_s *w;
+	vec3_t					pos;
+	float					scale;
+	unsigned int			maxinfluences = 0;
+	float					scaleimprecision = 1;
+	const int				stored_influences = (poseverttype == PV_MD5_8) ? NUM_JOINT_INFLUENCES_8_WEIGHT : NUM_JOINT_INFLUENCES_4_WEIGHT;
+	const size_t			vertex_size = (poseverttype == PV_MD5_8) ? sizeof (md5vert8_t) : sizeof (md5vert_t);
+
+	for (size_t v = 0; v < numverts; v++, vinfo++)
+	{
+		byte	   *vertex = vertexes + v * vertex_size;
+		md5vert_t  *vert = (md5vert_t *)vertex;
+		md5vert8_t *vert8 = (md5vert8_t *)vertex;
+		float		weights[NUM_JOINT_INFLUENCES_8_WEIGHT] = {0.0f};
+		size_t		joint_indices[NUM_JOINT_INFLUENCES_8_WEIGHT] = {0};
+		vec4_t		joint_positions[NUM_JOINT_INFLUENCES_8_WEIGHT] = {{0.0f}};
+
+		memset (vertex, 0, vertex_size);
+		vert->st[0] = vinfo->st[0];
+		vert->st[1] = vinfo->st[1];
+
+		if (vinfo->firstweight + vinfo->count > numweights)
+		{
+			Con_Warning ("%s: weight index out of bounds\n", fname);
+			return false;
+		}
+		if (maxinfluences < vinfo->count)
+			maxinfluences = vinfo->count;
+		w = weight + vinfo->firstweight;
+		for (unsigned int i = 0; i < vinfo->count; i++, w++)
+		{
+			Matrix3x4_RM_Transform4 (outposes[w->joint_index].mat, w->pos, pos);
+			VectorAdd (vert->xyz, pos, vert->xyz);
+
+			if (i < NUM_JOINT_INFLUENCES_4_WEIGHT)
+			{
+				weights[i] = w->pos[3];
+				joint_indices[i] = w->joint_index;
+				Vector4Copy (w->pos, joint_positions[i]);
+			}
+			else if (i < NUM_JOINT_INFLUENCES_8_WEIGHT)
+			{
+				weights[i] = w->pos[3];
+				joint_indices[i] = w->joint_index;
+				Vector4Copy (w->pos, joint_positions[i]);
+			}
+			else
+			{
+				// obnoxious code to find the lowest of the current possible joint indexes.
+				float  lowval = weights[0];
+				size_t lowidx = 0;
+				for (size_t k = 1; k < NUM_JOINT_INFLUENCES_8_WEIGHT; ++k)
+				{
+					if (weights[k] < lowval)
+					{
+						lowval = weights[k];
+						lowidx = k;
+					}
+				}
+				if (weights[lowidx] < w->pos[3])
+				{ // found a lower/unset weight, replace it.
+					weights[lowidx] = w->pos[3];
+					joint_indices[lowidx] = w->joint_index;
+					Vector4Copy (w->pos, joint_positions[lowidx]);
+				}
+			}
+		}
+
+		// normalize in case we dropped some weights.
+		scale = 0;
+		for (int k = 0; k < stored_influences; ++k)
+			scale += weights[k];
+		if (scale > 0)
+		{
+			if (scaleimprecision < scale)
+				scaleimprecision = scale;
+			scale = 1 / scale;
+			for (int k = 0; k < stored_influences; ++k)
+			{
+				weights[k] *= scale;
+				for (int c = 0; c < 4; ++c)
+					joint_positions[k][c] *= scale;
+			}
+		}
+		else // something bad...
+		{
+			weights[0] = 1;
+			for (int k = 1; k < stored_influences; ++k)
+				weights[k] = 0;
+			joint_positions[0][3] = 1;
+		}
+
+		for (int j = 0; j < stored_influences; ++j)
+		{
+			if (poseverttype == PV_MD5_8)
+			{
+				vert8->joint_weights[j] = (byte)(CLAMP (0.0f, weights[j], 1.0f) * 255.0f);
+				vert8->joint_indices[j] = joint_indices[j];
+				vert8->joint_position_x[j] = joint_positions[j][0];
+				vert8->joint_position_y[j] = joint_positions[j][1];
+				vert8->joint_position_z[j] = joint_positions[j][2];
+			}
+			else
+			{
+				vert->joint_weights[j] = (byte)(CLAMP (0.0f, weights[j], 1.0f) * 255.0f);
+				vert->joint_indices[j] = joint_indices[j];
+				vert->joint_position_x[j] = joint_positions[j][0];
+				vert->joint_position_y[j] = joint_positions[j][1];
+				vert->joint_position_z[j] = joint_positions[j][2];
+			}
+		}
+	}
+	if (maxinfluences > NUM_JOINT_INFLUENCES_8_WEIGHT)
+		Con_DWarning ("%s uses up to %u influences per vertex (weakest: %g)\n", fname, maxinfluences, scaleimprecision);
+	return true;
+}
+
+/*
+================
+MD5_ComputeNormals
+================
+*/
+static void MD5_ComputeNormals (byte *vertexes, size_t vertex_size, size_t numverts, unsigned short *indexes, size_t numindexes)
+{
+	hash_map_t *pos_to_normal_map = HashMap_Create (vec3_t, vec3_t, &HashVec3, NULL);
+	HashMap_Reserve (pos_to_normal_map, numverts);
+
+	for (size_t v = 0; v < numverts; v++)
+	{
+		md5vert_t *vert = (md5vert_t *)(vertexes + v * vertex_size);
+		vert->norm[0] = vert->norm[1] = vert->norm[2] = 0;
+	}
+	for (size_t t = 0; t < numindexes; t += 3)
+	{
+		md5vert_t *verts[3] = {
+			(md5vert_t *)(vertexes + indexes[t + 0] * vertex_size), (md5vert_t *)(vertexes + indexes[t + 1] * vertex_size),
+			(md5vert_t *)(vertexes + indexes[t + 2] * vertex_size)};
+
+		vec3_t d1, d2;
+		VectorSubtract (verts[2]->xyz, verts[0]->xyz, d1);
+		VectorSubtract (verts[1]->xyz, verts[0]->xyz, d2);
+		VectorNormalize (d1);
+		VectorNormalize (d2);
+
+		vec3_t norm;
+		CrossProduct (d1, d2, norm);
+		VectorNormalize (norm);
+
+		const float angle = acos (DotProduct (d1, d2));
+		VectorScale (norm, angle, norm);
+
+		vec3_t *found_normal;
+		for (int i = 0; i < 3; ++i)
+		{
+			if ((found_normal = HashMap_Lookup (vec3_t, pos_to_normal_map, &verts[i]->xyz)))
+				VectorAdd (norm, *found_normal, *found_normal);
+			else
+				HashMap_Insert (pos_to_normal_map, &verts[i]->xyz, &norm);
+		}
+	}
+
+	const uint32_t map_size = HashMap_Size (pos_to_normal_map);
+	for (uint32_t i = 0; i < map_size; ++i)
+	{
+		vec3_t *norm = HashMap_GetValue (vec3_t, pos_to_normal_map, i);
+		VectorNormalize (*norm);
+	}
+
+	for (size_t v = 0; v < numverts; v++)
+	{
+		md5vert_t *vert = (md5vert_t *)(vertexes + v * vertex_size);
+		vec3_t	  *norm = HashMap_Lookup (vec3_t, pos_to_normal_map, &vert->xyz);
+		if (norm)
+			VectorCopy (*norm, vert->norm);
+	}
+
+	HashMap_Destroy (pos_to_normal_map);
+}
+
+/*
+================
+MD5_HackyModelFlags
+================
+*/
+static unsigned int MD5_HackyModelFlags (const char *name)
+{
+	unsigned int ret = 0;
+	char		 oldmodel[MAX_QPATH];
+	mdl_t		*f;
+	COM_StripExtension (name, oldmodel, sizeof (oldmodel));
+	COM_AddExtension (oldmodel, ".mdl", sizeof (oldmodel));
+
+	f = (mdl_t *)COM_LoadFile (oldmodel, NULL);
+	if (f)
+	{
+		if (com_filesize >= sizeof (*f) && LittleLong (f->ident) == IDPOLYHEADER && LittleLong (f->version) == ALIAS_VERSION)
+			ret = f->flags;
+		Mem_Free (f);
+	}
+	return ret;
+}
+
+/*
+================
+md5animctx_s
+================
+*/
+typedef struct md5animctx_s
+{
+	void		*animfile;
+	const void	*buffer;
+	char		 fname[MAX_QPATH];
+	size_t		 numposes;
+	size_t		 numjoints;
+	jointpose_t *posedata;
+} md5animctx_t;
+
+/*
+================
+MD5Anim_Begin
+This is split into two because aliashdr_t has silly trailing framegroup info.
+================
+*/
+static qboolean MD5Anim_Begin (md5animctx_t *ctx, const char *fname)
+{
+	// Load an md5anim into it, if we can.
+	COM_StripExtension (fname, ctx->fname, sizeof (ctx->fname));
+	COM_AddExtension (ctx->fname, ".md5anim", sizeof (ctx->fname));
+	fname = ctx->fname;
+	ctx->animfile = COM_LoadFile (fname, NULL);
+	ctx->numposes = 0;
+
+	if (ctx->animfile)
+	{
+		const void *buffer = COM_Parse (ctx->animfile);
+		MD5EXPECT ("MD5Version");
+		MD5EXPECT ("10");
+		if (MD5CHECK ("commandline"))
+			buffer = COM_Parse (buffer);
+		MD5EXPECT ("numFrames");
+		ctx->numposes = MD5UINT ();
+		MD5EXPECT ("numJoints");
+		ctx->numjoints = MD5UINT ();
+		MD5EXPECT ("frameRate"); // irrelevant here
+
+		if (ctx->numposes <= 0)
+			MD5ERROR ("%s has no poses\n", fname);
+
+		ctx->buffer = buffer;
+	}
+	return true;
+
+error:
+	SAFE_FREE (ctx->animfile);
+	ctx->buffer = NULL;
+	ctx->numposes = 0;
+	ctx->numjoints = 0;
+	return false;
+}
+
+/*
+================
+MD5Anim_Load
+================
+*/
+static qboolean MD5Anim_Load (md5animctx_t *ctx, jointinfo_t *joints, jointpose_t *joint_poses, size_t numjoints)
+{
+	const char	*fname = ctx->fname;
+	size_t		 rawcount;
+	float		*r;
+	jointpose_t *outposes = NULL;
+	const void	*buffer = COM_Parse (ctx->buffer);
+	size_t		 animjoints = ctx->numjoints;
+	size_t		 j;
+	TEMP_ALLOC_DECL (md5animjoint_t, ab);
+	TEMP_ALLOC_DECL (ssize_t, mesh_to_anim);
+	TEMP_ALLOC_DECL (ssize_t, mapped_mesh_parent);
+	TEMP_ALLOC_DECL (byte, mapped_mesh_parent_state);
+	TEMP_ALLOC_DECL (jointpose_t, bindposes);
+	TEMP_ALLOC_DECL (float, raw);
+
+	if (!buffer)
+	{
+		SAFE_FREE (ctx->animfile);
+		return true;
+	}
+
+	MD5EXPECT ("numAnimatedComponents");
+	rawcount = MD5UINT ();
+
+	TEMP_ALLOC_ASSIGN_ZEROED (raw, rawcount + 6);
+	TEMP_ALLOC_ASSIGN_ZEROED (ab, animjoints);
+	TEMP_ALLOC_ASSIGN (mesh_to_anim, numjoints);
+	TEMP_ALLOC_ASSIGN (mapped_mesh_parent, numjoints);
+	TEMP_ALLOC_ASSIGN_ZEROED (mapped_mesh_parent_state, numjoints);
+	TEMP_ALLOC_ASSIGN (bindposes, numjoints);
+
+	for (j = 0; j < numjoints; j++)
+	{
+		mesh_to_anim[j] = -1;
+		joints[j].poseparent = joints[j].parent;
+	}
+
+	for (j = 0; j < numjoints; j++)
+	{
+		if (joints[j].parent < 0)
+			memcpy (bindposes[j].mat, joint_poses[j].mat, sizeof (bindposes[j].mat));
+		else
+			R_ConcatTransforms ((void *)joints[joints[j].parent].inverse.mat, (void *)joint_poses[j].mat, (void *)bindposes[j].mat);
+	}
+
+	ctx->posedata = outposes = Mem_Alloc (sizeof (*outposes) * numjoints * ctx->numposes);
+	for (j = 0; j < ctx->numposes; j++)
+		memcpy (outposes + j * numjoints, bindposes, sizeof (*bindposes) * numjoints);
+
+	MD5EXPECT ("hierarchy");
+	MD5EXPECT ("{");
+	for (j = 0; j < animjoints; j++)
+	{
+		char		anim_name[sizeof (joints[0].name)];
+		ssize_t		mesh_index = -1;
+		const char *name = com_token;
+
+		q_strlcpy (anim_name, name, sizeof (anim_name));
+		buffer = COM_Parse (buffer);
+		ab[j].parent = MD5SINT ();
+		if (ab[j].parent < -1 || ab[j].parent >= (ssize_t)j)
+			MD5ERROR ("%s: joint has bad parent order\n", fname);
+		// new info
+		ab[j].flags = MD5UINT ();
+		if (ab[j].flags & ~63)
+			MD5ERROR ("%s: joint has unsupported flags\n", fname);
+		ab[j].offset = MD5UINT ();
+		if (ab[j].offset + MD5_CountAnimatedComponents (ab[j].flags) > rawcount)
+			MD5ERROR ("%s: joint has bad offset\n", fname);
+		ab[j].mesh_index = -1;
+
+		for (size_t k = 0; k < numjoints; k++)
+		{
+			if (!strcmp (joints[k].name, anim_name))
+			{
+				mesh_index = (ssize_t)k;
+				break;
+			}
+		}
+
+		if (mesh_index < 0)
+			continue;
+		if (mesh_to_anim[mesh_index] >= 0)
+			MD5ERROR ("%s: duplicate joint \"%s\"\n", fname, anim_name);
+
+		ab[j].mesh_index = mesh_index;
+		mesh_to_anim[mesh_index] = (ssize_t)j;
+	}
+	MD5EXPECT ("}");
+
+	for (j = 0; j < numjoints; j++)
+	{
+		if (!MD5_ResolveMappedMeshParent (joints, numjoints, mesh_to_anim, mapped_mesh_parent, mapped_mesh_parent_state, j))
+			MD5ERROR ("%s: joint \"%s\" has bad parent chain\n", fname, joints[j].name);
+	}
+
+	for (j = 0; j < animjoints; j++)
+	{
+		ssize_t mesh_index = ab[j].mesh_index;
+		ssize_t mesh_parent, anim_parent;
+
+		if (mesh_index < 0)
+			continue;
+
+		mesh_parent = mapped_mesh_parent[mesh_index];
+		if (ab[j].parent >= 0)
+		{
+			anim_parent = ab[ab[j].parent].mesh_index;
+			if (anim_parent < 0)
+				MD5ERROR ("%s: joint \"%s\" has unmapped parent\n", fname, joints[mesh_index].name);
+		}
+		else
+			anim_parent = -1;
+		if (mesh_parent != anim_parent)
+			MD5ERROR ("%s: joint \"%s\" has wrong parent\n", fname, joints[mesh_index].name);
+		joints[mesh_index].poseparent = anim_parent;
+	}
+
+	MD5EXPECT ("bounds");
+	MD5EXPECT ("{");
+	while (MD5CHECK ("("))
+	{
+		MD5IGNORE ();
+		MD5IGNORE ();
+		MD5IGNORE ();
+		MD5EXPECT (")");
+
+		MD5EXPECT ("(");
+		MD5IGNORE ();
+		MD5IGNORE ();
+		MD5IGNORE ();
+		MD5EXPECT (")");
+	}
+	MD5EXPECT ("}");
+
+	MD5EXPECT ("baseframe");
+	MD5EXPECT ("{");
+	for (j = 0; j < animjoints; j++)
+	{
+		MD5EXPECT ("(");
+		ab[j].basepos[0] = MD5FLOAT ();
+		ab[j].basepos[1] = MD5FLOAT ();
+		ab[j].basepos[2] = MD5FLOAT ();
+		MD5EXPECT (")");
+
+		MD5EXPECT ("(");
+		ab[j].basequat[0] = MD5FLOAT ();
+		ab[j].basequat[1] = MD5FLOAT ();
+		ab[j].basequat[2] = MD5FLOAT ();
+		ab[j].basequat[3] = 1 - DotProduct (ab[j].basequat, ab[j].basequat);
+		if (ab[j].basequat[3] < 0)
+			ab[j].basequat[3] = 0;
+		ab[j].basequat[3] = -sqrtf (ab[j].basequat[3]);
+		MD5EXPECT (")");
+	}
+	MD5EXPECT ("}");
+
+	while (MD5CHECK ("frame"))
+	{
+		size_t idx = MD5UINT ();
+		if (idx >= ctx->numposes)
+			MD5ERROR ("%s: invalid pose index\n", fname);
+		MD5EXPECT ("{");
+		for (j = 0; j < rawcount; j++)
+			raw[j] = MD5FLOAT ();
+		MD5EXPECT ("}");
+
+		// okay, we have our raw info, unpack the actual joint info.
+		for (j = 0; j < animjoints; j++)
+		{
+			vec3_t		  pos;
+			static vec3_t scale = {1, 1, 1};
+			vec4_t		  quat;
+			ssize_t		  mesh_index = ab[j].mesh_index;
+
+			if (mesh_index < 0)
+				continue;
+			VectorCopy (ab[j].basepos, pos);
+			Vector4Copy (ab[j].basequat, quat);
+			r = raw + ab[j].offset;
+			if (ab[j].flags & 1)
+				pos[0] = *r++;
+			if (ab[j].flags & 2)
+				pos[1] = *r++;
+			if (ab[j].flags & 4)
+				pos[2] = *r++;
+
+			if (ab[j].flags & 8)
+				quat[0] = *r++;
+			if (ab[j].flags & 16)
+				quat[1] = *r++;
+			if (ab[j].flags & 32)
+				quat[2] = *r++;
+
+			quat[3] = 1 - DotProduct (quat, quat);
+			if (quat[3] < 0)
+				quat[3] = 0; // we have no imagination.
+			quat[3] = -sqrtf (quat[3]);
+
+			GenMatrixPosQuat4Scale (pos, quat, scale, outposes[idx * numjoints + mesh_index].mat);
+		}
+	}
+	TEMP_FREE (raw);
+	TEMP_FREE (ab);
+	TEMP_FREE (mesh_to_anim);
+	TEMP_FREE (mapped_mesh_parent);
+	TEMP_FREE (mapped_mesh_parent_state);
+	TEMP_FREE (bindposes);
+	SAFE_FREE (ctx->animfile);
+	ctx->numjoints = numjoints;
+	return true;
+
+error:
+	TEMP_FREE (raw);
+	TEMP_FREE (ab);
+	TEMP_FREE (mesh_to_anim);
+	TEMP_FREE (mapped_mesh_parent);
+	TEMP_FREE (mapped_mesh_parent_state);
+	TEMP_FREE (bindposes);
+	SAFE_FREE (ctx->posedata);
+	SAFE_FREE (ctx->animfile);
+	return false;
+}
+
+static qboolean Mod_LoadMD5MeshModelData (qmodel_t *mod, const void *buffer, size_t numjoints, size_t nummeshes)
+{
+	const char *fname = mod->name;
+
+	aliashdr_t *outhdr = NULL, *surf;
+	size_t		hdrsize = 0;
+
+	md5animctx_t anim = {NULL};
+	float		 dist, radius = 0, yawradius = 0;
+	TEMP_ALLOC_DECL (md5vertinfo_t, vinfo);
+	TEMP_ALLOC_DECL (byte, poutvertexes);
+	TEMP_ALLOC_DECL (unsigned short, poutindexes);
+	TEMP_ALLOC_DECL (md5weightinfo_t, weight);
+
+	if (!MD5Anim_Begin (&anim, fname))
+		return false;
+	buffer = COM_Parse (buffer);
+
+	hdrsize = sizeof (*outhdr) - sizeof (outhdr->frames);
+	hdrsize += sizeof (outhdr->frames) * anim.numposes;
+
+	// alloc all aliashdr_t and their chained nextsurface, a.k.a nummeshes, in one array
+	// all aliashdr_t are zero-initialized by Mem_Alloc
+	outhdr = (aliashdr_t *)Mem_Alloc (hdrsize * nummeshes);
+
+	TEMP_ALLOC_ZEROED (jointinfo_t, joint_infos, numjoints);
+	TEMP_ALLOC_ZEROED (jointpose_t, joint_poses, numjoints);
+	TEMP_ALLOC_ZEROED (jointpose_t, skinning_joints, numjoints * anim.numposes);
+	TEMP_ALLOC_ZEROED (jointpose_t, concat_joints, numjoints);
+
+	for (size_t j = 0; j < 3; j++)
+	{
+		mod->mins[j] = mod->ymins[j] = mod->rmins[j] = FLT_MAX;
+		mod->maxs[j] = mod->ymaxs[j] = mod->rmaxs[j] = -FLT_MAX;
+	}
+
+	// 1. Load joints
+	MD5EXPECT ("{");
+	for (size_t j = 0; j < numjoints; j++)
+	{
+		vec3_t		  pos;
+		static vec3_t scale = {1, 1, 1};
+		vec4_t		  quat;
+		q_strlcpy (joint_infos[j].name, com_token, sizeof (joint_infos[j].name));
+		buffer = COM_Parse (buffer);
+		joint_infos[j].parent = MD5SINT ();
+		if (joint_infos[j].parent < -1 || joint_infos[j].parent >= (ssize_t)numjoints)
+			MD5ERROR ("%s: joint index out of bounds\n", fname);
+		joint_infos[j].poseparent = joint_infos[j].parent;
+		MD5EXPECT ("(");
+		pos[0] = MD5FLOAT ();
+		pos[1] = MD5FLOAT ();
+		pos[2] = MD5FLOAT ();
+		MD5EXPECT (")");
+		MD5EXPECT ("(");
+		quat[0] = MD5FLOAT ();
+		quat[1] = MD5FLOAT ();
+		quat[2] = MD5FLOAT ();
+		quat[3] = 1 - DotProduct (quat, quat);
+		if (quat[3] < 0)
+			quat[3] = 0; // we have no imagination.
+		quat[3] = -sqrtf (quat[3]);
+		MD5EXPECT (")");
+
+		GenMatrixPosQuat4Scale (pos, quat, scale, joint_poses[j].mat);
+		Matrix3x4_Invert_Simple (joint_poses[j].mat, joint_infos[j].inverse.mat); // absolute, so we can just invert now.
+	}
+
+	if (strcmp (com_token, "}"))
+		MD5ERROR ("Mod_LoadMD5MeshModel(%s): expected \"%s\", found \"%s\"\n", fname, "}", com_token);
+	if (!MD5Anim_Load (&anim, joint_infos, joint_poses, numjoints))
+		goto error;
+	buffer = COM_Parse (buffer);
+
+	// 2. Compute absolute animation joints:
+	for (size_t pose_index = 0; pose_index < anim.numposes; ++pose_index)
+	{
+		const jointpose_t *in_pose = anim.posedata + (pose_index * anim.numjoints);
+		jointpose_t		  *out_pose = skinning_joints + (pose_index * anim.numjoints);
+		for (size_t joint_index = 0; joint_index < anim.numjoints; ++joint_index)
+		{
+			ssize_t poseparent = joint_infos[joint_index].poseparent;
+
+			if (poseparent >= (ssize_t)joint_index)
+				MD5ERROR ("%s: joint has bad pose parent order\n", fname);
+			// concat it onto the parent (relative->abs)
+			if (poseparent < 0)
+				memcpy (concat_joints[joint_index].mat, in_pose[joint_index].mat, sizeof (jointpose_t));
+			else
+				R_ConcatTransforms ((void *)concat_joints[poseparent].mat, (void *)in_pose[joint_index].mat, (void *)concat_joints[joint_index].mat);
+			memcpy (out_pose[joint_index].mat, concat_joints[joint_index].mat, sizeof (jointpose_t));
+		}
+	}
+	SAFE_FREE (anim.posedata);
+
+	// 3. each mesh has its own aliashdr_t : load vertices, triangles, textures...etc. and upload to GPU each surface:
+
+	for (int m = 0; m < nummeshes; m++)
+	{
+		MD5EXPECT ("mesh");
+		MD5EXPECT ("{");
+
+		// go to the  surf, a.k.a mesh, chaining the next nextsurface
+		surf = (aliashdr_t *)((byte *)outhdr + m * hdrsize);
+		if (m + 1 < nummeshes)
+			surf->nextsurface = (aliashdr_t *)((byte *)outhdr + (m + 1) * hdrsize);
+		else
+			surf->nextsurface = NULL;
+
+		for (size_t j = 0; j < 3; j++)
+		{
+			surf->scale_origin[j] = 0;
+			surf->scale[j] = 1.0;
+		}
+
+		surf->numjoints = numjoints;
+
+		if (anim.numposes)
+		{
+			for (size_t j = 0; j < anim.numposes; j++)
+			{
+				surf->frames[j].firstpose = j;
+				surf->frames[j].numposes = 1;
+				surf->frames[j].interval = 0.1;
+			}
+			surf->numframes = anim.numposes;
+		}
+
+		//"shader" is the texture of the surf
+		MD5EXPECT ("shader");
+		char shader_name[MAX_QPATH];
+		q_strlcpy (shader_name, (const char *)com_token, sizeof (shader_name));
+
+		// MD5 have only 1 surface pose, meaning 1 vertex-like "pose" (not to ne mixed with md5animctx_t anim poses !)
+		//  because it uses skeletal animation instead of displaying/interpolating different frames/poses of vertices
+		surf->numposes = 1;
+
+		buffer = COM_Parse (buffer);
+		MD5EXPECT ("numverts");
+		surf->numverts_vbo = surf->numverts = MD5UINT ();
+
+		TEMP_ALLOC_ASSIGN_ZEROED (vinfo, surf->numverts);
+		unsigned int max_mesh_influences = 0;
+
+		while (MD5CHECK ("vert"))
+		{
+			size_t idx = MD5UINT ();
+			if (idx >= (size_t)surf->numverts)
+				MD5ERROR ("%s: vertex index out of bounds\n", fname);
+			MD5EXPECT ("(");
+			vinfo[idx].st[0] = MD5FLOAT ();
+			vinfo[idx].st[1] = MD5FLOAT ();
+			MD5EXPECT (")");
+			vinfo[idx].firstweight = MD5UINT ();
+			vinfo[idx].count = MD5UINT ();
+			max_mesh_influences = q_max (max_mesh_influences, vinfo[idx].count);
+		}
+
+		surf->poseverttype = (max_mesh_influences > NUM_JOINT_INFLUENCES_4_WEIGHT) ? PV_MD5_8 : PV_MD5;
+		const size_t md5_vertex_size = (surf->poseverttype == PV_MD5_8) ? sizeof (md5vert8_t) : sizeof (md5vert_t);
+		TEMP_ALLOC_ASSIGN_ZEROED (poutvertexes, surf->numverts * md5_vertex_size);
+
+		// MD5 violation: the skin is a single material. adding prefixes/postfixes here is the wrong thing to do.
+		// but we do so anyway, because rerelease compat.
+		surf->numskins = (int)Mod_LoadMD5SurfaceSkins (mod, surf, m, nummeshes, shader_name);
+
+		if (surf->numskins == 0)
+			Con_Warning ("MD5: %s, no skins found for surf '%s' (%d)\n", fname, shader_name, m);
+
+		MD5EXPECT ("numtris");
+		surf->numtris = MD5UINT ();
+		surf->numindexes = surf->numtris * 3;
+		TEMP_ALLOC_ASSIGN_ZEROED (poutindexes, surf->numindexes);
+
+		while (MD5CHECK ("tri"))
+		{
+			size_t idx = MD5UINT ();
+			if (idx >= (size_t)surf->numtris)
+				MD5ERROR ("%s: triangle index out of bounds\n", fname);
+			idx *= 3;
+			for (size_t j = 0; j < 3; j++)
+			{
+				size_t t = MD5UINT ();
+				if (t >= (size_t)surf->numverts)
+					MD5ERROR ("%s: vertex index out of bounds\n", fname);
+				poutindexes[idx + j] = t;
+			}
+		}
+
+		// md5 is a gpu-unfriendly interchange format. :(
+		MD5EXPECT ("numweights");
+		size_t numweights = MD5UINT ();
+		TEMP_ALLOC_ASSIGN_ZEROED (weight, numweights);
+
+		while (MD5CHECK ("weight"))
+		{
+			size_t idx = MD5UINT ();
+			if (idx >= numweights)
+				MD5ERROR ("%s: weight index out of bounds\n", fname);
+
+			weight[idx].joint_index = MD5UINT ();
+			if (weight[idx].joint_index >= numjoints)
+				MD5ERROR ("%s: joint index out of bounds\n", fname);
+			weight[idx].pos[3] = MD5FLOAT ();
+			MD5EXPECT ("(");
+			weight[idx].pos[0] = MD5FLOAT () * weight[idx].pos[3];
+			weight[idx].pos[1] = MD5FLOAT () * weight[idx].pos[3];
+			weight[idx].pos[2] = MD5FLOAT () * weight[idx].pos[3];
+			MD5EXPECT (")");
+		}
+
+		MD5EXPECT ("}");
+
+		// so make it gpu-friendly.
+		if (!MD5_BakeInfluences (fname, joint_poses, poutvertexes, surf->poseverttype, vinfo, weight, surf->numverts, numweights))
+			goto error;
+		// and now make up the normals that the format lacks. we'll still probably have issues from seams, but then so did qme, so at least its faithful...
+		// :P
+		MD5_ComputeNormals (poutvertexes, md5_vertex_size, surf->numverts, poutindexes, surf->numindexes);
+
+		for (size_t j = 0; j < (size_t)surf->numverts; j++)
+		{
+			md5vert_t *poutvertex = (md5vert_t *)(poutvertexes + j * md5_vertex_size);
+			for (size_t k = 0; k < 3; k++)
+			{
+				mod->mins[k] = q_min (mod->mins[k], poutvertex->xyz[k]);
+				mod->maxs[k] = q_max (mod->maxs[k], poutvertex->xyz[k]);
+			}
+			dist = poutvertex->xyz[0] * poutvertex->xyz[0] + poutvertex->xyz[1] * poutvertex->xyz[1];
+			if (yawradius < dist)
+				yawradius = dist;
+			dist += poutvertex->xyz[2] * poutvertex->xyz[2];
+			if (radius < dist)
+				radius = dist;
+		}
+
+		TEMP_FREE (weight);
+		TEMP_FREE (vinfo);
+
+		// Upload to GPU that surface/mesh m:
+		GLMesh_UploadBuffers (mod, surf, poutindexes, (byte *)poutvertexes, NULL, skinning_joints);
+
+		TEMP_FREE (poutvertexes);
+		TEMP_FREE (poutindexes);
+
+	} // end foreach mesh
+
+	// the MD5 format does not have its own modelflags, yet we still need to know about trails and rotating etc
+	mod->flags = MD5_HackyModelFlags (mod->name);
+
+	mod->synctype = ST_FRAMETIME; // keep MD5 animations synced to when .frame is changed. framegroups are otherwise not very useful.
+	mod->type = mod_alias;
+	mod->extradata[PV_MD5] = (byte *)outhdr;
+
+	radius = sqrtf (radius);
+	mod->rmins[0] = mod->rmins[1] = mod->rmins[2] = -radius;
+	mod->rmaxs[0] = mod->rmaxs[1] = mod->rmaxs[2] = radius;
+
+	yawradius = sqrtf (yawradius);
+	mod->ymins[0] = mod->ymins[1] = -yawradius;
+	mod->ymaxs[0] = mod->ymaxs[1] = yawradius;
+	mod->ymins[2] = mod->mins[2];
+	mod->ymaxs[2] = mod->maxs[2];
+
+	TEMP_FREE (concat_joints);
+	TEMP_FREE (skinning_joints);
+
+	TEMP_FREE (joint_poses);
+	TEMP_FREE (joint_infos);
+
+	return true;
+
+error:
+	// Recoverable replacement-model failures fall back to the MDL, so release
+	// any partial MD5 state that Sys_Error used to abandon by terminating.
+	TEMP_FREE (weight);
+	TEMP_FREE (vinfo);
+	TEMP_FREE (poutvertexes);
+	TEMP_FREE (poutindexes);
+	SAFE_FREE (anim.posedata);
+	if (outhdr)
+	{
+		for (size_t surface_index = 0; surface_index < nummeshes; surface_index++)
+		{
+			aliashdr_t *hdr = (aliashdr_t *)((byte *)outhdr + surface_index * hdrsize);
+			for (int skin_index = 0; skin_index < MAX_SKINS; skin_index++)
+				SAFE_FREE (hdr->texels[skin_index]);
+		}
+		GLMesh_DeleteMeshBuffers (outhdr);
+		Mem_Free (outhdr);
+	}
+	TEMP_FREE (concat_joints);
+	TEMP_FREE (skinning_joints);
+	TEMP_FREE (joint_poses);
+	TEMP_FREE (joint_infos);
+	return false;
+}
+
+qboolean Mod_LoadMD5MeshModel (qmodel_t *mod, const void *buffer)
+{
+	const char *fname = mod->name;
+	size_t		numjoints;
+	size_t		nummeshes;
+
+	buffer = COM_Parse (buffer);
+
+	MD5EXPECT ("MD5Version");
+	MD5EXPECT (MD5_VERSION);
+	if (MD5CHECK ("commandline"))
+		buffer = COM_Parse (buffer);
+	MD5EXPECT ("numJoints");
+	numjoints = MD5UINT ();
+	MD5EXPECT ("numMeshes");
+	nummeshes = MD5UINT ();
+
+	if (numjoints <= 0)
+		MD5ERROR ("%s has no joints\n", mod->name);
+	if (nummeshes <= 0)
+		MD5ERROR ("%s has no meshes\n", mod->name);
+
+	if (strcmp (com_token, "joints"))
+		MD5ERROR ("Mod_LoadMD5MeshModel(%s): expected \"%s\", found \"%s\"\n", fname, "joints", com_token);
+
+	return Mod_LoadMD5MeshModelData (mod, buffer, numjoints, nummeshes);
+
+error:
+	return false;
+}
+
+/*
+=====================
+Mod_LoadMD3Model
+=====================
+*/
+void Mod_LoadMD3Model (qmodel_t *mod, const void *buffer)
+{
+	aliashdr_t	   *outhdr, *surf;
+	md3Header_t	   *pinheader;
+	md3Frame_t	   *pinframes;
+	md3Triangle_t  *pintriangle;
+	md3XyzNormal_t *pinvertexes;
+	md3St_t		   *pinst;
+	size_t			hdrsize;
+	int				numsurfs;
+	int				numframes;
+
+	pinheader = (md3Header_t *)buffer;
+
+	int version = LittleLong (pinheader->version);
+	if (version != MD3_VERSION)
+		Sys_Error ("MD3: %s has wrong version number (%d should be %d)", mod->name, version, MD3_VERSION);
+
+	numsurfs = LittleLong (pinheader->numSurfaces);
+	numframes = LittleLong (pinheader->numFrames);
+
+	if (numframes > MAXALIASFRAMES)
+		Sys_Error ("MD3: %s has too many frames (%i vs %i)", mod->name, numframes, MAXALIASFRAMES);
+
+	if (!numsurfs)
+		Sys_Error ("MD3: %s has no surfaces", mod->name);
+
+	if (numsurfs > MAX_SURFACES)
+		Sys_Error ("MD3: %s has too many surfaces : %d (max %d)", mod->name, numsurfs, MAX_SURFACES);
+
+	// Collect the skin definitions from .skin files, if any;
+	all_surfaces_def_t *surf_def = Mem_Alloc (sizeof (all_surfaces_def_t));
+
+	Mod_LoadMD3SkinDefinitions (mod, surf_def);
+
+	pinframes = (md3Frame_t *)((byte *)buffer + LittleLong (pinheader->ofsFrames));
+
+	hdrsize = sizeof (*outhdr) - sizeof (outhdr->frames);
+	hdrsize += sizeof (outhdr->frames) * numframes;
+
+	// alloc all aliashdr_t and their chained nextsurface, a.k.a numsurfs, in one array
+	outhdr = (aliashdr_t *)Mem_Alloc (hdrsize * numsurfs);
+
+	// total_numverts and total_vertexes accumulate all vertices of the surface,
+	// just to be able to Mod_CalcAliasBounds at the end.
+	size_t			total_numverts = 0;
+	md3XyzNormal_t *total_vertexes = NULL;
+
+	// for each of the surfaces :
+	md3Surface_t *pinsurface = (md3Surface_t *)((byte *)buffer + LittleLong (pinheader->ofsSurfaces));
+	for (int m = 0; m < numsurfs; m++)
+	{
+		if (LittleLong (pinsurface->ident) != IDMD3HEADER)
+			Sys_Error ("MD3: %s corrupt surface ident", mod->name);
+		if (LittleLong (pinsurface->numFrames) != numframes)
+			Sys_Error ("MD3: %s mismatched framecounts", mod->name);
+
+		// go to the surf, chaining the next nextsurface
+		surf = (aliashdr_t *)((byte *)outhdr + m * hdrsize);
+		if (m + 1 < numsurfs)
+			surf->nextsurface = (aliashdr_t *)((byte *)outhdr + (m + 1) * hdrsize);
+		else
+			surf->nextsurface = NULL;
+
+		surf->poseverttype = PV_QUAKE3;
+
+		// the number of vertices per-frame:
+		surf->numverts_vbo = surf->numverts = LittleLong (pinsurface->numVerts);
+
+		// All the vertices for this surface, concat of the vertices of each of the numframes, one frame after another:
+		pinvertexes = (md3XyzNormal_t *)((byte *)pinsurface + LittleLong (pinsurface->ofsXyzNormals));
+
+		md3XyzNormal_t *poutvertexes = (md3XyzNormal_t *)Mem_Alloc (numframes * surf->numverts * sizeof (*poutvertexes));
+		// keep track of the original poutvertexes, because we are going to pointer arithmetic below...
+		md3XyzNormal_t *poutvertexes_start = poutvertexes;
+
+		// Load skins for that surface m:
+		surf->numskins = Mod_LoadMD3SurfaceSkins (mod, surf, surf_def, q_strtrim (pinsurface->name), m, numsurfs, MAX_SKINS);
+
+		if (surf->numskins == 0)
+			Con_Warning ("MD3: %s, no skins found for surf '%s' (%d)\n", mod->name, pinsurface->name, m);
+
+		// for each frame:
+		// only 1 pose for MD3, it have frames instead
+		surf->numposes = 1;
+
+		for (int ival = 0; ival < numframes; ival++)
+		{
+			surf->frames[ival].firstpose = ival;
+			surf->frames[ival].numposes = 1;
+			surf->frames[ival].interval = 0.1;
+
+			q_strlcpy (surf->frames[ival].name, pinframes->name, sizeof (surf->frames[ival].name));
+
+			for (int j = 0; j < 3; j++)
+			{ // fixme...
+				surf->frames[ival].bboxmin.v[j] = 0;
+				surf->frames[ival].bboxmax.v[j] = 255;
+			}
+
+			for (int j = 0; j < surf->numverts; j++)
+				poutvertexes[j] = pinvertexes[j];
+
+			poutvertexes += surf->numverts;
+			pinvertexes += surf->numverts;
+		}
+		surf->numframes = numframes;
+
+		surf->numtris = LittleLong (pinsurface->numTriangles);
+		surf->numindexes = surf->numtris * 3;
+
+		pintriangle = (md3Triangle_t *)((byte *)pinsurface + LittleLong (pinsurface->ofsTriangles));
+
+		unsigned short *poutindexes = (unsigned short *)Mem_Alloc (sizeof (*poutindexes) * surf->numindexes);
+		// keep track of the original poutindexes, because we are going to pointer arithmetic below...
+		unsigned short *poutindexes_start = poutindexes;
+
+		for (int ival = 0; ival < surf->numtris; ival++, pintriangle++, poutindexes += 3)
+		{
+			for (int j = 0; j < 3; j++)
+				poutindexes[j] = LittleLong (pintriangle->indexes[j]);
+		}
+
+		for (int j = 0; j < 3; j++)
+		{
+			surf->scale_origin[j] = 0;
+			surf->scale[j] = MD3_XYZ_SCALE;
+		}
+
+		// TODO: What to do with the shaders ?
+		// int numshaders = pinsurface->numShaders;
+		// md3Shader_t	   * pinshader = (md3Shader_t *)((byte *)pinsurface + LittleLong (pinsurface->ofsShaders));
+
+		// and figure out the texture coords properly, now we know the actual sizes.
+		pinst = (md3St_t *)((byte *)pinsurface + LittleLong (pinsurface->ofsSt));
+
+		aliasmesh_t *poutst = (aliasmesh_t *)Mem_Alloc (sizeof (*poutst) * surf->numverts);
+
+		for (int j = 0; j < surf->numverts; j++)
+		{
+			poutst[j].vertindex = j; // how is this useful?
+			poutst[j].st[0] = pinst[j].s;
+			poutst[j].st[1] = pinst[j].t;
+		}
+
+		// Upload to GPU that surface/mesh m:
+		GLMesh_UploadBuffers (mod, surf, poutindexes_start, (byte *)poutvertexes_start, poutst, NULL);
+
+		// concat surface vertices to total_vertexes
+		total_vertexes = (md3XyzNormal_t *)Mem_Realloc (total_vertexes, sizeof (*poutvertexes) * (total_numverts + surf->numverts));
+		memcpy ((void *)(total_vertexes + total_numverts), (const void *)poutvertexes_start, sizeof (*poutvertexes) * surf->numverts);
+		total_numverts += surf->numverts;
+
+		Mem_Free (poutst);
+		Mem_Free (poutvertexes_start);
+		Mem_Free (poutindexes_start);
+
+		// go to the next surface:
+		pinsurface = (md3Surface_t *)((byte *)pinsurface + LittleLong (pinsurface->ofsEnd));
+
+	} // end for surface
+
+	// small violation of the spec, but it seems like noone else uses it.
+	mod->flags = LittleLong (pinheader->flags);
+
+	mod->type = mod_alias;
+	mod->extradata[PV_QUAKE3] = (byte *)outhdr;
+
+	// calc alias bounds of the whole surfaces model :
+	Mod_CalcAliasBounds (mod, outhdr, total_numverts, (byte *)total_vertexes); // johnfitz
+
+	Mem_Free (total_vertexes);
+	Mem_Free (surf_def);
+}
+#endif // !USE_RUST_FORMATS

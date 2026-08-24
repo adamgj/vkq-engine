@@ -26,7 +26,7 @@
 //! process aborts either way; only a Sys_Error-trapping harness can see
 //! the difference).
 
-use core::ffi::{c_char, c_int, c_long, c_uint, c_void};
+use core::ffi::{c_char, c_int, c_long, c_uint, c_ulonglong, c_void};
 use core::ptr::{addr_of, addr_of_mut, null_mut};
 use std::ffi::{CStr, CString};
 
@@ -38,16 +38,16 @@ use quake_formats::bsp::{
     textures::TexWork,
     Bsp2,
 };
-use quake_formats::{mdl, spr};
+use quake_formats::{md3, md5, mdl, spr};
 use quake_types::bspfile::{
     DModel, LumpT, BSPVERSION_QUAKE64, BSPVERSION_VALVE, MAX_MAP_HULLS, MIPLEVELS, TEX_SPECIAL,
 };
 use quake_types::model_mem::{
-    AliasHdr, MAliasFrameDesc, MClipnode, MEdge, MLeaf, MNode, MSprite, MSpriteFrame,
-    MSpriteFrameDesc, MSpriteGroup, MSurface, MTexInfo, MTriangle, MVertex, Md3XyzNormal, Md5Vert,
-    Md5Vert8, QModel, Texture, MAX_QPATH, MOD_ALIAS, MOD_SPRITE, PV_MD5, PV_MD5_8, PV_QUAKE1,
-    PV_QUAKE3, SURF_DRAWLAVA, SURF_DRAWSKY, SURF_DRAWSLIME, SURF_DRAWTELE, SURF_DRAWTURB,
-    SURF_DRAWWATER, SURF_PLANEBACK, TEXTYPE_COUNT,
+    AliasHdr, AliasMesh, AllSurfacesDef, JointPose, MAliasFrameDesc, MClipnode, MEdge, MLeaf,
+    MNode, MSprite, MSpriteFrame, MSpriteFrameDesc, MSpriteGroup, MSurface, MTexInfo, MTriangle,
+    MVertex, Md3XyzNormal, Md5Vert, Md5Vert8, QModel, Texture, MAX_QPATH, MOD_ALIAS, MOD_SPRITE,
+    PV_MD5, PV_MD5_8, PV_QUAKE1, PV_QUAKE3, SURF_DRAWLAVA, SURF_DRAWSKY, SURF_DRAWSLIME,
+    SURF_DRAWTELE, SURF_DRAWTURB, SURF_DRAWWATER, SURF_PLANEBACK, TEXTYPE_COUNT,
 };
 use quake_types::modelgen::{StVert, TriVertX};
 use quake_types::MPlane;
@@ -2376,5 +2376,1508 @@ pub unsafe extern "C" fn Mod_LoadSpriteModel(m: *mut QModel, buffer: *mut c_void
         }
 
         (*m).type_ = MOD_SPRITE;
+    }
+}
+
+/*
+==============================================================================
+
+MD3 MODELS
+
+==============================================================================
+*/
+
+/// `MAX_SKINS` as the size_t parameter the skin loaders take
+const MAX_SKINS_C: usize = quake_types::model_mem::MAX_SKINS;
+
+/// `sizeof (aliashdr_t) - sizeof (outhdr->frames)`: the header without its
+/// one-element trailing frame array.
+const ALIASHDR_HEAD_SIZE: usize =
+    core::mem::size_of::<AliasHdr>() - core::mem::size_of::<MAliasFrameDesc>();
+/// `sizeof (outhdr->frames)` — `maliasframedesc_t frames[1]`
+const ALIASHDR_FRAME_SIZE: usize = core::mem::size_of::<MAliasFrameDesc>();
+
+unsafe extern "C" {
+    // gl_model.c: the .skin-file plumbing and the MD3 skin search order stay
+    // C this phase (Phase 3 NG3)
+    fn Mod_LoadMD3SkinDefinitions(m: *mut QModel, surf_defs: *mut AllSurfacesDef);
+    fn Mod_LoadMD3SurfaceSkins(
+        m: *mut QModel,
+        surf: *mut AliasHdr,
+        surfaces_def: *mut AllSurfacesDef,
+        surface_name: *const c_char,
+        surface_index: c_int,
+        numsurfs: usize,
+        numskins: usize,
+    ) -> c_int;
+    // gl_mesh.c: GPU upload stays C (Phase 3 NG2). glquake.h is not a
+    // bindgen-clean root, so the declarations are by hand and must match it
+    // exactly; the signature gate diffs them against a copied slice.
+    fn GLMesh_UploadBuffers(
+        m: *mut QModel,
+        hdr: *mut AliasHdr,
+        indexes: *mut u16,
+        vertexes: *mut u8,
+        desc: *mut AliasMesh,
+        joints: *mut JointPose,
+    );
+}
+
+/// `(byte *)outhdr + index * hdrsize` — the MD3/MD5 loaders allocate all
+/// `aliashdr_t`s of a model as one block of `hdrsize`-strided headers and
+/// chain them through `nextsurface`.
+///
+/// # Safety
+/// `outhdr` must point at a block of at least `(index + 1) * hdrsize` bytes.
+unsafe fn hdr_slot(outhdr: *mut AliasHdr, index: usize, hdrsize: usize) -> *mut AliasHdr {
+    // SAFETY: caller guarantees the block is big enough
+    unsafe {
+        outhdr
+            .cast::<u8>()
+            .add(index.wrapping_mul(hdrsize))
+            .cast::<AliasHdr>()
+    }
+}
+
+/*
+=====================
+Mod_LoadMD3Model
+=====================
+*/
+
+/// # Safety
+/// C ABI contract of Mod_LoadMD3Model: `buffer` holds a whole .md3 file
+/// image (no length is passed, see the note at the top of the alias
+/// section).
+#[no_mangle]
+pub unsafe extern "C" fn Mod_LoadMD3Model(m: *mut QModel, buffer: *const c_void) {
+    // SAFETY: C ABI contract above
+    unsafe {
+        let base = buffer.cast::<u8>().cast_mut();
+
+        // COMPAT: unbounded seam, same rule as Mod_ParseAliasModel -- each
+        // field is read off the smallest prefix the C has touched by that
+        // point, so a truncated image is never over-read past the C's own
+        // touch set before the matching Sys_Error fires.
+        let version =
+            md3::parse_version(core::slice::from_raw_parts(base, md3::OFS_HDR_VERSION + 4));
+        if version != md3::MD3_VERSION {
+            sys::Sys_Error(
+                c"MD3: %s has wrong version number (%d should be %d)".as_ptr(),
+                model_name(m),
+                version,
+                md3::MD3_VERSION,
+            );
+        }
+
+        let counts = md3::parse_header_counts(core::slice::from_raw_parts(
+            base,
+            md3::MD3_HEADER_COUNTS_PREFIX,
+        ));
+        let numsurfs = counts.num_surfaces;
+        let numframes = counts.num_frames;
+
+        if numframes > md3::MAXALIASFRAMES {
+            sys::Sys_Error(
+                c"MD3: %s has too many frames (%i vs %i)".as_ptr(),
+                model_name(m),
+                numframes,
+                md3::MAXALIASFRAMES,
+            );
+        }
+
+        if numsurfs == 0 {
+            sys::Sys_Error(c"MD3: %s has no surfaces".as_ptr(), model_name(m));
+        }
+
+        if numsurfs > md3::MAX_SURFACES {
+            sys::Sys_Error(
+                c"MD3: %s has too many surfaces : %d (max %d)".as_ptr(),
+                model_name(m),
+                numsurfs,
+                md3::MAX_SURFACES,
+            );
+        }
+
+        // Collect the skin definitions from .skin files, if any
+        let surf_def =
+            sys::Mem_Alloc(core::mem::size_of::<AllSurfacesDef>()).cast::<AllSurfacesDef>();
+        Mod_LoadMD3SkinDefinitions(m, surf_def);
+
+        let offsets = md3::parse_header_offsets(core::slice::from_raw_parts(
+            base,
+            md3::MD3_HEADER_OFFSETS_PREFIX,
+        ));
+        let pinframes = base.wrapping_offset(offsets.ofs_frames as isize);
+
+        // COMPAT: `numframes` reaches this size_t arithmetic as an int, so a
+        // negative count sign-extends rather than saturating, exactly as in
+        // the C.
+        let hdrsize = ALIASHDR_HEAD_SIZE
+            .wrapping_add(ALIASHDR_FRAME_SIZE.wrapping_mul(numframes as isize as usize));
+
+        // alloc all aliashdr_t and their chained nextsurface, a.k.a numsurfs,
+        // in one array
+        let outhdr =
+            sys::Mem_Alloc(hdrsize.wrapping_mul(numsurfs as isize as usize)).cast::<AliasHdr>();
+
+        // total_numverts and total_vertexes accumulate all vertices of the
+        // surface, just to be able to Mod_CalcAliasBounds at the end.
+        let mut total_numverts: usize = 0;
+        let mut total_vertexes: *mut Md3XyzNormal = null_mut();
+
+        let mut pinsurface = base.wrapping_offset(offsets.ofs_surfaces as isize);
+        for isurf in 0..numsurfs {
+            if md3::parse_surface_ident(core::slice::from_raw_parts(
+                pinsurface,
+                md3::MD3_SURFACE_IDENT_PREFIX,
+            )) != md3::IDMD3HEADER
+            {
+                sys::Sys_Error(c"MD3: %s corrupt surface ident".as_ptr(), model_name(m));
+            }
+            if md3::parse_surface_numframes(core::slice::from_raw_parts(
+                pinsurface,
+                md3::MD3_SURFACE_NUMFRAMES_PREFIX,
+            )) != numframes
+            {
+                sys::Sys_Error(c"MD3: %s mismatched framecounts".as_ptr(), model_name(m));
+            }
+
+            // COMPAT (read ordering): the C reads numVerts/numTriangles and
+            // the four ofs* fields *after* `q_strtrim (pinsurface->name)` has
+            // rewritten the name in place -- `ofsEnd` right at the bottom of
+            // the iteration -- while this snapshots the whole 108-byte header
+            // before it. Equivalent only because `md3Surface_t::name` spans
+            // +4..+68 and every field read here sits at >= 72, and because
+            // q_strtrim never writes outside `name`: on an all-whitespace
+            // name its `strlen (str_start) - 1` underflows to SIZE_MAX and it
+            // *probes* name[-1], which is the top byte of `ident` -- '3' for
+            // any surface that passed the ident gate above, so the scan
+            // breaks without storing. Reordering the fields, widening `name`
+            // or relaxing that gate would each break this equivalence.
+            let sh = md3::parse_surface_header(core::slice::from_raw_parts(
+                pinsurface,
+                md3::MD3_SURFACE_SIZE,
+            ));
+
+            // go to the surf, chaining the next nextsurface
+            let surf = hdr_slot(outhdr, isurf as usize, hdrsize);
+            (*surf).nextsurface = if isurf + 1 < numsurfs {
+                hdr_slot(outhdr, isurf as usize + 1, hdrsize)
+            } else {
+                null_mut()
+            };
+
+            (*surf).poseverttype = PV_QUAKE3;
+
+            // the number of vertices per-frame
+            (*surf).numverts = sh.num_verts;
+            (*surf).numverts_vbo = sh.num_verts;
+
+            // All the vertices for this surface, concat of the vertices of
+            // each of the numframes, one frame after another
+            let pinvertexes = pinsurface.wrapping_offset(sh.ofs_xyz_normals as isize);
+
+            let poutvertexes = sys::Mem_Alloc(
+                (numframes.wrapping_mul(sh.num_verts) as isize as usize)
+                    .wrapping_mul(md3::MD3_XYZNORMAL_SIZE),
+            )
+            .cast::<u8>();
+
+            // Load skins for that surface. COMPAT: q_strtrim rewrites the
+            // surface name in the loaded file image, and the warning below
+            // prints the field, not the trimmed pointer -- both as in the C.
+            let surface_name = pinsurface.add(md3::OFS_SURF_NAME).cast::<c_char>();
+            (*surf).numskins = Mod_LoadMD3SurfaceSkins(
+                m,
+                surf,
+                surf_def,
+                sys::q_strtrim(surface_name),
+                isurf,
+                numsurfs as isize as usize,
+                MAX_SKINS_C,
+            );
+
+            if (*surf).numskins == 0 {
+                sys::Con_Warning(
+                    c"MD3: %s, no skins found for surf '%s' (%d)\n".as_ptr(),
+                    model_name(m),
+                    surface_name,
+                    isurf,
+                );
+            }
+
+            // for each frame: only 1 pose for MD3, it have frames instead
+            (*surf).numposes = 1;
+
+            let frames = addr_of_mut!((*surf).frames).cast::<MAliasFrameDesc>();
+            let mut pv = poutvertexes;
+            let mut pinv = pinvertexes;
+            for ival in 0..numframes {
+                let f = frames.offset(ival as isize);
+                (*f).firstpose = ival;
+                (*f).numposes = 1;
+                (*f).interval = 0.1;
+
+                // COMPAT: the C never advances `pinframes`, so every frame of
+                // every surface is named after md3 frame 0.
+                strlcpy_raw(
+                    addr_of_mut!((*f).name).cast::<c_char>(),
+                    16,
+                    pinframes.add(md3::OFS_FRAME_NAME).cast::<c_char>(),
+                );
+
+                for j in 0..3 {
+                    // fixme...
+                    (*f).bboxmin.v[j] = 0;
+                    (*f).bboxmax.v[j] = 255;
+                }
+
+                for j in 0..sh.num_verts {
+                    let o = (j as isize).wrapping_mul(md3::MD3_XYZNORMAL_SIZE as isize);
+                    core::ptr::copy_nonoverlapping(
+                        pinv.offset(o),
+                        pv.offset(o),
+                        md3::MD3_XYZNORMAL_SIZE,
+                    );
+                }
+
+                let stride = (sh.num_verts as isize).wrapping_mul(md3::MD3_XYZNORMAL_SIZE as isize);
+                pv = pv.wrapping_offset(stride);
+                pinv = pinv.wrapping_offset(stride);
+            }
+            (*surf).numframes = numframes;
+
+            (*surf).numtris = sh.num_triangles;
+            (*surf).numindexes = sh.num_triangles.wrapping_mul(3);
+
+            let pintriangle = pinsurface.wrapping_offset(sh.ofs_triangles as isize);
+
+            let poutindexes = sys::Mem_Alloc(
+                core::mem::size_of::<u16>().wrapping_mul((*surf).numindexes as isize as usize),
+            )
+            .cast::<u16>();
+
+            for ival in 0..(*surf).numtris {
+                let idx = md3::parse_triangle_indexes(core::slice::from_raw_parts(
+                    pintriangle
+                        .offset((ival as isize).wrapping_mul(md3::MD3_TRIANGLE_SIZE as isize)),
+                    md3::MD3_TRIANGLE_SIZE,
+                ));
+                let dst = poutindexes.offset((ival as isize).wrapping_mul(3));
+                for (j, v) in idx.iter().enumerate() {
+                    *dst.add(j) = *v;
+                }
+            }
+
+            for j in 0..3 {
+                (*surf).scale_origin[j] = 0.0;
+                (*surf).scale[j] = md3::MD3_XYZ_SCALE;
+            }
+
+            // and figure out the texture coords properly, now we know the
+            // actual sizes.
+            let pinst = pinsurface.wrapping_offset(sh.ofs_st as isize);
+            let poutst = sys::Mem_Alloc(
+                core::mem::size_of::<AliasMesh>().wrapping_mul(sh.num_verts as isize as usize),
+            )
+            .cast::<AliasMesh>();
+
+            for j in 0..sh.num_verts {
+                let st = md3::parse_st_native(core::slice::from_raw_parts(
+                    pinst.offset((j as isize).wrapping_mul(md3::MD3_ST_SIZE as isize)),
+                    md3::MD3_ST_SIZE,
+                ));
+                let d = poutst.offset(j as isize);
+                // how is this useful?
+                (*d).vertindex = j as u16;
+                (*d).st = st;
+            }
+
+            // Upload to GPU that surface/mesh
+            GLMesh_UploadBuffers(m, surf, poutindexes, poutvertexes, poutst, null_mut());
+
+            // concat surface vertices to total_vertexes
+            let nbytes = md3::MD3_XYZNORMAL_SIZE.wrapping_mul(sh.num_verts as isize as usize);
+            total_vertexes = sys::Mem_Realloc(
+                total_vertexes.cast::<c_void>(),
+                md3::MD3_XYZNORMAL_SIZE
+                    .wrapping_mul(total_numverts.wrapping_add(sh.num_verts as isize as usize)),
+            )
+            .cast::<Md3XyzNormal>();
+            core::ptr::copy_nonoverlapping(
+                poutvertexes,
+                total_vertexes.add(total_numverts).cast::<u8>(),
+                nbytes,
+            );
+            total_numverts = total_numverts.wrapping_add(sh.num_verts as isize as usize);
+
+            sys::Mem_Free(poutst.cast::<c_void>());
+            sys::Mem_Free(poutvertexes.cast::<c_void>());
+            sys::Mem_Free(poutindexes.cast::<c_void>());
+
+            // go to the next surface
+            pinsurface = pinsurface.wrapping_offset(sh.ofs_end as isize);
+        }
+
+        // small violation of the spec, but it seems like noone else uses it.
+        (*m).flags = md3::parse_flags(core::slice::from_raw_parts(
+            base,
+            md3::MD3_HEADER_FLAGS_PREFIX,
+        ));
+
+        (*m).type_ = MOD_ALIAS;
+        (*m).extradata[PV_QUAKE3 as usize] = outhdr.cast::<u8>();
+
+        // calc alias bounds of the whole surfaces model
+        Mod_CalcAliasBounds(
+            m,
+            outhdr,
+            total_numverts as c_int,
+            total_vertexes.cast::<u8>(),
+        );
+
+        sys::Mem_Free(total_vertexes.cast::<c_void>());
+        sys::Mem_Free(surf_def.cast::<c_void>());
+    }
+}
+
+/*
+==============================================================================
+
+MD5 MODELS
+
+==============================================================================
+*/
+
+unsafe extern "C" {
+    // gl_model.c: the MD5 skin search stays C (Phase 3 NG3); the wrapper
+    // keeps the skin_base_name_fn table private to that file
+    fn Mod_LoadMD5SurfaceSkins(
+        m: *mut QModel,
+        surf: *mut AliasHdr,
+        surf_index: c_int,
+        numsurfaces: usize,
+        shader_name: *const c_char,
+    ) -> usize;
+    // gl_mesh.c, for the recoverable-failure cleanup path
+    fn GLMesh_DeleteMeshBuffers(mainhdr: *mut AliasHdr);
+    // C runtime: MD5 is a text format and the C converts every token with
+    // these, base 0 included. `strtol` returns `long`, which is 32-bit on
+    // Windows -- c_long keeps that platform difference.
+    fn strtoull(nptr: *const c_char, endptr: *mut *mut c_char, base: c_int) -> c_ulonglong;
+    fn strtol(nptr: *const c_char, endptr: *mut *mut c_char, base: c_int) -> c_long;
+}
+
+const IDPOLYHEADER: i32 = 0x4f50_4449;
+
+/// `com_token`, without its NUL. The tokenizer is the engine's own, shared
+/// with the C oracle: it is thread-local state neither side may shadow (I6).
+///
+/// # Safety
+/// The slice borrows `com_token`, so it must not outlive the next
+/// `COM_Parse`.
+unsafe fn md5_token<'a>() -> &'a [u8] {
+    // SAFETY: COM_ThreadToken returns the thread's NUL-terminated com_token
+    unsafe { cstr_bytes(sys::COM_ThreadToken()) }
+}
+
+/// `com_token` with its NUL, for the strto* conversions.
+///
+/// # Safety
+/// Same as [`md5_token`].
+unsafe fn md5_token_cstr<'a>() -> &'a [u8] {
+    // SAFETY: COM_ThreadToken returns the thread's NUL-terminated com_token
+    unsafe {
+        let p = sys::COM_ThreadToken();
+        let mut n = 0usize;
+        while *p.add(n) != 0 {
+            n += 1;
+        }
+        core::slice::from_raw_parts(p.cast::<u8>(), n + 1)
+    }
+}
+
+/// C `MD5IGNORE`
+///
+/// # Safety
+/// `buffer` must hold a COM_Parse cursor into a live NUL-terminated image.
+unsafe fn md5_ignore(buffer: &mut *const c_char) {
+    // SAFETY: caller's contract
+    unsafe { *buffer = sys::COM_Parse(*buffer) }
+}
+
+/// C `MD5CHECK`
+///
+/// # Safety
+/// Same as [`md5_ignore`].
+unsafe fn md5_check(buffer: &mut *const c_char, s: &[u8]) -> bool {
+    // SAFETY: caller's contract
+    unsafe {
+        if md5_token() != s {
+            return false;
+        }
+        *buffer = sys::COM_Parse(*buffer);
+        true
+    }
+}
+
+/// C `MD5EXPECT`: on a mismatch the C emits this exact `Con_Warning` and
+/// jumps to the caller's `error:` label.
+///
+/// # Safety
+/// Same as [`md5_ignore`]; `fname` must be a live C string.
+unsafe fn md5_expect(buffer: &mut *const c_char, fname: *const c_char, s: &CStr) -> Result<(), ()> {
+    // SAFETY: caller's contract
+    unsafe {
+        if md5_token() != s.to_bytes() {
+            sys::Con_Warning(
+                c"Mod_LoadMD5MeshModel(%s): expected \"%s\", found \"%s\"\n".as_ptr(),
+                fname,
+                s.as_ptr(),
+                sys::COM_ThreadToken(),
+            );
+            return Err(());
+        }
+        *buffer = sys::COM_Parse(*buffer);
+        Ok(())
+    }
+}
+
+/// C `MD5UINT` (`strtoull (com_token, NULL, 0)` narrowed to `size_t`)
+///
+/// # Safety
+/// Same as [`md5_ignore`].
+unsafe fn md5_uint(buffer: &mut *const c_char) -> usize {
+    // SAFETY: caller's contract; strtoull over a NUL-terminated token
+    unsafe {
+        let i = strtoull(sys::COM_ThreadToken(), null_mut(), 0) as usize;
+        *buffer = sys::COM_Parse(*buffer);
+        i
+    }
+}
+
+/// C `MD5SINT` (`strtol (com_token, NULL, 0)`, widened to `ssize_t`)
+///
+/// # Safety
+/// Same as [`md5_ignore`].
+unsafe fn md5_sint(buffer: &mut *const c_char) -> isize {
+    // SAFETY: caller's contract; strtol over a NUL-terminated token
+    unsafe {
+        let i = strtol(sys::COM_ThreadToken(), null_mut(), 0) as isize;
+        *buffer = sys::COM_Parse(*buffer);
+        i
+    }
+}
+
+/// C `MD5FLOAT` (`strtod (com_token, NULL)`, kept in double)
+///
+/// # Safety
+/// Same as [`md5_ignore`].
+unsafe fn md5_float(buffer: &mut *const c_char) -> f64 {
+    // SAFETY: caller's contract
+    unsafe {
+        let i = sys::libm::strtod(md5_token_cstr());
+        *buffer = sys::COM_Parse(*buffer);
+        i
+    }
+}
+
+/// C `jointinfo_t`. Rust-side only: nothing here crosses the FFI boundary.
+#[derive(Clone, Copy)]
+struct JointInfo {
+    parent: isize,
+    poseparent: isize,
+    name: [u8; 32],
+    inverse: [f32; 12],
+}
+
+impl Default for JointInfo {
+    fn default() -> Self {
+        JointInfo {
+            parent: 0,
+            poseparent: 0,
+            name: [0; 32],
+            inverse: [0.0; 12],
+        }
+    }
+}
+
+/// C `md5animjoint_t`
+#[derive(Clone, Copy, Default)]
+struct AnimJoint {
+    flags: c_uint,
+    offset: c_uint,
+    parent: isize,
+    mesh_index: isize,
+    basepos: [f32; 3],
+    basequat: [f32; 4],
+}
+
+/// C `md5animctx_t`
+struct AnimCtx {
+    animfile: *mut u8,
+    buffer: *const c_char,
+    fname: [u8; MAX_QPATH],
+    numposes: usize,
+    numjoints: usize,
+    posedata: *mut [f32; 12],
+}
+
+impl AnimCtx {
+    /// C `md5animctx_t anim = {NULL}` — the initializer zeroes every member.
+    fn new() -> Self {
+        AnimCtx {
+            animfile: null_mut(),
+            buffer: null_mut(),
+            fname: [0; MAX_QPATH],
+            numposes: 0,
+            numjoints: 0,
+            posedata: null_mut(),
+        }
+    }
+}
+
+/// C `SAFE_FREE`: the free is unconditional (Mem_Free tolerates NULL), so
+/// the allocator sees the same call sequence on both sides.
+///
+/// # Safety
+/// `p` must be NULL or a live `Mem_Alloc` block.
+unsafe fn safe_free<T>(p: &mut *mut T) {
+    // SAFETY: caller's contract
+    unsafe { sys::Mem_Free((*p).cast::<c_void>()) };
+    *p = null_mut();
+}
+
+/*
+================
+MD5_HackyModelFlags
+================
+*/
+
+/// # Safety
+/// `name` must be a live C string.
+unsafe fn md5_hacky_model_flags(name: *const c_char) -> c_int {
+    // SAFETY: caller's contract; the buffers are local and correctly sized
+    unsafe {
+        let mut ret: c_int = 0;
+        let mut oldmodel = [0u8; MAX_QPATH];
+        sys::COM_StripExtension(name, oldmodel.as_mut_ptr().cast::<c_char>(), oldmodel.len());
+        sys::COM_AddExtension(
+            oldmodel.as_mut_ptr().cast::<c_char>(),
+            c".mdl".as_ptr(),
+            oldmodel.len(),
+        );
+
+        let f = sys::COM_LoadFile(oldmodel.as_ptr().cast::<c_char>(), null_mut());
+        if !f.is_null() {
+            // COMPAT: `com_filesize >= sizeof (*f)` compares a signed file
+            // size against size_t, so the signed value converts; and
+            // `ret = f->flags` is the one field here the C does *not* pass
+            // through LittleLong.
+            if sys::COM_ThreadFileSize() as usize >= mdl::MDL_T_SIZE {
+                let h = mdl::parse_header(core::slice::from_raw_parts(f, mdl::MDL_T_SIZE));
+                if h.ident == IDPOLYHEADER && h.version == mdl::ALIAS_VERSION {
+                    // `f->flags` is a plain struct read, not LittleLong'd
+                    // like the ident/version above it, so it must be a
+                    // native-endian load rather than the mirror's LE field.
+                    let p = f.add(mdl::OFS_FLAGS);
+                    ret = i32::from_ne_bytes([*p, *p.add(1), *p.add(2), *p.add(3)]);
+                }
+            }
+            sys::Mem_Free(f.cast::<c_void>());
+        }
+        ret
+    }
+}
+
+/*
+================
+MD5Anim_Begin
+================
+*/
+
+/// # Safety
+/// `ctx` must be freshly [`AnimCtx::new`]ed and `fname` a live C string.
+unsafe fn md5anim_begin(ctx: &mut AnimCtx, fname: *const c_char) -> bool {
+    // SAFETY: caller's contract
+    unsafe {
+        // Load an md5anim into it, if we can.
+        sys::COM_StripExtension(fname, ctx.fname.as_mut_ptr().cast::<c_char>(), MAX_QPATH);
+        sys::COM_AddExtension(
+            ctx.fname.as_mut_ptr().cast::<c_char>(),
+            c".md5anim".as_ptr(),
+            MAX_QPATH,
+        );
+        let fname = ctx.fname.as_ptr().cast::<c_char>();
+        ctx.animfile = sys::COM_LoadFile(fname, null_mut());
+        ctx.numposes = 0;
+
+        if ctx.animfile.is_null() {
+            return true;
+        }
+
+        match md5anim_begin_body(ctx, fname) {
+            Ok(()) => true,
+            Err(()) => {
+                safe_free(&mut ctx.animfile);
+                ctx.buffer = null_mut();
+                ctx.numposes = 0;
+                ctx.numjoints = 0;
+                false
+            }
+        }
+    }
+}
+
+/// # Safety
+/// See [`md5anim_begin`]; `ctx.animfile` must be loaded.
+unsafe fn md5anim_begin_body(ctx: &mut AnimCtx, fname: *const c_char) -> Result<(), ()> {
+    // SAFETY: caller's contract
+    unsafe {
+        let mut buffer = sys::COM_Parse(ctx.animfile.cast::<c_char>());
+        md5_expect(&mut buffer, fname, c"MD5Version")?;
+        md5_expect(&mut buffer, fname, c"10")?;
+        if md5_check(&mut buffer, b"commandline") {
+            buffer = sys::COM_Parse(buffer);
+        }
+        md5_expect(&mut buffer, fname, c"numFrames")?;
+        ctx.numposes = md5_uint(&mut buffer);
+        md5_expect(&mut buffer, fname, c"numJoints")?;
+        ctx.numjoints = md5_uint(&mut buffer);
+        md5_expect(&mut buffer, fname, c"frameRate")?; // irrelevant here
+
+        // C: `if (ctx->numposes <= 0)` over a size_t
+        if ctx.numposes == 0 {
+            sys::Con_Warning(c"%s has no poses\n".as_ptr(), fname);
+            return Err(());
+        }
+
+        ctx.buffer = buffer;
+        Ok(())
+    }
+}
+
+/// C `R_ConcatTransforms` over the flat 3x4 the MD5 code stores poses in.
+fn concat_transforms(in1: &[f32; 12], in2: &[f32; 12]) -> [f32; 12] {
+    let rows = |m: &[f32; 12]| {
+        [
+            [m[0], m[1], m[2], m[3]],
+            [m[4], m[5], m[6], m[7]],
+            [m[8], m[9], m[10], m[11]],
+        ]
+    };
+    let mut out = [[0.0f32; 4]; 3];
+    quake_math::mathlib::r_concat_transforms(&rows(in1), &rows(in2), &mut out);
+    [
+        out[0][0], out[0][1], out[0][2], out[0][3], out[1][0], out[1][1], out[1][2], out[1][3],
+        out[2][0], out[2][1], out[2][2], out[2][3],
+    ]
+}
+
+/*
+================
+MD5Anim_Load
+================
+*/
+
+/// # Safety
+/// `ctx` must have been through a successful [`md5anim_begin`]; `joints` and
+/// `joint_poses` must both hold `numjoints` entries.
+unsafe fn md5anim_load(
+    ctx: &mut AnimCtx,
+    joints: &mut [JointInfo],
+    joint_poses: &[[f32; 12]],
+    numjoints: usize,
+) -> bool {
+    // SAFETY: caller's contract
+    unsafe {
+        match md5anim_load_body(ctx, joints, joint_poses, numjoints) {
+            Ok(v) => v,
+            Err(()) => {
+                safe_free(&mut ctx.posedata);
+                safe_free(&mut ctx.animfile);
+                false
+            }
+        }
+    }
+}
+
+/// # Safety
+/// See [`md5anim_load`].
+unsafe fn md5anim_load_body(
+    ctx: &mut AnimCtx,
+    joints: &mut [JointInfo],
+    joint_poses: &[[f32; 12]],
+    numjoints: usize,
+) -> Result<bool, ()> {
+    // SAFETY: caller's contract
+    unsafe {
+        let fname = ctx.fname.as_ptr().cast::<c_char>();
+        let mut buffer = sys::COM_Parse(ctx.buffer);
+        let animjoints = ctx.numjoints;
+
+        if buffer.is_null() {
+            safe_free(&mut ctx.animfile);
+            return Ok(true);
+        }
+
+        md5_expect(&mut buffer, fname, c"numAnimatedComponents")?;
+        let rawcount = md5_uint(&mut buffer);
+
+        // COMPAT: `rawcount` is unbounded (strtoull off numAnimatedComponents)
+        // and the C's `TEMP_ALLOC_ASSIGN_ZEROED (raw, rawcount + 6)` sizes the
+        // block with size_t wraparound, not a trap. A merely *huge* count
+        // (large enough to fail the allocation, not to wrap) kills both
+        // sides, the C through Mem_Alloc's Sys_Error and this through
+        // handle_alloc_error; only the diagnostic differs, same shape as the
+        // truncated-.md5anim divergence documented below.
+        let mut raw = vec![0.0f32; rawcount.wrapping_add(6)];
+        let mut ab = vec![AnimJoint::default(); animjoints];
+        let mut mesh_to_anim = vec![0isize; numjoints];
+        let mut mapped_mesh_parent = vec![0isize; numjoints];
+        let mut mapped_mesh_parent_state = vec![0u8; numjoints];
+        let mut bindposes = vec![[0.0f32; 12]; numjoints];
+
+        for j in 0..numjoints {
+            mesh_to_anim[j] = -1;
+            joints[j].poseparent = joints[j].parent;
+        }
+
+        for j in 0..numjoints {
+            if joints[j].parent < 0 {
+                bindposes[j] = joint_poses[j];
+            } else {
+                bindposes[j] =
+                    concat_transforms(&joints[joints[j].parent as usize].inverse, &joint_poses[j]);
+            }
+        }
+
+        let outposes = sys::Mem_Alloc(
+            core::mem::size_of::<[f32; 12]>()
+                .wrapping_mul(numjoints)
+                .wrapping_mul(ctx.numposes),
+        )
+        .cast::<[f32; 12]>();
+        ctx.posedata = outposes;
+        for j in 0..ctx.numposes {
+            core::ptr::copy_nonoverlapping(
+                bindposes.as_ptr(),
+                outposes.add(j * numjoints),
+                numjoints,
+            );
+        }
+
+        md5_expect(&mut buffer, fname, c"hierarchy")?;
+        md5_expect(&mut buffer, fname, c"{")?;
+        for (j, aj) in ab.iter_mut().enumerate() {
+            let mut anim_name = [0u8; 32];
+            let mut mesh_index: isize = -1;
+
+            strlcpy(&mut anim_name, md5_token());
+            buffer = sys::COM_Parse(buffer);
+            aj.parent = md5_sint(&mut buffer);
+            if aj.parent < -1 || aj.parent >= j as isize {
+                sys::Con_Warning(c"%s: joint has bad parent order\n".as_ptr(), fname);
+                return Err(());
+            }
+            // new info
+            aj.flags = md5_uint(&mut buffer) as c_uint;
+            if aj.flags & !63 != 0 {
+                sys::Con_Warning(c"%s: joint has unsupported flags\n".as_ptr(), fname);
+                return Err(());
+            }
+            aj.offset = md5_uint(&mut buffer) as c_uint;
+            if aj.offset as usize + md5::count_animated_components(aj.flags) > rawcount {
+                sys::Con_Warning(c"%s: joint has bad offset\n".as_ptr(), fname);
+                return Err(());
+            }
+            aj.mesh_index = -1;
+
+            for (k, joint) in joints.iter().enumerate().take(numjoints) {
+                if cstr_slice(&joint.name) == cstr_slice(&anim_name) {
+                    mesh_index = k as isize;
+                    break;
+                }
+            }
+
+            if mesh_index < 0 {
+                continue;
+            }
+            if mesh_to_anim[mesh_index as usize] >= 0 {
+                sys::Con_Warning(
+                    c"%s: duplicate joint \"%s\"\n".as_ptr(),
+                    fname,
+                    anim_name.as_ptr().cast::<c_char>(),
+                );
+                return Err(());
+            }
+
+            aj.mesh_index = mesh_index;
+            mesh_to_anim[mesh_index as usize] = j as isize;
+        }
+        md5_expect(&mut buffer, fname, c"}")?;
+
+        let parents: Vec<isize> = joints[..numjoints].iter().map(|j| j.parent).collect();
+        for (j, jt) in joints.iter().enumerate().take(numjoints) {
+            if !md5::resolve_mapped_mesh_parent(
+                &parents,
+                numjoints,
+                &mesh_to_anim,
+                &mut mapped_mesh_parent,
+                &mut mapped_mesh_parent_state,
+                j,
+            ) {
+                sys::Con_Warning(
+                    c"%s: joint \"%s\" has bad parent chain\n".as_ptr(),
+                    fname,
+                    jt.name.as_ptr().cast::<c_char>(),
+                );
+                return Err(());
+            }
+        }
+
+        for j in 0..animjoints {
+            let mesh_index = ab[j].mesh_index;
+            if mesh_index < 0 {
+                continue;
+            }
+
+            let mesh_parent = mapped_mesh_parent[mesh_index as usize];
+            let anim_parent = if ab[j].parent >= 0 {
+                let p = ab[ab[j].parent as usize].mesh_index;
+                if p < 0 {
+                    sys::Con_Warning(
+                        c"%s: joint \"%s\" has unmapped parent\n".as_ptr(),
+                        fname,
+                        joints[mesh_index as usize].name.as_ptr().cast::<c_char>(),
+                    );
+                    return Err(());
+                }
+                p
+            } else {
+                -1
+            };
+            if mesh_parent != anim_parent {
+                sys::Con_Warning(
+                    c"%s: joint \"%s\" has wrong parent\n".as_ptr(),
+                    fname,
+                    joints[mesh_index as usize].name.as_ptr().cast::<c_char>(),
+                );
+                return Err(());
+            }
+            joints[mesh_index as usize].poseparent = anim_parent;
+        }
+
+        md5_expect(&mut buffer, fname, c"bounds")?;
+        md5_expect(&mut buffer, fname, c"{")?;
+        while md5_check(&mut buffer, b"(") {
+            md5_ignore(&mut buffer);
+            md5_ignore(&mut buffer);
+            md5_ignore(&mut buffer);
+            md5_expect(&mut buffer, fname, c")")?;
+
+            md5_expect(&mut buffer, fname, c"(")?;
+            md5_ignore(&mut buffer);
+            md5_ignore(&mut buffer);
+            md5_ignore(&mut buffer);
+            md5_expect(&mut buffer, fname, c")")?;
+        }
+        md5_expect(&mut buffer, fname, c"}")?;
+
+        md5_expect(&mut buffer, fname, c"baseframe")?;
+        md5_expect(&mut buffer, fname, c"{")?;
+        for aj in ab.iter_mut() {
+            md5_expect(&mut buffer, fname, c"(")?;
+            aj.basepos[0] = md5_float(&mut buffer) as f32;
+            aj.basepos[1] = md5_float(&mut buffer) as f32;
+            aj.basepos[2] = md5_float(&mut buffer) as f32;
+            md5_expect(&mut buffer, fname, c")")?;
+
+            md5_expect(&mut buffer, fname, c"(")?;
+            aj.basequat[0] = md5_float(&mut buffer) as f32;
+            aj.basequat[1] = md5_float(&mut buffer) as f32;
+            aj.basequat[2] = md5_float(&mut buffer) as f32;
+            aj.basequat[3] =
+                md5::reconstruct_quat_w(&[aj.basequat[0], aj.basequat[1], aj.basequat[2]]);
+            md5_expect(&mut buffer, fname, c")")?;
+        }
+        md5_expect(&mut buffer, fname, c"}")?;
+
+        while md5_check(&mut buffer, b"frame") {
+            let idx = md5_uint(&mut buffer);
+            if idx >= ctx.numposes {
+                sys::Con_Warning(c"%s: invalid pose index\n".as_ptr(), fname);
+                return Err(());
+            }
+            md5_expect(&mut buffer, fname, c"{")?;
+            for slot in raw.iter_mut().take(rawcount) {
+                *slot = md5_float(&mut buffer) as f32;
+            }
+            md5_expect(&mut buffer, fname, c"}")?;
+
+            // okay, we have our raw info, unpack the actual joint info.
+            for aj in ab.iter() {
+                const SCALE: [f32; 3] = [1.0, 1.0, 1.0];
+                let mesh_index = aj.mesh_index;
+                if mesh_index < 0 {
+                    continue;
+                }
+                let mut pos = aj.basepos;
+                let mut quat = aj.basequat;
+                let mut r = aj.offset as usize;
+                if aj.flags & 1 != 0 {
+                    pos[0] = raw[r];
+                    r += 1;
+                }
+                if aj.flags & 2 != 0 {
+                    pos[1] = raw[r];
+                    r += 1;
+                }
+                if aj.flags & 4 != 0 {
+                    pos[2] = raw[r];
+                    r += 1;
+                }
+
+                if aj.flags & 8 != 0 {
+                    quat[0] = raw[r];
+                    r += 1;
+                }
+                if aj.flags & 16 != 0 {
+                    quat[1] = raw[r];
+                    r += 1;
+                }
+                if aj.flags & 32 != 0 {
+                    quat[2] = raw[r];
+                }
+
+                quat[3] = md5::reconstruct_quat_w(&[quat[0], quat[1], quat[2]]);
+
+                *outposes.add(idx * numjoints + mesh_index as usize) =
+                    md5::gen_matrix_pos_quat4_scale(&pos, &quat, &SCALE);
+            }
+        }
+
+        safe_free(&mut ctx.animfile);
+        ctx.numjoints = numjoints;
+        Ok(true)
+    }
+}
+
+/// A fixed-size C string field as a byte slice cut at the first NUL.
+fn cstr_slice(b: &[u8]) -> &[u8] {
+    let end = b.iter().position(|&c| c == 0).unwrap_or(b.len());
+    &b[..end]
+}
+
+/// The state the MD5 loader's `error:` label has to clean up.
+struct Md5LoadState {
+    anim: AnimCtx,
+    outhdr: *mut AliasHdr,
+    hdrsize: usize,
+}
+
+/// C `q_min`/`q_max` over floats: the ternary form, which *keeps* a NaN
+/// operand where `f32::min`/`max` would discard it (the M3 CalcSurfaceExtents
+/// precedent).
+fn q_min_f(a: f32, b: f32) -> f32 {
+    if a < b {
+        a
+    } else {
+        b
+    }
+}
+
+fn q_max_f(a: f32, b: f32) -> f32 {
+    if a > b {
+        a
+    } else {
+        b
+    }
+}
+
+/// C `Mod_LoadMD5MeshModelData`'s `error:` label. Note what it does *not*
+/// free: `anim.animfile` is left allocated (a leak in the C on every
+/// recoverable failure after `MD5Anim_Begin` succeeded), so this must not
+/// free it either.
+///
+/// # Safety
+/// `st` must describe the state as of the failure point.
+unsafe fn md5_load_cleanup(st: &mut Md5LoadState, nummeshes: usize) {
+    // SAFETY: caller's contract
+    unsafe {
+        safe_free(&mut st.anim.posedata);
+        if !st.outhdr.is_null() {
+            for surface_index in 0..nummeshes {
+                let hdr = hdr_slot(st.outhdr, surface_index, st.hdrsize);
+                for skin_index in 0..MAX_SKINS_C {
+                    safe_free(&mut (*hdr).texels[skin_index]);
+                }
+            }
+            GLMesh_DeleteMeshBuffers(st.outhdr);
+            sys::Mem_Free(st.outhdr.cast::<c_void>());
+            st.outhdr = null_mut();
+        }
+    }
+}
+
+/*
+=====================
+Mod_LoadMD5MeshModelData
+=====================
+*/
+
+/// # Safety
+/// `m` must be a live qmodel_t and `buffer` a COM_Parse cursor into the
+/// loaded .md5mesh image.
+unsafe fn mod_load_md5_mesh_model_data(
+    m: *mut QModel,
+    buffer: *const c_char,
+    numjoints: usize,
+    nummeshes: usize,
+) -> bool {
+    // SAFETY: caller's contract
+    unsafe {
+        let mut st = Md5LoadState {
+            anim: AnimCtx::new(),
+            outhdr: null_mut(),
+            hdrsize: 0,
+        };
+
+        if !md5anim_begin(&mut st.anim, model_name(m)) {
+            return false;
+        }
+
+        match md5_load_data_body(m, buffer, numjoints, nummeshes, &mut st) {
+            Ok(()) => true,
+            Err(()) => {
+                // Recoverable replacement-model failures fall back to the
+                // MDL, so release any partial MD5 state.
+                md5_load_cleanup(&mut st, nummeshes);
+                false
+            }
+        }
+    }
+}
+
+/// # Safety
+/// See [`mod_load_md5_mesh_model_data`]; `st.anim` must have been through a
+/// successful `MD5Anim_Begin`.
+unsafe fn md5_load_data_body(
+    m: *mut QModel,
+    buffer: *const c_char,
+    numjoints: usize,
+    nummeshes: usize,
+    st: &mut Md5LoadState,
+) -> Result<(), ()> {
+    // SAFETY: caller's contract
+    unsafe {
+        let fname = model_name(m);
+        let mut buffer = sys::COM_Parse(buffer);
+        let mut radius = 0.0f32;
+        let mut yawradius = 0.0f32;
+
+        st.hdrsize =
+            ALIASHDR_HEAD_SIZE.wrapping_add(ALIASHDR_FRAME_SIZE.wrapping_mul(st.anim.numposes));
+
+        // alloc all aliashdr_t and their chained nextsurface, a.k.a
+        // nummeshes, in one array; all of them are zero-initialized by
+        // Mem_Alloc
+        st.outhdr = sys::Mem_Alloc(st.hdrsize.wrapping_mul(nummeshes)).cast::<AliasHdr>();
+        let outhdr = st.outhdr;
+
+        let mut joint_infos = vec![JointInfo::default(); numjoints];
+        let mut joint_poses = vec![[0.0f32; 12]; numjoints];
+        let mut skinning_joints = vec![JointPose::default(); numjoints * st.anim.numposes];
+        let mut concat_joints = vec![[0.0f32; 12]; numjoints];
+
+        for j in 0..3 {
+            (*m).rmins[j] = f32::MAX;
+            (*m).ymins[j] = f32::MAX;
+            (*m).mins[j] = f32::MAX;
+            (*m).rmaxs[j] = -f32::MAX;
+            (*m).ymaxs[j] = -f32::MAX;
+            (*m).maxs[j] = -f32::MAX;
+        }
+
+        // 1. Load joints
+        md5_expect(&mut buffer, fname, c"{")?;
+        for j in 0..numjoints {
+            const SCALE: [f32; 3] = [1.0, 1.0, 1.0];
+            strlcpy(&mut joint_infos[j].name, md5_token());
+            buffer = sys::COM_Parse(buffer);
+            joint_infos[j].parent = md5_sint(&mut buffer);
+            if joint_infos[j].parent < -1 || joint_infos[j].parent >= numjoints as isize {
+                sys::Con_Warning(c"%s: joint index out of bounds\n".as_ptr(), fname);
+                return Err(());
+            }
+            joint_infos[j].poseparent = joint_infos[j].parent;
+            md5_expect(&mut buffer, fname, c"(")?;
+            let pos = [
+                md5_float(&mut buffer) as f32,
+                md5_float(&mut buffer) as f32,
+                md5_float(&mut buffer) as f32,
+            ];
+            md5_expect(&mut buffer, fname, c")")?;
+            md5_expect(&mut buffer, fname, c"(")?;
+            let mut quat = [0.0f32; 4];
+            quat[0] = md5_float(&mut buffer) as f32;
+            quat[1] = md5_float(&mut buffer) as f32;
+            quat[2] = md5_float(&mut buffer) as f32;
+            quat[3] = md5::reconstruct_quat_w(&[quat[0], quat[1], quat[2]]);
+            md5_expect(&mut buffer, fname, c")")?;
+
+            joint_poses[j] = md5::gen_matrix_pos_quat4_scale(&pos, &quat, &SCALE);
+            // absolute, so we can just invert now.
+            joint_infos[j].inverse = md5::matrix3x4_invert_simple(&joint_poses[j]);
+        }
+
+        // not MD5EXPECT: the C checks the closing brace without consuming it
+        if md5_token() != b"}" {
+            sys::Con_Warning(
+                c"Mod_LoadMD5MeshModel(%s): expected \"%s\", found \"%s\"\n".as_ptr(),
+                fname,
+                c"}".as_ptr(),
+                sys::COM_ThreadToken(),
+            );
+            return Err(());
+        }
+        if !md5anim_load(&mut st.anim, &mut joint_infos, &joint_poses, numjoints) {
+            return Err(());
+        }
+        buffer = sys::COM_Parse(buffer);
+
+        // 2. Compute absolute animation joints
+        //
+        // COMPAT: this walks `anim.numjoints`, which a successful
+        // `MD5Anim_Load` has just set to `numjoints`. The one path that
+        // leaves it at the *anim file's* count is the early return on a
+        // `.md5anim` that ends right after `frameRate` -- there the C
+        // dereferences a NULL `posedata` and indexes `joint_infos` out of
+        // range, and this indexes out of range and aborts (panic = "abort",
+        // never an unwind into C). Both crash on that input; only the
+        // diagnostic differs.
+        for pose_index in 0..st.anim.numposes {
+            let in_pose = st.anim.posedata.add(pose_index * st.anim.numjoints);
+            for joint_index in 0..st.anim.numjoints {
+                let poseparent = joint_infos[joint_index].poseparent;
+
+                if poseparent >= joint_index as isize {
+                    sys::Con_Warning(c"%s: joint has bad pose parent order\n".as_ptr(), fname);
+                    return Err(());
+                }
+                // concat it onto the parent (relative->abs)
+                concat_joints[joint_index] = if poseparent < 0 {
+                    *in_pose.add(joint_index)
+                } else {
+                    concat_transforms(
+                        &concat_joints[poseparent as usize],
+                        &*in_pose.add(joint_index),
+                    )
+                };
+                skinning_joints[pose_index * st.anim.numjoints + joint_index].mat =
+                    concat_joints[joint_index];
+            }
+        }
+        safe_free(&mut st.anim.posedata);
+
+        // 3. each mesh has its own aliashdr_t
+        for mesh in 0..nummeshes {
+            md5_expect(&mut buffer, fname, c"mesh")?;
+            md5_expect(&mut buffer, fname, c"{")?;
+
+            // go to the surf, a.k.a mesh, chaining the next nextsurface
+            let surf = hdr_slot(outhdr, mesh, st.hdrsize);
+            (*surf).nextsurface = if mesh + 1 < nummeshes {
+                hdr_slot(outhdr, mesh + 1, st.hdrsize)
+            } else {
+                null_mut()
+            };
+
+            for j in 0..3 {
+                (*surf).scale_origin[j] = 0.0;
+                (*surf).scale[j] = 1.0;
+            }
+
+            (*surf).numjoints = numjoints as c_int;
+
+            if st.anim.numposes != 0 {
+                let frames = addr_of_mut!((*surf).frames).cast::<MAliasFrameDesc>();
+                for j in 0..st.anim.numposes {
+                    (*frames.add(j)).firstpose = j as c_int;
+                    (*frames.add(j)).numposes = 1;
+                    (*frames.add(j)).interval = 0.1;
+                }
+                (*surf).numframes = st.anim.numposes as c_int;
+            }
+
+            //"shader" is the texture of the surf
+            md5_expect(&mut buffer, fname, c"shader")?;
+            let mut shader_name = [0u8; MAX_QPATH];
+            strlcpy(&mut shader_name, md5_token());
+            let shader_name_ptr = shader_name.as_ptr().cast::<c_char>();
+
+            // MD5 have only 1 surface pose
+            (*surf).numposes = 1;
+
+            buffer = sys::COM_Parse(buffer);
+            md5_expect(&mut buffer, fname, c"numverts")?;
+            (*surf).numverts = md5_uint(&mut buffer) as c_int;
+            (*surf).numverts_vbo = (*surf).numverts;
+            let numverts = (*surf).numverts as isize as usize;
+
+            let mut vinfo = vec![md5::VertInfo::default(); numverts];
+            let mut max_mesh_influences: c_uint = 0;
+
+            while md5_check(&mut buffer, b"vert") {
+                let idx = md5_uint(&mut buffer);
+                if idx >= numverts {
+                    sys::Con_Warning(c"%s: vertex index out of bounds\n".as_ptr(), fname);
+                    return Err(());
+                }
+                md5_expect(&mut buffer, fname, c"(")?;
+                vinfo[idx].st[0] = md5_float(&mut buffer) as f32;
+                vinfo[idx].st[1] = md5_float(&mut buffer) as f32;
+                md5_expect(&mut buffer, fname, c")")?;
+                vinfo[idx].firstweight = md5_uint(&mut buffer);
+                vinfo[idx].count = md5_uint(&mut buffer) as c_uint;
+                max_mesh_influences = q_max_u(max_mesh_influences, vinfo[idx].count);
+            }
+
+            let wide = max_mesh_influences > md5::NUM_JOINT_INFLUENCES_4_WEIGHT as c_uint;
+            (*surf).poseverttype = if wide { PV_MD5_8 } else { PV_MD5 };
+            let md5_vertex_size = if wide {
+                md5::MD5VERT8_SIZE
+            } else {
+                md5::MD5VERT_SIZE
+            };
+            let mut poutvertexes = vec![0u8; numverts.wrapping_mul(md5_vertex_size)];
+
+            // MD5 violation: the skin is a single material. adding
+            // prefixes/postfixes here is the wrong thing to do. but we do so
+            // anyway, because rerelease compat.
+            (*surf).numskins =
+                Mod_LoadMD5SurfaceSkins(m, surf, mesh as c_int, nummeshes, shader_name_ptr)
+                    as c_int;
+
+            if (*surf).numskins == 0 {
+                sys::Con_Warning(
+                    c"MD5: %s, no skins found for surf '%s' (%d)\n".as_ptr(),
+                    fname,
+                    shader_name_ptr,
+                    mesh as c_int,
+                );
+            }
+
+            md5_expect(&mut buffer, fname, c"numtris")?;
+            (*surf).numtris = md5_uint(&mut buffer) as c_int;
+            (*surf).numindexes = (*surf).numtris.wrapping_mul(3);
+            let numtris = (*surf).numtris as isize as usize;
+            let mut poutindexes = vec![0u16; (*surf).numindexes as isize as usize];
+
+            while md5_check(&mut buffer, b"tri") {
+                let mut idx = md5_uint(&mut buffer);
+                if idx >= numtris {
+                    sys::Con_Warning(c"%s: triangle index out of bounds\n".as_ptr(), fname);
+                    return Err(());
+                }
+                idx *= 3;
+                for j in 0..3 {
+                    let t = md5_uint(&mut buffer);
+                    if t >= numverts {
+                        sys::Con_Warning(c"%s: vertex index out of bounds\n".as_ptr(), fname);
+                        return Err(());
+                    }
+                    poutindexes[idx + j] = t as u16;
+                }
+            }
+
+            // md5 is a gpu-unfriendly interchange format. :(
+            md5_expect(&mut buffer, fname, c"numweights")?;
+            let numweights = md5_uint(&mut buffer);
+            let mut weight = vec![md5::WeightInfo::default(); numweights];
+
+            while md5_check(&mut buffer, b"weight") {
+                let idx = md5_uint(&mut buffer);
+                if idx >= numweights {
+                    sys::Con_Warning(c"%s: weight index out of bounds\n".as_ptr(), fname);
+                    return Err(());
+                }
+
+                weight[idx].joint_index = md5_uint(&mut buffer);
+                if weight[idx].joint_index >= numjoints {
+                    sys::Con_Warning(c"%s: joint index out of bounds\n".as_ptr(), fname);
+                    return Err(());
+                }
+                weight[idx].pos[3] = md5_float(&mut buffer) as f32;
+                md5_expect(&mut buffer, fname, c"(")?;
+                // COMPAT: the C multiplies the *double* strtod result by the
+                // already-narrowed float scale and narrows once, so the
+                // product is computed in double.
+                let w3 = weight[idx].pos[3] as f64;
+                weight[idx].pos[0] = (md5_float(&mut buffer) * w3) as f32;
+                weight[idx].pos[1] = (md5_float(&mut buffer) * w3) as f32;
+                weight[idx].pos[2] = (md5_float(&mut buffer) * w3) as f32;
+                md5_expect(&mut buffer, fname, c")")?;
+            }
+
+            md5_expect(&mut buffer, fname, c"}")?;
+
+            // so make it gpu-friendly.
+            match md5::bake_influences(
+                &joint_poses,
+                &mut poutvertexes,
+                wide,
+                &vinfo,
+                &weight,
+                numverts,
+                numweights,
+            ) {
+                Ok(out) => {
+                    if out.max_influences > md5::NUM_JOINT_INFLUENCES_8_WEIGHT as u32 {
+                        Con_DWarning(
+                            c"%s uses up to %u influences per vertex (weakest: %g)\n".as_ptr(),
+                            fname,
+                            out.max_influences,
+                            out.scale_imprecision as f64,
+                        );
+                    }
+                }
+                Err(md5::BakeError::WeightIndexOutOfBounds) => {
+                    sys::Con_Warning(c"%s: weight index out of bounds\n".as_ptr(), fname);
+                    return Err(());
+                }
+            }
+            // and now make up the normals that the format lacks.
+            md5::compute_normals(&mut poutvertexes, md5_vertex_size, numverts, &poutindexes);
+
+            for j in 0..numverts {
+                let o = j * md5_vertex_size;
+                let xyz = [
+                    f32::from_ne_bytes(poutvertexes[o..o + 4].try_into().unwrap()),
+                    f32::from_ne_bytes(poutvertexes[o + 4..o + 8].try_into().unwrap()),
+                    f32::from_ne_bytes(poutvertexes[o + 8..o + 12].try_into().unwrap()),
+                ];
+                for (k, &v) in xyz.iter().enumerate() {
+                    (*m).mins[k] = q_min_f((*m).mins[k], v);
+                    (*m).maxs[k] = q_max_f((*m).maxs[k], v);
+                }
+                let mut dist = xyz[0] * xyz[0] + xyz[1] * xyz[1];
+                if yawradius < dist {
+                    yawradius = dist;
+                }
+                dist += xyz[2] * xyz[2];
+                if radius < dist {
+                    radius = dist;
+                }
+            }
+
+            drop(weight);
+            drop(vinfo);
+
+            // Upload to GPU that surface/mesh
+            GLMesh_UploadBuffers(
+                m,
+                surf,
+                poutindexes.as_mut_ptr(),
+                poutvertexes.as_mut_ptr(),
+                null_mut(),
+                skinning_joints.as_mut_ptr(),
+            );
+
+            drop(poutvertexes);
+            drop(poutindexes);
+        } // end foreach mesh
+
+        // the MD5 format does not have its own modelflags, yet we still need
+        // to know about trails and rotating etc
+        (*m).flags = md5_hacky_model_flags(model_name(m));
+
+        // keep MD5 animations synced to when .frame is changed
+        (*m).synctype = quake_types::modelgen::ST_FRAMETIME;
+        (*m).type_ = MOD_ALIAS;
+        (*m).extradata[PV_MD5 as usize] = outhdr.cast::<u8>();
+
+        let radius = sys::libm::sqrtf(radius);
+        (*m).rmins = [-radius, -radius, -radius];
+        (*m).rmaxs = [radius, radius, radius];
+
+        let yawradius = sys::libm::sqrtf(yawradius);
+        (*m).ymins[0] = -yawradius;
+        (*m).ymins[1] = -yawradius;
+        (*m).ymaxs[0] = yawradius;
+        (*m).ymaxs[1] = yawradius;
+        (*m).ymins[2] = (*m).mins[2];
+        (*m).ymaxs[2] = (*m).maxs[2];
+
+        Ok(())
+    }
+}
+
+/// C `q_max` over `unsigned int`
+fn q_max_u(a: c_uint, b: c_uint) -> c_uint {
+    if a > b {
+        a
+    } else {
+        b
+    }
+}
+
+/*
+=====================
+Mod_LoadMD5MeshModel
+=====================
+*/
+
+/// # Safety
+/// C ABI contract of Mod_LoadMD5MeshModel: `buffer` holds a whole
+/// NUL-terminated .md5mesh image (COM_LoadFile appends the terminator) and
+/// `m` is a live qmodel_t.
+#[no_mangle]
+pub unsafe extern "C" fn Mod_LoadMD5MeshModel(m: *mut QModel, buffer: *const c_void) -> bool {
+    // SAFETY: C ABI contract above
+    unsafe {
+        let fname = model_name(m);
+        let mut buffer = sys::COM_Parse(buffer.cast::<c_char>());
+
+        let head = |buffer: &mut *const c_char| -> Result<(usize, usize), ()> {
+            md5_expect(buffer, fname, c"MD5Version")?;
+            md5_expect(buffer, fname, c"10")?;
+            if md5_check(buffer, b"commandline") {
+                *buffer = sys::COM_Parse(*buffer);
+            }
+            md5_expect(buffer, fname, c"numJoints")?;
+            let numjoints = md5_uint(buffer);
+            md5_expect(buffer, fname, c"numMeshes")?;
+            let nummeshes = md5_uint(buffer);
+
+            // C: `<= 0` over size_t
+            if numjoints == 0 {
+                sys::Con_Warning(c"%s has no joints\n".as_ptr(), fname);
+                return Err(());
+            }
+            if nummeshes == 0 {
+                sys::Con_Warning(c"%s has no meshes\n".as_ptr(), fname);
+                return Err(());
+            }
+
+            if md5_token() != b"joints" {
+                sys::Con_Warning(
+                    c"Mod_LoadMD5MeshModel(%s): expected \"%s\", found \"%s\"\n".as_ptr(),
+                    fname,
+                    c"joints".as_ptr(),
+                    sys::COM_ThreadToken(),
+                );
+                return Err(());
+            }
+            Ok((numjoints, nummeshes))
+        };
+
+        match head(&mut buffer) {
+            Ok((numjoints, nummeshes)) => {
+                mod_load_md5_mesh_model_data(m, buffer, numjoints, nummeshes)
+            }
+            Err(()) => false,
+        }
     }
 }

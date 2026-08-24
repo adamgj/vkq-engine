@@ -18,6 +18,9 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 */
 
+#ifndef __HASH_MAP_H
+#define __HASH_MAP_H
+
 typedef struct hash_map_s hash_map_t;
 
 hash_map_t *HashMap_CreateImpl (
@@ -130,3 +133,5 @@ static inline qboolean HashStrCmp (const void *const a, const void *const b)
 #ifdef _DEBUG
 void TestHashMap_f (void);
 #endif
+
+#endif /* __HASH_MAP_H */

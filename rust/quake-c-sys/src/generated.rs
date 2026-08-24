@@ -181,6 +181,9 @@ unsafe extern "C" {
     pub fn Sys_Printf(fmt: *const ::std::os::raw::c_char, ...);
 }
 unsafe extern "C" {
+    pub fn q_strtrim(str_: *mut ::std::os::raw::c_char) -> *mut ::std::os::raw::c_char;
+}
+unsafe extern "C" {
     pub fn COM_Parse(data: *const ::std::os::raw::c_char) -> *const ::std::os::raw::c_char;
 }
 unsafe extern "C" {
