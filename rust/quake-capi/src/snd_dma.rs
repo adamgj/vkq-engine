@@ -167,23 +167,57 @@ pub unsafe extern "C" fn S_Init() {
 
         sys::Con_Printf(c"\nSound Initialization\n".as_ptr());
 
-        sys::Cmd_AddCommand2(c"play".as_ptr(), Some(s_play_f), sys::cmd_source_t_src_command, false);
-        sys::Cmd_AddCommand2(c"playvol".as_ptr(), Some(s_playvol_f), sys::cmd_source_t_src_command, false);
-        sys::Cmd_AddCommand2(c"stopsound".as_ptr(), Some(s_stopallsounds_f), sys::cmd_source_t_src_command, false);
-        sys::Cmd_AddCommand2(c"soundlist".as_ptr(), Some(s_soundlist_f), sys::cmd_source_t_src_command, false);
-        sys::Cmd_AddCommand2(c"soundinfo".as_ptr(), Some(s_soundinfo_f), sys::cmd_source_t_src_command, false);
+        sys::Cmd_AddCommand2(
+            c"play".as_ptr(),
+            Some(s_play_f),
+            sys::cmd_source_t_src_command,
+            false,
+        );
+        sys::Cmd_AddCommand2(
+            c"playvol".as_ptr(),
+            Some(s_playvol_f),
+            sys::cmd_source_t_src_command,
+            false,
+        );
+        sys::Cmd_AddCommand2(
+            c"stopsound".as_ptr(),
+            Some(s_stopallsounds_f),
+            sys::cmd_source_t_src_command,
+            false,
+        );
+        sys::Cmd_AddCommand2(
+            c"soundlist".as_ptr(),
+            Some(s_soundlist_f),
+            sys::cmd_source_t_src_command,
+            false,
+        );
+        sys::Cmd_AddCommand2(
+            c"soundinfo".as_ptr(),
+            Some(s_soundinfo_f),
+            sys::cmd_source_t_src_command,
+            false,
+        );
 
         let i = sys::COM_CheckParm(c"-sndspeed".as_ptr());
         if i != 0 && i < sys::com_argc - 1 {
-            sys::Cvar_SetQuick(core::ptr::addr_of_mut!(sys::sndspeed), *sys::com_argv.add(i as usize + 1));
+            sys::Cvar_SetQuick(
+                core::ptr::addr_of_mut!(sys::sndspeed),
+                *sys::com_argv.add(i as usize + 1),
+            );
         }
 
         let i = sys::COM_CheckParm(c"-mixspeed".as_ptr());
         if i != 0 && i < sys::com_argc - 1 {
-            sys::Cvar_SetQuick(core::ptr::addr_of_mut!(sys::snd_mixspeed), *sys::com_argv.add(i as usize + 1));
+            sys::Cvar_SetQuick(
+                core::ptr::addr_of_mut!(sys::snd_mixspeed),
+                *sys::com_argv.add(i as usize + 1),
+            );
         }
 
-        sys::Cvar_SetCallback(core::ptr::addr_of_mut!(sys::sfxvolume), Some(callback_sfxvolume));
+        sys::Cvar_SetCallback(
+            core::ptr::addr_of_mut!(sys::sfxvolume),
+            Some(callback_sfxvolume),
+        );
         sys::Cvar_SetCallback(
             core::ptr::addr_of_mut!(sys::snd_filterquality),
             Some(callback_snd_filterquality),
@@ -375,7 +409,11 @@ pub unsafe extern "C" fn SND_Spatialize(ch: *mut Channel) {
     unsafe {
         let origin: [f32; 3] = sys::listener_origin;
         let right: [f32; 3] = sys::listener_right;
-        let shm_channels = if sys::shm.is_null() { 2 } else { (*sys::shm).channels };
+        let shm_channels = if sys::shm.is_null() {
+            2
+        } else {
+            (*sys::shm).channels
+        };
         dma::spatialize(
             &mut *ch,
             &origin,
@@ -578,7 +616,11 @@ pub unsafe extern "C" fn S_ClearBuffer() {
             } else {
                 0
             };
-            core::ptr::write_bytes(shm.buffer, clear, (shm.samples * shm.samplebits / 8).max(0) as usize);
+            core::ptr::write_bytes(
+                shm.buffer,
+                clear,
+                (shm.samples * shm.samplebits / 8).max(0) as usize,
+            );
 
             if !sys::harness_sndhash {
                 sys::SNDDMA_Submit();
@@ -593,7 +635,12 @@ pub unsafe extern "C" fn S_ClearBuffer() {
 /// # Safety
 /// `origin` points at 3 floats; `sfx` NULL or valid.
 #[no_mangle]
-pub unsafe extern "C" fn S_StaticSound(sfx: *mut Sfx, origin: *mut f32, vol: c_int, attenuation: f32) {
+pub unsafe extern "C" fn S_StaticSound(
+    sfx: *mut Sfx,
+    origin: *mut f32,
+    vol: c_int,
+    attenuation: f32,
+) {
     if sfx.is_null() {
         return;
     }
@@ -691,12 +738,14 @@ fn update_ambient_sounds(st: &mut SndState) {
                 // don't adjust volume too fast
                 let level = &mut st.levels[ambient_channel];
                 if *level < vol {
-                    *level = (*level as f64 + sys::host_frametime * sys::ambient_fade.value as f64) as f32;
+                    *level = (*level as f64 + sys::host_frametime * sys::ambient_fade.value as f64)
+                        as f32;
                     if *level > vol {
                         *level = vol;
                     }
                 } else if chan.master_vol as f32 > vol {
-                    *level = (*level as f64 - sys::host_frametime * sys::ambient_fade.value as f64) as f32;
+                    *level = (*level as f64 - sys::host_frametime * sys::ambient_fade.value as f64)
+                        as f32;
                     if *level < vol {
                         *level = vol;
                     }
@@ -756,7 +805,12 @@ pub unsafe extern "C" fn S_RawSamples(
 /// # Safety
 /// Vectors point at 3 floats each; main thread.
 #[no_mangle]
-pub unsafe extern "C" fn S_Update(origin: *mut f32, forward: *mut f32, right: *mut f32, up: *mut f32) {
+pub unsafe extern "C" fn S_Update(
+    origin: *mut f32,
+    forward: *mut f32,
+    right: *mut f32,
+    up: *mut f32,
+) {
     lock();
     let st = state();
     'unlock: {
@@ -1022,7 +1076,10 @@ unsafe extern "C" fn callback_snd_filterquality(_var: *mut sys::cvar_s) {
         if sys::snd_filterquality.value < 1.0 || sys::snd_filterquality.value > 5.0 {
             sys::Con_Printf(c"snd_filterquality must be between 1 and 5\n".as_ptr());
             let default = if cfg!(windows) { c"5" } else { c"1" };
-            sys::Cvar_SetQuick(core::ptr::addr_of_mut!(sys::snd_filterquality), default.as_ptr());
+            sys::Cvar_SetQuick(
+                core::ptr::addr_of_mut!(sys::snd_filterquality),
+                default.as_ptr(),
+            );
         }
     }
 }
@@ -1153,7 +1210,14 @@ pub unsafe extern "C" fn S_LocalSound(name: *const c_char) {
                 break 'unlock;
             }
             let mut origin = [0.0f32; 3]; // vec3_origin
-            S_StartSound(sys::SND_Glue_ViewEntity(), -1, sfx, origin.as_mut_ptr(), 1.0, 1.0);
+            S_StartSound(
+                sys::SND_Glue_ViewEntity(),
+                -1,
+                sfx,
+                origin.as_mut_ptr(),
+                1.0,
+                1.0,
+            );
         }
     }
     unlock();

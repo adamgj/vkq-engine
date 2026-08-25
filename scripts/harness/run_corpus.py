@@ -89,6 +89,8 @@ def run_entry(vkquake, entry, game_data, out, extra_args="", sndhash=False):
         cmd += ["--demo", entry["demo"]]
     if entry.get("game"):
         cmd += [f"--game={entry['game']}"]
+    if entry.get("fixture_dir"):
+        cmd += ["--fixture-dir", os.path.join(ROOT, entry["fixture_dir"])]
     if entry.get("exitafter"):
         cmd += ["--exitafter", str(entry["exitafter"])]
     if entry.get("cmds"):

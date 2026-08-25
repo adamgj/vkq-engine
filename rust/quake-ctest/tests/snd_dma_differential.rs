@@ -21,9 +21,23 @@ extern "C" {
 
     fn c_ref_SND_PickChannel(entnum: c_int, entchannel: c_int) -> *mut Channel;
     fn c_ref_SND_Spatialize(ch: *mut Channel);
-    fn c_ref_S_RawSamples(samples: c_int, rate: c_int, width: c_int, channels: c_int, data: *mut u8, volume: f32);
+    fn c_ref_S_RawSamples(
+        samples: c_int,
+        rate: c_int,
+        width: c_int,
+        channels: c_int,
+        data: *mut u8,
+        volume: f32,
+    );
 
-    fn ctest_snd_setup_dma(speed: c_int, samplebits: c_int, channels: c_int, signed8: c_int, samples: c_int, buffer: *mut u8);
+    fn ctest_snd_setup_dma(
+        speed: c_int,
+        samplebits: c_int,
+        channels: c_int,
+        signed8: c_int,
+        samples: c_int,
+        buffer: *mut u8,
+    );
     fn ctest_snd_set_listener(origin: *const f32, right: *const f32);
     fn ctest_set_cl_viewentity(viewentity: c_int);
 }
@@ -89,14 +103,21 @@ fn pick_channel_sweep() {
                 Some(p.offset_from(core::ptr::addr_of!(snd_channels) as *const Channel) as usize)
             }
         };
+        // SAFETY: reading back c_ref globals after the call, serialized
         let c_state: Vec<(bool, i32)> = unsafe {
-            snd_channels[..200].iter().map(|c| (c.sfx.is_null(), c.end)).collect()
+            snd_channels[..200]
+                .iter()
+                .map(|c| (c.sfx.is_null(), c.end))
+                .collect()
         };
 
         // Rust side
         let mut r_channels = channels.clone();
         let r_idx = dma::pick_channel(&mut r_channels, painted, viewentity, entnum, entchannel);
-        let r_state: Vec<(bool, i32)> = r_channels[..200].iter().map(|c| (c.sfx.is_null(), c.end)).collect();
+        let r_state: Vec<(bool, i32)> = r_channels[..200]
+            .iter()
+            .map(|c| (c.sfx.is_null(), c.end))
+            .collect();
 
         assert_eq!(c_idx, r_idx, "round {round}: picked channel");
         assert_eq!(c_state, r_state, "round {round}: channel side effects");
@@ -115,7 +136,11 @@ fn spatialize_sweep() {
             let f = |s: &mut u32| (lcg(s) as i32 % 4000) as f32 / 3.0;
             let origin = [f(&mut seed), f(&mut seed), f(&mut seed)];
             let listener = [f(&mut seed), f(&mut seed), f(&mut seed)];
-            let mut right = [f(&mut seed) / 100.0, f(&mut seed) / 100.0, f(&mut seed) / 100.0];
+            let mut right = [
+                f(&mut seed) / 100.0,
+                f(&mut seed) / 100.0,
+                f(&mut seed) / 100.0,
+            ];
             if round % 7 == 0 {
                 right = [0.0, 1.0, 0.0];
             }
@@ -123,7 +148,8 @@ fn spatialize_sweep() {
             let mut ch = blank_channel();
             ch.entnum = if round % 11 == 0 { 1 } else { 2 };
             ch.origin = if round % 13 == 0 { listener } else { origin };
-            ch.dist_mult = ((lcg(&mut seed) % 4) as f32 + 0.1) / dma::SOUND_NOMINAL_CLIP_DIST as f32;
+            ch.dist_mult =
+                ((lcg(&mut seed) % 4) as f32 + 0.1) / dma::SOUND_NOMINAL_CLIP_DIST as f32;
             ch.master_vol = (lcg(&mut seed) % 300) as i32;
 
             // SAFETY: serialized; c_ref reads listener + cl.viewentity + shm
@@ -177,11 +203,37 @@ fn raw_samples_sweep() {
 
             let mut r_ring = [SamplePair::default(); MAX_RAW_SAMPLES];
             let mut r_end = painted - 100;
-            dma::raw_samples(&mut r_ring, &mut r_end, painted, samples, rate, width, channels, &data, volume, 44100);
-            dma::raw_samples(&mut r_ring, &mut r_end, painted, samples, rate, width, channels, &data, volume, 44100);
+            dma::raw_samples(
+                &mut r_ring,
+                &mut r_end,
+                painted,
+                samples,
+                rate,
+                width,
+                channels,
+                &data,
+                volume,
+                44100,
+            );
+            dma::raw_samples(
+                &mut r_ring,
+                &mut r_end,
+                painted,
+                samples,
+                rate,
+                width,
+                channels,
+                &data,
+                volume,
+                44100,
+            );
 
             assert_eq!(c_end, r_end, "ch{channels} w{width} rate{rate}: s_rawend");
-            assert_eq!(&c_ring[..], &r_ring[..], "ch{channels} w{width} rate{rate}: ring");
+            assert_eq!(
+                &c_ring[..],
+                &r_ring[..],
+                "ch{channels} w{width} rate{rate}: ring"
+            );
         }
     }
 }

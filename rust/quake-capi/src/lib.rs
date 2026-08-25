@@ -15,6 +15,8 @@ compile_error!(
 
 #[cfg(feature = "engine-alloc")]
 pub mod alloc;
+#[cfg(feature = "snd")]
+pub mod bgmusic;
 pub mod cfgfile;
 pub mod crc;
 #[cfg(feature = "fs")]
@@ -32,21 +34,19 @@ pub mod mdfour;
 #[cfg(feature = "formats")]
 pub mod model_parse;
 #[cfg(feature = "snd")]
-pub mod bgmusic;
-#[cfg(feature = "snd")]
 pub mod snd_codec;
 #[cfg(feature = "snd")]
 pub mod snd_dma;
-#[cfg(all(feature = "snd", feature = "codec-mp3"))]
-pub mod snd_mp3tag;
-#[cfg(all(feature = "snd", feature = "codec-umx"))]
-pub mod snd_umx;
 #[cfg(feature = "snd")]
 pub mod snd_mem;
 #[cfg(feature = "snd")]
 pub mod snd_mix;
+#[cfg(all(feature = "snd", feature = "codec-mp3"))]
+pub mod snd_mp3tag;
 #[cfg(all(feature = "snd", feature = "sdl3"))]
 pub mod snd_sdl;
+#[cfg(all(feature = "snd", feature = "codec-umx"))]
+pub mod snd_umx;
 #[cfg(feature = "snd")]
 pub mod snd_wave;
 #[cfg(feature = "fs")]

@@ -16,6 +16,10 @@ The C engine supports both SDL2 and SDL3 (`USE_SDL3` compile switch; per-file sp
 - The scancode→Quake-key table (`in_sdl.h`) ports once with per-backend mappings.
 - Revisit when upstream vkqr-engine or its distribution targets drop SDL2; this ADR then flips to SDL3-only with a one-phase deprecation window.
 
+## Amendment (Phase 4 M9, 2026-08-25)
+
+The audio backend adopted the `sdl3` crate (v0.18.4; MIT, with `sdl3-sys` Zlib — ADR-003 review in the M9 commit) ahead of the platform phase: `quake-platform::snd_sdl3` ports `snd_sdl3.c` over the crate's sys layer, and quake-capi exports `SNDDMA_*` under `snd`+`sdl3`. The **SDL2 audio backend stays C** for now: SDL2 development libraries are absent from the current dev and CI environments, so a Rust port could not be built or verified anywhere; it follows once a use_rust+SDL2 CI leg exists (tracked for the platform phase). Meson keeps compiling `snd_sdl.c` under `-Duse_rust_snd` when SDL2 is selected.
+
 ## Consequences
 
 - Linux/macOS users on SDL2-only systems keep working — the compatibility-first principle extended to the platform layer.

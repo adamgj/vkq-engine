@@ -11,11 +11,11 @@ use core::ffi::{c_char, c_int, c_void};
 
 use quake_c_sys as sys;
 use sdl3::sys::audio::{
-    SDL_AudioSpec, SDL_AudioStream, SDL_DestroyAudioStream,
-    SDL_GetAudioDeviceName, SDL_GetAudioStreamDevice, SDL_GetCurrentAudioDriver,
-    SDL_LockAudioStream, SDL_OpenAudioDeviceStream, SDL_PauseAudioStreamDevice,
-    SDL_PutAudioStreamData, SDL_ResumeAudioStreamDevice, SDL_UnlockAudioStream,
-    SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, SDL_AUDIO_S16, SDL_AUDIO_U8,
+    SDL_AudioSpec, SDL_AudioStream, SDL_DestroyAudioStream, SDL_GetAudioDeviceName,
+    SDL_GetAudioStreamDevice, SDL_GetCurrentAudioDriver, SDL_LockAudioStream,
+    SDL_OpenAudioDeviceStream, SDL_PauseAudioStreamDevice, SDL_PutAudioStreamData,
+    SDL_ResumeAudioStreamDevice, SDL_UnlockAudioStream, SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK,
+    SDL_AUDIO_S16, SDL_AUDIO_U8,
 };
 use sdl3::sys::error::SDL_GetError;
 use sdl3::sys::init::{SDL_InitSubSystem, SDL_QuitSubSystem, SDL_INIT_AUDIO};
@@ -146,8 +146,16 @@ pub unsafe fn snddma_init(dma: *mut sys::dma_t) -> bool {
         BUFFERSIZE = shm.samples * (shm.samplebits / 8);
         sys::Con_Printf(
             c"SDL audio driver: %s - %s, %d bytes buffer\n".as_ptr(),
-            if driver.is_null() { c"(UNKNOWN)".as_ptr() } else { driver },
-            if device.is_null() { c"(UNKNOWN)".as_ptr() } else { device },
+            if driver.is_null() {
+                c"(UNKNOWN)".as_ptr()
+            } else {
+                driver
+            },
+            if device.is_null() {
+                c"(UNKNOWN)".as_ptr()
+            } else {
+                device
+            },
             BUFFERSIZE,
         );
 

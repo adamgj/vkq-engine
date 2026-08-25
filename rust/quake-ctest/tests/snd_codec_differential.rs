@@ -18,7 +18,11 @@ extern "C" {
     fn c_ref_S_CodecIsAvailable(type_: c_uint) -> c_int;
     fn c_ref_S_CodecOpenStreamAny(filename: *const c_char, loop_: bool) -> *mut snd_stream_t;
     fn c_ref_S_CodecOpenStreamExt(filename: *const c_char, loop_: bool) -> *mut snd_stream_t;
-    fn c_ref_S_CodecReadStream(stream: *mut snd_stream_t, bytes: c_int, buffer: *mut c_void) -> c_int;
+    fn c_ref_S_CodecReadStream(
+        stream: *mut snd_stream_t,
+        bytes: c_int,
+        buffer: *mut c_void,
+    ) -> c_int;
     fn c_ref_S_CodecRewindStream(stream: *mut snd_stream_t) -> c_int;
     fn c_ref_S_CodecCloseStream(stream: *mut snd_stream_t);
     fn c_ref_mp3_skiptags(stream: *mut snd_stream_t) -> c_int;
@@ -33,7 +37,14 @@ fn cstr(s: &str) -> std::ffi::CString {
 // ---------------------------------------------------------------------------
 // fixtures
 
-fn wav_file(rate: u32, bits: u16, channels: u16, nsamples: usize, extra_fmt: usize, junk_chunk: bool) -> Vec<u8> {
+fn wav_file(
+    rate: u32,
+    bits: u16,
+    channels: u16,
+    nsamples: usize,
+    extra_fmt: usize,
+    junk_chunk: bool,
+) -> Vec<u8> {
     let width = (bits / 8) as usize;
     let mut data = Vec::new();
     let mut state = 0x1357u32;
@@ -42,7 +53,7 @@ fn wav_file(rate: u32, bits: u16, channels: u16, nsamples: usize, extra_fmt: usi
         if width == 1 {
             data.push((state >> 16) as u8);
         } else {
-            data.extend_from_slice(&(((state >> 8) as i16)).to_le_bytes());
+            data.extend_from_slice(&((state >> 8) as i16).to_le_bytes());
         }
     }
     let mut fmt = Vec::new();
@@ -286,17 +297,61 @@ fn mp3_skiptags_differential() {
 
     let mut cases: Vec<(&str, Vec<u8>)> = Vec::new();
     cases.push(("plain", payload.clone()));
-    cases.push(("id3v2", { let mut v = id3v2(200, false, 0); v.extend(&payload); v }));
-    cases.push(("id3v2-footer", { let mut v = id3v2(64, true, 0); v.extend(&payload); v }));
-    cases.push(("id3v2-pad", { let mut v = id3v2(64, false, 30); v.extend(&payload); v }));
-    cases.push(("id3v1", { let mut v = payload.clone(); v.extend(id3v1()); v }));
-    cases.push(("ape2-end", { let mut v = payload.clone(); v.extend(apetag(2000, 100, true, true)); v }));
-    cases.push(("ape1-end", { let mut v = payload.clone(); v.extend(apetag(1000, 60, false, false)); v }));
-    cases.push(("ape-start", { let mut v = apetag(2000, 80, false, false); v.extend(&payload); v }));
-    cases.push(("lyrics3v2", { let mut v = payload.clone(); v.extend(lyrics3v2(500)); v }));
-    cases.push(("lyrics3v1", { let mut v = payload.clone(); v.extend(lyrics3v1(700)); v }));
-    cases.push(("musicmatch", { let mut v = payload.clone(); v.extend(musicmatch(500, false)); v }));
-    cases.push(("musicmatch-hdr", { let mut v = payload.clone(); v.extend(musicmatch(500, true)); v }));
+    cases.push(("id3v2", {
+        let mut v = id3v2(200, false, 0);
+        v.extend(&payload);
+        v
+    }));
+    cases.push(("id3v2-footer", {
+        let mut v = id3v2(64, true, 0);
+        v.extend(&payload);
+        v
+    }));
+    cases.push(("id3v2-pad", {
+        let mut v = id3v2(64, false, 30);
+        v.extend(&payload);
+        v
+    }));
+    cases.push(("id3v1", {
+        let mut v = payload.clone();
+        v.extend(id3v1());
+        v
+    }));
+    cases.push(("ape2-end", {
+        let mut v = payload.clone();
+        v.extend(apetag(2000, 100, true, true));
+        v
+    }));
+    cases.push(("ape1-end", {
+        let mut v = payload.clone();
+        v.extend(apetag(1000, 60, false, false));
+        v
+    }));
+    cases.push(("ape-start", {
+        let mut v = apetag(2000, 80, false, false);
+        v.extend(&payload);
+        v
+    }));
+    cases.push(("lyrics3v2", {
+        let mut v = payload.clone();
+        v.extend(lyrics3v2(500));
+        v
+    }));
+    cases.push(("lyrics3v1", {
+        let mut v = payload.clone();
+        v.extend(lyrics3v1(700));
+        v
+    }));
+    cases.push(("musicmatch", {
+        let mut v = payload.clone();
+        v.extend(musicmatch(500, false));
+        v
+    }));
+    cases.push(("musicmatch-hdr", {
+        let mut v = payload.clone();
+        v.extend(musicmatch(500, true));
+        v
+    }));
     cases.push(("id3v1+ape", {
         let mut v = payload.clone();
         v.extend(apetag(2000, 100, true, true));
@@ -334,7 +389,11 @@ fn mp3_skiptags_differential() {
             // fresh OS handle; single-threaded under the fs lock
             unsafe {
                 let mut stream: snd_stream_t = core::mem::zeroed();
-                assert_eq!(ctest_open_fshandle(cpath.as_ptr(), &mut stream.fh), 0, "{tag}: open");
+                assert_eq!(
+                    ctest_open_fshandle(cpath.as_ptr(), &mut stream.fh),
+                    0,
+                    "{tag}: open"
+                );
                 ctfs::clear_logs();
                 let rc = func(&mut stream);
                 let log = ctfs::con_log();
@@ -399,7 +458,11 @@ fn codec_framework_differential() {
     write_temp(&music, "good.wav", &wav_file(11025, 16, 2, 3000, 0, false));
     write_temp(&music, "mono8.wav", &wav_file(22050, 8, 1, 2777, 0, false));
     write_temp(&music, "bigfmt.wav", &wav_file(44100, 16, 2, 500, 24, true));
-    write_temp(&music, "trunc.wav", &wav_file(11025, 16, 2, 3000, 0, false)[..100].to_vec().as_slice());
+    write_temp(
+        &music,
+        "trunc.wav",
+        &wav_file(11025, 16, 2, 3000, 0, false)[..100],
+    );
     write_temp(&music, "notpcm.wav", {
         let mut v = wav_file(11025, 16, 1, 100, 0, false);
         v[20] = 2; // format 2
@@ -407,9 +470,21 @@ fn codec_framework_differential() {
     });
     write_temp(&music, "noext", &wav_file(11025, 16, 2, 64, 0, false));
     write_temp(&music, "song.xyz", b"not audio");
-    write_temp(&music, "wrapped61.umx", &umx_file(61, b"wav", &wav_file(11025, 16, 1, 400, 0, false)));
-    write_temp(&music, "wrapped68.umx", &umx_file(68, b"WAV", &wav_file(22050, 8, 1, 900, 0, false)));
-    write_temp(&music, "badumx.umx", b"\xc1\x83\x2a\x9egarbage_not_long_enough");
+    write_temp(
+        &music,
+        "wrapped61.umx",
+        &umx_file(61, b"wav", &wav_file(11025, 16, 1, 400, 0, false)),
+    );
+    write_temp(
+        &music,
+        "wrapped68.umx",
+        &umx_file(68, b"WAV", &wav_file(22050, 8, 1, 900, 0, false)),
+    );
+    write_temp(
+        &music,
+        "badumx.umx",
+        b"\xc1\x83\x2a\x9egarbage_not_long_enough",
+    );
 
     ctfs::setup(Side::C, &[&root], 0, &cstr("testgame"));
     ctfs::setup(Side::Rust, &[&root], 0, &cstr("testgame"));
@@ -420,7 +495,12 @@ fn codec_framework_differential() {
         sys_S_CodecInit();
     }
 
-    for t in [CODECTYPE_WAV, CODECTYPE_MP3, CODECTYPE_UMX, CODECTYPE_VORBIS] {
+    for t in [
+        CODECTYPE_WAV,
+        CODECTYPE_MP3,
+        CODECTYPE_UMX,
+        CODECTYPE_VORBIS,
+    ] {
         // SAFETY: plain queries
         let (c, r) = unsafe { (c_ref_S_CodecIsAvailable(t), sys_S_CodecIsAvailable(t)) };
         assert_eq!(c, r, "S_CodecIsAvailable({t})");
@@ -489,8 +569,24 @@ fn codec_framework_differential() {
                 match (c_result, r_result) {
                     (Some((ci, cb, crets, crw, cb2)), Some((ri, rb, rrets, rrw, rb2))) => {
                         assert_eq!(
-                            (ci.rate, ci.bits, ci.width, ci.channels, ci.samples, ci.size, ci.dataofs),
-                            (ri.rate, ri.bits, ri.width, ri.channels, ri.samples, ri.size, ri.dataofs),
+                            (
+                                ci.rate,
+                                ci.bits,
+                                ci.width,
+                                ci.channels,
+                                ci.samples,
+                                ci.size,
+                                ci.dataofs
+                            ),
+                            (
+                                ri.rate,
+                                ri.bits,
+                                ri.width,
+                                ri.channels,
+                                ri.samples,
+                                ri.size,
+                                ri.dataofs
+                            ),
                             "{name} any={use_any}: snd_info_t"
                         );
                         assert_eq!(cb, rb, "{name} any={use_any}: streamed bytes");
@@ -526,7 +622,8 @@ extern "C" {
     #[link_name = "S_CodecOpenStreamExt"]
     fn sys_S_CodecOpenStreamExt(filename: *const c_char, loop_: bool) -> *mut snd_stream_t;
     #[link_name = "S_CodecReadStream"]
-    fn sys_S_CodecReadStream(stream: *mut snd_stream_t, bytes: c_int, buffer: *mut c_void) -> c_int;
+    fn sys_S_CodecReadStream(stream: *mut snd_stream_t, bytes: c_int, buffer: *mut c_void)
+        -> c_int;
     #[link_name = "S_CodecRewindStream"]
     fn sys_S_CodecRewindStream(stream: *mut snd_stream_t) -> c_int;
     #[link_name = "S_CodecCloseStream"]

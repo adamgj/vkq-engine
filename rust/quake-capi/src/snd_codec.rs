@@ -128,7 +128,11 @@ unsafe fn find_by_ext(ext: *const c_char) -> *mut snd_codec_t {
     }
 }
 
-unsafe fn open_with(filename: *const c_char, codec: *mut snd_codec_t, loop_: qboolean) -> *mut snd_stream_t {
+unsafe fn open_with(
+    filename: *const c_char,
+    codec: *mut snd_codec_t,
+    loop_: qboolean,
+) -> *mut snd_stream_t {
     // SAFETY: mirrors the shared open sequence of the three OpenStream fns
     unsafe {
         let stream = S_CodecUtilOpen(filename, codec, loop_);
@@ -175,7 +179,10 @@ pub unsafe extern "C" fn S_CodecOpenStreamType(
 /// # Safety
 /// `filename` NUL-terminated; main thread.
 #[no_mangle]
-pub unsafe extern "C" fn S_CodecOpenStreamExt(filename: *const c_char, loop_: qboolean) -> *mut snd_stream_t {
+pub unsafe extern "C" fn S_CodecOpenStreamExt(
+    filename: *const c_char,
+    loop_: qboolean,
+) -> *mut snd_stream_t {
     // SAFETY: mirrors the C incl. messages
     unsafe {
         let ext = sys::COM_FileGetExtension(filename);
@@ -197,7 +204,10 @@ pub unsafe extern "C" fn S_CodecOpenStreamExt(filename: *const c_char, loop_: qb
 /// # Safety
 /// `filename` NUL-terminated; main thread.
 #[no_mangle]
-pub unsafe extern "C" fn S_CodecOpenStreamAny(filename: *const c_char, loop_: qboolean) -> *mut snd_stream_t {
+pub unsafe extern "C" fn S_CodecOpenStreamAny(
+    filename: *const c_char,
+    loop_: qboolean,
+) -> *mut snd_stream_t {
     // SAFETY: mirrors the C incl. the try-all-extensions path
     unsafe {
         let ext = sys::COM_FileGetExtension(filename);
@@ -247,7 +257,10 @@ pub unsafe extern "C" fn S_CodecOpenStreamAny(filename: *const c_char, loop_: qb
 /// # Safety
 /// `stream` valid.
 #[no_mangle]
-pub unsafe extern "C" fn S_CodecForwardStream(stream: *mut snd_stream_t, type_: c_uint) -> qboolean {
+pub unsafe extern "C" fn S_CodecForwardStream(
+    stream: *mut snd_stream_t,
+    type_: c_uint,
+) -> qboolean {
     // SAFETY: mirrors the C forwarding
     unsafe {
         let codec = find_by_type(type_);
@@ -281,7 +294,12 @@ pub unsafe extern "C" fn S_CodecCloseStream(stream: *mut snd_stream_t) {
 #[no_mangle]
 pub unsafe extern "C" fn S_CodecRewindStream(stream: *mut snd_stream_t) -> c_int {
     // SAFETY: vtable dispatch
-    unsafe { (*(*stream).codec).codec_rewind.map(|f| f(stream)).unwrap_or(-1) }
+    unsafe {
+        (*(*stream).codec)
+            .codec_rewind
+            .map(|f| f(stream))
+            .unwrap_or(-1)
+    }
 }
 
 /// C: `int S_CodecJumpToOrder (snd_stream_t *stream, int to)`
@@ -304,9 +322,18 @@ pub unsafe extern "C" fn S_CodecJumpToOrder(stream: *mut snd_stream_t, to: c_int
 /// # Safety
 /// `buffer` valid for `bytes`.
 #[no_mangle]
-pub unsafe extern "C" fn S_CodecReadStream(stream: *mut snd_stream_t, bytes: c_int, buffer: *mut c_void) -> c_int {
+pub unsafe extern "C" fn S_CodecReadStream(
+    stream: *mut snd_stream_t,
+    bytes: c_int,
+    buffer: *mut c_void,
+) -> c_int {
     // SAFETY: vtable dispatch
-    unsafe { (*(*stream).codec).codec_read.map(|f| f(stream, bytes, buffer)).unwrap_or(0) }
+    unsafe {
+        (*(*stream).codec)
+            .codec_read
+            .map(|f| f(stream, bytes, buffer))
+            .unwrap_or(0)
+    }
 }
 
 /// C: `snd_stream_t *S_CodecUtilOpen (const char *filename, snd_codec_t *codec, qboolean loop)`
@@ -329,8 +356,7 @@ pub unsafe extern "C" fn S_CodecUtilOpen(
             return core::ptr::null_mut();
         }
 
-        let stream: *mut snd_stream_t =
-            sys::Mem_Alloc(core::mem::size_of::<snd_stream_t>()).cast();
+        let stream: *mut snd_stream_t = sys::Mem_Alloc(core::mem::size_of::<snd_stream_t>()).cast();
         (*stream).codec = codec;
         (*stream).loop_ = loop_;
         (*stream).fh.file = handle;

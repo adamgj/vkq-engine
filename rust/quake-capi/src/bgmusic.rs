@@ -55,22 +55,61 @@ static mut BGM: BgmState = BgmState {
     no_extmusic: false,
     old_volume: -1.0,
     handlers: [
-        Handler { type_: CODECTYPE_VORBIS, is_available: -1, ext: c"ogg" },
-        Handler { type_: CODECTYPE_OPUS, is_available: -1, ext: c"opus" },
-        Handler { type_: CODECTYPE_MP3, is_available: -1, ext: c"mp3" },
-        Handler { type_: CODECTYPE_FLAC, is_available: -1, ext: c"flac" },
-        Handler { type_: CODECTYPE_WAV, is_available: -1, ext: c"wav" },
-        Handler { type_: CODECTYPE_MOD, is_available: -1, ext: c"it" },
-        Handler { type_: CODECTYPE_MOD, is_available: -1, ext: c"s3m" },
-        Handler { type_: CODECTYPE_MOD, is_available: -1, ext: c"xm" },
-        Handler { type_: CODECTYPE_MOD, is_available: -1, ext: c"mod" },
-        Handler { type_: CODECTYPE_UMX, is_available: -1, ext: c"umx" },
+        Handler {
+            type_: CODECTYPE_VORBIS,
+            is_available: -1,
+            ext: c"ogg",
+        },
+        Handler {
+            type_: CODECTYPE_OPUS,
+            is_available: -1,
+            ext: c"opus",
+        },
+        Handler {
+            type_: CODECTYPE_MP3,
+            is_available: -1,
+            ext: c"mp3",
+        },
+        Handler {
+            type_: CODECTYPE_FLAC,
+            is_available: -1,
+            ext: c"flac",
+        },
+        Handler {
+            type_: CODECTYPE_WAV,
+            is_available: -1,
+            ext: c"wav",
+        },
+        Handler {
+            type_: CODECTYPE_MOD,
+            is_available: -1,
+            ext: c"it",
+        },
+        Handler {
+            type_: CODECTYPE_MOD,
+            is_available: -1,
+            ext: c"s3m",
+        },
+        Handler {
+            type_: CODECTYPE_MOD,
+            is_available: -1,
+            ext: c"xm",
+        },
+        Handler {
+            type_: CODECTYPE_MOD,
+            is_available: -1,
+            ext: c"mod",
+        },
+        Handler {
+            type_: CODECTYPE_UMX,
+            is_available: -1,
+            ext: c"umx",
+        },
     ],
     active: Vec::new(),
     initialized: false,
     stream: core::ptr::null_mut(),
-}
-;
+};
 
 #[allow(static_mut_refs)]
 fn state() -> &'static mut BgmState {
@@ -79,7 +118,10 @@ fn state() -> &'static mut BgmState {
 }
 
 fn eq_ignore_ascii(a: &[u8], b: &[u8]) -> bool {
-    a.len() == b.len() && a.iter().zip(b.iter()).all(|(x, y)| x.eq_ignore_ascii_case(y))
+    a.len() == b.len()
+        && a.iter()
+            .zip(b.iter())
+            .all(|(x, y)| x.eq_ignore_ascii_case(y))
 }
 
 /// C: `qboolean BGM_Init (void)`
@@ -93,12 +135,42 @@ pub unsafe extern "C" fn BGM_Init() -> qboolean {
     // SAFETY: registration mirrors bgmusic.c; cvar storage in snd_glue.c
     unsafe {
         sys::Cvar_RegisterVariable(core::ptr::addr_of_mut!(bgm_extmusic));
-        sys::Cmd_AddCommand2(c"music".as_ptr(), Some(bgm_play_f), sys::cmd_source_t_src_command, false);
-        sys::Cmd_AddCommand2(c"music_pause".as_ptr(), Some(bgm_pause_f), sys::cmd_source_t_src_command, false);
-        sys::Cmd_AddCommand2(c"music_resume".as_ptr(), Some(bgm_resume_f), sys::cmd_source_t_src_command, false);
-        sys::Cmd_AddCommand2(c"music_loop".as_ptr(), Some(bgm_loop_f), sys::cmd_source_t_src_command, false);
-        sys::Cmd_AddCommand2(c"music_stop".as_ptr(), Some(bgm_stop_f), sys::cmd_source_t_src_command, false);
-        sys::Cmd_AddCommand2(c"music_jump".as_ptr(), Some(bgm_jump_f), sys::cmd_source_t_src_command, false);
+        sys::Cmd_AddCommand2(
+            c"music".as_ptr(),
+            Some(bgm_play_f),
+            sys::cmd_source_t_src_command,
+            false,
+        );
+        sys::Cmd_AddCommand2(
+            c"music_pause".as_ptr(),
+            Some(bgm_pause_f),
+            sys::cmd_source_t_src_command,
+            false,
+        );
+        sys::Cmd_AddCommand2(
+            c"music_resume".as_ptr(),
+            Some(bgm_resume_f),
+            sys::cmd_source_t_src_command,
+            false,
+        );
+        sys::Cmd_AddCommand2(
+            c"music_loop".as_ptr(),
+            Some(bgm_loop_f),
+            sys::cmd_source_t_src_command,
+            false,
+        );
+        sys::Cmd_AddCommand2(
+            c"music_stop".as_ptr(),
+            Some(bgm_stop_f),
+            sys::cmd_source_t_src_command,
+            false,
+        );
+        sys::Cmd_AddCommand2(
+            c"music_jump".as_ptr(),
+            Some(bgm_jump_f),
+            sys::cmd_source_t_src_command,
+            false,
+        );
 
         if sys::COM_CheckParm(c"-noextmusic".as_ptr()) != 0 {
             st.no_extmusic = true;
@@ -160,16 +232,16 @@ unsafe fn play_noext(filename: &[u8], allowed_types: c_uint) {
             {
                 tmp[n] = b;
             }
-            st.stream = crate::snd_codec::S_CodecOpenStreamType(
-                tmp.as_ptr().cast(),
-                h.type_,
-                st.bgmloop,
-            );
+            st.stream =
+                crate::snd_codec::S_CodecOpenStreamType(tmp.as_ptr().cast(), h.type_, st.bgmloop);
             if !st.stream.is_null() {
                 return; // success
             }
         }
-        sys::Con_Printf(c"Couldn't handle music file %s\n".as_ptr(), filename.as_ptr());
+        sys::Con_Printf(
+            c"Couldn't handle music file %s\n".as_ptr(),
+            filename.as_ptr(),
+        );
     }
 }
 
@@ -261,7 +333,11 @@ pub unsafe extern "C" fn BGM_PlayCDtrack(track: u8, looping: qboolean) {
             if h.is_available == 0 {
                 continue;
             }
-            let name = format!("music/track{:02}.{}\0", track as c_int, h.ext.to_str().unwrap());
+            let name = format!(
+                "music/track{:02}.{}\0",
+                track as c_int,
+                h.ext.to_str().unwrap()
+            );
             let mut path_id: c_uint = 0;
             if !sys::COM_FileExists(name.as_ptr().cast(), &mut path_id) {
                 continue;
@@ -274,7 +350,10 @@ pub unsafe extern "C" fn BGM_PlayCDtrack(track: u8, looping: qboolean) {
         }
         match ext {
             None => {
-                sys::Con_Printf(c"Couldn't find a cdrip for track %d\n".as_ptr(), track as c_int);
+                sys::Con_Printf(
+                    c"Couldn't find a cdrip for track %d\n".as_ptr(),
+                    track as c_int,
+                );
             }
             Some(e) => {
                 let name = format!("music/track{:02}.{}\0", track as c_int, e.to_str().unwrap());
@@ -383,7 +462,8 @@ unsafe fn update_stream() {
             }
 
             // Read
-            let res = crate::snd_codec::S_CodecReadStream(st.stream, file_bytes, raw.as_mut_ptr().cast());
+            let res =
+                crate::snd_codec::S_CodecReadStream(st.stream, file_bytes, raw.as_mut_ptr().cast());
             if res < file_bytes {
                 file_samples = res / (info.width * info.channels);
             }

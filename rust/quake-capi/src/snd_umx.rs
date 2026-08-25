@@ -107,7 +107,11 @@ unsafe fn get_objtype(f: *mut fshandle_t, ofs: i32, mut type_: c_int) -> c_int {
             }
             if type_ == UMUSIC_MP2 {
                 let u = ((sig[0] as u16) << 8 | sig[1] as u16) & 0xFFFE;
-                return if u == 0xFFFC || u == 0xFFF4 { UMUSIC_MP2 } else { -1 };
+                return if u == 0xFFFC || u == 0xFFF4 {
+                    UMUSIC_MP2
+                } else {
+                    -1
+                };
             }
             if type_ == UMUSIC_WAV {
                 return if &sig[0..4] == b"RIFF" && &sig[8..12] == b"WAVE" {
@@ -143,7 +147,12 @@ unsafe fn get_objtype(f: *mut fshandle_t, ofs: i32, mut type_: c_int) -> c_int {
     }
 }
 
-unsafe fn read_export(f: *mut fshandle_t, hdr: &UpkgHdr, ofs: &mut i32, objsize: &mut i32) -> c_int {
+unsafe fn read_export(
+    f: *mut fshandle_t,
+    hdr: &UpkgHdr,
+    ofs: &mut i32,
+    objsize: &mut i32,
+) -> c_int {
     // SAFETY: 40-byte read at *ofs
     unsafe {
         let mut buf = [0u8; 40];
@@ -210,7 +219,11 @@ unsafe fn read_typname(f: *mut fshandle_t, hdr: &UpkgHdr, idx: c_int, out: &mut 
         }
 
         // strcpy (out, version >= 64 ? &buf[1] : buf)
-        let src: &[u8] = if hdr.file_version >= 64 { &buf[1..] } else { &buf[..] };
+        let src: &[u8] = if hdr.file_version >= 64 {
+            &buf[1..]
+        } else {
+            &buf[..]
+        };
         let n = src.iter().position(|&b| b == 0).unwrap_or(src.len() - 1);
         out[..n].copy_from_slice(&src[..n]);
         out[n] = 0;
@@ -398,7 +411,11 @@ unsafe extern "C" fn umx_open(stream: *mut snd_stream_t) -> qboolean {
     }
 }
 
-unsafe extern "C" fn umx_read(_stream: *mut snd_stream_t, _bytes: c_int, _buffer: *mut c_void) -> c_int {
+unsafe extern "C" fn umx_read(
+    _stream: *mut snd_stream_t,
+    _bytes: c_int,
+    _buffer: *mut c_void,
+) -> c_int {
     -1
 }
 

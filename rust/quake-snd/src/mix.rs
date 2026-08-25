@@ -96,7 +96,13 @@ pub struct PaintParams<'a> {
     pub raw_samples: &'a [SamplePair; MAX_RAW_SAMPLES],
 }
 
-fn snd_write_linear_blast_stereo16(paint: &[SamplePair], out: &mut [u8], out_off: usize, count: usize, paint_off: usize) {
+fn snd_write_linear_blast_stereo16(
+    paint: &[SamplePair],
+    out: &mut [u8],
+    out_off: usize,
+    count: usize,
+    paint_off: usize,
+) {
     // C walks paintbuffer as an int* two lanes at a time; here per pair
     for i in (0..count).step_by(2) {
         let pair = paint[paint_off + i / 2];
@@ -195,10 +201,10 @@ fn make_blackman_window_kernel(kernel: &mut [f32], m: i32, f_c: f32) {
         } else {
             let x = i as f64;
             let md = m as f64;
-            kernel[i as usize] = ((libm::sin(2.0 * M_PI * f_c as f64 * (x - md / 2.0))
-                / (x - md / 2.0))
-                * (0.42 - 0.5 * libm::cos(2.0 * M_PI * x / md)
-                    + 0.08 * libm::cos(4.0 * M_PI * x / md))) as f32;
+            kernel[i as usize] =
+                ((libm::sin(2.0 * M_PI * f_c as f64 * (x - md / 2.0)) / (x - md / 2.0))
+                    * (0.42 - 0.5 * libm::cos(2.0 * M_PI * x / md)
+                        + 0.08 * libm::cos(4.0 * M_PI * x / md))) as f32;
         }
     }
 
@@ -251,7 +257,9 @@ fn apply_filter(filter: &mut Filter, paint: &mut [SamplePair], lane: usize, coun
     }
 
     // copy out the last kernelsize samples to memory for next time
-    filter.memory.copy_from_slice(&input[count..count + kernelsize]);
+    filter
+        .memory
+        .copy_from_slice(&input[count..count + kernelsize]);
 
     // apply the filter
     let mut parity = filter.parity;
@@ -286,7 +294,13 @@ fn apply_filter(filter: &mut Filter, paint: &mut [SamplePair], lane: usize, coun
 }
 
 /// S_LowpassFilter: M/bw table keyed on snd_filterquality.
-fn lowpass_filter(filterquality_value: f32, paint: &mut [SamplePair], lane: usize, count: usize, filter: &mut Filter) {
+fn lowpass_filter(
+    filterquality_value: f32,
+    paint: &mut [SamplePair],
+    lane: usize,
+    count: usize,
+    filter: &mut Filter,
+) {
     let (m, bw): (i32, f64) = match filterquality_value as i32 {
         1 => (126, 0.900),
         2 => (150, 0.915),
@@ -350,7 +364,13 @@ pub fn init_scaletable(st: &mut MixerState, sfxvolume_value: f32) {
     }
 }
 
-fn paint_channel_from8(st: &mut MixerState, ch: &mut Channel, sc: &CacheView, count: i32, paintbufferstart: i32) {
+fn paint_channel_from8(
+    st: &mut MixerState,
+    ch: &mut Channel,
+    sc: &CacheView,
+    count: i32,
+    paintbufferstart: i32,
+) {
     if ch.leftvol > 255 {
         ch.leftvol = 255;
     }
@@ -364,7 +384,11 @@ fn paint_channel_from8(st: &mut MixerState, ch: &mut Channel, sc: &CacheView, co
 
     for i in 0..count.max(0) {
         // COMPAT: on stale channels the C reads past the cache (UB); we read 0
-        let data = sc.data.get((base + i as i64) as usize).copied().unwrap_or(0) as usize;
+        let data = sc
+            .data
+            .get((base + i as i64) as usize)
+            .copied()
+            .unwrap_or(0) as usize;
         let pb = &mut st.paintbuffer[(paintbufferstart + i) as usize];
         pb.left = pb.left.wrapping_add(lscale[data]);
         pb.right = pb.right.wrapping_add(rscale[data]);
@@ -373,7 +397,13 @@ fn paint_channel_from8(st: &mut MixerState, ch: &mut Channel, sc: &CacheView, co
     ch.pos += count;
 }
 
-fn paint_channel_from16(st: &mut MixerState, ch: &mut Channel, sc: &CacheView, count: i32, paintbufferstart: i32) {
+fn paint_channel_from16(
+    st: &mut MixerState,
+    ch: &mut Channel,
+    sc: &CacheView,
+    count: i32,
+    paintbufferstart: i32,
+) {
     // moved >>8 to the volumes to avoid the observed overflow (C comment)
     let leftvol = ch.leftvol.wrapping_mul(st.snd_vol) / 256;
     let rightvol = ch.rightvol.wrapping_mul(st.snd_vol) / 256;
@@ -442,7 +472,11 @@ pub fn paint_channels<S: SfxSource>(
 
             while ltime < end {
                 // paint up to end
-                let count = if ch.end < end { ch.end - ltime } else { end - ltime };
+                let count = if ch.end < end {
+                    ch.end - ltime
+                } else {
+                    end - ltime
+                };
 
                 if count > 0 {
                     if sc.width == 1 {
@@ -476,8 +510,20 @@ pub fn paint_channels<S: SfxSource>(
 
         // apply a lowpass filter
         if p.sndspeed_value == 11025.0 && p.shm_speed == 44100 {
-            lowpass_filter(p.filterquality_value, &mut st.paintbuffer[..], 0, block, &mut st.filter_l);
-            lowpass_filter(p.filterquality_value, &mut st.paintbuffer[..], 1, block, &mut st.filter_r);
+            lowpass_filter(
+                p.filterquality_value,
+                &mut st.paintbuffer[..],
+                0,
+                block,
+                &mut st.filter_l,
+            );
+            lowpass_filter(
+                p.filterquality_value,
+                &mut st.paintbuffer[..],
+                1,
+                block,
+                &mut st.filter_r,
+            );
         }
 
         underwater_filter(&mut st.underwater, &mut st.paintbuffer[..], block);

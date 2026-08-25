@@ -3,7 +3,9 @@
 //! exactly (ADR-010); vector math is the bit-exact `quake-math` port.
 
 use quake_math::mathlib::{dot_product, vector_normalize};
-use quake_types::sound::{Channel, SamplePair, MAX_DYNAMIC_CHANNELS, MAX_RAW_SAMPLES, NUM_AMBIENTS};
+use quake_types::sound::{
+    Channel, SamplePair, MAX_DYNAMIC_CHANNELS, MAX_RAW_SAMPLES, NUM_AMBIENTS,
+};
 
 /// `#define sound_nominal_clip_dist 1000.0` (snd_dma.c)
 pub const SOUND_NOMINAL_CLIP_DIST: f64 = 1000.0;

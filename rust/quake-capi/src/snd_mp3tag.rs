@@ -51,7 +51,7 @@ fn get_id3v2_len(data: &[u8], length: c_long) -> c_long {
         + ((data[8] as c_long) << 7)
         + data[9] as c_long;
     size += 10; // header size
-    // bit 4 of flags: footer present
+                // bit 4 of flags: footer present
     if data[5] & 0x10 != 0 {
         size += 10;
     }
@@ -140,7 +140,14 @@ fn get_lyrics3v2_len(data: &[u8], length: c_long) -> c_long {
     }
     // strtol(data, NULL, 10): leading spaces, optional sign, decimal digits
     let mut i = 0;
-    while i < data.len() && (data[i] == b' ' || data[i] == b'\t' || data[i] == b'\n' || data[i] == b'\r' || data[i] == 0x0b || data[i] == 0x0c) {
+    while i < data.len()
+        && (data[i] == b' '
+            || data[i] == b'\t'
+            || data[i] == b'\n'
+            || data[i] == b'\r'
+            || data[i] == 0x0b
+            || data[i] == 0x0c)
+    {
         i += 1;
     }
     let mut neg = false;
@@ -197,10 +204,8 @@ unsafe fn get_musicmatch_len(stream: *mut snd_stream_t) -> c_long {
 
         fs_seek(stream, -68, SEEK_END);
         fs_read(stream, buf.as_mut_ptr().cast(), 1, 20);
-        let imgext_ofs =
-            i32::from_le_bytes([buf[0], buf[1], buf[2], buf[3]]) as c_int;
-        let version_ofs =
-            i32::from_le_bytes([buf[12], buf[13], buf[14], buf[15]]) as c_int;
+        let imgext_ofs = i32::from_le_bytes([buf[0], buf[1], buf[2], buf[3]]) as c_int;
+        let version_ofs = i32::from_le_bytes([buf[12], buf[13], buf[14], buf[15]]) as c_int;
         if version_ofs <= imgext_ofs {
             return -1;
         }
@@ -285,7 +290,10 @@ unsafe fn probe_id3v1(stream: *mut snd_stream_t, buf: &mut [u8; 128], atend: boo
                     }
                 }
                 (*stream).fh.length -= 128;
-                sys::Con_DPrintf(c"MP3: skipped %ld bytes ID3v1 tag\n".as_ptr(), 128 as c_long);
+                sys::Con_DPrintf(
+                    c"MP3: skipped %ld bytes ID3v1 tag\n".as_ptr(),
+                    128 as c_long,
+                );
                 return 1;
             }
         }

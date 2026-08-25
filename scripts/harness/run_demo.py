@@ -50,6 +50,9 @@ def main():
     p.add_argument("--out", required=True)
     p.add_argument("--exitafter", type=int, default=DEFAULT_EXITAFTER)
     p.add_argument("--cmds", help="-harnesscmds file", default=None)
+    p.add_argument("--fixture-dir", default=None,
+                   help="repo fixture dir staged into the basedir under its basename "
+                        "(committed synthetic assets, e.g. Misc/harness/fixtures/sndfix)")
     p.add_argument("--extra-args", default="")
     p.add_argument("--keep-basedir", action="store_true")
     args = p.parse_args()
@@ -60,6 +63,15 @@ def main():
     staging = tempfile.mkdtemp(prefix="vkq-h-")
     try:
         stage_basedir(args.game_data, staging)
+        if args.fixture_dir:
+            src = os.path.abspath(args.fixture_dir)
+            dst = os.path.join(staging, os.path.basename(src))
+            os.makedirs(dst, exist_ok=True)
+            for root, _dirs, files in os.walk(src):
+                rel = os.path.relpath(root, src)
+                os.makedirs(os.path.join(dst, rel), exist_ok=True)
+                for f in files:
+                    _stage_entry(os.path.join(root, f), os.path.join(dst, rel, f))
 
         # the engine's cmdline cvar is CMDLINE_LENGTH (256) bytes and is
         # deliberately empty in shareware installs (stuffcmds does nothing),

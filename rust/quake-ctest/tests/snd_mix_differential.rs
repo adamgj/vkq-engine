@@ -10,9 +10,7 @@ use core::ffi::c_int;
 
 use quake_ctest as _;
 
-use quake_snd::mix::{
-    self, CacheView, MixerState, PaintParams, SfxSource,
-};
+use quake_snd::mix::{self, CacheView, MixerState, PaintParams, SfxSource};
 use quake_types::sound::{Channel, SamplePair, Sfx, MAX_RAW_SAMPLES};
 
 extern "C" {
@@ -46,7 +44,13 @@ extern "C" {
         keydest: c_int,
         frametime: f64,
     );
-    fn ctest_snd_set_cvars(sfxvol: f32, sndspeed: f32, filterquality: f32, waterfx: f32, pauselooping: f32);
+    fn ctest_snd_set_cvars(
+        sfxvol: f32,
+        sndspeed: f32,
+        filterquality: f32,
+        waterfx: f32,
+        pauselooping: f32,
+    );
     fn ctest_snd_block_reset();
     fn ctest_snd_block_get(count: *mut c_int) -> u64;
 }
@@ -216,7 +220,13 @@ fn run_scenario(sc: &Scenario, sfxs: &[SfxFixture]) {
     // SAFETY: single-threaded test writing stub-owned globals
     unsafe {
         ctest_snd_setup_dma(speed, bits, chans, signed8, samples, c_dma.as_mut_ptr());
-        ctest_snd_set_cvars(sc.sfxvolume, sc.sndspeed, sc.filterquality, sc.waterfx, sc.pauselooping);
+        ctest_snd_set_cvars(
+            sc.sfxvolume,
+            sc.sndspeed,
+            sc.filterquality,
+            sc.waterfx,
+            sc.pauselooping,
+        );
         let (p, a, m, k, f) = sc.pause_state;
         ctest_snd_set_pause_state(p, a, m, k, f);
         paintedtime = sc.start_paintedtime;
@@ -239,9 +249,8 @@ fn run_scenario(sc: &Scenario, sfxs: &[SfxFixture]) {
     // SAFETY: plain accessor
     let c_hash = unsafe { ctest_snd_block_get(&mut c_blocks) };
     // SAFETY: reading back stub-owned state
-    let (c_painted, c_channels): (i32, Vec<Channel>) = unsafe {
-        (paintedtime, snd_channels[..sc.channels.len()].to_vec())
-    };
+    let (c_painted, c_channels): (i32, Vec<Channel>) =
+        unsafe { (paintedtime, snd_channels[..sc.channels.len()].to_vec()) };
 
     // ---- Rust side ----
     let mut r_dma = vec![0u8; bufbytes];
@@ -302,10 +311,20 @@ fn run_scenario(sc: &Scenario, sfxs: &[SfxFixture]) {
     // ---- compare ----
     assert_eq!(c_painted, r_painted, "{}: paintedtime", sc.tag);
     assert_eq!(c_blocks, r_blocks, "{}: paint block count", sc.tag);
-    assert_eq!(c_hash, r_hash, "{}: per-block paintbuffer+DMA hash chain", sc.tag);
+    assert_eq!(
+        c_hash, r_hash,
+        "{}: per-block paintbuffer+DMA hash chain",
+        sc.tag
+    );
     assert_eq!(c_dma, r_dma, "{}: final DMA buffer", sc.tag);
     for (i, (c, r)) in c_channels.iter().zip(r_channels.iter()).enumerate() {
-        assert_eq!(c.sfx.is_null(), r.sfx.is_null(), "{}: ch{} sfx null", sc.tag, i);
+        assert_eq!(
+            c.sfx.is_null(),
+            r.sfx.is_null(),
+            "{}: ch{} sfx null",
+            sc.tag,
+            i
+        );
         assert_eq!(c.pos, r.pos, "{}: ch{} pos", sc.tag, i);
         assert_eq!(c.end, r.end, "{}: ch{} end", sc.tag, i);
         assert_eq!(c.leftvol, r.leftvol, "{}: ch{} leftvol", sc.tag, i);
@@ -318,11 +337,41 @@ fn base_channels() -> Vec<ChanSetup> {
     // sc->length` (schedules that overrun the cache are the dangling-channel
     // UB the engine never produces from a fresh start)
     vec![
-        ChanSetup { sfx_idx: 0, leftvol: 200, rightvol: 100, end: 6000, pos: 0 },
-        ChanSetup { sfx_idx: 1, leftvol: 120, rightvol: 250, end: 2400, pos: 100 },
-        ChanSetup { sfx_idx: 2, leftvol: 400, rightvol: 90, end: 8000, pos: 0 }, // >255 clamp
-        ChanSetup { sfx_idx: 3, leftvol: 255, rightvol: 255, end: 1000, pos: 4000 }, // 16-bit loud
-        ChanSetup { sfx_idx: 0, leftvol: 0, rightvol: 0, end: 6000, pos: 0 },        // muted
+        ChanSetup {
+            sfx_idx: 0,
+            leftvol: 200,
+            rightvol: 100,
+            end: 6000,
+            pos: 0,
+        },
+        ChanSetup {
+            sfx_idx: 1,
+            leftvol: 120,
+            rightvol: 250,
+            end: 2400,
+            pos: 100,
+        },
+        ChanSetup {
+            sfx_idx: 2,
+            leftvol: 400,
+            rightvol: 90,
+            end: 8000,
+            pos: 0,
+        }, // >255 clamp
+        ChanSetup {
+            sfx_idx: 3,
+            leftvol: 255,
+            rightvol: 255,
+            end: 1000,
+            pos: 4000,
+        }, // 16-bit loud
+        ChanSetup {
+            sfx_idx: 0,
+            leftvol: 0,
+            rightvol: 0,
+            end: 6000,
+            pos: 0,
+        }, // muted
     ]
 }
 

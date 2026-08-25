@@ -65,14 +65,26 @@ fn snd_mirrors_match_engine_headers() {
     check_offsets!(
         Dma,
         "dma_t",
-        [channels, samples, submission_chunk, samplepos, samplebits, signed8, speed, buffer]
+        [
+            channels,
+            samples,
+            submission_chunk,
+            samplepos,
+            samplebits,
+            signed8,
+            speed,
+            buffer
+        ]
     );
 
     check_size!(Channel, "channel_t");
     check_offsets!(
         Channel,
         "channel_t",
-        [sfx, leftvol, rightvol, end, pos, looping, entnum, entchannel, origin, dist_mult, master_vol]
+        [
+            sfx, leftvol, rightvol, end, pos, looping, entnum, entchannel, origin, dist_mult,
+            master_vol
+        ]
     );
 
     check_size!(WavInfo, "wavinfo_t");

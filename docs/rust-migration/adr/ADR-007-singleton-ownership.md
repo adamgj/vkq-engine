@@ -22,6 +22,8 @@ The engine is anchored on global singletons read/written across modules: `cl`/`c
 | `vid`, `r_refdef` | P8 | P8 sub-slices | P8 |
 | `vulkan_globals` | P8 | P8 sub-slices (C-layout view) | P8 |
 | `mod_known[]` | P3 (data) / P8 (vk members) | P3–P8 | P8 |
+| sound globals (`shm`/`sn`, `snd_channels[]`/`total_channels`, timing, listener vectors, the 16 sound cvars, `snd_mutex`) | P4 | P4–P9: storage stays C in `snd_glue.c` for the direct C readers (menu.c cvar storage, cl_demo.c channel iteration, gl_screen timing); all *logic* is Rust, reaching the storage via `quake_c_sys` under the recursive `snd_mutex` on the main thread | P9 (host inversion) |
+| mixer/sfx-registry internals (paintbuffer, scaletable, filters, underwater, `known_sfx[]`, DMA wrap counters) | — | none: Rust-owned statics from P4, never visible to C | P4 |
 
 **End state (Phase 9/10):** singletons become fields of a `Host` struct created in `main()` and passed by `&mut` (split-borrowed into subsystem structs). Remaining `static` state exists only where a C remnant requires it, listed in the Phase-10 unsafe inventory.
 

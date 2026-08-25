@@ -162,8 +162,7 @@ unsafe extern "C" fn wav_open(stream: *mut snd_stream_t) -> qboolean {
         }
 
         (*stream).fh.start = sys::Sys_ftell((*stream).fh.file); // reset to data position
-        if (*stream).fh.start - start + (*stream).info.size as sys::qfileofs_t
-            > (*stream).fh.length
+        if (*stream).fh.start - start + (*stream).info.size as sys::qfileofs_t > (*stream).fh.length
         {
             sys::Con_Printf(c"%s data size mismatch\n".as_ptr(), (*stream).name.as_ptr());
             return false;
@@ -174,7 +173,11 @@ unsafe extern "C" fn wav_open(stream: *mut snd_stream_t) -> qboolean {
 }
 
 /// exported non-static in the C for historical reasons; kept callable
-unsafe extern "C" fn wav_read(stream: *mut snd_stream_t, bytes: c_int, buffer: *mut c_void) -> c_int {
+unsafe extern "C" fn wav_read(
+    stream: *mut snd_stream_t,
+    bytes: c_int,
+    buffer: *mut c_void,
+) -> c_int {
     // SAFETY: mirrors S_WAV_CodecReadStream
     unsafe {
         let stream = &mut *stream;

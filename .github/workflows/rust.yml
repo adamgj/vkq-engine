@@ -98,7 +98,7 @@ jobs:
   # the audit job uses) runs each target longer — 12 targets x 300s is a
   # deliberate ~60min weekly soak, bounded by timeout-minutes below.
   fuzz-smoke:
-    name: fuzz smoke (fs + formats + image parsers)
+    name: fuzz smoke (fs + formats + image + sound parsers)
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
@@ -116,7 +116,7 @@ jobs:
       run: |
         for t in fuzz_pak fuzz_wad fuzz_kpf fuzz_loc fuzz_vdf \
                  fuzz_pcx fuzz_lmp fuzz_bsp fuzz_mdl fuzz_spr fuzz_md3 fuzz_md5 \
-                 fuzz_tga fuzz_image_stb; do
+                 fuzz_tga fuzz_image_stb fuzz_wav; do
           mkdir -p "fuzz/corpus/$t"
           cargo +nightly fuzz run "$t" "fuzz/corpus/$t" "fuzz/corpus-seed/$t" -- \
             -max_total_time="$MAX_TOTAL_TIME" -rss_limit_mb=4096

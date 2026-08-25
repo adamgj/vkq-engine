@@ -1,109 +1,200 @@
 {
-  "comment": "Differential-verification corpus (ADR-019). Tiers: 'shareware' runs in CI from the freely redistributable quake106 data (scripts/harness/fetch_shareware.py); 'registered'/'rerelease' need locally provided game data ($QUAKE_GAME_DATA); 'mod' entries are skipped with a warning until their data is dropped into the game data directory. Goldens are keyed per {os}-{arch} under Misc/harness/goldens/.",
-  "entries": [
+ "comment": "Differential-verification corpus (ADR-019). Tiers: 'shareware' runs in CI from the freely redistributable quake106 data (scripts/harness/fetch_shareware.py); 'registered'/'rerelease' need locally provided game data ($QUAKE_GAME_DATA); 'mod' entries are skipped with a warning until their data is dropped into the game data directory. Goldens are keyed per {os}-{arch} under Misc/harness/goldens/.",
+ "entries": [
+  {
+   "name": "id1-demo1",
+   "tier": "shareware",
+   "demo": "demo1",
+   "requires": [
     {
-      "name": "id1-demo1",
-      "tier": "shareware",
-      "demo": "demo1",
-      "requires": [{"path": "id1/pak0.pak", "sha256": "35a9c55e5e5a284a159ad2a62e0e8def23d829561fe2f54eb402dbc0a9a946af", "note": "1.06 pak0, identical in shareware and registered installs"}]
-    },
-    {
-      "name": "id1-demo2",
-      "tier": "shareware",
-      "demo": "demo2",
-      "requires": [{"path": "id1/pak0.pak", "sha256": "35a9c55e5e5a284a159ad2a62e0e8def23d829561fe2f54eb402dbc0a9a946af"}]
-    },
-    {
-      "name": "id1-demo3",
-      "tier": "shareware",
-      "demo": "demo3",
-      "requires": [{"path": "id1/pak0.pak", "sha256": "35a9c55e5e5a284a159ad2a62e0e8def23d829561fe2f54eb402dbc0a9a946af"}]
-    },
-    {
-      "name": "save-e1m1",
-      "tier": "shareware",
-      "cmds": ["0 map e1m1", "300 save harness_a", "600 save harness_b", "610 quit"],
-      "exitafter": 5000,
-      "requires": [{"path": "id1/pak0.pak", "sha256": "35a9c55e5e5a284a159ad2a62e0e8def23d829561fe2f54eb402dbc0a9a946af"}]
-    },
-    {
-      "name": "map-e1m2",
-      "tier": "shareware",
-      "cmds": ["0 map e1m2", "1500 quit"],
-      "exitafter": 5000,
-      "note": "second shareware map so the per-frame server/edict hash covers more than one level",
-      "requires": [{"path": "id1/pak0.pak", "sha256": "35a9c55e5e5a284a159ad2a62e0e8def23d829561fe2f54eb402dbc0a9a946af"}]
-    },
-    {
-      "name": "save-e2m1",
-      "tier": "registered",
-      "cmds": ["0 map e2m1", "300 save harness_a", "600 save harness_b", "610 quit"],
-      "exitafter": 5000,
-      "requires": [{"path": "id1/PAK1.PAK", "sha256": "94e355836ec42bc464e4cbe794cfb7b5163c6efa1bcc575622bb36475bf1cf30"}]
-    },
-    {
-      "name": "gamedir-switch",
-      "tier": "registered",
-      "cmds": ["0 map e1m1", "300 game hipnotic", "500 map start", "1200 quit"],
-      "exitafter": 6000,
-      "note": "mid-run 'game' command: exercises the COM_ResetGameDirectories teardown/reload path (Phase 2 fs gate). Registered tier because COM_Game_f refuses to run without the registered version, so CI (shareware tier) skips this entry - the headless guard it covers is regression-tested locally against the goldens, not in CI",
-      "requires": [
-        {"path": "id1/PAK1.PAK", "sha256": "94e355836ec42bc464e4cbe794cfb7b5163c6efa1bcc575622bb36475bf1cf30"},
-        {"path": "hipnotic/pak0.pak", "sha256": "62b83569ba975015535be73407796ce0829ebcfa75a68fb29c67514649dc655f"}
-      ]
-    },
-    {
-      "name": "hipnotic-demo1",
-      "tier": "registered",
-      "game": "-hipnotic",
-      "demo": "demo1",
-      "requires": [{"path": "hipnotic/pak0.pak", "sha256": "62b83569ba975015535be73407796ce0829ebcfa75a68fb29c67514649dc655f"}]
-    },
-    {
-      "name": "rogue-demo1",
-      "tier": "registered",
-      "game": "-rogue",
-      "demo": "demo1",
-      "requires": [{"path": "rogue/pak0.pak", "sha256": "c3c40408f953e2de99f241dd85bf7854b69f1ae264b4e55a5657ef2ab12201a7"}]
-    },
-    {
-      "name": "rerelease-demo1",
-      "tier": "rerelease",
-      "data_subdir": "rerelease",
-      "demo": "demo1",
-      "requires": [{"path": "id1/pak0.pak", "sha256": "a0fb119eb6aafd2bd1bc80bf2f04332bc9650ecd735621494e531eb1991f341a", "note": "2021 re-release id1 pak; QuakeEX.kpf localization is exercised by this entry"}]
-    },
-    {
-      "name": "ad-demo",
-      "tier": "mod",
-      "game": "ad",
-      "demo": "demo1",
-      "requires_dir": "ad",
-      "download_hint": "Arcane Dimensions: https://www.moddb.com/mods/arcane-dimensions"
-    },
-    {
-      "name": "copper-demo",
-      "tier": "mod",
-      "game": "copper",
-      "demo": "demo1",
-      "requires_dir": "copper",
-      "download_hint": "Copper: https://lunaran.com/copper/"
-    },
-    {
-      "name": "alkaline-demo",
-      "tier": "mod",
-      "game": "alkaline",
-      "demo": "demo1",
-      "requires_dir": "alkaline",
-      "download_hint": "Alkaline: https://alkalinequake.wordpress.com/"
-    },
-    {
-      "name": "quoth-demo",
-      "tier": "mod",
-      "game": "quoth",
-      "demo": "demo1",
-      "requires_dir": "quoth",
-      "download_hint": "Quoth: https://tomeofpreach.wordpress.com/quoth/"
+     "path": "id1/pak0.pak",
+     "sha256": "35a9c55e5e5a284a159ad2a62e0e8def23d829561fe2f54eb402dbc0a9a946af",
+     "note": "1.06 pak0, identical in shareware and registered installs"
     }
-  ]
+   ]
+  },
+  {
+   "name": "id1-demo2",
+   "tier": "shareware",
+   "demo": "demo2",
+   "requires": [
+    {
+     "path": "id1/pak0.pak",
+     "sha256": "35a9c55e5e5a284a159ad2a62e0e8def23d829561fe2f54eb402dbc0a9a946af"
+    }
+   ]
+  },
+  {
+   "name": "id1-demo3",
+   "tier": "shareware",
+   "demo": "demo3",
+   "requires": [
+    {
+     "path": "id1/pak0.pak",
+     "sha256": "35a9c55e5e5a284a159ad2a62e0e8def23d829561fe2f54eb402dbc0a9a946af"
+    }
+   ]
+  },
+  {
+   "name": "save-e1m1",
+   "tier": "shareware",
+   "cmds": [
+    "0 map e1m1",
+    "300 save harness_a",
+    "600 save harness_b",
+    "610 quit"
+   ],
+   "exitafter": 5000,
+   "requires": [
+    {
+     "path": "id1/pak0.pak",
+     "sha256": "35a9c55e5e5a284a159ad2a62e0e8def23d829561fe2f54eb402dbc0a9a946af"
+    }
+   ]
+  },
+  {
+   "name": "map-e1m2",
+   "tier": "shareware",
+   "cmds": [
+    "0 map e1m2",
+    "1500 quit"
+   ],
+   "exitafter": 5000,
+   "note": "second shareware map so the per-frame server/edict hash covers more than one level",
+   "requires": [
+    {
+     "path": "id1/pak0.pak",
+     "sha256": "35a9c55e5e5a284a159ad2a62e0e8def23d829561fe2f54eb402dbc0a9a946af"
+    }
+   ]
+  },
+  {
+   "name": "save-e2m1",
+   "tier": "registered",
+   "cmds": [
+    "0 map e2m1",
+    "300 save harness_a",
+    "600 save harness_b",
+    "610 quit"
+   ],
+   "exitafter": 5000,
+   "requires": [
+    {
+     "path": "id1/PAK1.PAK",
+     "sha256": "94e355836ec42bc464e4cbe794cfb7b5163c6efa1bcc575622bb36475bf1cf30"
+    }
+   ]
+  },
+  {
+   "name": "gamedir-switch",
+   "tier": "registered",
+   "cmds": [
+    "0 map e1m1",
+    "300 game hipnotic",
+    "500 map start",
+    "1200 quit"
+   ],
+   "exitafter": 6000,
+   "note": "mid-run 'game' command: exercises the COM_ResetGameDirectories teardown/reload path (Phase 2 fs gate). Registered tier because COM_Game_f refuses to run without the registered version, so CI (shareware tier) skips this entry - the headless guard it covers is regression-tested locally against the goldens, not in CI",
+   "requires": [
+    {
+     "path": "id1/PAK1.PAK",
+     "sha256": "94e355836ec42bc464e4cbe794cfb7b5163c6efa1bcc575622bb36475bf1cf30"
+    },
+    {
+     "path": "hipnotic/pak0.pak",
+     "sha256": "62b83569ba975015535be73407796ce0829ebcfa75a68fb29c67514649dc655f"
+    }
+   ]
+  },
+  {
+   "name": "hipnotic-demo1",
+   "tier": "registered",
+   "game": "-hipnotic",
+   "demo": "demo1",
+   "requires": [
+    {
+     "path": "hipnotic/pak0.pak",
+     "sha256": "62b83569ba975015535be73407796ce0829ebcfa75a68fb29c67514649dc655f"
+    }
+   ]
+  },
+  {
+   "name": "rogue-demo1",
+   "tier": "registered",
+   "game": "-rogue",
+   "demo": "demo1",
+   "requires": [
+    {
+     "path": "rogue/pak0.pak",
+     "sha256": "c3c40408f953e2de99f241dd85bf7854b69f1ae264b4e55a5657ef2ab12201a7"
+    }
+   ]
+  },
+  {
+   "name": "rerelease-demo1",
+   "tier": "rerelease",
+   "data_subdir": "rerelease",
+   "demo": "demo1",
+   "requires": [
+    {
+     "path": "id1/pak0.pak",
+     "sha256": "a0fb119eb6aafd2bd1bc80bf2f04332bc9650ecd735621494e531eb1991f341a",
+     "note": "2021 re-release id1 pak; QuakeEX.kpf localization is exercised by this entry"
+    }
+   ]
+  },
+  {
+   "name": "ad-demo",
+   "tier": "mod",
+   "game": "ad",
+   "demo": "demo1",
+   "requires_dir": "ad",
+   "download_hint": "Arcane Dimensions: https://www.moddb.com/mods/arcane-dimensions"
+  },
+  {
+   "name": "copper-demo",
+   "tier": "mod",
+   "game": "copper",
+   "demo": "demo1",
+   "requires_dir": "copper",
+   "download_hint": "Copper: https://lunaran.com/copper/"
+  },
+  {
+   "name": "alkaline-demo",
+   "tier": "mod",
+   "game": "alkaline",
+   "demo": "demo1",
+   "requires_dir": "alkaline",
+   "download_hint": "Alkaline: https://alkalinequake.wordpress.com/"
+  },
+  {
+   "name": "quoth-demo",
+   "tier": "mod",
+   "game": "quoth",
+   "demo": "demo1",
+   "requires_dir": "quoth",
+   "download_hint": "Quoth: https://tomeofpreach.wordpress.com/quoth/"
+  },
+  {
+   "name": "music-wav",
+   "tier": "shareware",
+   "game": "sndfix",
+   "fixture_dir": "Misc/harness/fixtures/sndfix",
+   "cmds": [
+    "5 music track90",
+    "300 music track91",
+    "500 music_stop",
+    "560 quit"
+   ],
+   "exitafter": 700,
+   "note": "Phase 4: committed synthetic WAV music through the codec framework/bgmusic; meaningful mainly under --sndhash (mixer PCM), harmless in the demo state hash",
+   "requires": [
+    {
+     "path": "id1/pak0.pak",
+     "sha256": "35a9c55e5e5a284a159ad2a62e0e8def23d829561fe2f54eb402dbc0a9a946af"
+    }
+   ]
+  }
+ ]
 }

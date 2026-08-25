@@ -63,7 +63,11 @@ unsafe fn replay_messages(parse: &WavParse, name: *const c_char) {
 /// # Safety
 /// `name` NUL-terminated; `wav` NULL or valid for `wavlength` bytes.
 #[no_mangle]
-pub unsafe extern "C" fn GetWavinfo(name: *const c_char, wav: *mut u8, wavlength: c_int) -> WavInfo {
+pub unsafe extern "C" fn GetWavinfo(
+    name: *const c_char,
+    wav: *mut u8,
+    wavlength: c_int,
+) -> WavInfo {
     if wav.is_null() {
         return WavInfo::default();
     }
@@ -150,7 +154,10 @@ pub unsafe extern "C" fn S_LoadSound(s: *mut Sfx) -> *mut SfxCache {
                 break 'done;
             }
             if info.rate <= 0 {
-                sys::Con_Printf(c"%s has an invalid sample rate\n".as_ptr(), sfx.name.as_ptr());
+                sys::Con_Printf(
+                    c"%s has an invalid sample rate\n".as_ptr(),
+                    sfx.name.as_ptr(),
+                );
                 break 'done;
             }
         }
