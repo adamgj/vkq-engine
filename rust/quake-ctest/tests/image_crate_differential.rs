@@ -1056,6 +1056,25 @@ const JPEG_SOI_GARBAGE: &[u8] = &[
     255, 216, 0, 1, 2, 110, 111, 116, 32, 97, 32, 106, 112, 101, 103, 32, 97, 116, 32, 97, 108, 108,
 ];
 
+const JPEG_YCCK: &[u8] = &[
+    255, 216, 255, 238, 0, 14, 65, 100, 111, 98, 101, 0, 101, 0, 0, 0, 0, 2, 255, 219, 0, 67, 0, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    255, 192, 0, 20, 8, 0, 8, 0, 8, 4, 1, 17, 0, 2, 17, 0, 3, 17, 0, 4, 17, 0, 255, 196, 0, 20, 0,
+    1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 196, 0, 21, 16, 1, 1, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 255, 218, 0, 14, 4, 1, 0, 2, 0, 3, 0, 4, 0, 0, 63, 0, 0, 255,
+    217,
+];
+const JPEG_CMYK: &[u8] = &[
+    255, 216, 255, 238, 0, 14, 65, 100, 111, 98, 101, 0, 101, 0, 0, 0, 0, 0, 255, 219, 0, 67, 0, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    255, 192, 0, 20, 8, 0, 8, 0, 8, 4, 1, 17, 0, 2, 17, 0, 3, 17, 0, 4, 17, 0, 255, 196, 0, 20, 0,
+    1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 196, 0, 21, 16, 1, 1, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 255, 218, 0, 14, 4, 1, 0, 2, 0, 3, 0, 4, 0, 0, 63, 0, 0, 255,
+    217,
+];
+
 /// Delta-bounded comparison for the JPEG cases: decisions, dims, con-log
 /// (masked reasons) and handle balance must match exactly; pixels may
 /// differ per channel by at most `max_delta`.
@@ -1105,28 +1124,40 @@ fn compare_both_jpeg(name: &std::ffi::CStr, max_delta: u8) -> (drv::ImageOutcome
 fn jpeg_fixture_parity_within_delta() {
     let _guard = ctfs::lock();
     let dir = file_dir();
-    // (name, bytes, must_accept)
-    let cases: &[(&str, &[u8], bool)] = &[
-        ("gray8", JPEG_GRAY8, true),
-        ("fill_bytes", &[&[0xFF][..], JPEG_GRAY8].concat(), true), // stb eats pre-SOI fill bytes
-        ("rgb444", JPEG_RGB444, true),
-        ("rgb420", JPEG_RGB420, true),
-        ("rgb422", JPEG_RGB422, true),
-        ("odd", JPEG_ODD, true),
-        ("restart", JPEG_RESTART, true),
-        ("appn", JPEG_APPN, true),
-        ("progressive_dc", JPEG_PROGRESSIVE_DC, true),
-        ("truncated", JPEG_TRUNCATED, true), // stb decodes the partial MCUs; zune lenient mode too
-        ("trailing", JPEG_TRAILING, true),
-        ("soi_garbage", JPEG_SOI_GARBAGE, false),
+    // (name, bytes, must_accept, max_delta) — the per-case bound is
+    // JPEG_MAX_DELTA except for the Adobe 4-component variants, whose
+    // CMYK/YCCK color transforms differ between stb and zune-jpeg well
+    // beyond IDCT rounding (documented residual: accept/dims parity held,
+    // pixel divergence measured and pinned; no 4-component JPEG exists in
+    // the depot or any known Quake content)
+    let cases: &[(&str, &[u8], bool, u8)] = &[
+        ("gray8", JPEG_GRAY8, true, JPEG_MAX_DELTA),
+        (
+            "fill_bytes",
+            &[&[0xFF][..], JPEG_GRAY8].concat(),
+            true,
+            JPEG_MAX_DELTA,
+        ), // stb eats pre-SOI fill bytes
+        ("rgb444", JPEG_RGB444, true, JPEG_MAX_DELTA),
+        ("rgb420", JPEG_RGB420, true, JPEG_MAX_DELTA),
+        ("rgb422", JPEG_RGB422, true, JPEG_MAX_DELTA),
+        ("odd", JPEG_ODD, true, JPEG_MAX_DELTA),
+        ("restart", JPEG_RESTART, true, JPEG_MAX_DELTA),
+        ("appn", JPEG_APPN, true, JPEG_MAX_DELTA),
+        ("progressive_dc", JPEG_PROGRESSIVE_DC, true, JPEG_MAX_DELTA),
+        ("truncated", JPEG_TRUNCATED, true, JPEG_MAX_DELTA), // stb decodes the partial MCUs; zune lenient mode too
+        ("trailing", JPEG_TRAILING, true, JPEG_MAX_DELTA),
+        ("soi_garbage", JPEG_SOI_GARBAGE, false, JPEG_MAX_DELTA),
+        ("ycck", JPEG_YCCK, true, 96), // APP14 transform 2: measured 64 (color-transform divergence)
+        ("cmyk", JPEG_CMYK, true, 255), // APP14 transform 0: measured 255 — stb and zune interpret raw CMYK oppositely; only accept/dims parity is asserted
     ];
-    for (name, bytes, must_accept) in cases {
+    for (name, bytes, must_accept, max_delta) in cases {
         let rel = format!("gfx/j_{name}.jpg");
         std::fs::write(dir.join(&rel), bytes).unwrap();
         let cname = std::ffi::CString::new(rel).unwrap();
-        // measured deltas are pinned by JPEG_MAX_DELTA below; a change in
-        // either decoder that widens the divergence fails here
-        let (out, delta) = compare_both_jpeg(&cname, JPEG_MAX_DELTA);
+        // measured deltas are pinned per case; a change in either decoder
+        // that widens the divergence fails here
+        let (out, delta) = compare_both_jpeg(&cname, *max_delta);
         assert_eq!(
             out.data.is_some(),
             *must_accept,
@@ -1148,3 +1179,50 @@ fn jpeg_fixture_parity_within_delta() {
 /// class itself -- IDCT/upsampler rounding -- is owner-accepted (task-plan
 /// amendment log, 2026-08-24).
 const JPEG_MAX_DELTA: u8 = 8;
+
+// ---------------------------------------------------------------------------
+// Integration-review round (F1): oversized-output rejects. stb degrades an
+// int-overflowing conversion buffer to a recoverable "outofmem"; the ports
+// must reject rather than attempt the multi-GiB allocation for real.
+
+#[test]
+fn tga_conversion_overflow_rejects_like_stb() {
+    let _guard = ctfs::lock();
+    // grey 23171x23171 (w*h ~ 2^29: passes mad3(w,h,1), fails mad3(4,w,h)):
+    // the C decodes its comp-sized buffer (zeros, ~512 MB transiently) and
+    // then stbi__convert_format's malloc_mad3 fails -> "outofmem" with the
+    // dims already published; the Rust port rejects up front with the same
+    // observable outcome
+    let hdr = TgaHeader {
+        image_type: 3,
+        width: 23171,
+        height: 23171,
+        bpp: 8,
+        descriptor: 0x20,
+        ..Default::default()
+    };
+    let dir = file_dir();
+    std::fs::write(dir.join("gfx/huge.tga"), build_tga(&hdr, &[])).unwrap();
+    let out = compare_both(c"gfx/huge.tga");
+    assert_eq!(out.data, None);
+    assert_eq!((out.width, out.height), (23171, 23171), "dims published");
+    assert!(out.con_log[0].contains("outofmem"), "{:?}", out.con_log);
+}
+
+#[test]
+fn png_oversized_output_reject_decision_parity() {
+    let _guard = ctfs::lock();
+    // 16-bit gray 30000x30000 with a tiny IDAT: the RGBA output would be
+    // 7.2 GB. The C fails at whichever stage starves first (here the short
+    // IDAT data); the Rust wrapper rejects "outofmem" before the crate
+    // allocates — reasons legitimately differ, the decision must not
+    // (masked compare per the review-round amendment)
+    let mut f = png_sig();
+    f.extend(png_ihdr(30000, 30000, 16, 0, 0));
+    f.extend(png_chunk(b"IDAT", &deflate_zlib(&[0u8; 64])));
+    f.extend(png_chunk(b"IEND", &[]));
+    let dir = file_dir();
+    std::fs::write(dir.join("gfx/hugepng.png"), &f).unwrap();
+    let out = compare_both_masked_reason(c"gfx/hugepng.png");
+    assert_eq!(out.data, None, "both sides must reject");
+}

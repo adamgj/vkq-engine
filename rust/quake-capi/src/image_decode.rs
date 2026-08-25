@@ -138,6 +138,7 @@ pub unsafe extern "C" fn Image_DecodeSTB(
                     tga::Reason::TooLarge => c"too large",
                     tga::Reason::BadFormat => c"bad format",
                     tga::Reason::BadPalette => c"bad palette",
+                    tga::Reason::OutOfMem => c"outofmem",
                 };
                 // SAFETY: static reason string; image_name per contract
                 unsafe { stb_warn(image_name, reason.as_ptr()) };

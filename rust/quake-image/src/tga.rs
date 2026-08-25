@@ -25,8 +25,14 @@ pub enum Reason {
     /// "bad palette" — zero palette entries, or a truncated non-rgb16
     /// palette read
     BadPalette,
-    // "outofmem" is not represented: Rust allocation failure aborts, and
-    // under the engine's Mem_Alloc the C path Sys_Errors before returning
+    /// "outofmem" — stbi__convert_format's stbi__malloc_mad3(4, x, y, 0)
+    /// returns NULL when 4*w*h overflows int (reachable: a grey image with
+    /// w*h between 2^29 and 2^31 passes the first mad3 gate but not this
+    /// one). The C then warns and recovers; without this gate the Rust
+    /// side would attempt a multi-GiB allocation instead. True allocation
+    /// failure (calloc NULL on an in-range size) remains unreproducible:
+    /// Rust Vec aborts where C warns — COMPAT, real-OOM-only divergence.
+    OutOfMem,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -208,6 +214,14 @@ pub fn decode(file: &[u8]) -> Result<Tga, Error> {
     // *x/*y are published here — before the size-overflow check
     if !mad3_valid(tga_width, tga_height, tga_comp) {
         return Err(fail(Reason::TooLarge, true));
+    }
+    // stb only discovers this at the stbi__convert_format stage — after
+    // decoding into the comp-sized buffer — but the observable outcome
+    // (reject, "outofmem", dims published) is identical, and checking
+    // before the allocation avoids the C's transient multi-hundred-MB
+    // buffer for an 18-byte file
+    if tga_comp != 4 && !mad3_valid(4, tga_width, tga_height) {
+        return Err(fail(Reason::OutOfMem, true));
     }
 
     let comp = tga_comp as usize;
@@ -433,6 +447,20 @@ mod tests {
             Err(Error {
                 reason: Reason::TooLarge,
                 dims: Some((65535, 65535)),
+            })
+        );
+    }
+
+    #[test]
+    fn conversion_overflow_rejects_outofmem_with_dims_published() {
+        // grey 23171x23171: w*h passes mad3(w,h,1) but 4*w*h overflows int,
+        // stb's stbi__convert_format failure ("outofmem", dims published)
+        let f = header(3, 23171, 23171, 8, 0x20);
+        assert_eq!(
+            decode(&f),
+            Err(Error {
+                reason: Reason::OutOfMem,
+                dims: Some((23171, 23171)),
             })
         );
     }

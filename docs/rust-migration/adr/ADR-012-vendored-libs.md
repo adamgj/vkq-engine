@@ -58,3 +58,13 @@ The stb_image decode swap landed with the gate applied per format:
   `-Duse_rust_image=disabled` (oracle), and the in-memory
   `Image_DecodeSTBMem` in every configuration (CgBI fallback + per-format
   revert lever).
+- Residual COMPAT divergences, all outside well-formed content: the Rust
+  seam bulk-reads the resource, so a *malformed* image inside a pak whose
+  streaming decode would read past the resource into neighboring pak bytes
+  diverges (the out-of-resource UB class the Phase 3 M2 PCX shim first
+  documented); true allocation failure (calloc NULL on an in-int-range
+  size) aborts in Rust where C warns "outofmem" — the deterministic
+  int-overflow "outofmem" rejects are ported and gated; and Adobe
+  4-component (CMYK/YCCK) JPEGs decode with a different color transform
+  than stb (accept/dims parity held and pinned; no such asset exists in
+  any known Quake content).

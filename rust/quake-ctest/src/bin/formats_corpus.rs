@@ -263,12 +263,28 @@ fn run_image(name: &str, format: drv::ImageFormat) -> Outcome {
         }
     };
     // SAFETY: the fixture opens (checked above); C runs under the trap
-    let c = unsafe { drv::image_decode_side(Side::C, &cname, format, buf_len) };
+    let mut c = unsafe { drv::image_decode_side(Side::C, &cname, format, buf_len) };
     if let Some(msg) = c.error {
         return Outcome::Reject(msg);
     }
     // SAFETY: C accepted, establishing the decision
-    let r = unsafe { drv::image_decode_side(Side::Rust, &cname, format, buf_len) };
+    let mut r = unsafe { drv::image_decode_side(Side::Rust, &cname, format, buf_len) };
+    if format == drv::ImageFormat::Stb {
+        // owner-approved warning-text policy (M8): a reject reason that
+        // originates inside the png/zune crates cannot match stb's string;
+        // the decision, dims and pixels still must. Mask the parenthesized
+        // reason on both sides before comparing/hashing, like
+        // image_crate_differential's masked comparator
+        for log in [&mut c.con_log, &mut r.con_log] {
+            for l in log.iter_mut() {
+                if let Some(p) = l.find("couldn't load ") {
+                    if let Some(paren) = l[p..].find(" (") {
+                        l.truncate(p + paren + 2);
+                    }
+                }
+            }
+        }
+    }
     assert_eq!(c, r, "{name}: decode parity");
     assert_eq!(c.open_handles, 0, "{name}: decoder must close the handle");
     let mut h = Hasher::new();
@@ -292,9 +308,8 @@ fn run_jpg(name: &str) -> Outcome {
     if ctfs::load_file(Side::C, &cname).is_none() {
         return Outcome::Skip("unreadable");
     }
-    let buf_len = |w: i32, h: i32| -> usize {
-        ((w as u32).wrapping_mul(h as u32) as usize).wrapping_mul(4)
-    };
+    let buf_len =
+        |w: i32, h: i32| -> usize { ((w as u32).wrapping_mul(h as u32) as usize).wrapping_mul(4) };
     // SAFETY: the fixture opens (checked above); C runs under the trap
     let c = unsafe { drv::image_decode_side(Side::C, &cname, drv::ImageFormat::Stb, buf_len) };
     if let Some(msg) = c.error {

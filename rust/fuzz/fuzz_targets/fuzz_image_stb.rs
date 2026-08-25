@@ -57,18 +57,35 @@ fuzz_target!(|data: &[u8]| {
             assert_eq!(tga::decode(data), tga::decode(data));
         }
         stb_sniff::Format::Png => {
-            // IHDR dims sit at fixed offsets right after the first chunk
-            // header when present; stb's own guard allows ~1 GiB pixel
-            // buffers, too rich for a fuzz round
-            let dim = |be: usize| -> u64 {
+            // walk the chunk stream to the IHDR (it need not be the first
+            // chunk: CgBI or a large ancillary chunk can precede it) so the
+            // guard cannot be bypassed by reordering; the decoder's own
+            // "outofmem" gate bounds outputs to i32::MAX, still too rich
+            // for a fuzz round under the rss limit
+            let be32 = |i: usize| -> u64 {
                 let mut v = 0u64;
-                for i in 0..4 {
-                    v = (v << 8) | u64::from(data.get(be + i).copied().unwrap_or(0));
+                for k in 0..4 {
+                    v = (v << 8) | u64::from(data.get(i + k).copied().unwrap_or(0));
                 }
                 v
             };
-            if dim(16).saturating_mul(dim(20)).saturating_mul(8) > (64 << 20) {
-                return;
+            let mut pos = 8usize;
+            let mut dims = None;
+            for _ in 0..64 {
+                let (len, ty) = (be32(pos), be32(pos + 4));
+                if ty == 0x4948_4452 {
+                    dims = Some((be32(pos + 8), be32(pos + 12)));
+                    break;
+                }
+                pos = pos.saturating_add(12).saturating_add(len as usize);
+                if pos >= data.len() {
+                    break;
+                }
+            }
+            if let Some((w, h)) = dims {
+                if w.saturating_mul(h).saturating_mul(8) > (64 << 20) {
+                    return;
+                }
             }
             assert_eq!(png_stb::decode(data), png_stb::decode(data));
         }

@@ -409,13 +409,27 @@ pub fn decode(file: &[u8]) -> Result<Png, Error> {
         Err(()) => return Ok(Png::Fallback),
     };
 
+    // stb bounds every decode stage with stbi__mad3sizes_valid and degrades
+    // an overflowing product to a recoverable "outofmem"; the largest stage
+    // for req_comp=4 is the RGBA conversion buffer, x*y*4 samples of 1 or 2
+    // bytes. Without this gate a small file declaring huge dims would make
+    // the Rust side attempt the multi-GiB allocations for real. COMPAT:
+    // where the C's *observed* reason differs (it reports whichever stage
+    // fails first, e.g. "not enough pixels" when the IDAT data is also
+    // short, or overflows an int multiply in convert_format16 — UB), the
+    // reject *decision* is what parity covers (compared masked).
+    let bps: u64 = if walked.ihdr.depth == 16 { 2 } else { 1 };
+    if u64::from(walked.ihdr.width) * u64::from(walked.ihdr.height) * 4 * bps > i32::MAX as u64 {
+        return Err(Error::Stb("outofmem"));
+    }
+
     let canonical = reconstruct(&walked);
     let mut decoder = png::Decoder::new(std::io::Cursor::new(&canonical));
     decoder.set_transformations(png::Transformations::EXPAND);
     decoder.ignore_checksums(true);
-    // acceptance is governed by the stb-mirrored guards in the walk, not by
-    // the crate's default 64 MiB budget (stb's own cap is the (1<<30)
-    // pixel-buffer guard already enforced above)
+    // acceptance is governed by the stb-mirrored guards in the walk and the
+    // output gate above, not by the crate's default 64 MiB budget; the gate
+    // bounds every remaining crate allocation to the int range
     decoder.set_limits(png::Limits { bytes: usize::MAX });
     let mut reader = decoder
         .read_info()
@@ -521,6 +535,18 @@ mod tests {
         f.extend_from_slice(b"IDAT");
         f.extend_from_slice(&[1, 2]); // 2 of 8 bytes, then EOF
         assert_eq!(decode(&f), Err(Error::Stb("outofdata")));
+    }
+
+    #[test]
+    fn oversized_output_rejects_outofmem_before_the_crate_runs() {
+        // 16-bit gray 30000x30000: the RGBA output would be 7.2 GB. The
+        // gate must reject with stb's "outofmem" (not a crate error, and
+        // certainly not by attempting the allocation)
+        let mut f = sig();
+        f.extend(ihdr(30000, 30000, 16, 0, 0));
+        f.extend(chunk(b"IDAT", &stored_zlib(&[0u8; 8])));
+        f.extend(chunk(b"IEND", &[]));
+        assert_eq!(decode(&f), Err(Error::Stb("outofmem")));
     }
 
     #[test]
