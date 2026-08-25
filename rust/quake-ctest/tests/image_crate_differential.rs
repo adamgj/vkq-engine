@@ -971,7 +971,7 @@ fn png_crate_rejects_share_the_decision() {
 // and was explicitly waived; task-plan amendment log 2026-08-24).
 // Fixtures are hand-crafted minimal JPEGs (custom two-code Huffman tables,
 // flat quant table, DC-diff-0 blocks with an optional single AC(0,1)
-// coefficient); the generator script is quoted in the task plan.
+// coefficient); regenerate with scripts/harness/gen_jpeg_fixtures.py.
 
 const JPEG_GRAY8: &[u8] = &[
     255, 216, 255, 219, 0, 67, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
