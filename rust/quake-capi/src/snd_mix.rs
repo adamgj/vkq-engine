@@ -15,25 +15,18 @@ use quake_c_sys as sys;
 use quake_snd::mix::{self, CacheView, MixerState, PaintParams, SfxSource};
 use quake_types::sound::{Channel, SamplePair, SfxCache, MAX_RAW_SAMPLES};
 
-extern "C" {
-    // snd_glue.c (compiled only under -Duse_rust_snd)
-    fn SND_Glue_PauseLoops() -> c_int;
-}
-
 static MIXER: LazyLock<Mutex<MixerState>> = LazyLock::new(|| Mutex::new(MixerState::default()));
 
 /// The paint loop's S_LoadSound: calls our own exported loader (the same C
-/// symbol the engine links) and views the returned cache.
-struct EngineSfxSource {
-    channels: *const Channel,
-}
+/// symbol the engine links) and views the returned cache. Holds no pointer
+/// into the channels array (the paint loop passes each channel's sfx).
+struct EngineSfxSource;
 
 impl SfxSource for EngineSfxSource {
-    fn load(&mut self, ch_index: usize) -> Option<CacheView<'_>> {
-        // SAFETY: ch_index < total_channels; the paint loop already checked
-        // ch->sfx non-null. S_LoadSound is our own export (same locking as C).
+    fn load(&mut self, sfxp: *mut quake_types::sound::Sfx) -> Option<CacheView<'_>> {
+        // SAFETY: the paint loop already checked ch->sfx non-null;
+        // S_LoadSound is our own export (same locking as C).
         unsafe {
-            let sfxp = (*self.channels.add(ch_index)).sfx;
             let sc = crate::snd_mem::S_LoadSound(sfxp);
             if sc.is_null() {
                 return None;
@@ -75,7 +68,7 @@ pub unsafe extern "C" fn S_PaintChannels(endtime: c_int) {
 
         let mut params = PaintParams {
             endtime,
-            pause_loops: SND_Glue_PauseLoops() != 0,
+            pause_loops: sys::SND_Glue_PauseLoops(),
             sfxvolume_value: sys::sfxvolume.value,
             sndspeed_value: sys::sndspeed.value,
             filterquality_value: sys::snd_filterquality.value,
@@ -89,9 +82,7 @@ pub unsafe extern "C" fn S_PaintChannels(endtime: c_int) {
             raw_samples,
         };
 
-        let mut loader = EngineSfxSource {
-            channels: channels_ptr,
-        };
+        let mut loader = EngineSfxSource;
 
         let mut painted = sys::paintedtime;
         let sndhash = sys::harness_sndhash;

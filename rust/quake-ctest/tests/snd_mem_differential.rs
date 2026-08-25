@@ -286,6 +286,11 @@ fn load_len(info: &WavInfo, shm_speed: i32) -> Option<i32> {
         return None;
     }
     let stepscale = info.rate as f32 / shm_speed as f32;
+    // the int-range clamp in S_LoadSound
+    let flen = info.samples as f32 / stepscale;
+    if !(-2147483648.0..2147483648.0).contains(&flen) {
+        return None;
+    }
     let mut len = (info.samples as f32 / stepscale) as i32;
     len = len.wrapping_mul(info.width * info.channels);
     if info.samples == 0 || len <= 0 {

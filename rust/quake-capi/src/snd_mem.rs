@@ -165,6 +165,15 @@ pub unsafe extern "C" fn S_LoadSound(s: *mut Sfx) -> *mut SfxCache {
         // SAFETY: shm is set before sounds load (S_Startup); read like C
         let shm_speed = unsafe { (*sys::shm).speed };
         let stepscale = info.rate as f32 / shm_speed as f32;
+
+        // bounds clamp mirroring the C: samples/stepscale outside int range
+        let flen = info.samples as f32 / stepscale;
+        if !(-2147483648.0..2147483648.0).contains(&flen) {
+            // SAFETY: byte-identical message
+            unsafe { sys::Con_Printf(c"%s has a bad data length\n".as_ptr(), sfx.name.as_ptr()) };
+            break 'done;
+        }
+
         let mut len = (info.samples as f32 / stepscale) as i32;
         len = len.wrapping_mul(info.width * info.channels);
 

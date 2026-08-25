@@ -73,9 +73,12 @@ pub struct CacheView<'a> {
     pub data: &'a [u8],
 }
 
-/// S_LoadSound for the paint loop: maps a channel index to its cache.
+/// S_LoadSound for the paint loop: maps a channel's sfx to its cache. The
+/// pointer is the one the caller just read from the channel, so the loader
+/// never touches the channels array itself (no aliasing with the paint
+/// loop's `&mut` borrow).
 pub trait SfxSource {
-    fn load(&mut self, ch_index: usize) -> Option<CacheView<'_>>;
+    fn load(&mut self, sfx: *mut quake_types::sound::Sfx) -> Option<CacheView<'_>>;
 }
 
 /// The engine state one S_PaintChannels call reads (dma format, cvar values,
@@ -451,23 +454,20 @@ pub fn paint_channels<S: SfxSource>(
         st.paintbuffer[..block].fill(SamplePair::default());
 
         // paint in the channels
-        #[allow(clippy::needless_range_loop)] // the sfx loader is keyed by index
-        for i in 0..channels.len() {
-            let ch = &mut channels[i];
+        for ch in channels.iter_mut() {
             if ch.sfx.is_null() {
                 continue;
             }
             if ch.leftvol == 0 && ch.rightvol == 0 {
                 continue;
             }
-            let Some(sc) = sfx.load(i) else {
+            let Some(sc) = sfx.load(ch.sfx) else {
                 continue;
             };
             if sc.loopstart >= 0 && p.pause_loops {
                 continue;
             }
 
-            let ch = &mut channels[i];
             let mut ltime = *paintedtime;
 
             while ltime < end {

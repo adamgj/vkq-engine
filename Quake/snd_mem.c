@@ -146,6 +146,16 @@ sfxcache_t *S_LoadSound (sfx_t *s)
 	}
 
 	stepscale = (float)info.rate / shm->speed;
+
+	// bounds clamp: samples/stepscale outside int range made the float->int
+	// conversion undefined (and platform-divergent: x86 wraps to INT_MIN,
+	// arm64 saturates); same float arithmetic as the conversion below
+	if ((float)info.samples / stepscale >= 2147483648.0f || (float)info.samples / stepscale < -2147483648.0f)
+	{
+		Con_Printf ("%s has a bad data length\n", s->name);
+		goto unlock_mutex;
+	}
+
 	len = info.samples / stepscale;
 
 	len = len * info.width * info.channels;

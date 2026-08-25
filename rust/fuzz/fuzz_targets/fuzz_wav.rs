@@ -40,6 +40,11 @@ fuzz_target!(|data: &[u8]| {
     }
     for shm_speed in [11025i32, 44100] {
         let stepscale = info.rate as f32 / shm_speed as f32;
+        // the int-range clamp in S_LoadSound
+        let flen = info.samples as f32 / stepscale;
+        if !(-2147483648.0..2147483648.0).contains(&flen) {
+            continue;
+        }
         let mut len = (info.samples as f32 / stepscale) as i32;
         len = len.wrapping_mul(info.width * info.channels);
         if info.samples == 0 || len == 0 || len < 0 {

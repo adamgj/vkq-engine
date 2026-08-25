@@ -588,17 +588,41 @@ unsafe extern "C" fn bgm_stop_f() {
     unsafe { BGM_Stop() };
 }
 
+/// C `atoi`: optional whitespace and sign, then leading decimal digits only
+/// (no exponent or hex forms -- unlike strtod)
+fn c_atoi(b: &[u8]) -> core::ffi::c_int {
+    let mut i = 0;
+    while i < b.len() && (b[i] == b' ' || (0x09..=0x0d).contains(&b[i])) {
+        i += 1;
+    }
+    let mut neg = false;
+    if i < b.len() && (b[i] == b'+' || b[i] == b'-') {
+        neg = b[i] == b'-';
+        i += 1;
+    }
+    let mut v: core::ffi::c_int = 0;
+    while i < b.len() && b[i].is_ascii_digit() {
+        v = v
+            .wrapping_mul(10)
+            .wrapping_add((b[i] - b'0') as core::ffi::c_int);
+        i += 1;
+    }
+    if neg {
+        v.wrapping_neg()
+    } else {
+        v
+    }
+}
+
 unsafe extern "C" fn bgm_jump_f() {
     let st = state();
-    // SAFETY: command trampoline; atoi via strtod truncation is not the C's
-    // atoi only for values beyond i32, which the command never sees
+    // SAFETY: command trampoline
     unsafe {
         if sys::Cmd_Argc() != 2 {
             sys::Con_Printf(c"music_jump <ordernum>\n".as_ptr());
         } else if !st.stream.is_null() {
-            let arg = core::ffi::CStr::from_ptr(sys::Cmd_Argv(1)).to_bytes_with_nul();
-            let order = quake_c_sys::libm::strtod(arg) as c_int;
-            crate::snd_codec::S_CodecJumpToOrder(st.stream, order);
+            let arg = core::ffi::CStr::from_ptr(sys::Cmd_Argv(1)).to_bytes();
+            crate::snd_codec::S_CodecJumpToOrder(st.stream, c_atoi(arg));
         }
     }
 }

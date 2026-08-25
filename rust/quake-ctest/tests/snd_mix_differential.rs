@@ -114,14 +114,11 @@ fn make_sfx(name: &str, length: i32, loopstart: i32, width: i32, seed: u32) -> S
 }
 
 struct TestLoader<'a> {
-    channels_ptr: *const Channel,
     sfxs: &'a [SfxFixture],
 }
 
 impl SfxSource for TestLoader<'_> {
-    fn load(&mut self, ch_index: usize) -> Option<CacheView<'_>> {
-        // SAFETY: channels_ptr covers total_channels entries for the whole run
-        let sfxp = unsafe { (*self.channels_ptr.add(ch_index)).sfx };
+    fn load(&mut self, sfxp: *mut Sfx) -> Option<CacheView<'_>> {
         self.sfxs
             .iter()
             .find(|f| core::ptr::addr_of!(*f.sfx) == sfxp.cast_const())
@@ -261,10 +258,7 @@ fn run_scenario(sc: &Scenario, sfxs: &[SfxFixture]) {
     let mut r_hash = FNV_BASIS;
     let mut r_blocks = 0;
 
-    let mut loader = TestLoader {
-        channels_ptr: r_channels.as_ptr(),
-        sfxs,
-    };
+    let mut loader = TestLoader { sfxs };
 
     let mut endtime = sc.start_paintedtime;
     for &(uw, delta) in &sc.paints {

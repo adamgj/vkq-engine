@@ -62,10 +62,14 @@ fn state() -> &'static mut SndState {
     unsafe { &mut SND }
 }
 
-fn channels() -> &'static mut [Channel; MAX_CHANNELS] {
-    // SAFETY: snd_glue.c defines channel_t snd_channels[MAX_CHANNELS]; layout
-    // pinned by quake-ctest/tests/snd_abi.rs
-    unsafe { &mut *(core::ptr::addr_of_mut!(sys::snd_channels) as *mut [Channel; MAX_CHANNELS]) }
+/// Base pointer to snd_glue.c's `channel_t snd_channels[MAX_CHANNELS]`
+/// (layout pinned by quake-ctest/tests/snd_abi.rs). A raw pointer, not a
+/// reference: several paths hold a `*mut Channel` into the array while
+/// scanning it, so exclusive references are formed only in tight scopes.
+fn channels_base() -> *mut Channel {
+    // taking the extern static's address only; main-thread/snd_mutex
+    // discipline governs the accesses derived from it
+    core::ptr::addr_of_mut!(sys::snd_channels) as *mut Channel
 }
 
 fn lock() {
@@ -391,11 +395,18 @@ pub unsafe extern "C" fn S_PrecacheSound(name: *const c_char) -> *mut Sfx {
 /// Main thread under snd_mutex (callers hold it, as in C).
 #[no_mangle]
 pub unsafe extern "C" fn SND_PickChannel(entnum: c_int, entchannel: c_int) -> *mut Channel {
-    // SAFETY: paintedtime is glue storage; viewentity via the glue accessor
-    let (painted, viewentity) = unsafe { (sys::paintedtime, sys::SND_Glue_ViewEntity()) };
-    match dma::pick_channel(&mut channels()[..], painted, viewentity, entnum, entchannel) {
-        Some(i) => &mut channels()[i],
-        None => core::ptr::null_mut(),
+    // SAFETY: paintedtime is glue storage; viewentity via the glue accessor;
+    // the slice borrow is exclusive for the duration of pick_channel only
+    unsafe {
+        let (painted, viewentity) = (sys::paintedtime, sys::SND_Glue_ViewEntity());
+        let picked = {
+            let chans = core::slice::from_raw_parts_mut(channels_base(), MAX_CHANNELS);
+            dma::pick_channel(chans, painted, viewentity, entnum, entchannel)
+        };
+        match picked {
+            Some(i) => channels_base().add(i),
+            None => core::ptr::null_mut(),
+        }
     }
 }
 
@@ -458,40 +469,40 @@ pub unsafe extern "C" fn S_StartSound(
         }
 
         // spatialize
-        // SAFETY: target_chan points into snd_channels; origin has 3 floats
+        // SAFETY: target_chan points into snd_channels; origin has 3 floats;
+        // all channel accesses go through raw pointers (target_chan and the
+        // scan below alias the same array)
         unsafe {
-            let ch = &mut *target_chan;
-            *ch = core::mem::zeroed();
-            ch.origin = [*origin, *origin.add(1), *origin.add(2)];
-            ch.dist_mult = (attenuation as f64 / dma::SOUND_NOMINAL_CLIP_DIST) as f32;
-            ch.master_vol = (fvol * 255.0) as i32;
-            ch.entnum = entnum;
-            ch.entchannel = entchannel;
+            core::ptr::write(target_chan, core::mem::zeroed());
+            (*target_chan).origin = [*origin, *origin.add(1), *origin.add(2)];
+            (*target_chan).dist_mult = (attenuation as f64 / dma::SOUND_NOMINAL_CLIP_DIST) as f32;
+            (*target_chan).master_vol = (fvol * 255.0) as i32;
+            (*target_chan).entnum = entnum;
+            (*target_chan).entchannel = entchannel;
             SND_Spatialize(target_chan);
 
-            if ch.leftvol == 0 && ch.rightvol == 0 {
+            if (*target_chan).leftvol == 0 && (*target_chan).rightvol == 0 {
                 break 'unlock;
             }
 
             // new channel
             let sc = crate::snd_mem::S_LoadSound(sfx);
             if sc.is_null() {
-                ch.sfx = core::ptr::null_mut();
+                (*target_chan).sfx = core::ptr::null_mut();
                 break 'unlock; // couldn't load the sound's data
             }
             let sc = &*sc;
 
-            ch.sfx = sfx;
-            ch.pos = 0;
-            ch.end = sys::paintedtime + sc.length;
+            (*target_chan).sfx = sfx;
+            (*target_chan).pos = 0;
+            (*target_chan).end = sys::paintedtime + sc.length;
 
             // if an identical sound has also been started this frame, offset
             // the pos a bit to keep it from just making the first one louder
-            let chans = channels();
-            #[allow(clippy::needless_range_loop)] // pointer identity vs target_chan
+            let base = channels_base();
             for ch_idx in NUM_AMBIENTS..NUM_AMBIENTS + MAX_DYNAMIC_CHANNELS {
-                let check = core::ptr::addr_of_mut!(chans[ch_idx]);
-                if check == target_chan {
+                let check = base.add(ch_idx);
+                if core::ptr::eq(check, target_chan) {
                     continue;
                 }
                 if (*check).sfx == sfx && (*check).pos == 0 {
@@ -503,9 +514,8 @@ pub unsafe extern "C" fn S_StartSound(
                     if skip > 0 {
                         skip = sys::COM_Rand() % skip;
                     }
-                    let ch = &mut *target_chan;
-                    ch.pos += skip;
-                    ch.end -= skip;
+                    (*target_chan).pos += skip;
+                    (*target_chan).end -= skip;
                     break;
                 }
             }
@@ -521,12 +531,15 @@ pub unsafe extern "C" fn S_StartSound(
 #[no_mangle]
 pub unsafe extern "C" fn S_StopSound(entnum: c_int, entchannel: c_int) {
     lock();
-    let chans = channels();
-    for ch in chans.iter_mut().take(MAX_DYNAMIC_CHANNELS) {
-        if ch.entnum == entnum && ch.entchannel == entchannel {
-            ch.end = 0;
-            ch.sfx = core::ptr::null_mut();
-            break;
+    // SAFETY: exclusive access for this scope (main thread under snd_mutex)
+    unsafe {
+        let chans = core::slice::from_raw_parts_mut(channels_base(), MAX_DYNAMIC_CHANNELS);
+        for ch in chans.iter_mut() {
+            if ch.entnum == entnum && ch.entchannel == entchannel {
+                ch.end = 0;
+                ch.sfx = core::ptr::null_mut();
+                break;
+            }
         }
     }
     unlock();
@@ -559,7 +572,7 @@ pub unsafe extern "C" fn S_StopAllSounds(clear: bool, keep_statics: bool) {
             // call pattern (each is a cheap cache hit after the first)
             // SAFETY: our own exports under the recursive lock
             unsafe {
-                let ch = core::ptr::addr_of_mut!(channels()[i]);
+                let ch = channels_base().add(i);
                 let reset = !keep_statics
                     || (*ch).entnum != 0
                     || (*ch).sfx.is_null()
@@ -601,9 +614,7 @@ pub unsafe extern "C" fn S_ClearBuffer() {
             if !st.sound_started || sys::shm.is_null() {
                 break 'unlock;
             }
-            if !sys::harness_sndhash {
-                sys::SNDDMA_LockBuffer();
-            }
+            sys::SNDDMA_LockBuffer();
             let shm = &*sys::shm;
             if shm.buffer.is_null() {
                 break 'unlock;
@@ -622,9 +633,7 @@ pub unsafe extern "C" fn S_ClearBuffer() {
                 (shm.samples * shm.samplebits / 8).max(0) as usize,
             );
 
-            if !sys::harness_sndhash {
-                sys::SNDDMA_Submit();
-            }
+            sys::SNDDMA_Submit();
         }
     }
     unlock();
@@ -668,12 +677,12 @@ pub unsafe extern "C" fn S_StaticSound(
                 break 'unlock;
             }
 
-            let ss = &mut channels()[ss_idx];
-            ss.sfx = sfx;
-            ss.origin = [*origin, *origin.add(1), *origin.add(2)];
-            ss.master_vol = vol;
-            ss.dist_mult = ((attenuation / 64.0) as f64 / dma::SOUND_NOMINAL_CLIP_DIST) as f32;
-            ss.end = sys::paintedtime + sc.length;
+            let ss = channels_base().add(ss_idx);
+            (*ss).sfx = sfx;
+            (*ss).origin = [*origin, *origin.add(1), *origin.add(2)];
+            (*ss).master_vol = vol;
+            (*ss).dist_mult = ((attenuation / 64.0) as f64 / dma::SOUND_NOMINAL_CLIP_DIST) as f32;
+            (*ss).end = sys::paintedtime + sc.length;
 
             SND_Spatialize(ss);
         }
@@ -718,16 +727,16 @@ fn update_ambient_sounds(st: &mut SndState) {
                 underwater_intensity_for_contents((*leaf).contents)
             });
             if leaf.is_null() || sys::ambient_level.value == 0.0 {
-                for ch in channels().iter_mut().take(NUM_AMBIENTS) {
-                    ch.sfx = core::ptr::null_mut();
+                for i in 0..NUM_AMBIENTS {
+                    (*channels_base().add(i)).sfx = core::ptr::null_mut();
                 }
                 break 'unlock;
             }
             let leaf = &*leaf;
 
             for ambient_channel in 0..NUM_AMBIENTS {
-                let chan = &mut channels()[ambient_channel];
-                chan.sfx = st.ambient_sfx[ambient_channel];
+                let chan = channels_base().add(ambient_channel);
+                (*chan).sfx = st.ambient_sfx[ambient_channel];
 
                 // C: static float vol = (int)(ambient_level.value * level)
                 let vol = (sys::ambient_level.value
@@ -743,7 +752,7 @@ fn update_ambient_sounds(st: &mut SndState) {
                     if *level > vol {
                         *level = vol;
                     }
-                } else if chan.master_vol as f32 > vol {
+                } else if (*chan).master_vol as f32 > vol {
                     *level = (*level as f64 - sys::host_frametime * sys::ambient_fade.value as f64)
                         as f32;
                     if *level < vol {
@@ -752,9 +761,9 @@ fn update_ambient_sounds(st: &mut SndState) {
                 }
 
                 let l = *level as i32;
-                chan.leftvol = l;
-                chan.rightvol = l;
-                chan.master_vol = l;
+                (*chan).leftvol = l;
+                (*chan).rightvol = l;
+                (*chan).master_vol = l;
             }
         }
     }
@@ -832,16 +841,19 @@ pub unsafe extern "C" fn S_Update(
             update_ambient_sounds(st);
 
             let total = sys::total_channels as usize;
-            let chans = channels();
+            let base = channels_base();
             let mut combine: Option<usize> = None;
 
             // update spatialization for static and dynamic sounds
+            // (raw pointers throughout: SND_Spatialize takes a pointer into
+            // the same array the combine pass reads and writes)
             for i in NUM_AMBIENTS..total {
-                if chans[i].sfx.is_null() {
+                let ch = base.add(i);
+                if (*ch).sfx.is_null() {
                     continue;
                 }
-                SND_Spatialize(core::ptr::addr_of_mut!(chans[i])); // respatialize channel
-                if chans[i].leftvol == 0 && chans[i].rightvol == 0 {
+                SND_Spatialize(ch); // respatialize channel
+                if (*ch).leftvol == 0 && (*ch).rightvol == 0 {
                     continue;
                 }
 
@@ -850,18 +862,19 @@ pub unsafe extern "C" fn S_Update(
                 if i >= MAX_DYNAMIC_CHANNELS + NUM_AMBIENTS {
                     // see if it can just use the last one
                     if let Some(c) = combine {
-                        if chans[c].sfx == chans[i].sfx {
-                            chans[c].leftvol += chans[i].leftvol;
-                            chans[c].rightvol += chans[i].rightvol;
-                            chans[i].leftvol = 0;
-                            chans[i].rightvol = 0;
+                        let cc = base.add(c);
+                        if (*cc).sfx == (*ch).sfx {
+                            (*cc).leftvol += (*ch).leftvol;
+                            (*cc).rightvol += (*ch).rightvol;
+                            (*ch).leftvol = 0;
+                            (*ch).rightvol = 0;
                             continue;
                         }
                     }
                     // search for one
                     let mut j = MAX_DYNAMIC_CHANNELS + NUM_AMBIENTS;
                     while j < i {
-                        if chans[j].sfx == chans[i].sfx {
+                        if (*base.add(j)).sfx == (*ch).sfx {
                             break;
                         }
                         j += 1;
@@ -873,10 +886,11 @@ pub unsafe extern "C" fn S_Update(
                         combine = None;
                     } else {
                         if j != i {
-                            chans[j].leftvol += chans[i].leftvol;
-                            chans[j].rightvol += chans[i].rightvol;
-                            chans[i].leftvol = 0;
-                            chans[i].rightvol = 0;
+                            let cj = base.add(j);
+                            (*cj).leftvol += (*ch).leftvol;
+                            (*cj).rightvol += (*ch).rightvol;
+                            (*ch).leftvol = 0;
+                            (*ch).rightvol = 0;
                         }
                         combine = Some(j);
                         continue;
@@ -887,8 +901,9 @@ pub unsafe extern "C" fn S_Update(
             // debugging output
             if sys::snd_show.value != 0.0 {
                 let mut dbg_total = 0;
-                for ch in chans.iter().take(total) {
-                    if !ch.sfx.is_null() && (ch.leftvol != 0 || ch.rightvol != 0) {
+                for i in 0..total {
+                    let ch = base.add(i);
+                    if !(*ch).sfx.is_null() && ((*ch).leftvol != 0 || (*ch).rightvol != 0) {
                         dbg_total += 1;
                     }
                 }
@@ -961,9 +976,7 @@ fn s_update_mix(st: &mut SndState) {
 
         // SAFETY: DMA lock + glue storage, mirroring S_Update_ exactly
         unsafe {
-            if !sys::harness_sndhash {
-                sys::SNDDMA_LockBuffer();
-            }
+            sys::SNDDMA_LockBuffer();
             if (*sys::shm).buffer.is_null() {
                 break 'unlock;
             }
@@ -985,9 +998,7 @@ fn s_update_mix(st: &mut SndState) {
 
             crate::snd_mix::S_PaintChannels(endtime as c_int);
 
-            if !sys::harness_sndhash {
-                sys::SNDDMA_Submit();
-            }
+            sys::SNDDMA_Submit();
         }
     }
     unlock();
@@ -1009,7 +1020,7 @@ pub unsafe extern "C" fn S_BlockSound() {
         // SAFETY: our own export + DMA block, mirroring the C
         unsafe {
             S_ClearBuffer();
-            if !sys::shm.is_null() && !sys::harness_sndhash {
+            if !sys::shm.is_null() {
                 sys::SNDDMA_BlockSound();
             }
         }
@@ -1033,9 +1044,7 @@ pub unsafe extern "C" fn S_UnblockSound() {
             st.snd_blocked = 0;
             // SAFETY: DMA unblock + our own export, mirroring the C
             unsafe {
-                if !sys::harness_sndhash {
-                    sys::SNDDMA_UnblockSound();
-                }
+                sys::SNDDMA_UnblockSound();
                 S_ClearBuffer();
             }
         }
@@ -1097,9 +1106,13 @@ unsafe fn play_cmd(with_vol: bool) {
             let n = argb.len().min(255);
             name[..n].copy_from_slice(&argb[..n]);
             if !argb.contains(&b'.') {
-                // C: strrchr(arg, '.') == NULL -> q_strlcat(name, ".wav")
-                let end = n.min(255 - 4);
-                name[end..end + 4].copy_from_slice(b".wav");
+                // C: strrchr(arg, '.') == NULL -> q_strlcat(name, ".wav", 256):
+                // append at the current end, truncating at the 255-byte cap
+                for (k, &b) in b".wav".iter().enumerate() {
+                    if n + k < 255 {
+                        name[n + k] = b;
+                    }
+                }
             }
             let sfx = S_PrecacheSound(name.as_ptr().cast());
             let (hash, vol) = if with_vol {

@@ -111,3 +111,27 @@ Per-milestone: targeted ctest differentials + affected harness gates. Milestone 
 - **2026-08-25 (M7):** the codec framework is implemented directly over the `snd_codec_t` vtable rather than an additional Rust trait layer — the vtable *is* the ADR-014 mirror, the C decoder wrappers plug in unchanged, and registration order is trivially preserved. UMX ports behind `codec-umx` (mirroring `USE_CODEC_UMX`, enabled by no Meson config). The per-codec decode comparison runs engine-level (same C decoder libs both builds) via the music harness corpus instead of the planned env-gated ctest lib leg; lossy-format fixtures cannot be committed (no encoders in CI), so CI covers WAV and local registered-tier runs covered vorbis + flac.
 - **2026-08-25 (M9, scope deviation):** the SDL2 audio backend was NOT ported. SDL2 dev libraries are absent from the dev machine and every CI leg, so the `sdl2`-crate backend could not be built anywhere; shipping unverifiable code was rejected. `snd_sdl.c` stays C (meson compiles it under use_rust_snd when SDL2 is selected); the port follows with a use_rust+SDL2 CI leg (ADR-017 amendment).
 - **2026-08-25 (M10):** committed-fixture staging added to the harness (`run_demo.py --fixture-dir`, corpus `fixture_dir` key) with two synthetic WAVs under `Misc/harness/fixtures/sndfix/`; new corpus entry `music-wav`; darwin-arm64 `-sndhash` goldens committed for all 11 entries.
+- **2026-08-25 (post-review fixes):** the fresh-context integration review
+  (report: phase4-review.md in the session scratchpad; verdict "ready with
+  stated residual risk, conditional on finding 1") produced: (1) FIXED — the
+  snd_mix shim redeclared `SND_Glue_PauseLoops` as returning `c_int` where the
+  C returns `qboolean`/_Bool (upper register bits unspecified per ABI); it now
+  uses the correctly-typed bindgen declaration. (2) FIXED — the `channels()`
+  helper handed out overlapping `&'static mut` borrows of `snd_channels`
+  (Stacked-Borrows UB); snd_dma.rs now works from a raw base pointer with
+  tightly-scoped exclusive references, and `SfxSource::load` is keyed by the
+  channel's `sfx` pointer so the mixer's loader no longer aliases the paint
+  loop's borrow. (3) FIXED — samples/stepscale outside int range was UB and
+  platform-divergent; a float-arithmetic-exact clamp landed in C and is
+  mirrored in the shim and test/fuzz gates. (5) FIXED — the Rust shims now
+  call SNDDMA_Lock/Submit/Block/Unblock unconditionally like the C (the
+  backends no-op with no device under -sndhash). (6) FIXED — music_jump now
+  parses with C atoi semantics. (7) FIXED — play/playvol ".wav" append now
+  matches q_strlcat truncation. (4) RECORDED — the `cue` chunk-length clamp
+  is not strictly behavior-neutral: a well-formed short cue chunk (< 28 bytes
+  of data) previously read the following chunk's bytes as loopstart and now
+  yields loopstart=-1; accepted as part of the UB-removal, both sides agree.
+  (8) RECORDED — the mixer reads 0 past a stale channel's cache where the C
+  read out-of-bounds heap (UB); deliberate divergence-on-UB, the
+  S_FlushOldestSounds path (needs >4096 distinct sounds) has no test and any
+  real divergence would surface as a -sndhash compare failure, not silence.
