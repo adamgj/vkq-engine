@@ -425,6 +425,15 @@ unsafe extern "C" {
     ) -> ::std::os::raw::c_int;
 }
 unsafe extern "C" {
+    pub fn Image_DecodeSTBMem(
+        mem: *const byte,
+        len: ::std::os::raw::c_int,
+        width: *mut ::std::os::raw::c_int,
+        height: *mut ::std::os::raw::c_int,
+        failure_reason: *mut *const ::std::os::raw::c_char,
+    ) -> *mut byte;
+}
+unsafe extern "C" {
     pub static mut multiuser: qboolean;
 }
 unsafe extern "C" {

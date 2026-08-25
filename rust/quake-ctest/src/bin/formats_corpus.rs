@@ -247,25 +247,28 @@ fn run_md5(name: &str) -> Outcome {
     Outcome::Ok(h.hex())
 }
 
-fn run_image(name: &str, pcx: bool) -> Outcome {
+fn run_image(name: &str, format: drv::ImageFormat) -> Outcome {
     let cname = CString::new(name).unwrap();
     if ctfs::load_file(Side::C, &cname).is_none() {
         return Outcome::Skip("unreadable");
     }
-    let buf_len = |w: i32, h: i32| -> usize {
-        if pcx {
-            (w.wrapping_mul(h).wrapping_add(1).wrapping_mul(4)).max(0) as usize
-        } else {
-            (w as u32).wrapping_mul(h as u32) as usize
+    let buf_len = move |w: i32, h: i32| -> usize {
+        match format {
+            drv::ImageFormat::Pcx => {
+                (w.wrapping_mul(h).wrapping_add(1).wrapping_mul(4)).max(0) as usize
+            }
+            drv::ImageFormat::Lmp => (w as u32).wrapping_mul(h as u32) as usize,
+            // stb always returns w*h*4 RGBA on success
+            drv::ImageFormat::Stb => ((w as u32).wrapping_mul(h as u32) as usize).wrapping_mul(4),
         }
     };
     // SAFETY: the fixture opens (checked above); C runs under the trap
-    let c = unsafe { drv::image_decode_side(Side::C, &cname, pcx, buf_len) };
+    let c = unsafe { drv::image_decode_side(Side::C, &cname, format, buf_len) };
     if let Some(msg) = c.error {
         return Outcome::Reject(msg);
     }
     // SAFETY: C accepted, establishing the decision
-    let r = unsafe { drv::image_decode_side(Side::Rust, &cname, pcx, buf_len) };
+    let r = unsafe { drv::image_decode_side(Side::Rust, &cname, format, buf_len) };
     assert_eq!(c, r, "{name}: decode parity");
     assert_eq!(c.open_handles, 0, "{name}: decoder must close the handle");
     let mut h = Hasher::new();
@@ -326,9 +329,9 @@ fn main() {
         } else if lower.ends_with(".md5mesh") {
             run_md5(name)
         } else if lower.ends_with(".pcx") {
-            run_image(name, true)
+            run_image(name, drv::ImageFormat::Pcx)
         } else if lower.ends_with(".lmp") {
-            run_image(name, false)
+            run_image(name, drv::ImageFormat::Lmp)
         } else {
             Outcome::Skip("unknown extension")
         };

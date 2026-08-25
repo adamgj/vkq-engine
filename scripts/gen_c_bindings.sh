@@ -69,6 +69,7 @@ bindgen rust/quake-c-sys/bindings_wrapper.h \
     --allowlist-function 'Sys_GetSteamDir|Sys_GetGOGQuakeDir|Sys_GetGOGQuakeEnhancedDir|Sys_GetEGSManifestDir|Sys_GetEGSLauncherData|Sys_GetNightdiveUserDir' \
     --allowlist-function 'Steam_Init|ChooseQuakeFlavor|Cvar_RegisterVariable|Cmd_AddCommand2' \
     --allowlist-function 'COM_StripExtension|COM_SkipPath|q_strtrim' \
+    --allowlist-function 'Image_DecodeSTBMem' \
     --allowlist-var 'com_argc|com_argv' \
     --allowlist-var 'registered|cmdline|developer|multiuser|isDedicated|harness_active|external_ents' \
     --allowlist-var 'vkquake_pak|vkquake_pak_size|vkquake_pak_decompressed_size' \

@@ -19,7 +19,10 @@ along with this program; if not, write to the Free Software
 Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 */
-// image_stb.c -- PNG/TGA/JPG decode via stb_image (stays C until Phase 3 M8)
+// image_stb.c -- PNG/TGA/JPG decode via stb_image (Rust migration Phase 3 M8 seam).
+// Under -Duse_rust_image (USE_RUST_IMAGE) the Rust shim provides Image_DecodeSTB
+// and this file keeps only Image_DecodeSTBMem, the in-memory stb decoder the
+// Rust side uses as the fallback/oracle for formats not (yet) decoded by crates.
 
 #include "quakedef.h"
 
@@ -60,6 +63,113 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #ifdef _MSC_VER
 #pragma warning(pop)
 #endif
+
+/*
+============
+Image_DecodeSTBMem -- stb decode over an in-memory image; always compiled.
+
+The Rust Image_DecodeSTB bulk-reads the resource and routes formats it does
+not decode itself through this helper; on failure the stb reason is returned
+through *failure_reason (a static/thread-local string, valid until the next
+stb call on this thread).
+
+Decodes through stbi_load_from_callbacks over a memory cursor mirroring the
+Sys_File* handle semantics (sys_sdl.c) byte for byte -- NOT
+stbi_load_from_memory, whose context copies nothing on a short read where
+the callback context keeps the partial bytes (observable on truncated raw
+TGA tails). The cursor treats the resource slice as the whole file; for a
+resource inside a pak the streaming decoder could read past the resource
+into neighboring pak bytes, which the slice cannot reproduce -- same
+out-of-resource class the PCX shim documents (Phase 3 M2 amendment log).
+============
+*/
+typedef struct stbmemfile_s
+{
+	const byte *mem;
+	int			len;
+	qfileofs_t	pos;
+	bool		eof_condition;
+} stbmemfile_t;
+
+// Sys_FileRead (sys_sdl.c) over the resource slice
+static int stbmem_read_cb (void *user, char *data, int size)
+{
+	stbmemfile_t *f = (stbmemfile_t *)user;
+
+	if (size <= 0)
+		return 0;
+
+	f->eof_condition = f->eof_condition || (((qfileofs_t)f->len - f->pos) <= 0) ? true : false;
+
+	if (f->eof_condition)
+		return 0;
+
+	qfilesize_t computed_read_count = q_min ((qfilesize_t)size, (qfilesize_t)f->len - f->pos);
+	computed_read_count = q_max (0, computed_read_count);
+
+	memcpy (data, f->mem + f->pos, computed_read_count);
+	f->pos += computed_read_count;
+	f->eof_condition = (computed_read_count < size);
+	return (int)computed_read_count;
+}
+
+// Sys_FileSeek: going beyond the end is fine; eof_condition is NOT cleared
+static void stbmem_seek (stbmemfile_t *f, qfileofs_t position)
+{
+	if (position >= 0)
+		f->pos = position;
+}
+
+// Sys_fgetc over the cursor
+static int stbmem_fgetc (stbmemfile_t *f)
+{
+	if (f->eof_condition)
+		return EOF;
+
+	char next_byte_read = 0;
+
+	if (stbmem_read_cb (f, &next_byte_read, 1) != 1)
+		return EOF;
+
+	return (unsigned char)next_byte_read;
+}
+
+// mirrors stbi_skip_cb below: seek, then the fgetc probe + re-seek
+static void stbmem_skip_cb (void *user, int n)
+{
+	stbmemfile_t *f = (stbmemfile_t *)user;
+
+	qfileofs_t current_pos = f->pos;
+
+	qfileofs_t new_pos = current_pos + n;
+
+	stbmem_seek (f, new_pos);
+
+	if (stbmem_fgetc (f) != EOF)
+	{
+		stbmem_seek (f, new_pos);
+	}
+}
+
+static int stbmem_eof_cb (void *user)
+{
+	return (int)((stbmemfile_t *)user)->eof_condition;
+}
+
+byte *Image_DecodeSTBMem (const byte *mem, int len, int *width, int *height, const char **failure_reason)
+{
+	stbmemfile_t	  memfile = {.mem = mem, .len = len, .pos = 0, .eof_condition = false};
+	stbi_io_callbacks mem_cb = {.read = stbmem_read_cb, .eof = stbmem_eof_cb, .skip = stbmem_skip_cb};
+
+	byte *data = stbi_load_from_callbacks (&mem_cb, &memfile, width, height, NULL, 4);
+
+	if (!data && failure_reason)
+		*failure_reason = stbi_failure_reason ();
+
+	return data;
+}
+
+#ifndef USE_RUST_IMAGE
 
 static int stbi_read_cb (void *user, char *data, int size)
 {
@@ -110,3 +220,5 @@ byte *Image_DecodeSTB (int file_handle, int *width, int *height, const char *ima
 	COM_CloseFile (file_handle);
 	return data;
 }
+
+#endif /* !USE_RUST_IMAGE */

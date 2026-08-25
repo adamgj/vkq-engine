@@ -11,6 +11,7 @@ const C_SOURCES: &[&str] = &[
     "Quake/crc.c",
     "Quake/hash_map.c",
     "Quake/image_decode.c",
+    "Quake/image_stb.c",
     "Quake/json.c",
     "Quake/mathlib.c",
     "Quake/mdfour.c",
@@ -103,10 +104,15 @@ fn main() {
         println!("cargo:rerun-if-changed={}", path.display());
         build.file(path);
     }
-    // common_fs.c compiles miniz.c inside its own TU (stb-style include)
+    // common_fs.c compiles miniz.c inside its own TU (stb-style include);
+    // image_stb.c does the same with stb_image.h
     println!(
         "cargo:rerun-if-changed={}",
         repo_root.join("Quake/miniz.c").display()
+    );
+    println!(
+        "cargo:rerun-if-changed={}",
+        repo_root.join("Quake/stb_image.h").display()
     );
     for stub in [
         "snprintf_oracle.c",

@@ -1,4 +1,5 @@
 //! Image_DecodePCX / Image_DecodeLMP shims (Quake/image_decode.c, Phase 3 M2)
+//! and the Image_DecodeSTB shim (Quake/image_stb.c, Phase 3 M8).
 //!
 //! The C decoders stream from the Sys_File handle; these shims read the
 //! whole resource (com_filesize bytes from the current position) in one
@@ -8,11 +9,16 @@
 //! (RLE overrun/end-of-file, out-of-resource pak reads) the C originals
 //! read or write out of bounds; these shims Sys_Error instead — see the
 //! COMPAT notes in quake-image and the task plan amendment log.
+//!
+//! Image_DecodeSTB classifies the resource with the ported stb probe chain
+//! (`quake_image::stb_sniff`) and dispatches per format; formats whose
+//! crate/hand-ported decoder has not passed its ADR-012 gate route through
+//! the always-compiled C `Image_DecodeSTBMem` (stb over the same bytes).
 
 use core::ffi::{c_char, c_int};
 
 use quake_c_sys as sys;
-use quake_image::{lmp, pcx};
+use quake_image::{lmp, pcx, stb_sniff};
 
 /// Read the rest of the resource (the C originals' view of it: com_filesize
 /// truncated to int, like their `const int file_size` locals).
@@ -30,6 +36,88 @@ unsafe fn read_resource(file_handle: c_int) -> (Vec<u8>, c_int) {
     let got = unsafe { sys::Sys_FileRead(file_handle, buf.as_mut_ptr().cast(), file_size) };
     buf.truncate(got.clamp(0, file_size) as usize);
     (buf, file_size)
+}
+
+/// The C failure path: `Con_Warning ("couldn't load %s (%s)\n", ...)`
+/// (Quake/image_stb.c), format string byte-identical.
+///
+/// # Safety
+/// `image_name` must be NUL-terminated and `reason` a NUL-terminated C
+/// string (static or stb thread-local).
+unsafe fn stb_warn(image_name: *const c_char, reason: *const c_char) {
+    // SAFETY: caller contract; varargs match the C Con_Warning call site
+    unsafe {
+        sys::Con_Warning(c"couldn't load %s (%s)\n".as_ptr(), image_name, reason);
+    }
+}
+
+/// Decode `file` with the C stb fallback (`Image_DecodeSTBMem`), emitting
+/// the C's Con_Warning on failure. Returns the stb-allocated buffer (the
+/// same Mem_Alloc plug the streaming C decoder uses) or NULL.
+///
+/// # Safety
+/// Valid out-pointers; NUL-terminated `image_name`.
+unsafe fn decode_stb_mem(
+    file: &[u8],
+    width: *mut c_int,
+    height: *mut c_int,
+    image_name: *const c_char,
+) -> *mut u8 {
+    let mut reason: *const c_char = core::ptr::null();
+    // SAFETY: file is a live slice; len fits c_int (read_resource caps it at
+    // com_filesize truncated to int); out-pointers valid per caller
+    let data = unsafe {
+        sys::Image_DecodeSTBMem(
+            file.as_ptr(),
+            file.len() as c_int,
+            width,
+            height,
+            &mut reason,
+        )
+    };
+    if data.is_null() {
+        // SAFETY: stb's failure reason is a static/thread-local C string
+        unsafe { stb_warn(image_name, reason) };
+    }
+    data
+}
+
+/// # Safety
+/// C ABI contract of Image_DecodeSTB (Quake/image_stb.c): open `file_handle`
+/// positioned at the resource start, valid `width`/`height` out-pointers,
+/// NUL-terminated `image_name`. Like the C original this never `Sys_Error`s:
+/// failure is a Con_Warning, COM_CloseFile and NULL, with the out-params
+/// only written where the format's decoder writes them.
+#[no_mangle]
+pub unsafe extern "C" fn Image_DecodeSTB(
+    file_handle: c_int,
+    width: *mut c_int,
+    height: *mut c_int,
+    image_name: *const c_char,
+) -> *mut u8 {
+    // SAFETY: caller guarantees an open handle at the resource start
+    let (file, _) = unsafe { read_resource(file_handle) };
+
+    let data = match stb_sniff::classify(&file) {
+        stb_sniff::Format::Unknown => {
+            // C: stbi__load_main falls off the probe chain —
+            // stbi__err("unknown image type", ...) into the Con_Warning
+            // SAFETY: static reason string; image_name per contract
+            unsafe { stb_warn(image_name, c"unknown image type".as_ptr()) };
+            core::ptr::null_mut()
+        }
+        // Png/Jpeg/Tga: crate/hand-ported decoders land per format (M8
+        // steps 3-5); until a format's ADR-012 gate is green it routes
+        // through the C stb fallback over the same bytes
+        stb_sniff::Format::Png | stb_sniff::Format::Jpeg | stb_sniff::Format::Tga =>
+        // SAFETY: caller contract (out-pointers, image_name)
+        unsafe { decode_stb_mem(&file, width, height, image_name) },
+    };
+
+    // SAFETY: engine call, closing the handle exactly where the C does
+    // (image_stb.c closes once, after decode, on success and failure alike)
+    unsafe { sys::COM_CloseFile(file_handle) };
+    data
 }
 
 /// # Safety
