@@ -28,6 +28,7 @@ quake-types = { path = "../quake-types" }
 # truncated model files) turning into false crashes in the fuzz loop.
 quake-formats = { path = "../quake-formats" }
 quake-image = { path = "../quake-image" }
+quake-snd = { path = "../quake-snd" }
 
 # Empty table: this package is its own workspace root, so the parent
 # workspace at rust/Cargo.toml (which also lists it in `exclude`) never
@@ -131,6 +132,13 @@ bench = false
 [[bin]]
 name = "fuzz_image_stb"
 path = "fuzz_targets/fuzz_image_stb.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_wav"
+path = "fuzz_targets/fuzz_wav.rs"
 test = false
 doc = false
 bench = false

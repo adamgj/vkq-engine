@@ -16,6 +16,7 @@ const C_SOURCES: &[&str] = &[
     "Quake/mathlib.c",
     "Quake/mdfour.c",
     "Quake/model_parse.c",
+    "Quake/snd_mem.c",
     "Quake/steam.c",
     "Quake/strlcpy.c",
     "Quake/strlcat.c",

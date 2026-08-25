@@ -1916,3 +1916,74 @@ void ctest_fill_dummy_textures (qmodel_t *mod)
 	mod->textures[mod->numtextures - 2] = &ctest_notexture_mip;
 	mod->textures[mod->numtextures - 1] = &ctest_notexture_mip2;
 }
+
+/* ---------------------------------------------------------------------------
+ * Phase 4 sound: stub-owned globals shared by c_ref snd_mem.c and (from M3)
+ * the Rust shims, plus a driver for the resampler differential.
+ */
+
+static dma_t	ctest_dma;
+volatile dma_t *shm = NULL;
+qmutex_t	   *snd_mutex = NULL;
+
+cvar_t loadas8bit = {"loadas8bit", "0", CVAR_NONE};
+cvar_t sndspeed = {"sndspeed", "11025", CVAR_NONE};
+cvar_t snd_mixspeed = {"snd_mixspeed", "44100", CVAR_NONE};
+cvar_t sfxvolume = {"volume", "0.7", CVAR_NONE};
+cvar_t snd_filterquality = {"snd_filterquality", "1", CVAR_NONE};
+
+/* the suites are single-threaded; locking is a no-op */
+qmutex_t *QMutex_Create (void)
+{
+	return NULL;
+}
+void QMutex_Destroy (qmutex_t *mutex)
+{
+	(void)mutex;
+}
+void QMutex_Lock (qmutex_t *mutex)
+{
+	(void)mutex;
+}
+void QMutex_Unlock (qmutex_t *mutex)
+{
+	(void)mutex;
+}
+
+void ctest_snd_setup (int shm_speed, float loadas8bit_value)
+{
+	memset (&ctest_dma, 0, sizeof (ctest_dma));
+	ctest_dma.speed = shm_speed;
+	ctest_dma.samplebits = 16;
+	ctest_dma.channels = 2;
+	shm = &ctest_dma;
+	loadas8bit.value = loadas8bit_value;
+}
+
+/* Runs c_ref ResampleSfx exactly as S_LoadSound would: the cache header is
+ * pre-filled from the wav info, out_len is S_LoadSound's alloc size. Copies
+ * the rewritten header into meta_out[5] (length, loopstart, speed, width,
+ * stereo) and the resampled PCM into out. */
+void ctest_resample_ref (int length, int loopstart, int inrate, int inwidth, int stereo, const byte *data, byte *out, int out_len, int meta_out[5])
+{
+	sfx_t		sfx;
+	sfxcache_t *sc = (sfxcache_t *)Mem_Alloc (out_len + sizeof (sfxcache_t));
+
+	memset (&sfx, 0, sizeof (sfx));
+	sc->length = length;
+	sc->loopstart = loopstart;
+	sc->speed = inrate;
+	sc->width = inwidth;
+	sc->stereo = stereo;
+	sfx.cache = sc;
+
+	ResampleSfx (&sfx, inrate, inwidth, (byte *)data);
+
+	meta_out[0] = sc->length;
+	meta_out[1] = sc->loopstart;
+	meta_out[2] = sc->speed;
+	meta_out[3] = sc->width;
+	meta_out[4] = sc->stereo;
+	memcpy (out, sc->data, out_len);
+	free (sc);
+}

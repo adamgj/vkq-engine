@@ -11,6 +11,7 @@ publish.workspace = true
 quake-util = { path = "../quake-util" }
 quake-math = { path = "../quake-math" }
 quake-types = { path = "../quake-types" }
+quake-snd = { path = "../quake-snd" }
 quake-c-sys = { path = "../quake-c-sys" }
 # Phase 2: the differential suites compare the fs shims against the c_ref_*
 # build of common_fs.c/steam.c, so the fs feature must be on

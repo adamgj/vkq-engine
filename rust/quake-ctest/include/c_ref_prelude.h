@@ -376,4 +376,23 @@ typedef enum
 struct cmd_function_s *Cmd_AddCommand2 (const char *cmd_name, xcommand_t function, cmd_source_t srctype, qboolean qcinterceptable);
 #define Cmd_AddCommand(cmdname, func) Cmd_AddCommand2 (cmdname, func, src_command, false)
 
+/* ---- Phase 4 sound slice: snd_mem.c as the sfx loader/resampler oracle ----
+ *
+ * COM_LoadFile / com_filesize resolve through the Phase 2 renames and fs
+ * stubs above. shm / snd_mutex / loadas8bit are NOT renamed: they stay
+ * stub-owned state shared by the c_ref side and (from M3 on) the Rust shims,
+ * exactly like the engine's own globals. QMutex_* are no-op stubs (the
+ * differential suites are single-threaded). */
+#define S_LoadSound c_ref_S_LoadSound
+#define GetWavinfo	c_ref_GetWavinfo
+#define ResampleSfx c_ref_ResampleSfx
+
+#include "common.h"
+#include "q_thread.h"
+#include "q_sound.h"
+
+/* file-internal in the engine build; snd_mem.c un-statics it for this
+ * oracle build (the rename above applies) */
+void ResampleSfx (sfx_t *sfx, int inrate, int inwidth, byte *data);
+
 #endif /* C_REF_PRELUDE_H */

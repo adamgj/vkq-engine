@@ -27,7 +27,9 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 ResampleSfx
 ================
 */
-static void ResampleSfx (sfx_t *sfx, int inrate, int inwidth, byte *data)
+/* not static: quake-ctest compiles this file as the c_ref differential
+   oracle and drives the resampler directly (Rust migration Phase 4) */
+void ResampleSfx (sfx_t *sfx, int inrate, int inwidth, byte *data)
 {
 	int	  outcount;
 	int	  srcsample;
@@ -135,6 +137,14 @@ sfxcache_t *S_LoadSound (sfx_t *s)
 		goto unlock_mutex;
 	}
 
+	// bounds clamp: a non-positive rate made stepscale zero/negative and the
+	// float->int conversion of samples/stepscale undefined (platform-varying)
+	if (info.rate <= 0)
+	{
+		Con_Printf ("%s has an invalid sample rate\n", s->name);
+		goto unlock_mutex;
+	}
+
 	stepscale = (float)info.rate / shm->speed;
 	len = info.samples / stepscale;
 
@@ -144,6 +154,28 @@ sfxcache_t *S_LoadSound (sfx_t *s)
 	{
 		Con_Printf ("%s has zero samples\n", s->name);
 		goto unlock_mutex;
+	}
+
+	// bounds clamp: reading past the loaded file was an out-of-bounds access.
+	// The last source index the resampler will touch is computed exactly as
+	// ResampleSfx does (fast path reads samples bytes; the general path's
+	// last srcsample is ((outcount-1)*fracstep)>>8, float truncations of
+	// outcount included, which can exceed samples-1 by rounding)
+	{
+		int64_t last_srcsample;
+		if (stepscale == 1 && info.width == 1)
+			last_srcsample = (int64_t)info.samples - 1;
+		else
+		{
+			int outcount = info.samples / stepscale;
+			int fracstep = (int)(stepscale * 256);
+			last_srcsample = ((int64_t)(outcount - 1) * fracstep) >> 8;
+		}
+		if ((int64_t)info.dataofs + (last_srcsample + 1) * info.width > (int64_t)com_filesize)
+		{
+			Con_Printf ("%s has a bad data length\n", s->name);
+			goto unlock_mutex;
+		}
 	}
 
 	sc = (sfxcache_t *)Mem_Alloc (len + sizeof (sfxcache_t));
@@ -269,8 +301,10 @@ wavinfo_t GetWavinfo (const char *name, byte *wav, int wavlength)
 	iff_end = wav + wavlength;
 
 	// find "RIFF" chunk
+	// (bounds clamp: a RIFF chunk shorter than 4 bytes has no room for the
+	// "WAVE" tag; reading it was an out-of-bounds access on hostile input)
 	FindChunk ("RIFF");
-	if (!(data_p && !strncmp ((char *)data_p + 8, "WAVE", 4)))
+	if (!(data_p && iff_chunk_len >= 4 && !strncmp ((char *)data_p + 8, "WAVE", 4)))
 	{
 		Con_Printf ("%s missing RIFF/WAVE chunks\n", name);
 		return info;
@@ -283,7 +317,8 @@ wavinfo_t GetWavinfo (const char *name, byte *wav, int wavlength)
 #endif
 
 	FindChunk ("fmt ");
-	if (!data_p)
+	// (bounds clamp: the fields read below span 16 bytes of chunk data)
+	if (!data_p || iff_chunk_len < 16)
 	{
 		Con_Printf ("%s is missing fmt chunk\n", name);
 		return info;
@@ -305,8 +340,9 @@ wavinfo_t GetWavinfo (const char *name, byte *wav, int wavlength)
 	info.width = i / 8;
 
 	// get cue chunk
+	// (bounds clamp: the loopstart read is at chunk data offset 24..28)
 	FindChunk ("cue ");
-	if (data_p)
+	if (data_p && iff_chunk_len >= 28)
 	{
 		data_p += 32;
 		info.loopstart = GetLittleLong ();
