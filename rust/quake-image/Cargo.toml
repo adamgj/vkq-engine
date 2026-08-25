@@ -12,6 +12,10 @@ publish.workspace = true
 # "MIT OR Apache-2.0" -> MIT; first third-party runtime dependency shipped in
 # libquake_rs.a (review notes in the ADR-003 M8 amendment).
 png = "0.18.1"
+# ADR-003/ADR-012 (M8): JPEG decode under the owner-relaxed gate
+# (accept/reject + dims parity + bounded pixel delta vs stb; not bit-exact).
+# "MIT OR Apache-2.0 OR Zlib" -> MIT; sole transitive dep is zune-core.
+zune-jpeg = "0.5.15"
 
 [lints]
 workspace = true

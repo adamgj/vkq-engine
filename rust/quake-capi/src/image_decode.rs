@@ -18,7 +18,7 @@
 use core::ffi::{c_char, c_int};
 
 use quake_c_sys as sys;
-use quake_image::{lmp, pcx, png_stb, stb_sniff, tga};
+use quake_image::{jpeg_stb, lmp, pcx, png_stb, stb_sniff, tga};
 
 /// Read the rest of the resource (the C originals' view of it: com_filesize
 /// truncated to int, like their `const int file_size` locals).
@@ -207,11 +207,47 @@ pub unsafe extern "C" fn Image_DecodeSTB(
                 core::ptr::null_mut()
             }
         },
-        // Jpeg: the zune-jpeg leg lands in M8 step 5; until then it routes
-        // through the C stb fallback over the same bytes
-        stb_sniff::Format::Jpeg =>
-        // SAFETY: caller contract (out-pointers, image_name)
-        unsafe { decode_stb_mem(&file, width, height, image_name) },
+        // COMPAT (owner decision, 2026-08-24): JPEG ships on zune-jpeg
+        // under the relaxed gate — accept/reject + dims parity + bounded
+        // pixel delta vs stb, not bit-exact (see quake_image::jpeg_stb)
+        stb_sniff::Format::Jpeg => match jpeg_stb::decode(&file) {
+            Ok(j) => {
+                // SAFETY: engine allocator; stb's final buffer is likewise a
+                // Mem_Alloc'd allocation via the STBI_MALLOC plug
+                let data = unsafe { sys::Mem_Alloc(j.rgba.len()) }.cast::<u8>();
+                if !data.is_null() {
+                    // SAFETY: Mem_Alloc returned rgba.len() valid bytes
+                    unsafe {
+                        core::ptr::copy_nonoverlapping(j.rgba.as_ptr(), data, j.rgba.len());
+                    }
+                }
+                // stb's JPEG path writes the out-dims only on success
+                // SAFETY: valid out-pointers per the C ABI contract
+                unsafe {
+                    *width = j.width;
+                    *height = j.height;
+                }
+                data
+            }
+            Err(e) => {
+                let owned;
+                let reason: *const c_char = match &e {
+                    jpeg_stb::Error::TooLarge => c"too large".as_ptr(),
+                    jpeg_stb::Error::OutOfMem => c"outofmem".as_ptr(),
+                    // crate-side reject: same decision as stb, crate's own
+                    // reason text (masked in the differential)
+                    jpeg_stb::Error::Crate(msg) => {
+                        owned =
+                            std::ffi::CString::new(msg.replace('\0', "?")).expect("NULs replaced");
+                        owned.as_ptr()
+                    }
+                };
+                // SAFETY: reason is NUL-terminated and outlives the call;
+                // image_name per contract
+                unsafe { stb_warn(image_name, reason) };
+                core::ptr::null_mut()
+            }
+        },
     };
 
     // SAFETY: engine call, closing the handle exactly where the C does

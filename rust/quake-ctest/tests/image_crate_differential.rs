@@ -140,9 +140,15 @@ fn sniff_accepted_but_corrupt_bodies_warn_identically() {
     let out = write_and_compare("gfx/badpng.png", c"gfx/badpng.png", &png);
     assert_eq!(out.data, None);
     assert_eq!(out.con_log.len(), 1);
-    // bare SOI (with fill bytes): jpeg probe accepts, decode fails
-    let out = write_and_compare("gfx/soi.jpg", c"gfx/soi.jpg", &[0xFF, 0xFF, 0xFF, 0xD8]);
-    assert_eq!(out.data, None);
+    // bare SOI (with fill bytes): jpeg probe accepts, decode fails; the
+    // reject reason is zune's own, so it is compared under the masked
+    // policy (see the JPEG section)
+    {
+        let dir = file_dir();
+        std::fs::write(dir.join("gfx/soi.jpg"), [0xFF, 0xFF, 0xFF, 0xD8]).unwrap();
+        let out = compare_both_masked_reason(c"gfx/soi.jpg");
+        assert_eq!(out.data, None);
+    }
     // tga-plausible header with a truncated body: tga probe accepts; stb's
     // raw path zero-fills the tail on both sides
     let mut tga = vec![0u8; 18];
@@ -957,3 +963,188 @@ fn png_crate_rejects_share_the_decision() {
     let out = masked(&mut n, &f);
     assert_eq!(out.data, None, "short pixel data rejects on both sides");
 }
+
+// ---------------------------------------------------------------------------
+// JPEG (M8 step 5): zune-jpeg under the owner-relaxed gate — accept/reject
+// parity, identical dimensions, and a bounded per-channel delta vs stb
+// (bit-exactness is not achievable across IDCT/upsampler implementations
+// and was explicitly waived; task-plan amendment log 2026-08-24).
+// Fixtures are hand-crafted minimal JPEGs (custom two-code Huffman tables,
+// flat quant table, DC-diff-0 blocks with an optional single AC(0,1)
+// coefficient); the generator script is quoted in the task plan.
+
+const JPEG_GRAY8: &[u8] = &[
+    255, 216, 255, 219, 0, 67, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 255, 192, 0, 11, 8, 0, 8, 0, 8, 1, 1, 17, 0, 255, 196, 0, 20, 0,
+    1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 196, 0, 21, 16, 1, 1, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 255, 218, 0, 8, 1, 1, 0, 0, 63, 0, 87, 255, 217,
+];
+const JPEG_RGB444: &[u8] = &[
+    255, 216, 255, 219, 0, 67, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 255, 192, 0, 17, 8, 0, 8, 0, 8, 3, 1, 17, 0, 2, 17, 0, 3, 17, 0,
+    255, 196, 0, 20, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 196, 0, 21, 16, 1,
+    1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 255, 218, 0, 12, 3, 1, 0, 2, 0, 3, 0, 0, 63,
+    0, 80, 175, 255, 217,
+];
+const JPEG_RGB420: &[u8] = &[
+    255, 216, 255, 219, 0, 67, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 255, 192, 0, 17, 8, 0, 16, 0, 16, 3, 1, 34, 0, 2, 17, 0, 3, 17,
+    0, 255, 196, 0, 20, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 196, 0, 21, 16,
+    1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 255, 218, 0, 12, 3, 1, 0, 2, 0, 3, 0, 0,
+    63, 0, 80, 161, 71, 255, 217,
+];
+const JPEG_RGB422: &[u8] = &[
+    255, 216, 255, 219, 0, 67, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 255, 192, 0, 17, 8, 0, 8, 0, 16, 3, 1, 33, 0, 2, 17, 0, 3, 17, 0,
+    255, 196, 0, 20, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 196, 0, 21, 16, 1,
+    1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 255, 218, 0, 12, 3, 1, 0, 2, 0, 3, 0, 0, 63,
+    0, 80, 163, 255, 217,
+];
+const JPEG_ODD: &[u8] = &[
+    255, 216, 255, 219, 0, 67, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 255, 192, 0, 11, 8, 0, 5, 0, 9, 1, 1, 17, 0, 255, 196, 0, 20, 0,
+    1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 196, 0, 21, 16, 1, 1, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 255, 218, 0, 8, 1, 1, 0, 0, 63, 0, 81, 255, 217,
+];
+const JPEG_RESTART: &[u8] = &[
+    255, 216, 255, 219, 0, 67, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 255, 221, 0, 4, 0, 1, 255, 192, 0, 11, 8, 0, 8, 0, 24, 1, 1, 17,
+    0, 255, 196, 0, 20, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 196, 0, 21, 16,
+    1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 255, 218, 0, 8, 1, 1, 0, 0, 63, 0, 87,
+    255, 208, 63, 255, 209, 87, 255, 217,
+];
+const JPEG_APPN: &[u8] = &[
+    255, 216, 255, 225, 0, 16, 69, 120, 105, 102, 0, 0, 106, 117, 110, 107, 106, 117, 110, 107,
+    255, 254, 0, 11, 97, 32, 99, 111, 109, 109, 101, 110, 116, 255, 219, 0, 67, 0, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 255, 192, 0,
+    11, 8, 0, 8, 0, 8, 1, 1, 17, 0, 255, 196, 0, 20, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 255, 196, 0, 21, 16, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 255, 218,
+    0, 8, 1, 1, 0, 0, 63, 0, 87, 255, 217,
+];
+const JPEG_PROGRESSIVE_DC: &[u8] = &[
+    255, 216, 255, 219, 0, 67, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 255, 194, 0, 11, 8, 0, 8, 0, 8, 1, 1, 17, 0, 255, 196, 0, 20, 0,
+    1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 196, 0, 21, 16, 1, 1, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 255, 218, 0, 8, 1, 1, 0, 0, 0, 0, 127, 255, 217,
+];
+const JPEG_TRUNCATED: &[u8] = &[
+    255, 216, 255, 219, 0, 67, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 255, 192, 0, 17, 8, 0, 16, 0, 16, 3, 1, 34, 0, 2, 17, 0, 3, 17,
+    0, 255, 196, 0, 20, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 196, 0, 21, 16,
+    1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 255, 218, 0, 12, 3, 1, 0, 2, 0, 3, 0, 0,
+    63, 0, 80,
+];
+const JPEG_TRAILING: &[u8] = &[
+    255, 216, 255, 219, 0, 67, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 255, 192, 0, 11, 8, 0, 8, 0, 8, 1, 1, 17, 0, 255, 196, 0, 20, 0,
+    1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 196, 0, 21, 16, 1, 1, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 255, 218, 0, 8, 1, 1, 0, 0, 63, 0, 87, 255, 217, 103, 97, 114,
+    98, 97, 103, 101, 32, 97, 102, 116, 101, 114, 32, 116, 104, 101, 32, 101, 110, 100, 32, 111,
+    102, 32, 105, 109, 97, 103, 101,
+];
+const JPEG_SOI_GARBAGE: &[u8] = &[
+    255, 216, 0, 1, 2, 110, 111, 116, 32, 97, 32, 106, 112, 101, 103, 32, 97, 116, 32, 97, 108, 108,
+];
+
+/// Delta-bounded comparison for the JPEG cases: decisions, dims, con-log
+/// (masked reasons) and handle balance must match exactly; pixels may
+/// differ per channel by at most `max_delta`.
+fn compare_both_jpeg(name: &std::ffi::CStr, max_delta: u8) -> (drv::ImageOutcome, u8) {
+    let mask = |mut o: drv::ImageOutcome| -> (drv::ImageOutcome, Option<Vec<u8>>) {
+        for l in &mut o.con_log {
+            if let Some(p) = l.find("couldn't load ") {
+                if let Some(paren) = l[p..].find(" (") {
+                    l.truncate(p + paren + 2);
+                }
+            }
+        }
+        let data = o.data.take();
+        (o, data)
+    };
+    // SAFETY: fixture mounted by the caller; the STB seam soft-fails
+    let (c, cdata) =
+        mask(unsafe { drv::image_decode_side(Side::C, name, drv::ImageFormat::Stb, stb_buf_len) });
+    // SAFETY: as above
+    let (r, rdata) = mask(unsafe {
+        drv::image_decode_side(Side::Rust, name, drv::ImageFormat::Stb, stb_buf_len)
+    });
+    assert_eq!(c, r, "JPEG outcome (minus pixels) of {name:?}");
+    assert_eq!(c.open_handles, 0, "decoder must close the handle");
+    assert_eq!(
+        cdata.is_some(),
+        rdata.is_some(),
+        "accept/reject parity for {name:?}"
+    );
+    let mut measured = 0u8;
+    if let (Some(cd), Some(rd)) = (&cdata, &rdata) {
+        assert_eq!(cd.len(), rd.len(), "buffer sizes for {name:?}");
+        for (a, b) in cd.iter().zip(rd.iter()) {
+            measured = measured.max(a.abs_diff(*b));
+        }
+        assert!(
+            measured <= max_delta,
+            "{name:?}: max per-channel delta {measured} exceeds the pinned bound {max_delta}"
+        );
+    }
+    let mut c = c;
+    c.data = cdata;
+    (c, measured)
+}
+
+#[test]
+fn jpeg_fixture_parity_within_delta() {
+    let _guard = ctfs::lock();
+    let dir = file_dir();
+    // (name, bytes, must_accept)
+    let cases: &[(&str, &[u8], bool)] = &[
+        ("gray8", JPEG_GRAY8, true),
+        ("fill_bytes", &[&[0xFF][..], JPEG_GRAY8].concat(), true), // stb eats pre-SOI fill bytes
+        ("rgb444", JPEG_RGB444, true),
+        ("rgb420", JPEG_RGB420, true),
+        ("rgb422", JPEG_RGB422, true),
+        ("odd", JPEG_ODD, true),
+        ("restart", JPEG_RESTART, true),
+        ("appn", JPEG_APPN, true),
+        ("progressive_dc", JPEG_PROGRESSIVE_DC, true),
+        ("truncated", JPEG_TRUNCATED, true), // stb decodes the partial MCUs; zune lenient mode too
+        ("trailing", JPEG_TRAILING, true),
+        ("soi_garbage", JPEG_SOI_GARBAGE, false),
+    ];
+    for (name, bytes, must_accept) in cases {
+        let rel = format!("gfx/j_{name}.jpg");
+        std::fs::write(dir.join(&rel), bytes).unwrap();
+        let cname = std::ffi::CString::new(rel).unwrap();
+        // measured deltas are pinned by JPEG_MAX_DELTA below; a change in
+        // either decoder that widens the divergence fails here
+        let (out, delta) = compare_both_jpeg(&cname, JPEG_MAX_DELTA);
+        assert_eq!(
+            out.data.is_some(),
+            *must_accept,
+            "jpeg fixture {name}: accept expectation (con: {:?})",
+            out.con_log
+        );
+        eprintln!(
+            "jpeg {name}: accepted={} max_delta={delta}",
+            out.data.is_some()
+        );
+    }
+}
+
+/// Pinned by measurement: every synthetic fixture decoded with delta 0 on
+/// darwin-arm64 and the two real depot photographs measured 3-4 (see
+/// image_real_assets.rs). The bound is 8 rather than the measured maximum
+/// because both decoders select SIMD paths per platform (stb SSE2, zune
+/// AVX2/NEON) whose rounding may differ from this host's. The divergence
+/// class itself -- IDCT/upsampler rounding -- is owner-accepted (task-plan
+/// amendment log, 2026-08-24).
+const JPEG_MAX_DELTA: u8 = 8;

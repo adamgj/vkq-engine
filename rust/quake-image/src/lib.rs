@@ -7,6 +7,7 @@
 
 #![forbid(unsafe_code)] // ADR-004: pure crate
 
+pub mod jpeg_stb;
 pub mod lmp;
 pub mod pcx;
 pub mod png_stb;
