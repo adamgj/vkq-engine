@@ -3,6 +3,7 @@
 //! C implementations against the Rust ports.
 
 pub mod drivers;
+pub mod snd_stubs;
 pub mod fs;
 pub mod image_fixture;
 pub mod mdx_record;

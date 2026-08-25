@@ -53,6 +53,8 @@ formats = []
 snd = []
 # codec-availability flags mirroring the C build's USE_CODEC_* defines; the
 # Rust codec registry (ADR-014) registers exactly the wrappers Meson links
+codec-wave = []
+codec-umx = []
 codec-mp3 = []
 codec-flac = []
 codec-vorbis = []

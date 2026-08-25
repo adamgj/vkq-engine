@@ -208,7 +208,7 @@ pub unsafe extern "C" fn S_Init() {
         st.ambient_sfx[AMBIENT_WATER] = S_PrecacheSound(c"ambience/water1.wav".as_ptr());
         st.ambient_sfx[AMBIENT_SKY] = S_PrecacheSound(c"ambience/wind2.wav".as_ptr());
 
-        sys::S_CodecInit();
+        crate::snd_codec::S_CodecInit();
 
         S_StopAllSounds(true, false);
     }
@@ -230,7 +230,7 @@ pub unsafe extern "C" fn S_Shutdown() {
 
     // SAFETY: mirrors the C shutdown order
     unsafe {
-        sys::S_CodecShutdown();
+        crate::snd_codec::S_CodecShutdown();
         if sys::harness_sndhash {
             sys::Harness_SNDDMA_Shutdown();
         } else {

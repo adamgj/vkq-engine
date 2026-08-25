@@ -270,11 +270,8 @@ srcs = [
     'Quake/r_sprite.c',
     'Quake/r_world.c',
     'Quake/sbar.c',
-    'Quake/snd_codec.c',
     'Quake/snd_sdl.c',
     'Quake/snd_sdl3.c',
-    'Quake/snd_umx.c',
-    'Quake/snd_wave.c',
     'Quake/steam_api.c',
     'Quake/sv_main.c',
     'Quake/sv_move.c',
@@ -462,9 +459,12 @@ endif
 # Phase 4: the sound engine flips file-by-file; the list grows per milestone
 # and the C originals stay the comparison oracle under -Duse_rust_snd=disabled
 phase4_c_srcs = [
+    'Quake/snd_codec.c',
     'Quake/snd_dma.c',
     'Quake/snd_mem.c',
     'Quake/snd_mix.c',
+    'Quake/snd_umx.c',
+    'Quake/snd_wave.c',
 ]
 phase4_glue_c_srcs = [
     'Quake/snd_glue.c',
@@ -563,15 +563,18 @@ else
     opusfile_dep = dependency('opusfile', required : get_option('use_codec_opus'))
 endif
 
+# under -Duse_rust_snd the mp3 tag skipper is the Rust port (quake-capi
+# exports mp3_skiptags); the decoder wrappers themselves stay C (ADR-014)
+mp3tag_srcs = use_rust_snd ? [] : [ 'Quake/snd_mp3tag.c' ]
 if get_option('mp3_lib') == 'mad'
     if mad_dep.found()
-        srcs += [ 'Quake/snd_mp3.c', 'Quake/snd_mp3tag.c' ]
+        srcs += [ 'Quake/snd_mp3.c' ] + mp3tag_srcs
         deps += mad_dep
         cflags += '-DUSE_CODEC_MP3'
     endif
 else
     if mpg123_dep.found()
-        srcs += [ 'Quake/snd_mpg123.c', 'Quake/snd_mp3tag.c' ]
+        srcs += [ 'Quake/snd_mpg123.c' ] + mp3tag_srcs
         deps += mpg123_dep
         cflags += '-DUSE_CODEC_MP3'
     endif
@@ -607,6 +610,9 @@ if use_rust
     # codec-availability cargo features mirror the USE_CODEC_* decisions just
     # made, so the Rust codec registry (Phase 4, ADR-014) registers exactly
     # the wrappers this build links
+    if '-DUSE_CODEC_WAVE' in cflags
+        rust_feature_list += 'codec-wave'
+    endif
     if '-DUSE_CODEC_MP3' in cflags
         rust_feature_list += 'codec-mp3'
     endif

@@ -76,9 +76,19 @@ int			Cmd_Argc (void);
 const char *Cmd_Argv (int arg);
 void		Con_SafePrintf (const char *fmt, ...) FUNC_PRINTF (1, 2);
 
-/* snd_codec.c stays C until Phase 4 M7; these must match snd_codec.h */
-void S_CodecInit (void);
-void S_CodecShutdown (void);
+/* Phase 4 M7: the codec framework types and the C decoder wrappers' vtable
+ * statics. snd_codec.h/snd_codeci.h are bindgen-clean (fshandle_t comes
+ * from common.h above). The *_codec statics are declared in per-codec
+ * headers behind USE_CODEC_* defines; declared here unconditionally -- the
+ * Rust registry references each only under its codec-* cargo feature. */
+#include "snd_codec.h"
+#include "snd_codeci.h"
+extern snd_codec_t flac_codec;
+extern snd_codec_t mp3_codec;
+extern snd_codec_t vorbis_codec;
+extern snd_codec_t opus_codec;
+/* common.h helpers the codec framework uses */
+const char *COM_FileGetExtension (const char *in);
 
 /* snd_glue.c accessors (compiled only under -Duse_rust_snd): the
  * client/server state snd_dma.c read directly. The real return types are

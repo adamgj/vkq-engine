@@ -488,6 +488,35 @@ void ResampleSfx (sfx_t *sfx, int inrate, int inwidth, byte *data);
 extern cvar_t snd_waterfx;
 extern cvar_t snd_pauselooping;
 
+/* ---- Phase 4 M7: codec framework oracle ----
+ * snd_codec.c + the portable codecs (wav/umx/mp3tag). The mp3 *decoder*
+ * wrapper is not compiled; c_ref_mp3_codec is a stub dummy vtable identical
+ * to the Rust side's, so both frameworks register the same shape. */
+#define USE_CODEC_WAVE
+#define USE_CODEC_MP3
+#define USE_CODEC_UMX
+#define S_CodecInit			  c_ref_S_CodecInit
+#define S_CodecShutdown		  c_ref_S_CodecShutdown
+#define S_CodecOpenStreamType c_ref_S_CodecOpenStreamType
+#define S_CodecOpenStreamExt  c_ref_S_CodecOpenStreamExt
+#define S_CodecOpenStreamAny  c_ref_S_CodecOpenStreamAny
+#define S_CodecForwardStream  c_ref_S_CodecForwardStream
+#define S_CodecCloseStream	  c_ref_S_CodecCloseStream
+#define S_CodecRewindStream	  c_ref_S_CodecRewindStream
+#define S_CodecJumpToOrder	  c_ref_S_CodecJumpToOrder
+#define S_CodecReadStream	  c_ref_S_CodecReadStream
+#define S_CodecUtilOpen		  c_ref_S_CodecUtilOpen
+#define S_CodecUtilClose	  c_ref_S_CodecUtilClose
+#define S_CodecIsAvailable	  c_ref_S_CodecIsAvailable
+#define wav_codec			  c_ref_wav_codec
+#define umx_codec			  c_ref_umx_codec
+#define mp3_codec			  c_ref_mp3_codec
+#define mp3_skiptags		  c_ref_mp3_skiptags
+#define S_WAV_CodecReadStream c_ref_S_WAV_CodecReadStream
+
+#include "snd_codec.h"
+#include "snd_codeci.h"
+
 /* the quakedef.h slice snd_dma.c needs beyond the fs slice above */
 #define MAX_SOUNDS 2048
 #define SIGNONS	   4

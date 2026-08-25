@@ -2081,9 +2081,6 @@ mleaf_t *Mod_PointInLeaf (float *p, qmodel_t *model)
 	return ctest_point_leaf;
 }
 
-void S_CodecInit (void) {}
-void S_CodecShutdown (void) {}
-
 static int	ctest_cmd_argc = 0;
 static char ctest_cmd_argv[8][64];
 int Cmd_Argc (void)
@@ -2131,4 +2128,65 @@ void ctest_snd_set_listener (const float *origin, const float *right)
 void ctest_set_cl_viewentity (int viewentity)
 {
 	cl.viewentity = viewentity;
+}
+
+/* ---------------------------------------------------------------------------
+ * Phase 4 M7: the c_ref codec framework's remaining seams (q_strcasecmp /
+ * q_snprintf already stubbed above). The dummy c_ref mp3 codec mirrors the
+ * Rust-side dummy in src/snd_stubs.rs exactly.
+ */
+
+static qboolean ctest_dummy_codec_init (void)
+{
+	return true;
+}
+static void ctest_dummy_codec_shutdown (void) {}
+static qboolean ctest_dummy_codec_open (snd_stream_t *stream)
+{
+	(void)stream;
+	return false;
+}
+static int ctest_dummy_codec_read (snd_stream_t *stream, int bytes, void *buffer)
+{
+	(void)stream;
+	(void)bytes;
+	(void)buffer;
+	return 0;
+}
+static int ctest_dummy_codec_rewind (snd_stream_t *stream)
+{
+	(void)stream;
+	return -1;
+}
+static void ctest_dummy_codec_close (snd_stream_t *stream)
+{
+	(void)stream;
+}
+
+snd_codec_t mp3_codec = {
+	CODECTYPE_MP3,
+	true,
+	"mp3",
+	ctest_dummy_codec_init,
+	ctest_dummy_codec_shutdown,
+	ctest_dummy_codec_open,
+	ctest_dummy_codec_read,
+	ctest_dummy_codec_rewind,
+	NULL,
+	ctest_dummy_codec_close,
+	NULL};
+
+/* open a stand-alone fshandle_t over a plain OS file (start 0, full length) */
+int ctest_open_fshandle (const char *path, fshandle_t *fh)
+{
+	FILE *f = Sys_fopen (path, "rb");
+	if (!f)
+		return -1;
+	memset (fh, 0, sizeof (*fh));
+	fh->file = f;
+	fh->start = 0;
+	fh->pos = 0;
+	fh->length = Sys_filelength (f);
+	fh->pak = false;
+	return 0;
 }

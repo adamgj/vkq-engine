@@ -237,6 +237,11 @@ unsafe extern "C" {
     );
 }
 unsafe extern "C" {
+    pub fn COM_FileGetExtension(
+        in_: *const ::std::os::raw::c_char,
+    ) -> *const ::std::os::raw::c_char;
+}
+unsafe extern "C" {
     pub fn COM_SeedRand(seed: u64);
 }
 unsafe extern "C" {
@@ -337,6 +342,9 @@ unsafe extern "C" {
         size: ::std::os::raw::c_int,
         fh: *mut fshandle_t,
     ) -> *mut ::std::os::raw::c_char;
+}
+unsafe extern "C" {
+    pub fn FS_filelength(fh: *mut fshandle_t) -> qfilesize_t;
 }
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
@@ -697,11 +705,84 @@ unsafe extern "C" {
 unsafe extern "C" {
     pub fn Con_SafePrintf(fmt: *const ::std::os::raw::c_char, ...);
 }
-unsafe extern "C" {
-    pub fn S_CodecInit();
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct snd_info_s {
+    pub rate: ::std::os::raw::c_int,
+    pub bits: ::std::os::raw::c_int,
+    pub width: ::std::os::raw::c_int,
+    pub channels: ::std::os::raw::c_int,
+    pub samples: ::std::os::raw::c_int,
+    pub blocksize: ::std::os::raw::c_int,
+    pub size: ::std::os::raw::c_int,
+    pub dataofs: ::std::os::raw::c_int,
+}
+pub type snd_info_t = snd_info_s;
+pub const stream_status_t_STREAM_NONE: stream_status_t = -1;
+pub const stream_status_t_STREAM_INIT: stream_status_t = 0;
+pub const stream_status_t_STREAM_PAUSE: stream_status_t = 1;
+pub const stream_status_t_STREAM_PLAY: stream_status_t = 2;
+pub type stream_status_t = ::std::os::raw::c_int;
+pub type snd_codec_t = snd_codec_s;
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct snd_stream_s {
+    pub fh: fshandle_t,
+    pub pak: qboolean,
+    pub name: [::std::os::raw::c_char; 64usize],
+    pub info: snd_info_t,
+    pub status: stream_status_t,
+    pub codec: *mut snd_codec_t,
+    pub loop_: qboolean,
+    pub priv_: *mut ::std::os::raw::c_void,
+}
+pub type snd_stream_t = snd_stream_s;
+pub type CODEC_INIT = ::std::option::Option<unsafe extern "C" fn() -> qboolean>;
+pub type CODEC_SHUTDOWN = ::std::option::Option<unsafe extern "C" fn()>;
+pub type CODEC_OPEN =
+    ::std::option::Option<unsafe extern "C" fn(stream: *mut snd_stream_t) -> qboolean>;
+pub type CODEC_READ = ::std::option::Option<
+    unsafe extern "C" fn(
+        stream: *mut snd_stream_t,
+        bytes: ::std::os::raw::c_int,
+        buffer: *mut ::std::os::raw::c_void,
+    ) -> ::std::os::raw::c_int,
+>;
+pub type CODEC_REWIND =
+    ::std::option::Option<unsafe extern "C" fn(stream: *mut snd_stream_t) -> ::std::os::raw::c_int>;
+pub type CODEC_JUMP = ::std::option::Option<
+    unsafe extern "C" fn(
+        stream: *mut snd_stream_t,
+        order: ::std::os::raw::c_int,
+    ) -> ::std::os::raw::c_int,
+>;
+pub type CODEC_CLOSE = ::std::option::Option<unsafe extern "C" fn(stream: *mut snd_stream_t)>;
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct snd_codec_s {
+    pub type_: ::std::os::raw::c_uint,
+    pub initialized: qboolean,
+    pub ext: *const ::std::os::raw::c_char,
+    pub initialize: CODEC_INIT,
+    pub shutdown: CODEC_SHUTDOWN,
+    pub codec_open: CODEC_OPEN,
+    pub codec_read: CODEC_READ,
+    pub codec_rewind: CODEC_REWIND,
+    pub codec_jump: CODEC_JUMP,
+    pub codec_close: CODEC_CLOSE,
+    pub next: *mut snd_codec_t,
 }
 unsafe extern "C" {
-    pub fn S_CodecShutdown();
+    pub static mut flac_codec: snd_codec_t;
+}
+unsafe extern "C" {
+    pub static mut mp3_codec: snd_codec_t;
+}
+unsafe extern "C" {
+    pub static mut vorbis_codec: snd_codec_t;
+}
+unsafe extern "C" {
+    pub static mut opus_codec: snd_codec_t;
 }
 unsafe extern "C" {
     pub fn SND_Glue_ClientConnected() -> qboolean;
