@@ -76,9 +76,13 @@ Small, dependency-free code with outsized compatibility leverage. Crates: `quake
 
 ---
 
-## Phase 3 — Formats & assets (M/L) `[ ]`
+## Phase 3 — Formats & assets (M/L) `[~]`
 
 Crates: `quake-formats`, `quake-image`. Pure functions over byte slices — callable from C worker threads during parallel model loading (loaders must be `Send`).
+
+**Status (2026-08-24):** implemented (M1–M8 of `docs/ai/plans/rust-conversion-phase-3.md`); every exit criterion is met except the C deletions, deferred exactly like Phases 1–2 (PLAN §3 MinGW blocker) — `model_parse.c`, `image_decode.c` and `image_stb.c` stay compiled as the differential oracle behind `-Duse_rust_formats=disabled` / `-Duse_rust_image=disabled`.
+- Done: behavior-neutral C splits; PCX/LMP, all five BSP dialects (+`.lit`/`.vis`/`.ent`, PVS, hulls, submodels), MDL, SPR, MD3, MD5 ported with bit-exact differential suites; threaded-loading proof; differential fuzzing (14 targets) + the `formats_corpus` real-asset gate (bit-for-bit over the full local depot; shareware id1 + the in-repo vq_pak PNGs as the standing CI legs); PNG/TGA/JPG decode via `quake-image` (TGA hand-port and a hand-ported stb acceptance walk over the `png` crate, both bit-exact; JPEG via `zune-jpeg` under the owner-relaxed delta-bounded gate — see the ADR-012 M8 amendment; PNG *encode* stays lodepng). First third-party runtime crates per the ADR-003 M8 amendment.
+- Deferred: the C deletion wave + `c-reference/phase3` tag (PLAN §3); MD3 real-asset coverage (no `.md3` exists anywhere in the depot — synthetic-only, revisit with the wider mod bench); registered-tier goldens for linux/windows (unchanged from Phase 0).
 
 **Scope**
 - BSP family: 29, 30 (Valve, incl. palette/sky/lighting differences), BSP2, 2PSB, Quake64; `.lit` (strict size check), external `.vis`, external `.ent` (incl. `@crc` naming); PVS decompression, hull setup, submodels.

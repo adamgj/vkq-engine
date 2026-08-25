@@ -82,6 +82,12 @@ extern "C" {
         height: *mut c_int,
         image_name: *const c_char,
     ) -> *mut u8;
+    fn c_ref_Image_DecodeSTB(
+        file_handle: c_int,
+        width: *mut c_int,
+        height: *mut c_int,
+        image_name: *const c_char,
+    ) -> *mut u8;
 
     fn ctest_try_host(f: unsafe extern "C" fn(*mut c_void), arg: *mut c_void) -> c_int;
     fn ctest_host_error_message() -> *const c_char;
@@ -770,7 +776,17 @@ pub unsafe fn md5_load_side(
     }
 }
 
-/// Everything one side observes from a PCX/LMP decode call — the same
+/// Which Image_Decode* seam function a driver call exercises.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ImageFormat {
+    Pcx,
+    Lmp,
+    /// Image_DecodeSTB: the PNG/TGA/JPG sniff-and-dispatch seam (M8). Unlike
+    /// PCX/LMP it never Sys_Errors — reject is a Con_Warning + NULL.
+    Stb,
+}
+
+/// Everything one side observes from an image decode call — the same
 /// streams `image_differential::Outcome` compares, so the corpus gate is
 /// not weaker than the fixture suite on this seam.
 #[derive(Debug, PartialEq, Eq)]
@@ -790,19 +806,21 @@ pub struct ImageOutcome {
     pub error: Option<String>,
 }
 
-/// Opens `name` on `side`, runs that side's PCX/LMP decoder over the handle,
-/// and snapshots the observable state; `buf_len` maps the out-dimensions to
-/// the byte count of the returned allocation. The C side runs under the
-/// `Sys_Error` trap (a fatal decode leaves the handle open; it is closed
-/// here). Caller must hold [`ctfs::lock`] and have mounted the fixture.
+/// Opens `name` on `side`, runs that side's `format` decoder over the
+/// handle, and snapshots the observable state; `buf_len` maps the
+/// out-dimensions to the byte count of the returned allocation. The C side
+/// runs under the `Sys_Error` trap (a fatal decode leaves the handle open;
+/// it is closed here). Caller must hold [`ctfs::lock`] and have mounted the
+/// fixture.
 ///
 /// # Safety
-/// On `Side::Rust` the caller must have established via the pure
-/// `quake-image` decoders that the input does not reach `Sys_Error`.
+/// On `Side::Rust` with Pcx/Lmp the caller must have established via the
+/// pure `quake-image` decoders that the input does not reach `Sys_Error`
+/// (Stb never Sys_Errors on either side).
 pub unsafe fn image_decode_side(
     side: Side,
     name: &CStr,
-    pcx: bool,
+    format: ImageFormat,
     buf_len: impl Fn(c_int, c_int) -> usize,
 ) -> ImageOutcome {
     ctfs::clear_logs();
@@ -817,16 +835,21 @@ pub unsafe fn image_decode_side(
     let mut width: c_int = -1;
     let mut height: c_int = -1;
     let mut data: *mut u8 = core::ptr::null_mut();
-    let error = match (side, pcx) {
+    let error = match (side, format) {
         // SAFETY: single C call under the trap; open handle, valid pointers
-        (Side::C, true) => ctfs::catch_sys_error(|| unsafe {
+        (Side::C, ImageFormat::Pcx) => ctfs::catch_sys_error(|| unsafe {
             data = c_ref_Image_DecodePCX(handle, &mut width, &mut height, name.as_ptr());
         }),
         // SAFETY: as above
-        (Side::C, false) => ctfs::catch_sys_error(|| unsafe {
+        (Side::C, ImageFormat::Lmp) => ctfs::catch_sys_error(|| unsafe {
             data = c_ref_Image_DecodeLMP(handle, &mut width, &mut height, name.as_ptr());
         }),
-        (Side::Rust, true) => {
+        // SAFETY: as above (the STB seam itself never Sys_Errors; the trap
+        // covers stub fatals like allocation failure)
+        (Side::C, ImageFormat::Stb) => ctfs::catch_sys_error(|| unsafe {
+            data = c_ref_Image_DecodeSTB(handle, &mut width, &mut height, name.as_ptr());
+        }),
+        (Side::Rust, ImageFormat::Pcx) => {
             // SAFETY: caller contract (pure decoder says non-fatal)
             data = unsafe {
                 quake_rs::image_decode::Image_DecodePCX(
@@ -838,10 +861,22 @@ pub unsafe fn image_decode_side(
             };
             None
         }
-        (Side::Rust, false) => {
+        (Side::Rust, ImageFormat::Lmp) => {
             // SAFETY: caller contract (pure decoder says non-fatal)
             data = unsafe {
                 quake_rs::image_decode::Image_DecodeLMP(
+                    handle,
+                    &mut width,
+                    &mut height,
+                    name.as_ptr(),
+                )
+            };
+            None
+        }
+        (Side::Rust, ImageFormat::Stb) => {
+            // SAFETY: open handle, valid pointers; this seam soft-fails
+            data = unsafe {
+                quake_rs::image_decode::Image_DecodeSTB(
                     handle,
                     &mut width,
                     &mut height,

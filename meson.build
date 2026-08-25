@@ -296,7 +296,9 @@ srcs = [
 # arrays gl_mesh.c reads stay C) and adds the Host_Error trampolines;
 # image_decode.c (PCX/LMP) is gated by -Duse_rust_image below and stays the
 # comparison oracle.
-# image_stb.c stays C until Phase 3 M8.
+# image_stb.c is always compiled: under -Duse_rust_image (USE_RUST_IMAGE) it
+# keeps only Image_DecodeSTBMem, the in-memory stb fallback/oracle the Rust
+# Image_DecodeSTB routes crate-undecoded formats through (Phase 3 M8).
 phase3_formats_c_srcs = [
     'Quake/model_parse.c',
 ]
@@ -463,7 +465,9 @@ if use_rust_formats
     srcs += phase3_formats_glue_c_srcs
 endif
 
-if not use_rust_image
+if use_rust_image
+    cflags += '-DUSE_RUST_IMAGE'
+else
     # the C PCX/LMP decoders stay in as long as the Phase 3 image switch is off
     srcs += phase3_image_c_srcs
 endif

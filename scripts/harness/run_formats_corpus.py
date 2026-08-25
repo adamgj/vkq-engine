@@ -26,11 +26,11 @@ import subprocess
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-EXTS = (".bsp", ".mdl", ".spr", ".md3", ".md5mesh", ".pcx", ".lmp")
+EXTS = (".bsp", ".mdl", ".spr", ".md3", ".md5mesh", ".pcx", ".lmp", ".tga", ".png", ".jpg")
 
 
 def pak_entries(path):
-    """Names in a PACK file's directory."""
+    """(name, size) pairs from a PACK file's directory."""
     with open(path, "rb") as f:
         header = f.read(12)
         if len(header) < 12 or header[:4] != b"PACK":
@@ -41,29 +41,39 @@ def pak_entries(path):
     for i in range(len(directory) // 64):
         raw = directory[i * 64 : i * 64 + 56]
         name = raw.split(b"\0", 1)[0].decode("latin-1")
+        size = struct.unpack("<i", directory[i * 64 + 60 : i * 64 + 64])[0]
         if name:
-            yield name
+            yield name, size
 
 
-def discover(base, gamedir):
-    """Asset names (fs-relative) for one mounted gamedir."""
-    names = set()
+def discover(base, gamedir, max_bytes):
+    """Asset names (fs-relative) for one mounted gamedir, plus the names
+    excluded by the size cap (M8: the deep-walk snapshot of a 30+ MB
+    re-release BSP2 map OOM-kills the in-process differential; oversized
+    assets are recorded as SKIP lines rather than silently dropped)."""
+    names, oversize = set(), set()
     gdpath = os.path.join(base, *gamedir.split("/"))
     if not os.path.isdir(gdpath):
         print(f"warning: {gdpath} does not exist, skipping", file=sys.stderr)
-        return names
+        return names, oversize
+    def add(name, size):
+        if max_bytes and size > max_bytes:
+            oversize.add(f"{name} ({size} bytes)")
+        else:
+            names.add(name)
     for dirpath, _, files in os.walk(gdpath):
         rel = os.path.relpath(dirpath, gdpath)
         for fn in files:
             low = fn.lower()
+            full = os.path.join(dirpath, fn)
             if low.endswith(".pak"):
-                for entry in pak_entries(os.path.join(dirpath, fn)):
+                for entry, size in pak_entries(full):
                     if entry.lower().endswith(EXTS):
-                        names.add(entry)
+                        add(entry, size)
             elif low.endswith(EXTS):
                 name = fn if rel == "." else f"{rel}/{fn}".replace(os.sep, "/")
-                names.add(name)
-    return names
+                add(name, os.path.getsize(full))
+    return names, oversize
 
 
 def main():
@@ -72,6 +82,13 @@ def main():
     ap.add_argument("--gamedir", action="append", default=None)
     ap.add_argument("--out", default=None, help="manifest path (default stdout)")
     ap.add_argument("--profile", default="release")
+    ap.add_argument(
+        "--max-bytes", type=int, default=10 * 1024 * 1024,
+        help="skip assets larger than this (default 10 MiB; 0 disables): the "
+        "in-process differential's deep-walk snapshot OOMs on 30+ MB BSP2 "
+        "maps. The cap applies to every extension, not just .bsp; skipped "
+        "assets appear as SKIP lines in the manifest, never silently.",
+    )
     args = ap.parse_args()
 
     if not args.game_data:
@@ -81,13 +98,21 @@ def main():
     out = open(args.out, "w") if args.out else sys.stdout
     failed = False
     for gd in gamedirs:
-        names = sorted(discover(args.game_data, gd))
+        names, oversize = discover(args.game_data, gd, args.max_bytes)
+        names = sorted(names)
         print(f"# gamedir {gd}: {len(names)} assets", file=out)
+        for entry in sorted(oversize):
+            print(f"SKIP {entry} oversize (--max-bytes {args.max_bytes})", file=out)
         if not names:
             # a gate that silently verified nothing must not go green: an
-            # empty discovery is the signature of a broken layout/fetch
-            print(f"ERROR: no assets discovered under {gd}", file=sys.stderr)
-            failed = True
+            # empty discovery is the signature of a broken layout/fetch.
+            # Discovery that found assets and correctly skipped all of them
+            # as oversize is the other case and is not a failure.
+            if oversize:
+                print(f"# gamedir {gd}: all {len(oversize)} assets skipped oversize", file=out)
+            else:
+                print(f"ERROR: no assets discovered under {gd}", file=sys.stderr)
+                failed = True
             continue
         cmd = [
             "cargo", "run", "-p", "quake-ctest", "--locked", "--bin", "formats_corpus",

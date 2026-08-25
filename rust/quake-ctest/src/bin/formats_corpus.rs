@@ -247,32 +247,116 @@ fn run_md5(name: &str) -> Outcome {
     Outcome::Ok(h.hex())
 }
 
-fn run_image(name: &str, pcx: bool) -> Outcome {
+/// Strip the parenthesized `Con_Warning` reject reason in place, leaving the
+/// decision and the asset name — the owner-approved M8 policy for reasons
+/// that originate inside the `png`/`zune-jpeg` crates and so cannot match
+/// stb's string. Applied per extension, never to `.tga` (a hand port whose
+/// reasons are bit-exact).
+fn mask_reasons(log: &mut [String]) {
+    for l in log.iter_mut() {
+        if let Some(p) = l.find("couldn't load ") {
+            if let Some(paren) = l[p..].find(" (") {
+                l.truncate(p + paren + 2);
+            }
+        }
+    }
+}
+
+fn run_image(name: &str, format: drv::ImageFormat, mask_reason: bool) -> Outcome {
     let cname = CString::new(name).unwrap();
     if ctfs::load_file(Side::C, &cname).is_none() {
         return Outcome::Skip("unreadable");
     }
-    let buf_len = |w: i32, h: i32| -> usize {
-        if pcx {
-            (w.wrapping_mul(h).wrapping_add(1).wrapping_mul(4)).max(0) as usize
-        } else {
-            (w as u32).wrapping_mul(h as u32) as usize
+    let buf_len = move |w: i32, h: i32| -> usize {
+        match format {
+            drv::ImageFormat::Pcx => {
+                (w.wrapping_mul(h).wrapping_add(1).wrapping_mul(4)).max(0) as usize
+            }
+            drv::ImageFormat::Lmp => (w as u32).wrapping_mul(h as u32) as usize,
+            // stb always returns w*h*4 RGBA on success
+            drv::ImageFormat::Stb => ((w as u32).wrapping_mul(h as u32) as usize).wrapping_mul(4),
         }
     };
     // SAFETY: the fixture opens (checked above); C runs under the trap
-    let c = unsafe { drv::image_decode_side(Side::C, &cname, pcx, buf_len) };
+    let mut c = unsafe { drv::image_decode_side(Side::C, &cname, format, buf_len) };
     if let Some(msg) = c.error {
         return Outcome::Reject(msg);
     }
     // SAFETY: C accepted, establishing the decision
-    let r = unsafe { drv::image_decode_side(Side::Rust, &cname, pcx, buf_len) };
+    let mut r = unsafe { drv::image_decode_side(Side::Rust, &cname, format, buf_len) };
+    if mask_reason {
+        // the decision, dims and pixels still must match exactly; only the
+        // crate-authored reason text is masked (like
+        // image_crate_differential's masked comparator)
+        mask_reasons(&mut c.con_log);
+        mask_reasons(&mut r.con_log);
+    }
     assert_eq!(c, r, "{name}: decode parity");
-    assert_eq!(c.open_handles, 0, "{name}: decoder must close the handle");
+    assert_eq!(c.open_handles, 0, "{name}: C decoder must close the handle");
+    assert_eq!(
+        r.open_handles, 0,
+        "{name}: Rust decoder must close the handle"
+    );
     let mut h = Hasher::new();
     h.debug(&(c.width, c.height));
     if let Some(d) = &c.data {
         fnv1a64(&mut h.0, d);
     }
+    h.lines(&c.con_log);
+    Outcome::Ok(h.hex())
+}
+
+/// `.jpg` under the owner-relaxed M8 gate: accept/reject and dimensions
+/// must match and the per-channel delta stays within the pinned bound, but
+/// the pixel bytes legitimately differ between stb's and zune-jpeg's
+/// pipelines — so the manifest hash covers dimensions and acceptance only,
+/// never pixels (a pixel hash would make every platform's manifest diverge).
+fn run_jpg(name: &str) -> Outcome {
+    /// Same bound as image_crate_differential / image_real_assets.
+    const JPEG_MAX_DELTA: u8 = 8;
+    let cname = CString::new(name).unwrap();
+    if ctfs::load_file(Side::C, &cname).is_none() {
+        return Outcome::Skip("unreadable");
+    }
+    let buf_len =
+        |w: i32, h: i32| -> usize { ((w as u32).wrapping_mul(h as u32) as usize).wrapping_mul(4) };
+    // SAFETY: the fixture opens (checked above); C runs under the trap
+    let mut c = unsafe { drv::image_decode_side(Side::C, &cname, drv::ImageFormat::Stb, buf_len) };
+    if let Some(msg) = c.error {
+        return Outcome::Reject(msg);
+    }
+    // SAFETY: C accepted-or-warned, establishing the decision
+    let mut r =
+        unsafe { drv::image_decode_side(Side::Rust, &cname, drv::ImageFormat::Stb, buf_len) };
+    assert_eq!(
+        (c.width, c.height, c.data.is_some(), c.file_size),
+        (r.width, r.height, r.data.is_some(), r.file_size),
+        "{name}: jpg decision/dims parity"
+    );
+    // everything the pixel-exact comparison would have covered except the
+    // pixels themselves: the console stream (reason masked, zune-authored)
+    // and both sides' handle balance
+    mask_reasons(&mut c.con_log);
+    mask_reasons(&mut r.con_log);
+    assert_eq!(c.con_log, r.con_log, "{name}: jpg console parity");
+    assert_eq!(c.open_handles, 0, "{name}: C decoder must close the handle");
+    assert_eq!(
+        r.open_handles, 0,
+        "{name}: Rust decoder must close the handle"
+    );
+    if let (Some(cd), Some(rd)) = (&c.data, &r.data) {
+        assert_eq!(cd.len(), rd.len(), "{name}: buffer size");
+        let mut max_delta = 0u8;
+        for (a, b) in cd.iter().zip(rd.iter()) {
+            max_delta = max_delta.max(a.abs_diff(*b));
+        }
+        assert!(
+            max_delta <= JPEG_MAX_DELTA,
+            "{name}: jpg delta {max_delta} exceeds {JPEG_MAX_DELTA}"
+        );
+    }
+    let mut h = Hasher::new();
+    h.debug(&(c.width, c.height, c.data.is_some(), "jpg-delta-bounded"));
     h.lines(&c.con_log);
     Outcome::Ok(h.hex())
 }
@@ -326,9 +410,18 @@ fn main() {
         } else if lower.ends_with(".md5mesh") {
             run_md5(name)
         } else if lower.ends_with(".pcx") {
-            run_image(name, true)
+            run_image(name, drv::ImageFormat::Pcx, false)
         } else if lower.ends_with(".lmp") {
-            run_image(name, false)
+            run_image(name, drv::ImageFormat::Lmp, false)
+        } else if lower.ends_with(".tga") {
+            // the hand-ported TGA decoder reproduces stb's reason strings
+            // exactly, so the standing gate compares them unmasked
+            run_image(name, drv::ImageFormat::Stb, false)
+        } else if lower.ends_with(".png") {
+            // a reject can surface the png crate's own reason text
+            run_image(name, drv::ImageFormat::Stb, true)
+        } else if lower.ends_with(".jpg") {
+            run_jpg(name)
         } else {
             Outcome::Skip("unknown extension")
         };

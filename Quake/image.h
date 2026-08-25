@@ -28,10 +28,14 @@ enum srcformat;
 
 byte *Image_LoadImage (const char *name, int *width, int *height, enum srcformat *fmt, unsigned int min_path_id);
 
-// decoders (image_decode.c) -- Rust migration Phase 3 seam
+// decoders (image_decode.c / image_stb.c) -- Rust migration Phase 3 seam
 byte *Image_DecodeSTB (int file_handle, int *width, int *height, const char *image_name);
 byte *Image_DecodePCX (int file_handle, int *width, int *height, const char *image_name);
 byte *Image_DecodeLMP (int file_handle, int *width, int *height, const char *image_name);
+
+// in-memory stb decode, always compiled (image_stb.c): the fallback/oracle the
+// Rust Image_DecodeSTB routes crate-undecoded formats through (Phase 3 M8)
+byte *Image_DecodeSTBMem (const byte *mem, int len, int *width, int *height, const char **failure_reason);
 
 qboolean Image_WriteTGA (const char *name, byte *data, int width, int height, int bpp, qboolean upsidedown);
 qboolean Image_WritePNG (const char *name, byte *data, int width, int height, int bpp, qboolean upsidedown);

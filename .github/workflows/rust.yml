@@ -115,7 +115,8 @@ jobs:
         MAX_TOTAL_TIME: ${{ github.event_name == 'schedule' && 300 || 45 }}
       run: |
         for t in fuzz_pak fuzz_wad fuzz_kpf fuzz_loc fuzz_vdf \
-                 fuzz_pcx fuzz_lmp fuzz_bsp fuzz_mdl fuzz_spr fuzz_md3 fuzz_md5; do
+                 fuzz_pcx fuzz_lmp fuzz_bsp fuzz_mdl fuzz_spr fuzz_md3 fuzz_md5 \
+                 fuzz_tga fuzz_image_stb; do
           mkdir -p "fuzz/corpus/$t"
           cargo +nightly fuzz run "$t" "fuzz/corpus/$t" "fuzz/corpus-seed/$t" -- \
             -max_total_time="$MAX_TOTAL_TIME" -rss_limit_mb=4096

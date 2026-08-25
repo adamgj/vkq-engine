@@ -39,6 +39,11 @@ cmd_function_t *Cmd_AddCommand2 (const char *cmd_name, xcommand_t function, cmd_
  * Meson alongside the C define). Must match sys.h exactly. */
 int Sys_SelectFolder (const char *title, const char *default_location, char *dst, size_t dstsize);
 
+/* image.h is not a bindgen-clean root (enum srcformat lives in the
+ * Vulkan-bearing gl_texmgr.h), so the M8 in-memory stb fallback decoder is
+ * declared directly; must match image.h exactly. */
+byte *Image_DecodeSTBMem (const byte *mem, int len, int *width, int *height, const char **failure_reason);
+
 /* engine globals living in headers that are not bindgen-clean roots
  * (quakedef.h, harness.h); declarations must match those headers exactly. */
 extern qboolean multiuser;	  /* quakedef.h */

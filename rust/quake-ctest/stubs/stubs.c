@@ -588,6 +588,13 @@ qfileofs_t Sys_FilePos (int handle)
 	return ctest_handles[handle].pos;
 }
 
+/* Sys_feof copied verbatim from Quake/sys_sdl.c (image_stb.c's stb eof
+ * callback reads it) */
+bool Sys_feof (int handle)
+{
+	return ctest_handles[handle].eof_condition;
+}
+
 /* Sys_fgetc copied verbatim from Quake/sys_sdl.c (image_decode.c streams
  * PCX RLE data through it) */
 int Sys_fgetc (int handle)

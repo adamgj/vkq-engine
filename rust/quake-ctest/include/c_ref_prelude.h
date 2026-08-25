@@ -211,6 +211,13 @@ void Con_DPrintf2 (const char *fmt, ...);
 #define Image_DecodePCX c_ref_Image_DecodePCX
 #define Image_DecodeLMP c_ref_Image_DecodeLMP
 
+/* image_stb.c (Phase 3 M8): the streaming stb decoder is the oracle.
+ * Image_DecodeSTBMem is NOT renamed: it stays shared — the Rust shim under
+ * test routes crate-undecoded formats through it (same convention as
+ * Mod_FindName above; stb's failure-reason string is thread-local, so the
+ * two users cannot race). */
+#define Image_DecodeSTB c_ref_Image_DecodeSTB
+
 /* model_parse.c (Phase 3): rename every seam symbol from model_parse.h.
  * Mod_FindName / Mod_LoadWadTexture / Mod_LoadAllSkins (gl_model.h) are NOT
  * renamed: they stay stub-owned and shared by both sides. */

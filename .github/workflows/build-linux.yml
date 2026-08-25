@@ -188,11 +188,28 @@ jobs:
         # belt-and-braces vacuous-pass floor: grep -c exits 1 on zero OK lines
         grep -c '^OK ' formats-corpus-linux-x86_64.txt
         tail -1 formats-corpus-linux-x86_64.txt
+    - name: Formats corpus gate (C vs Rust, in-repo vq_pak images)
+      # M8: the three real PNGs under Misc/vq_pak (two of them baked into the
+      # embedded vkquake.pak and decoded on every engine launch) run through
+      # both Image_DecodeSTB implementations bit-for-bit on every CI run —
+      # the standing real-PNG leg of AC11 (the shareware tier has no
+      # PNG/TGA/JPG; the full-depot image corpus is a dev-host gate)
+      run: |
+        python3 scripts/harness/run_formats_corpus.py \
+          --game-data "$PWD/Misc" --gamedir vq_pak \
+          --out formats-corpus-vq-pak.txt
+        # pinned: all three PNGs must produce a parity-verified OK line, so a
+        # rename or skip cannot silently thin the leg out (update the count
+        # here and the comment above when a PNG is added to Misc/vq_pak)
+        test "$(grep -c '^OK .*\.png' formats-corpus-vq-pak.txt)" -eq 3
+        tail -1 formats-corpus-vq-pak.txt
     - name: Upload formats manifest
       uses: actions/upload-artifact@v4
       with:
         name: formats-corpus-manifest
-        path: formats-corpus-linux-x86_64.txt
+        path: |
+          formats-corpus-linux-x86_64.txt
+          formats-corpus-vq-pak.txt
         # the manifest is always written on success; its absence is an error
         if-no-files-found: error
 

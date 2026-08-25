@@ -58,3 +58,29 @@ covering the vendored LLVM libFuzzer runtime. NCSA is a permissive
 MIT/BSD-3 hybrid, OSI-approved and GPL-compatible; it is not a copyleft or
 paid license, but as it extends the enforced allowlist this amendment
 records it for owner review.
+
+## Amended (Phase 3 M8, 2026-08-24)
+
+The **first third-party runtime dependencies shipped inside
+`libquake_rs.a`** land with the ADR-012 image-decode swap; everything
+previously in the graph was dev- or build-only. Introduction-bar review:
+
+- **`png` 0.18.1** ("MIT OR Apache-2.0" → MIT) — PNG decode behind the
+  `Image_DecodeSTB` seam, gated pixel-exact vs stb over the fixture matrix,
+  the in-repo `Misc/vq_pak` PNGs and the re-release depot corpus. The
+  image-rs org crate: actively maintained, releases within weeks of this
+  amendment, tens of millions of downloads, fuzzed upstream and again
+  in-tree (`fuzz_image_stb`). Transitives, all "MIT OR Apache-2.0"-class:
+  `bitflags`, `crc32fast`, `fdeflate`, `flate2`, `miniz_oxide` (already in
+  the graph via quake-fs), `simd-adler32` (MIT), `adler2`, `cfg-if`.
+  Alternatives considered: the `image` facade (rejected in the Phase 3 plan
+  D8 for tree size), lodepng-rs (unmaintained), a full hand-port (the
+  structural/acceptance half *is* hand-ported; only
+  inflate/defilter/expand run in the crate).
+- **`zune-jpeg` 0.5.15** ("MIT OR Apache-2.0 OR Zlib" → MIT) — JPEG decode
+  under the owner-relaxed gate (see the ADR-012 M8 amendment). Actively
+  maintained, used by the `image` facade as its default JPEG decoder,
+  fuzzed upstream and in-tree. Sole transitive: `zune-core` 0.5.3 (same
+  license). Alternatives: jpeg-decoder (slower, less maintained),
+  keeping stb (remains the revert lever — `Image_DecodeSTBMem` stays
+  compiled in every configuration).
