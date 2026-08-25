@@ -9,5 +9,6 @@
 
 pub mod lmp;
 pub mod pcx;
+pub mod png_stb;
 pub mod stb_sniff;
 pub mod tga;

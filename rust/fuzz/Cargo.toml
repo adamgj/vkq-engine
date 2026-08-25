@@ -127,3 +127,10 @@ path = "fuzz_targets/fuzz_tga.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "fuzz_image_stb"
+path = "fuzz_targets/fuzz_image_stb.rs"
+test = false
+doc = false
+bench = false

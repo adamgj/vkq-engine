@@ -363,7 +363,7 @@ mod tests {
         // R=31, G=0, B=15 -> 0b0111110000001111
         f.extend_from_slice(&0b0111_1100_0000_1111u16.to_le_bytes());
         let t = decode(&f).unwrap();
-        assert_eq!(&t.rgba, &[255, 0, (15 * 255) / 31, 255]);
+        assert_eq!(&t.rgba, &[255, 0, ((15u32 * 255) / 31) as u8, 255]);
     }
 
     #[test]

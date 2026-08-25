@@ -90,7 +90,7 @@ pub fn tga_rle_stream(px_size: usize, pixels: usize, seed: u32) -> Vec<u8> {
     let mut i = 0u32;
     while produced < pixels {
         let vals = lcg_bytes(seed.wrapping_add(i), px_size * 3);
-        if i % 2 == 0 {
+        if i.is_multiple_of(2) {
             // run of 3 of one pixel
             out.push(0x80 | 2);
             out.extend_from_slice(&vals[..px_size]);

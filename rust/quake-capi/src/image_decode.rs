@@ -18,7 +18,7 @@
 use core::ffi::{c_char, c_int};
 
 use quake_c_sys as sys;
-use quake_image::{lmp, pcx, stb_sniff, tga};
+use quake_image::{lmp, pcx, png_stb, stb_sniff, tga};
 
 /// Read the rest of the resource (the C originals' view of it: com_filesize
 /// truncated to int, like their `const int file_size` locals).
@@ -144,10 +144,72 @@ pub unsafe extern "C" fn Image_DecodeSTB(
                 core::ptr::null_mut()
             }
         },
-        // Png/Jpeg: crate decoders land per format (M8 steps 4-5); until a
-        // format's ADR-012 gate is green it routes through the C stb
-        // fallback over the same bytes
-        stb_sniff::Format::Png | stb_sniff::Format::Jpeg =>
+        stb_sniff::Format::Png => match png_stb::decode(&file) {
+            // CgBI (iPhone) PNGs stay on the C stb path wholesale
+            // SAFETY: caller contract (out-pointers, image_name)
+            Ok(png_stb::Png::Fallback) => unsafe {
+                decode_stb_mem(&file, width, height, image_name)
+            },
+            Ok(png_stb::Png::Image {
+                width: w,
+                height: h,
+                rgba,
+            }) => {
+                // SAFETY: engine allocator; stb's final buffer is likewise a
+                // Mem_Alloc'd allocation via the STBI_MALLOC plug
+                let data = unsafe { sys::Mem_Alloc(rgba.len()) }.cast::<u8>();
+                if !data.is_null() {
+                    // SAFETY: Mem_Alloc returned rgba.len() valid bytes
+                    unsafe {
+                        core::ptr::copy_nonoverlapping(rgba.as_ptr(), data, rgba.len());
+                    }
+                }
+                // stb's PNG path writes the out-dims only on success
+                // SAFETY: valid out-pointers per the C ABI contract
+                unsafe {
+                    *width = w;
+                    *height = h;
+                }
+                data
+            }
+            Err(e) => {
+                let owned;
+                let reason: *const c_char = match &e {
+                    png_stb::Error::Stb(r) => {
+                        owned = std::ffi::CString::new(*r).expect("static stb reason");
+                        owned.as_ptr()
+                    }
+                    // "XXXX PNG chunk not known" with the raw type bytes,
+                    // truncated at the first NUL like the C char array
+                    png_stb::Error::UnknownChunk(t) => {
+                        let mut s = t.to_vec();
+                        s.extend_from_slice(b" PNG chunk not known");
+                        let nul = s.iter().position(|&b| b == 0).unwrap_or(s.len());
+                        s.truncate(nul);
+                        owned = std::ffi::CString::new(s).expect("truncated at NUL");
+                        owned.as_ptr()
+                    }
+                    // COMPAT: the C prints whatever stale reason the stb
+                    // thread-local held; the text is unspecified, only the
+                    // reject decision is defined (masked in the differential)
+                    png_stb::Error::StaleReason => c"corrupt PNG".as_ptr(),
+                    // crate-side reject: same decision as stb, crate's own
+                    // reason text (masked in the differential)
+                    png_stb::Error::Crate(msg) => {
+                        owned =
+                            std::ffi::CString::new(msg.replace('\0', "?")).expect("NULs replaced");
+                        owned.as_ptr()
+                    }
+                };
+                // SAFETY: reason is NUL-terminated and outlives the call;
+                // image_name per contract
+                unsafe { stb_warn(image_name, reason) };
+                core::ptr::null_mut()
+            }
+        },
+        // Jpeg: the zune-jpeg leg lands in M8 step 5; until then it routes
+        // through the C stb fallback over the same bytes
+        stb_sniff::Format::Jpeg =>
         // SAFETY: caller contract (out-pointers, image_name)
         unsafe { decode_stb_mem(&file, width, height, image_name) },
     };

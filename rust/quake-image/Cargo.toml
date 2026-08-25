@@ -7,5 +7,11 @@ rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
+[dependencies]
+# ADR-003/ADR-012 (M8): PNG decode behind the pixel-exact-vs-stb gate.
+# "MIT OR Apache-2.0" -> MIT; first third-party runtime dependency shipped in
+# libquake_rs.a (review notes in the ADR-003 M8 amendment).
+png = "0.18.1"
+
 [lints]
 workspace = true
