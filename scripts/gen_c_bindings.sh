@@ -75,7 +75,7 @@ bindgen rust/quake-c-sys/bindings_wrapper.h \
     --allowlist-function 'S_LoadSound|GetWavinfo|SND_InitScaletable|S_PaintChannels' \
     --allowlist-function 'Harness_SNDDMA_Init|Harness_SNDDMA_GetDMAPos|Harness_SNDDMA_Shutdown|Harness_SndPaint' \
     --allowlist-function 'Cvar_SetQuick|Cvar_SetValue|Cvar_SetCallback' \
-    --allowlist-function 'Cmd_Argc|Cmd_Argv|Con_SafePrintf|COM_FileGetExtension|FS_filelength' \
+    --allowlist-function 'Cmd_Argc|Cmd_Argv|Con_SafePrintf|COM_FileGetExtension|FS_filelength|COM_FileExists' \
     --allowlist-function 'SND_Glue_ClientConnected|SND_Glue_ViewEntity|SND_Glue_Worldmodel|SND_Glue_PointInLeaf|SND_Glue_PauseLoops' \
     --allowlist-var 'com_argc|com_argv' \
     --allowlist-var 'shm|snd_mutex|snd_channels|total_channels|soundtime|paintedtime|s_rawend|s_rawsamples' \

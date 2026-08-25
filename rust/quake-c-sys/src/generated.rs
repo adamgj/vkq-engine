@@ -285,6 +285,12 @@ unsafe extern "C" {
     ) -> qfilesize_t;
 }
 unsafe extern "C" {
+    pub fn COM_FileExists(
+        filename: *const ::std::os::raw::c_char,
+        path_id: *mut ::std::os::raw::c_uint,
+    ) -> qboolean;
+}
+unsafe extern "C" {
     pub fn COM_CloseFile(h: ::std::os::raw::c_int);
 }
 unsafe extern "C" {

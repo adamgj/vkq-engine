@@ -215,7 +215,6 @@ foreach job : shader_jobs
 endforeach
 
 srcs = [
-    'Quake/bgmusic.c',
     'Quake/cd_null.c',
     'Quake/chase.c',
     'Quake/cl_demo.c',
@@ -459,6 +458,7 @@ endif
 # Phase 4: the sound engine flips file-by-file; the list grows per milestone
 # and the C originals stay the comparison oracle under -Duse_rust_snd=disabled
 phase4_c_srcs = [
+    'Quake/bgmusic.c',
     'Quake/snd_codec.c',
     'Quake/snd_dma.c',
     'Quake/snd_mem.c',

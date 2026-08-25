@@ -75,6 +75,7 @@ static inline int FindLastBitNonZero (const uint32_t mask)
 #include "q_sound.h"
 #include "snd_codec.h"
 #include "snd_codeci.h"
+#include "bgmusic.h"
 #include "quake_rs.h"
 EOF
 

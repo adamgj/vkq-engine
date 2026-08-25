@@ -32,6 +32,8 @@ pub mod mdfour;
 #[cfg(feature = "formats")]
 pub mod model_parse;
 #[cfg(feature = "snd")]
+pub mod bgmusic;
+#[cfg(feature = "snd")]
 pub mod snd_codec;
 #[cfg(feature = "snd")]
 pub mod snd_dma;
