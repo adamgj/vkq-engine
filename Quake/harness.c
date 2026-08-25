@@ -25,6 +25,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 qboolean harness_active = false;
 qboolean harness_fixed_dt = false;
 qboolean no_rendering = false;
+qboolean harness_sndhash = false;
 
 #define HARNESS_FRAME_DT   (1.0 / 72)
 #define HARNESS_RAND_SEED  0x76715248 /* 'vqRH' */
@@ -34,7 +35,9 @@ qboolean no_rendering = false;
 
 static FILE	   *harness_hashfile = NULL;
 static FILE	   *harness_capturefile = NULL;
+static FILE	   *harness_sndfile = NULL;
 static uint64_t harness_hashchain = HARNESS_HASH_BASIS;
+static uint64_t harness_sndchain = HARNESS_HASH_BASIS;
 static int		harness_exitafter = 0;
 
 typedef struct
@@ -68,10 +71,12 @@ void Harness_CheckArgs (void)
 	if (COM_CheckParm ("-headless"))
 		no_rendering = true;
 	if (COM_CheckParm ("-headless") || COM_CheckParm ("-demohash") || COM_CheckParm ("-exitafter") || COM_CheckParm ("-harnesscmds") ||
-		COM_CheckParm ("-netcapture"))
+		COM_CheckParm ("-netcapture") || COM_CheckParm ("-sndhash"))
 		harness_active = true;
-	if (COM_CheckParm ("-demohash"))
+	if (COM_CheckParm ("-demohash") || COM_CheckParm ("-sndhash"))
 		harness_fixed_dt = true;
+	if (COM_CheckParm ("-sndhash"))
+		harness_sndhash = true;
 	if (isDedicated)
 		no_rendering = true;
 }
@@ -137,6 +142,14 @@ void Harness_Init (void)
 		harness_hashfile = Sys_fopen (com_argv[i + 1], "w");
 		if (!harness_hashfile)
 			Sys_Error ("Harness: can't open -demohash file %s", com_argv[i + 1]);
+	}
+
+	i = COM_CheckParm ("-sndhash");
+	if (i && i < com_argc - 1)
+	{
+		harness_sndfile = Sys_fopen (com_argv[i + 1], "w");
+		if (!harness_sndfile)
+			Sys_Error ("Harness: can't open -sndhash file %s", com_argv[i + 1]);
 	}
 
 	i = COM_CheckParm ("-netcapture");
@@ -233,8 +246,77 @@ static uint64_t Harness_HashClient (uint64_t h)
 	return h;
 }
 
+/* -sndhash deterministic DMA backend: fixed 44100 Hz / 16-bit / stereo with a
+   sample clock derived from host_framecount, so headless runs need no audio
+   device and the mixer's input timing is bit-identical across runs. The
+   format matches the SDL backends' common case; the buffer size is the SDL
+   path's Q_nextPow2((2*44100)/10). */
+
+#define HARNESS_SND_SPEED	 44100
+#define HARNESS_SND_CHANNELS 2
+#define HARNESS_SND_SAMPLES	 16384 /* interleaved samples in the ring buffer */
+
+qboolean Harness_SNDDMA_Init (void *dma_)
+{
+	dma_t *dma = (dma_t *)dma_;
+
+	memset (dma, 0, sizeof (dma_t));
+	dma->samplebits = 16;
+	dma->signed8 = 0;
+	dma->speed = HARNESS_SND_SPEED;
+	dma->channels = HARNESS_SND_CHANNELS;
+	dma->samples = HARNESS_SND_SAMPLES;
+	dma->samplepos = 0;
+	dma->submission_chunk = 1;
+	dma->buffer = (unsigned char *)Mem_Alloc (HARNESS_SND_SAMPLES * 2);
+	shm = dma;
+	Con_Printf ("Harness: deterministic sound clock (%d Hz, %d bit, %d ch)\n", dma->speed, dma->samplebits, dma->channels);
+	return true;
+}
+
+int Harness_SNDDMA_GetDMAPos (void)
+{
+	/* monotone mono-sample clock: floor(framecount * speed * dt) frames of
+	   audio have "played"; samplepos counts interleaved samples mod the ring */
+	uint64_t frames = (uint64_t)host_framecount * HARNESS_SND_SPEED / 72;
+	int		 samplepos = (int)((frames * HARNESS_SND_CHANNELS) % HARNESS_SND_SAMPLES);
+	shm->samplepos = samplepos;
+	return samplepos;
+}
+
+void Harness_SNDDMA_Shutdown (void)
+{
+	if (shm)
+	{
+		if (shm->buffer)
+			Mem_Free (shm->buffer);
+		shm->buffer = NULL;
+		shm = NULL;
+	}
+}
+
+void Harness_SndPaint (int painted, int end, const void *paintbuf, const volatile unsigned char *dmabuf, int dmabytes)
+{
+	uint64_t h;
+
+	if (!harness_sndfile)
+		return;
+	h = harness_sndchain;
+	h = Harness_Hash64 (h, &painted, sizeof (painted));
+	h = Harness_Hash64 (h, &end, sizeof (end));
+	h = Harness_Hash64 (h, paintbuf, (size_t)(end - painted) * 8); /* portable_samplepair_t is two ints */
+	h = Harness_Hash64 (h, (const void *)dmabuf, (size_t)dmabytes);
+	harness_sndchain = h;
+}
+
 void Harness_Shutdown (void)
 {
+	if (harness_sndfile)
+	{
+		fprintf (harness_sndfile, "END %d %016" PRIx64 "\n", host_framecount, harness_sndchain);
+		fclose (harness_sndfile);
+		harness_sndfile = NULL;
+	}
 	if (harness_hashfile)
 	{
 		fprintf (harness_hashfile, "END %d %016" PRIx64 "\n", host_framecount, harness_hashchain);
@@ -302,6 +384,9 @@ void Harness_Frame (void)
 		harness_hashchain = h;
 		fprintf (harness_hashfile, "F %d %016" PRIx64 "\n", host_framecount, h);
 	}
+
+	if (harness_sndfile)
+		fprintf (harness_sndfile, "S %d %016" PRIx64 "\n", host_framecount, harness_sndchain);
 
 	if (harness_exitafter && host_framecount >= harness_exitafter)
 		Harness_Exit (2);

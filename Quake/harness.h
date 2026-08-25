@@ -35,6 +35,14 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 extern qboolean harness_active;
 
+/* -sndhash <file> (Phase 4 PCM-hash gate): write a per-frame chained hash of
+   the software mixer's output. Initializes sound even under -headless,
+   replacing the SDL DMA backend with a deterministic fixed-format clock;
+   forces fixed timestep. True when -sndhash is active: S_Startup /
+   GetSoundtime / S_Shutdown route to the Harness_SNDDMA_* clock below
+   instead of the real SDL audio backend. */
+extern qboolean harness_sndhash;
+
 /* true when -demohash is active: the main loop feeds a fixed timestep so
    state is wall-clock independent. Live-network runs (-netcapture without
    -demohash) keep real pacing, since a remote peer runs on wall time. */
@@ -61,6 +69,17 @@ void Harness_NetCapture (int direction, int driver, int kind, const byte *data, 
 
 /* fixed timestep fed to Host_Frame when harness_active */
 double Harness_FrameTime (void);
+
+/* deterministic DMA backend for -sndhash: fixed 44100 Hz / 16-bit / stereo,
+   sample position derived from host_framecount so headless runs need no audio
+   device and two runs of the same script produce identical mixer output */
+qboolean Harness_SNDDMA_Init (void *dma); /* dma_t*; void to keep this header q_sound.h-free */
+int		 Harness_SNDDMA_GetDMAPos (void);
+void	 Harness_SNDDMA_Shutdown (void);
+
+/* fold one S_PaintChannels block into the -sndhash chain: the painted
+   region of the mix buffer plus the DMA buffer after transfer */
+void Harness_SndPaint (int painted, int end, const void *paintbuf, const volatile unsigned char *dmabuf, int dmabytes);
 
 uint64_t Harness_Hash64 (uint64_t h, const void *data, size_t len);
 

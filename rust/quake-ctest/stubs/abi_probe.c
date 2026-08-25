@@ -13,6 +13,9 @@
 
 #include "common.h"
 #include "pakfile.h"
+#include "cvar.h"
+#include "q_thread.h"
+#include "q_sound.h"
 
 size_t ctest_abi_max_ospath (void)
 {
@@ -518,5 +521,67 @@ size_t ctest_abi_mdx_lookup (const char *key)
 	for (i = 0; i < sizeof (ctest_abi_mdx_table) / sizeof (ctest_abi_mdx_table[0]); i++)
 		if (!strcmp (ctest_abi_mdx_table[i].name, key))
 			return ctest_abi_mdx_table[i].value;
+	return (size_t)-1;
+}
+
+/* Phase 4 sound ABI (q_sound.h): the Rust mixer walks channel_t arrays and
+ * sfxcache_t blocks C also touches; see tests/snd_abi.rs. */
+#define SZ(tag, type)          {"sizeof." tag, sizeof (type)}
+#define OFF(tag, type, member) {tag "." #member, offsetof (type, member)}
+
+static const ctest_abi_entry_t ctest_abi_snd_table[] = {
+	SZ ("portable_samplepair_t", portable_samplepair_t),
+	OFF ("portable_samplepair_t", portable_samplepair_t, left),
+	OFF ("portable_samplepair_t", portable_samplepair_t, right),
+	SZ ("sfxcache_t", sfxcache_t),
+	OFF ("sfxcache_t", sfxcache_t, length),
+	OFF ("sfxcache_t", sfxcache_t, loopstart),
+	OFF ("sfxcache_t", sfxcache_t, speed),
+	OFF ("sfxcache_t", sfxcache_t, width),
+	OFF ("sfxcache_t", sfxcache_t, stereo),
+	OFF ("sfxcache_t", sfxcache_t, data),
+	SZ ("sfx_t", sfx_t),
+	OFF ("sfx_t", sfx_t, name),
+	OFF ("sfx_t", sfx_t, cache),
+	SZ ("dma_t", dma_t),
+	OFF ("dma_t", dma_t, channels),
+	OFF ("dma_t", dma_t, samples),
+	OFF ("dma_t", dma_t, submission_chunk),
+	OFF ("dma_t", dma_t, samplepos),
+	OFF ("dma_t", dma_t, samplebits),
+	OFF ("dma_t", dma_t, signed8),
+	OFF ("dma_t", dma_t, speed),
+	OFF ("dma_t", dma_t, buffer),
+	SZ ("channel_t", channel_t),
+	OFF ("channel_t", channel_t, sfx),
+	OFF ("channel_t", channel_t, leftvol),
+	OFF ("channel_t", channel_t, rightvol),
+	OFF ("channel_t", channel_t, end),
+	OFF ("channel_t", channel_t, pos),
+	OFF ("channel_t", channel_t, looping),
+	OFF ("channel_t", channel_t, entnum),
+	OFF ("channel_t", channel_t, entchannel),
+	OFF ("channel_t", channel_t, origin),
+	OFF ("channel_t", channel_t, dist_mult),
+	OFF ("channel_t", channel_t, master_vol),
+	SZ ("wavinfo_t", wavinfo_t),
+	OFF ("wavinfo_t", wavinfo_t, rate),
+	OFF ("wavinfo_t", wavinfo_t, width),
+	OFF ("wavinfo_t", wavinfo_t, channels),
+	OFF ("wavinfo_t", wavinfo_t, loopstart),
+	OFF ("wavinfo_t", wavinfo_t, samples),
+	OFF ("wavinfo_t", wavinfo_t, dataofs),
+	{"const.MAX_CHANNELS", MAX_CHANNELS},
+	{"const.MAX_DYNAMIC_CHANNELS", MAX_DYNAMIC_CHANNELS},
+	{"const.MAX_RAW_SAMPLES", MAX_RAW_SAMPLES},
+	{"const.MAX_QPATH", MAX_QPATH},
+};
+
+size_t ctest_abi_snd_lookup (const char *key)
+{
+	size_t i;
+	for (i = 0; i < sizeof (ctest_abi_snd_table) / sizeof (ctest_abi_snd_table[0]); i++)
+		if (!strcmp (ctest_abi_snd_table[i].name, key))
+			return ctest_abi_snd_table[i].value;
 	return (size_t)-1;
 }

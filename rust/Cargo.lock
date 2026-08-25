@@ -247,6 +247,7 @@ dependencies = [
  "quake-fs",
  "quake-image",
  "quake-math",
+ "quake-snd",
  "quake-types",
  "quake-util",
 ]
@@ -311,6 +312,9 @@ version = "0.1.0"
 [[package]]
 name = "quake-snd"
 version = "0.1.0"
+dependencies = [
+ "quake-types",
+]
 
 [[package]]
 name = "quake-tasks"

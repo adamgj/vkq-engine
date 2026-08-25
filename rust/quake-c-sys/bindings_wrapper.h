@@ -11,6 +11,9 @@
 #include "sys.h"
 #include "cvar.h"
 #include "steam.h"
+#include "q_thread.h"
+#include "q_sound.h"
+#include "harness.h"
 
 /* console.h is not a bindgen-clean root (it needs quakeparms_t from
  * quakedef.h), so the console functions called from Rust are declared
@@ -51,6 +54,14 @@ extern qboolean isDedicated;  /* quakedef.h */
 extern cvar_t	developer;	  /* quakedef.h */
 extern qboolean harness_active; /* harness.h */
 extern cvar_t	external_ents;	  /* gl_model.c */
+
+/* Phase 4 sound: cvars declared in snd_dma.c/snd_mix.c rather than a header,
+ * and engine globals from quakedef.h (not a bindgen-clean root); declarations
+ * must match the defining files exactly. */
+extern cvar_t snd_waterfx;		/* snd_dma.c */
+extern cvar_t snd_pauselooping; /* snd_dma.c */
+extern double host_frametime;	/* quakedef.h */
+extern int	  host_framecount;	/* quakedef.h */
 
 /* embedded pak (generated embedded_pak.c) */
 extern const unsigned char vkquake_pak[];

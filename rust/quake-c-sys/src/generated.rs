@@ -36,6 +36,8 @@ extern "C" {
 
 pub type byte = ::std::os::raw::c_uchar;
 pub type qboolean = bool;
+pub type vec_t = f32;
+pub type vec3_t = [vec_t; 3usize];
 unsafe extern "C" {
     pub fn Mem_Alloc(size: usize) -> *mut ::std::os::raw::c_void;
 }
@@ -238,6 +240,9 @@ unsafe extern "C" {
     pub fn COM_Rand() -> i32;
 }
 unsafe extern "C" {
+    pub static mut com_filesize: qfileofs_t;
+}
+unsafe extern "C" {
     pub fn COM_ThreadFileSize() -> qfileofs_t;
 }
 unsafe extern "C" {
@@ -374,7 +379,16 @@ unsafe extern "C" {
     pub fn Cvar_RegisterVariable(variable: *mut cvar_t);
 }
 unsafe extern "C" {
+    pub fn Cvar_SetCallback(var: *mut cvar_t, func: cvarcallback_t);
+}
+unsafe extern "C" {
     pub fn Cvar_Set(var_name: *const ::std::os::raw::c_char, value: *const ::std::os::raw::c_char);
+}
+unsafe extern "C" {
+    pub fn Cvar_SetValue(var_name: *const ::std::os::raw::c_char, value: f32);
+}
+unsafe extern "C" {
+    pub fn Cvar_SetQuick(var: *mut cvar_t, value: *const ::std::os::raw::c_char);
 }
 pub const quakeflavor_t_QUAKE_FLAVOR_ORIGINAL: quakeflavor_t = 0;
 pub const quakeflavor_t_QUAKE_FLAVOR_REMASTERED: quakeflavor_t = 1;
@@ -384,6 +398,199 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn ChooseQuakeFlavor() -> quakeflavor_t;
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct qmutex_s {
+    _unused: [u8; 0],
+}
+pub type qmutex_t = qmutex_s;
+unsafe extern "C" {
+    pub fn QMutex_Create() -> *mut qmutex_t;
+}
+unsafe extern "C" {
+    pub fn QMutex_Destroy(mutex: *mut qmutex_t);
+}
+unsafe extern "C" {
+    pub fn QMutex_Lock(mutex: *mut qmutex_t);
+}
+unsafe extern "C" {
+    pub fn QMutex_Unlock(mutex: *mut qmutex_t);
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct portable_samplepair_t {
+    pub left: ::std::os::raw::c_int,
+    pub right: ::std::os::raw::c_int,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct sfxcache_t {
+    pub length: ::std::os::raw::c_int,
+    pub loopstart: ::std::os::raw::c_int,
+    pub speed: ::std::os::raw::c_int,
+    pub width: ::std::os::raw::c_int,
+    pub stereo: ::std::os::raw::c_int,
+    pub data: [byte; 1usize],
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct sfx_s {
+    pub name: [::std::os::raw::c_char; 64usize],
+    pub cache: *mut sfxcache_t,
+}
+pub type sfx_t = sfx_s;
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct dma_t {
+    pub channels: ::std::os::raw::c_int,
+    pub samples: ::std::os::raw::c_int,
+    pub submission_chunk: ::std::os::raw::c_int,
+    pub samplepos: ::std::os::raw::c_int,
+    pub samplebits: ::std::os::raw::c_int,
+    pub signed8: ::std::os::raw::c_int,
+    pub speed: ::std::os::raw::c_int,
+    pub buffer: *mut ::std::os::raw::c_uchar,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct channel_t {
+    pub sfx: *mut sfx_t,
+    pub leftvol: ::std::os::raw::c_int,
+    pub rightvol: ::std::os::raw::c_int,
+    pub end: ::std::os::raw::c_int,
+    pub pos: ::std::os::raw::c_int,
+    pub looping: ::std::os::raw::c_int,
+    pub entnum: ::std::os::raw::c_int,
+    pub entchannel: ::std::os::raw::c_int,
+    pub origin: vec3_t,
+    pub dist_mult: vec_t,
+    pub master_vol: ::std::os::raw::c_int,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct wavinfo_t {
+    pub rate: ::std::os::raw::c_int,
+    pub width: ::std::os::raw::c_int,
+    pub channels: ::std::os::raw::c_int,
+    pub loopstart: ::std::os::raw::c_int,
+    pub samples: ::std::os::raw::c_int,
+    pub dataofs: ::std::os::raw::c_int,
+}
+unsafe extern "C" {
+    pub fn S_PaintChannels(endtime: ::std::os::raw::c_int);
+}
+unsafe extern "C" {
+    pub fn SNDDMA_Init(dma: *mut dma_t) -> qboolean;
+}
+unsafe extern "C" {
+    pub fn SNDDMA_GetDMAPos() -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn SNDDMA_Shutdown();
+}
+unsafe extern "C" {
+    pub fn SNDDMA_LockBuffer();
+}
+unsafe extern "C" {
+    pub fn SNDDMA_Submit();
+}
+unsafe extern "C" {
+    pub fn SNDDMA_BlockSound();
+}
+unsafe extern "C" {
+    pub fn SNDDMA_UnblockSound();
+}
+unsafe extern "C" {
+    pub static mut snd_channels: [channel_t; 1024usize];
+}
+unsafe extern "C" {
+    pub static mut snd_mutex: *mut qmutex_t;
+}
+unsafe extern "C" {
+    pub static mut shm: *mut dma_t;
+}
+unsafe extern "C" {
+    pub static mut total_channels: ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub static mut soundtime: ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub static mut paintedtime: ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub static mut s_rawend: ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub static mut listener_origin: vec3_t;
+}
+unsafe extern "C" {
+    pub static mut listener_forward: vec3_t;
+}
+unsafe extern "C" {
+    pub static mut listener_right: vec3_t;
+}
+unsafe extern "C" {
+    pub static mut listener_up: vec3_t;
+}
+unsafe extern "C" {
+    pub static mut sndspeed: cvar_t;
+}
+unsafe extern "C" {
+    pub static mut snd_mixspeed: cvar_t;
+}
+unsafe extern "C" {
+    pub static mut snd_filterquality: cvar_t;
+}
+unsafe extern "C" {
+    pub static mut sfxvolume: cvar_t;
+}
+unsafe extern "C" {
+    pub static mut loadas8bit: cvar_t;
+}
+unsafe extern "C" {
+    pub static mut s_rawsamples: [portable_samplepair_t; 8192usize];
+}
+unsafe extern "C" {
+    pub static mut bgmvolume: cvar_t;
+}
+unsafe extern "C" {
+    pub fn S_LoadSound(s: *mut sfx_t) -> *mut sfxcache_t;
+}
+unsafe extern "C" {
+    pub fn GetWavinfo(
+        name: *const ::std::os::raw::c_char,
+        wav: *mut byte,
+        wavlength: ::std::os::raw::c_int,
+    ) -> wavinfo_t;
+}
+unsafe extern "C" {
+    pub fn SND_InitScaletable();
+}
+unsafe extern "C" {
+    pub static mut harness_active: qboolean;
+}
+unsafe extern "C" {
+    pub static mut harness_sndhash: qboolean;
+}
+unsafe extern "C" {
+    pub fn Harness_SNDDMA_Init(dma: *mut ::std::os::raw::c_void) -> qboolean;
+}
+unsafe extern "C" {
+    pub fn Harness_SNDDMA_GetDMAPos() -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn Harness_SNDDMA_Shutdown();
+}
+unsafe extern "C" {
+    pub fn Harness_SndPaint(
+        painted: ::std::os::raw::c_int,
+        end: ::std::os::raw::c_int,
+        paintbuf: *const ::std::os::raw::c_void,
+        dmabuf: *const ::std::os::raw::c_uchar,
+        dmabytes: ::std::os::raw::c_int,
+    );
 }
 unsafe extern "C" {
     pub fn Con_Printf(fmt: *const ::std::os::raw::c_char, ...);
@@ -443,10 +650,19 @@ unsafe extern "C" {
     pub static mut developer: cvar_t;
 }
 unsafe extern "C" {
-    pub static mut harness_active: qboolean;
+    pub static mut external_ents: cvar_t;
 }
 unsafe extern "C" {
-    pub static mut external_ents: cvar_t;
+    pub static mut snd_waterfx: cvar_t;
+}
+unsafe extern "C" {
+    pub static mut snd_pauselooping: cvar_t;
+}
+unsafe extern "C" {
+    pub static mut host_frametime: f64;
+}
+unsafe extern "C" {
+    pub static mut host_framecount: ::std::os::raw::c_int;
 }
 unsafe extern "C" {
     pub static vkquake_pak: [::std::os::raw::c_uchar; 0usize];

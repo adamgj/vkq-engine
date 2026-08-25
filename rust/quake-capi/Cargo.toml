@@ -47,6 +47,15 @@ image = []
 # Meson when -Duse_rust_formats is enabled, and by quake-ctest for the
 # differential suites
 formats = []
+# the Phase 4 sound-engine shims; set by Meson when -Duse_rust_snd is
+# enabled, and by quake-ctest for the differential suites
+snd = []
+# codec-availability flags mirroring the C build's USE_CODEC_* defines; the
+# Rust codec registry (ADR-014) registers exactly the wrappers Meson links
+codec-mp3 = []
+codec-flac = []
+codec-vorbis = []
+codec-opus = []
 # tracks the C build's USE_SDL3 (folder-picker dialog availability)
 sdl3 = []
 # tracks the C build's DO_USERDIRS (extra per-user localization lookups)
