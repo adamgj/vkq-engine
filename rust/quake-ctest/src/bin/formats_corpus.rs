@@ -280,6 +280,50 @@ fn run_image(name: &str, format: drv::ImageFormat) -> Outcome {
     Outcome::Ok(h.hex())
 }
 
+/// `.jpg` under the owner-relaxed M8 gate: accept/reject and dimensions
+/// must match and the per-channel delta stays within the pinned bound, but
+/// the pixel bytes legitimately differ between stb's and zune-jpeg's
+/// pipelines — so the manifest hash covers dimensions and acceptance only,
+/// never pixels (a pixel hash would make every platform's manifest diverge).
+fn run_jpg(name: &str) -> Outcome {
+    /// Same bound as image_crate_differential / image_real_assets.
+    const JPEG_MAX_DELTA: u8 = 8;
+    let cname = CString::new(name).unwrap();
+    if ctfs::load_file(Side::C, &cname).is_none() {
+        return Outcome::Skip("unreadable");
+    }
+    let buf_len = |w: i32, h: i32| -> usize {
+        ((w as u32).wrapping_mul(h as u32) as usize).wrapping_mul(4)
+    };
+    // SAFETY: the fixture opens (checked above); C runs under the trap
+    let c = unsafe { drv::image_decode_side(Side::C, &cname, drv::ImageFormat::Stb, buf_len) };
+    if let Some(msg) = c.error {
+        return Outcome::Reject(msg);
+    }
+    // SAFETY: C accepted-or-warned, establishing the decision
+    let r = unsafe { drv::image_decode_side(Side::Rust, &cname, drv::ImageFormat::Stb, buf_len) };
+    assert_eq!(
+        (c.width, c.height, c.data.is_some(), c.file_size),
+        (r.width, r.height, r.data.is_some(), r.file_size),
+        "{name}: jpg decision/dims parity"
+    );
+    assert_eq!(c.open_handles, 0, "{name}: decoder must close the handle");
+    if let (Some(cd), Some(rd)) = (&c.data, &r.data) {
+        assert_eq!(cd.len(), rd.len(), "{name}: buffer size");
+        let mut max_delta = 0u8;
+        for (a, b) in cd.iter().zip(rd.iter()) {
+            max_delta = max_delta.max(a.abs_diff(*b));
+        }
+        assert!(
+            max_delta <= JPEG_MAX_DELTA,
+            "{name}: jpg delta {max_delta} exceeds {JPEG_MAX_DELTA}"
+        );
+    }
+    let mut h = Hasher::new();
+    h.debug(&(c.width, c.height, c.data.is_some(), "jpg-delta-bounded"));
+    Outcome::Ok(h.hex())
+}
+
 fn main() {
     let mut args = std::env::args().skip(1);
     let mut base = None;
@@ -332,6 +376,10 @@ fn main() {
             run_image(name, drv::ImageFormat::Pcx)
         } else if lower.ends_with(".lmp") {
             run_image(name, drv::ImageFormat::Lmp)
+        } else if lower.ends_with(".tga") || lower.ends_with(".png") {
+            run_image(name, drv::ImageFormat::Stb)
+        } else if lower.ends_with(".jpg") {
+            run_jpg(name)
         } else {
             Outcome::Skip("unknown extension")
         };

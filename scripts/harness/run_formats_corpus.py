@@ -26,7 +26,7 @@ import subprocess
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-EXTS = (".bsp", ".mdl", ".spr", ".md3", ".md5mesh", ".pcx", ".lmp")
+EXTS = (".bsp", ".mdl", ".spr", ".md3", ".md5mesh", ".pcx", ".lmp", ".tga", ".png", ".jpg")
 
 
 def pak_entries(path):
