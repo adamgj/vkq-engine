@@ -86,7 +86,8 @@ def main():
         "--max-bytes", type=int, default=10 * 1024 * 1024,
         help="skip assets larger than this (default 10 MiB; 0 disables): the "
         "in-process differential's deep-walk snapshot OOMs on 30+ MB BSP2 "
-        "maps. Skipped assets appear as SKIP lines in the manifest.",
+        "maps. The cap applies to every extension, not just .bsp; skipped "
+        "assets appear as SKIP lines in the manifest, never silently.",
     )
     args = ap.parse_args()
 
