@@ -27,6 +27,7 @@ quake-formats = { path = "../quake-formats" }
 quake-types = { path = "../quake-types" }
 quake-snd = { path = "../quake-snd" }
 quake-c-sys = { path = "../quake-c-sys" }
+quake-platform = { path = "../quake-platform" }
 
 [features]
 # forwarded to the pure crates; set by the Meson build when the C engine is
@@ -59,8 +60,9 @@ codec-mp3 = []
 codec-flac = []
 codec-vorbis = []
 codec-opus = []
-# tracks the C build's USE_SDL3 (folder-picker dialog availability)
-sdl3 = []
+# tracks the C build's USE_SDL3 (folder-picker dialog availability; with
+# snd, also selects the quake-platform SDL3 audio backend per ADR-017)
+sdl3 = ["quake-platform/sdl3"]
 # tracks the C build's DO_USERDIRS (extra per-user localization lookups)
 userdirs = []
 

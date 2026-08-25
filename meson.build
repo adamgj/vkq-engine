@@ -269,8 +269,6 @@ srcs = [
     'Quake/r_sprite.c',
     'Quake/r_world.c',
     'Quake/sbar.c',
-    'Quake/snd_sdl.c',
-    'Quake/snd_sdl3.c',
     'Quake/steam_api.c',
     'Quake/sv_main.c',
     'Quake/sv_move.c',
@@ -472,8 +470,13 @@ phase4_glue_c_srcs = [
 if use_rust_snd
     cflags += '-DUSE_RUST_SND'
     srcs += phase4_glue_c_srcs
+    if not use_sdl3
+        # ADR-017: the SDL2 audio backend stays C until a use_rust+SDL2 CI
+        # leg exists to verify its Rust port (the file self-gates on USE_SDL3)
+        srcs += 'Quake/snd_sdl.c'
+    endif
 else
-    srcs += phase4_c_srcs
+    srcs += phase4_c_srcs + [ 'Quake/snd_sdl.c', 'Quake/snd_sdl3.c' ]
 endif
 
 deps = [

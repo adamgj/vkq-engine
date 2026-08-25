@@ -45,6 +45,8 @@ pub mod snd_umx;
 pub mod snd_mem;
 #[cfg(feature = "snd")]
 pub mod snd_mix;
+#[cfg(all(feature = "snd", feature = "sdl3"))]
+pub mod snd_sdl;
 #[cfg(feature = "snd")]
 pub mod snd_wave;
 #[cfg(feature = "fs")]

@@ -9,3 +9,10 @@ publish.workspace = true
 
 [lints]
 workspace = true
+
+[dependencies]
+sdl3 = { version = "0.18.4", optional = true }
+quake-c-sys = { path = "../quake-c-sys" }
+
+[features]
+sdl3 = ["dep:sdl3"]

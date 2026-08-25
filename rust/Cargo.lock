@@ -168,6 +168,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 
 [[package]]
+name = "pkg-config"
+version = "0.3.34"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f6b464fbc74e149a392436b17d523f769e057cb6877f6a5c4618bc6f11800548"
+
+[[package]]
 name = "png"
 version = "0.18.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -230,6 +236,7 @@ dependencies = [
  "quake-fs",
  "quake-image",
  "quake-math",
+ "quake-platform",
  "quake-snd",
  "quake-types",
  "quake-util",
@@ -301,6 +308,10 @@ version = "0.1.0"
 [[package]]
 name = "quake-platform"
 version = "0.1.0"
+dependencies = [
+ "quake-c-sys",
+ "sdl3",
+]
 
 [[package]]
 name = "quake-progs"
@@ -431,6 +442,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "sdl3"
+version = "0.18.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "25bd22eb1bbc9137e914022b4994ed35591eea0884e9e3e98e6d9895cad6e1d2"
+dependencies = [
+ "bitflags",
+ "libc",
+ "sdl3-sys",
+]
+
+[[package]]
+name = "sdl3-sys"
+version = "0.6.8+SDL-3.4.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b97e3d18c4994224aec3fb2d3d189f5fc88af0958fb8ed7b569272fde558f033"
+dependencies = [
+ "pkg-config",
+ "vcpkg",
+]
+
+[[package]]
 name = "shlex"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -477,6 +509,12 @@ name = "unicode-ident"
 version = "1.0.24"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e6e4313cd5fcd3dad5cafa179702e2b244f760991f45397d14d4ebf38247da75"
+
+[[package]]
+name = "vcpkg"
+version = "0.2.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "accd4ea62f7bb7a82fe23066fb0957d48ef677f6eeb8215f372f52e48bb32426"
 
 [[package]]
 name = "wait-timeout"
