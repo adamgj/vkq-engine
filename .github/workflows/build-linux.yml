@@ -175,6 +175,26 @@ jobs:
           --compare build-rs/vkqr-engine --tier shareware \
           --extra-args "-pinnedworkers 0" \
           --compare-extra-args "-pinnedworkers 0,1,2,3,4,5,6,7"
+    # Phase 3 M7 (D9 / AC4-7): drive every model/image asset of the shareware
+    # id1 through both the c_ref C loaders and the Rust ports in-process and
+    # assert bit-for-bit parity of the parsed structs, console log, and
+    # upload payloads. Any divergence aborts the binary, failing this step;
+    # the emitted manifest is uploaded for cross-run/platform diffing.
+    - name: Formats corpus gate (C vs Rust, shareware)
+      run: |
+        python3 scripts/harness/run_formats_corpus.py \
+          --game-data "$PWD/shareware-data" --gamedir id1 \
+          --out formats-corpus-linux-x86_64.txt
+        # belt-and-braces vacuous-pass floor: grep -c exits 1 on zero OK lines
+        grep -c '^OK ' formats-corpus-linux-x86_64.txt
+        tail -1 formats-corpus-linux-x86_64.txt
+    - name: Upload formats manifest
+      uses: actions/upload-artifact@v4
+      with:
+        name: formats-corpus-manifest
+        path: formats-corpus-linux-x86_64.txt
+        # the manifest is always written on success; its absence is an error
+        if-no-files-found: error
 
   # ADR-013 / PLAN §7 gate 9: AddressSanitizer on the C side of the mixed
   # build, catching cross-language allocator misuse (alloc on one heap, free

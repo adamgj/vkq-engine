@@ -756,7 +756,7 @@ void Mod_ParseFaces (qmodel_t *mod, byte *mod_base, lump_t *l, qboolean bsp2)
 				}
 				byte j = out->styles[i];
 				if (j < 255)
-					out->styles_bitmap |= 1 << (j < 16 ? j : j % 16 + 16);
+					out->styles_bitmap |= 1u << (j < 16 ? j : j % 16 + 16);
 			}
 			lofs = ReadLongUnaligned (inl + offsetof (dlface_t, lightofs));
 			inl += sizeof (dlface_t);
@@ -778,7 +778,7 @@ void Mod_ParseFaces (qmodel_t *mod, byte *mod_base, lump_t *l, qboolean bsp2)
 				}
 				byte j = out->styles[i];
 				if (j < 255)
-					out->styles_bitmap |= 1 << (j < 16 ? j : j % 16 + 16);
+					out->styles_bitmap |= 1u << (j < 16 ? j : j % 16 + 16);
 			}
 			lofs = ReadLongUnaligned (ins + offsetof (dsface_t, lightofs));
 			ins += sizeof (dsface_t);

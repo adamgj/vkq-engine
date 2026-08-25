@@ -36,9 +36,7 @@ use quake_types::bspfile::TEX_SPECIAL;
 use quake_types::model_mem::{MEdge, MSurface, MTexInfo, MVertex, QModel};
 use std::sync::Once;
 
-#[path = "support/image_fixture.rs"]
-mod image_fixture;
-use image_fixture::{build_lmp, build_pcx};
+use quake_ctest::image_fixture::{build_lmp, build_pcx};
 
 extern "C" {
     fn c_ref_CalcSurfaceExtents(m: *mut QModel, s: *mut MSurface);

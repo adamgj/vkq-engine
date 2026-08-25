@@ -24,12 +24,9 @@ use quake_ctest::fs as ctfs;
 use quake_ctest::fs::Side;
 use quake_types::model_mem::{QModel, MAX_QPATH, PV_MD5};
 
-#[path = "support/mdx_record.rs"]
-mod mdx_record;
-#[path = "support/model_hash.rs"]
-mod model_hash;
 use mdx_record::{ctest_mdxstub_reset, recorded_skins, recorded_uploads, MdxSkin, Upload};
 use model_hash::{mdx_snapshot, Snapshot};
+use quake_ctest::{mdx_record, model_hash};
 
 extern "C" {
     fn c_ref_Mod_LoadMD5MeshModel(m: *mut QModel, buffer: *const c_void) -> bool;

@@ -19,6 +19,15 @@ libfuzzer-sys = "0.4"
 quake-fs = { path = "../quake-fs" }
 quake-util = { path = "../quake-util" }
 quake-types = { path = "../quake-types" }
+# Phase 3 M7 (D11): the model/image accept-reject decision layer. These are
+# the pure predicates the model_parse/image_decode shims are built on, so
+# fuzzing them fuzzes the Rust engine's real decisions. The true C-via-FFI
+# differential over real and malformed assets is the quake-ctest suites and
+# the formats_corpus gate, which compile the c_ref archive; keeping it out of
+# libFuzzer avoids the C parsers' documented out-of-domain UB (over-reads on
+# truncated model files) turning into false crashes in the fuzz loop.
+quake-formats = { path = "../quake-formats" }
+quake-image = { path = "../quake-image" }
 
 # Empty table: this package is its own workspace root, so the parent
 # workspace at rust/Cargo.toml (which also lists it in `exclude`) never
@@ -59,6 +68,55 @@ bench = false
 [[bin]]
 name = "fuzz_vdf"
 path = "fuzz_targets/fuzz_vdf.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_pcx"
+path = "fuzz_targets/fuzz_pcx.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_lmp"
+path = "fuzz_targets/fuzz_lmp.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_bsp"
+path = "fuzz_targets/fuzz_bsp.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_mdl"
+path = "fuzz_targets/fuzz_mdl.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_spr"
+path = "fuzz_targets/fuzz_spr.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_md3"
+path = "fuzz_targets/fuzz_md3.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_md5"
+path = "fuzz_targets/fuzz_md5.rs"
 test = false
 doc = false
 bench = false

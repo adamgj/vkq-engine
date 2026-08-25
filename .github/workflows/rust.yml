@@ -92,12 +92,15 @@ jobs:
         ./scripts/gen_c_bindings.sh
         git diff --exit-code rust/quake-c-sys/src/generated.rs
 
-  # Phase 2 exit criterion: fuzzers live for pak/wad/kpf inputs. Short
+  # Phase 2 exit criterion (pak/wad/kpf inputs) plus the Phase 3 M7
+  # differential targets over the quake-formats/quake-image parsers. Short
   # libFuzzer smoke on every PR/push; the weekly cron (the same event gate
-  # the audit job uses) runs each target longer.
+  # the audit job uses) runs each target longer — 12 targets x 300s is a
+  # deliberate ~60min weekly soak, bounded by timeout-minutes below.
   fuzz-smoke:
-    name: fuzz smoke (quake-fs parsers)
+    name: fuzz smoke (fs + formats + image parsers)
     runs-on: ubuntu-latest
+    timeout-minutes: 120
     steps:
     - uses: actions/checkout@v6
     # nightly: cargo-fuzz builds with -Zsanitizer; the rust/ toolchain file
@@ -111,7 +114,8 @@ jobs:
         # 45s per target on PR/push; 300s on the weekly cron
         MAX_TOTAL_TIME: ${{ github.event_name == 'schedule' && 300 || 45 }}
       run: |
-        for t in fuzz_pak fuzz_wad fuzz_kpf fuzz_loc fuzz_vdf; do
+        for t in fuzz_pak fuzz_wad fuzz_kpf fuzz_loc fuzz_vdf \
+                 fuzz_pcx fuzz_lmp fuzz_bsp fuzz_mdl fuzz_spr fuzz_md3 fuzz_md5; do
           mkdir -p "fuzz/corpus/$t"
           cargo +nightly fuzz run "$t" "fuzz/corpus/$t" "fuzz/corpus-seed/$t" -- \
             -max_total_time="$MAX_TOTAL_TIME" -rss_limit_mb=4096

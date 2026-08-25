@@ -7,7 +7,7 @@
 //! three streams:
 //!
 //! 1. the deep-walk snapshot of the `aliashdr_t` chain
-//!    (`support/model_hash.rs::mdx_snapshot`),
+//!    (`quake_ctest::model_hash::mdx_snapshot`),
 //! 2. the recorded `GLMesh_UploadBuffers` calls **including a byte copy of
 //!    the index/vertex/texcoord buffers** -- the parsed payload never lands
 //!    in `aliashdr_t`, so this is where MD3 parity actually lives,
@@ -19,14 +19,11 @@ use quake_ctest::fs as ctfs;
 use quake_ctest::fs::Side;
 use quake_types::model_mem::{QModel, MAX_QPATH, PV_QUAKE3};
 
-#[path = "support/mdx_record.rs"]
-mod mdx_record;
-#[path = "support/model_hash.rs"]
-mod model_hash;
 use mdx_record::{
     ctest_mdxstub_reset, ctest_skindefs_count, recorded_skins, recorded_uploads, MdxSkin, Upload,
 };
 use model_hash::{mdx_snapshot, Snapshot};
+use quake_ctest::{mdx_record, model_hash};
 
 const MD3_HEADER_SIZE: usize = 108;
 const MD3_FRAME_SIZE: usize = 56;

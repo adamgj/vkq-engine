@@ -1352,7 +1352,10 @@ void ctest_set_external_ents (float value)
 /* Mod_FindName: static pool keyed by name, so submodel chaining
  * (Mod_SetupSubmodels' "*1".."*n" clones) gets stable identical pointers on
  * both sides without the real model cache. */
-#define CTEST_MOD_POOL_MAX 64
+/* sized for real maps: the M7 corpus gate loads shipped BSPs, and each
+ * submodel costs one Mod_FindName clone — real id1 maps run to ~256 where
+ * the synthetic fixtures used a handful */
+#define CTEST_MOD_POOL_MAX 1024
 static qmodel_t ctest_mod_pool[CTEST_MOD_POOL_MAX];
 static int		ctest_mod_pool_count;
 
@@ -1362,7 +1365,11 @@ qmodel_t *Mod_FindName (const char *name)
 	for (i = 0; i < ctest_mod_pool_count; i++)
 		if (!strcmp (ctest_mod_pool[i].name, name))
 			return &ctest_mod_pool[i];
-	assert (ctest_mod_pool_count < CTEST_MOD_POOL_MAX);
+	/* Sys_Error, not assert: under the drivers' armed trap an oversized map
+	 * fails through the normal reject path with the asset named in the
+	 * manifest, instead of aborting the whole corpus run */
+	if (ctest_mod_pool_count >= CTEST_MOD_POOL_MAX)
+		Sys_Error ("ctest Mod_FindName pool exhausted (%d) at %s", ctest_mod_pool_count, name);
 	memset (&ctest_mod_pool[ctest_mod_pool_count], 0, sizeof (qmodel_t));
 	snprintf (ctest_mod_pool[ctest_mod_pool_count].name, sizeof (ctest_mod_pool[0].name), "%s", name);
 	ctest_mod_pool[ctest_mod_pool_count].needload = true;
@@ -1423,14 +1430,26 @@ static ctest_teximage_call_t ctest_teximage_log[CTEST_MODELSTUB_MAX];
 static int32_t				 ctest_teximage_n;
 static ctest_allskins_call_t ctest_allskins_log[CTEST_MODELSTUB_MAX];
 static int32_t				 ctest_allskins_n;
+static int					 ctest_allskins_advance;
 
 void ctest_modelstub_reset (const byte *mod_base)
 {
 	ctest_modelstub_base = mod_base;
 	ctest_teximage_n = 0;
 	ctest_allskins_n = 0;
+	ctest_allskins_advance = 0;
 	memset (ctest_teximage_log, 0, sizeof (ctest_teximage_log));
 	memset (ctest_allskins_log, 0, sizeof (ctest_allskins_log));
+}
+
+/* Phase 3 M7: the synthetic differential fixtures all use numskins == 0, but
+ * the formats-corpus gate feeds real skinned .mdl files, whose parse depends
+ * on Mod_LoadAllSkins returning the cursor advanced past the skin data. When
+ * enabled, the stub replicates the frozen gl_model.c cursor walk (and its
+ * numskins Sys_Error) without loading anything. Reset clears the flag. */
+void ctest_allskins_set_advance (int on)
+{
+	ctest_allskins_advance = on;
 }
 
 int32_t ctest_teximage_count (void)
@@ -1453,6 +1472,14 @@ const ctest_allskins_call_t *ctest_allskins_calls (void)
 	return ctest_allskins_log;
 }
 
+/* the engine's ReadLongUnaligned (gl_model.c): memcpy + LittleLong */
+static int ctest_read_long_unaligned (byte *ptr)
+{
+	int temp;
+	memcpy (&temp, ptr, sizeof (int));
+	return LittleLong (temp);
+}
+
 static int64_t ctest_modelstub_ofs (const void *p)
 {
 	if (!p || !ctest_modelstub_base)
@@ -1471,6 +1498,37 @@ void *Mod_LoadAllSkins (aliashdr_t *pheader, qmodel_t *mod, byte *mod_base, int 
 		ctest_allskins_log[ctest_allskins_n].pskintype_ofs = ctest_modelstub_ofs (pskintype);
 	}
 	++ctest_allskins_n;
+	if (ctest_allskins_advance)
+	{
+		/* the frozen gl_model.c:1969-2001 cursor walk, minus the texture
+		 * loads, using the same ReadLongUnaligned (memcpy + LittleLong) and
+		 * struct-size arithmetic as the original */
+		assert (pheader->poseverttype == PV_QUAKE1);
+		if (numskins < 1 || numskins > 32 /* MAX_SKINS */)
+			Sys_Error ("Mod_LoadAliasModel: Invalid # of skins: %d", numskins);
+		int size = pheader->skinwidth * pheader->skinheight;
+		for (int i = 0; i < numskins; i++)
+		{
+			if (ctest_read_long_unaligned (pskintype + offsetof (daliasskintype_t, type)) == ALIAS_SKIN_SINGLE)
+			{
+				pskintype += sizeof (daliasskintype_t) + size;
+			}
+			else
+			{
+				byte *pinskingroup = pskintype + sizeof (daliasskintype_t);
+				int	  groupskins = ctest_read_long_unaligned (pinskingroup + offsetof (daliasskingroup_t, numskins));
+				/* the engine's own behavior on a negative count is UB (the
+				 * cursor walks backwards out of the image); trap it so the
+				 * gate reports a clean reject instead of both sides reading
+				 * out of bounds identically */
+				if (groupskins < 0)
+					Sys_Error ("ctest Mod_LoadAllSkins: negative skin group count %d", groupskins);
+				byte *pinskinintervals = pinskingroup + sizeof (daliasskingroup_t);
+				byte *skin = pinskinintervals + (groupskins * sizeof (daliasskininterval_t));
+				pskintype = skin + (groupskins * size);
+			}
+		}
+	}
 	return pskintype;
 }
 

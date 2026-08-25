@@ -16,9 +16,7 @@ use quake_ctest::fs as ctfs; // also links the cc-built c_ref_* archive
 use quake_ctest::fs::Side;
 use std::sync::Once;
 
-#[path = "support/image_fixture.rs"]
-mod image_fixture;
-use image_fixture::{build_lmp, build_pcx};
+use quake_ctest::image_fixture::{build_lmp, build_pcx};
 
 extern "C" {
     fn c_ref_Image_DecodePCX(

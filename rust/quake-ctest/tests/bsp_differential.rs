@@ -6,7 +6,7 @@
 //! `Mod_LoadBrushModel` uses, over a synthetic BSP built in-process for one of
 //! the five dialects (BSP29, BSP30/Valve, 2PSB, BSP2, Quake64), then compares
 //! a canonical deep-walk snapshot of the resulting `qmodel_t` graph (see
-//! `support/model_hash.rs`) plus the console log. Pointer values necessarily
+//! `quake_ctest::model_hash`) plus the console log. Pointer values necessarily
 //! differ between the two `Mem_Alloc` heaps, so the snapshot resolves every
 //! pointer to an index or a blob offset.
 //!
@@ -28,9 +28,8 @@ use quake_types::bspfile::{
 use quake_types::model_mem::{MSurface, QModel, MAX_QPATH};
 use std::sync::Once;
 
-#[path = "support/model_hash.rs"]
-mod model_hash;
 use model_hash::{snapshot, BlobLens, Snapshot};
+use quake_ctest::model_hash;
 
 // ---------------------------------------------------------------------------
 // the c_ref half of the seam plus the M3 stub controls
