@@ -75,11 +75,14 @@ bindgen rust/quake-c-sys/bindings_wrapper.h \
     --allowlist-function 'S_LoadSound|GetWavinfo|SND_InitScaletable|S_PaintChannels' \
     --allowlist-function 'Harness_SNDDMA_Init|Harness_SNDDMA_GetDMAPos|Harness_SNDDMA_Shutdown|Harness_SndPaint' \
     --allowlist-function 'Cvar_SetQuick|Cvar_SetValue|Cvar_SetCallback' \
+    --allowlist-function 'Cmd_Argc|Cmd_Argv|Con_SafePrintf|S_CodecInit|S_CodecShutdown' \
+    --allowlist-function 'SND_Glue_ClientConnected|SND_Glue_ViewEntity|SND_Glue_Worldmodel|SND_Glue_PointInLeaf|SND_Glue_PauseLoops' \
     --allowlist-var 'com_argc|com_argv' \
     --allowlist-var 'shm|snd_mutex|snd_channels|total_channels|soundtime|paintedtime|s_rawend|s_rawsamples' \
     --allowlist-var 'listener_origin|listener_forward|listener_right|listener_up' \
     --allowlist-var 'sndspeed|snd_mixspeed|snd_filterquality|sfxvolume|loadas8bit|bgmvolume|snd_waterfx|snd_pauselooping' \
-    --allowlist-var 'host_frametime|host_framecount|harness_sndhash' \
+    --allowlist-var 'nosound|precache|ambient_level|ambient_fade|snd_noextraupdate|snd_show|_snd_mixahead' \
+    --allowlist-var 'host_frametime|host_framecount|harness_sndhash|safemode|sn' \
     --allowlist-var 'registered|cmdline|developer|multiuser|isDedicated|harness_active|external_ents' \
     --allowlist-var 'vkquake_pak|vkquake_pak_size|vkquake_pak_decompressed_size' \
     -o rust/quake-c-sys/src/generated.rs \

@@ -207,6 +207,7 @@ pub unsafe extern "C" fn S_LoadSound(s: *mut Sfx) -> *mut SfxCache {
         let out = unsafe {
             core::slice::from_raw_parts_mut(cache.data.as_mut_ptr(), len.max(0) as usize)
         };
+        // SAFETY: main-thread cvar read under snd_mutex
         let loadas8bit = unsafe { sys::loadas8bit.value != 0.0 };
         let new_meta = resample_sfx(meta, info.rate, info.width, shm_speed, loadas8bit, pcm, out);
         cache.length = new_meta.length;

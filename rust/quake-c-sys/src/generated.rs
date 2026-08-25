@@ -195,6 +195,9 @@ unsafe extern "C" {
     pub static mut com_argv: *mut *mut ::std::os::raw::c_char;
 }
 unsafe extern "C" {
+    pub static mut safemode: ::std::os::raw::c_int;
+}
+unsafe extern "C" {
     pub fn COM_CheckParm(parm: *const ::std::os::raw::c_char) -> ::std::os::raw::c_int;
 }
 unsafe extern "C" {
@@ -656,10 +659,64 @@ unsafe extern "C" {
     pub static mut snd_pauselooping: cvar_t;
 }
 unsafe extern "C" {
+    pub static mut nosound: cvar_t;
+}
+unsafe extern "C" {
+    pub static mut precache: cvar_t;
+}
+unsafe extern "C" {
+    pub static mut ambient_level: cvar_t;
+}
+unsafe extern "C" {
+    pub static mut ambient_fade: cvar_t;
+}
+unsafe extern "C" {
+    pub static mut snd_noextraupdate: cvar_t;
+}
+unsafe extern "C" {
+    pub static mut snd_show: cvar_t;
+}
+unsafe extern "C" {
+    pub static mut _snd_mixahead: cvar_t;
+}
+unsafe extern "C" {
+    pub static mut sn: dma_t;
+}
+unsafe extern "C" {
     pub static mut host_frametime: f64;
 }
 unsafe extern "C" {
     pub static mut host_framecount: ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn Cmd_Argc() -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn Cmd_Argv(arg: ::std::os::raw::c_int) -> *const ::std::os::raw::c_char;
+}
+unsafe extern "C" {
+    pub fn Con_SafePrintf(fmt: *const ::std::os::raw::c_char, ...);
+}
+unsafe extern "C" {
+    pub fn S_CodecInit();
+}
+unsafe extern "C" {
+    pub fn S_CodecShutdown();
+}
+unsafe extern "C" {
+    pub fn SND_Glue_ClientConnected() -> qboolean;
+}
+unsafe extern "C" {
+    pub fn SND_Glue_ViewEntity() -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn SND_Glue_Worldmodel() -> *mut ::std::os::raw::c_void;
+}
+unsafe extern "C" {
+    pub fn SND_Glue_PointInLeaf(p: *mut f32) -> *mut ::std::os::raw::c_void;
+}
+unsafe extern "C" {
+    pub fn SND_Glue_PauseLoops() -> qboolean;
 }
 unsafe extern "C" {
     pub static vkquake_pak: [::std::os::raw::c_uchar; 0usize];

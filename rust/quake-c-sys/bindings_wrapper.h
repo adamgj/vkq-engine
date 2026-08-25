@@ -55,13 +55,41 @@ extern cvar_t	developer;	  /* quakedef.h */
 extern qboolean harness_active; /* harness.h */
 extern cvar_t	external_ents;	  /* gl_model.c */
 
-/* Phase 4 sound: cvars declared in snd_dma.c/snd_mix.c rather than a header,
- * and engine globals from quakedef.h (not a bindgen-clean root); declarations
- * must match the defining files exactly. */
-extern cvar_t snd_waterfx;		/* snd_dma.c */
-extern cvar_t snd_pauselooping; /* snd_dma.c */
+/* Phase 4 sound: cvars declared in snd_dma.c/snd_glue.c rather than a
+ * header, and engine globals from quakedef.h (not a bindgen-clean root);
+ * declarations must match the defining files exactly. */
+extern cvar_t snd_waterfx;		/* snd_dma.c / snd_glue.c */
+extern cvar_t snd_pauselooping;
+extern cvar_t nosound;
+extern cvar_t precache;
+extern cvar_t ambient_level;
+extern cvar_t ambient_fade;
+extern cvar_t snd_noextraupdate;
+extern cvar_t snd_show;
+extern cvar_t _snd_mixahead;
+extern dma_t  sn;				/* snd_dma.c / snd_glue.c storage for S_Startup */
 extern double host_frametime;	/* quakedef.h */
 extern int	  host_framecount;	/* quakedef.h */
+
+/* cmd.h / console.h are not bindgen-clean roots; must match those headers */
+int			Cmd_Argc (void);
+const char *Cmd_Argv (int arg);
+void		Con_SafePrintf (const char *fmt, ...) FUNC_PRINTF (1, 2);
+
+/* snd_codec.c stays C until Phase 4 M7; these must match snd_codec.h */
+void S_CodecInit (void);
+void S_CodecShutdown (void);
+
+/* snd_glue.c accessors (compiled only under -Duse_rust_snd): the
+ * client/server state snd_dma.c read directly. The real return types are
+ * pointers to qmodel_t and mleaf_t (gl_model.h, not bindgen-clean); only
+ * the address is passed through, and the Rust side views mleaf_t via its
+ * quake-types mirror. */
+qboolean SND_Glue_ClientConnected (void);
+int		 SND_Glue_ViewEntity (void);
+void	*SND_Glue_Worldmodel (void);
+void	*SND_Glue_PointInLeaf (float *p);
+qboolean SND_Glue_PauseLoops (void);
 
 /* embedded pak (generated embedded_pak.c) */
 extern const unsigned char vkquake_pak[];

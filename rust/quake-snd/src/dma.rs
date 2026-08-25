@@ -21,6 +21,7 @@ pub fn pick_channel(
     // Check for replacement sound, or find the best one to replace
     let mut first_to_die: i32 = -1;
     let mut life_left: i32 = 0x7fffffff;
+    #[allow(clippy::needless_range_loop)] // the returned value is the index
     for ch_idx in NUM_AMBIENTS..NUM_AMBIENTS + MAX_DYNAMIC_CHANNELS {
         let ch = &channels[ch_idx];
         if entchannel != 0 // channel 0 never overrides
