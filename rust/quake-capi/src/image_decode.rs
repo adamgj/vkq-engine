@@ -111,12 +111,20 @@ pub unsafe extern "C" fn Image_DecodeSTB(
                 // SAFETY: engine allocator; stb's final buffer is also a
                 // Mem_Alloc'd allocation via the STBI_MALLOC plug
                 let data = unsafe { sys::Mem_Alloc(t.rgba.len()) }.cast::<u8>();
-                if !data.is_null() {
+                if data.is_null() {
+                    // Mem_Alloc is plain calloc (Quake/mem.c) and can return
+                    // NULL; under STBI_MALLOC that is stb's
+                    // stbi__errpuc("outofmem", ...) — Con_Warning then NULL
+                    // SAFETY: static reason string; image_name per contract
+                    unsafe { stb_warn(image_name, c"outofmem".as_ptr()) };
+                } else {
                     // SAFETY: Mem_Alloc returned rgba.len() valid bytes
                     unsafe {
                         core::ptr::copy_nonoverlapping(t.rgba.as_ptr(), data, t.rgba.len());
                     }
                 }
+                // stbi__tga_load publishes *x/*y before its allocation, so the
+                // dims are written even on the outofmem path
                 // SAFETY: valid out-pointers per the C ABI contract
                 unsafe {
                     *width = t.width;
@@ -159,17 +167,23 @@ pub unsafe extern "C" fn Image_DecodeSTB(
                 // SAFETY: engine allocator; stb's final buffer is likewise a
                 // Mem_Alloc'd allocation via the STBI_MALLOC plug
                 let data = unsafe { sys::Mem_Alloc(rgba.len()) }.cast::<u8>();
-                if !data.is_null() {
+                if data.is_null() {
+                    // stbi__do_png publishes *x/*y only after a successful
+                    // parse, so an allocation failure inside it leaves the
+                    // out-params untouched and reports "outofmem"
+                    // SAFETY: static reason string; image_name per contract
+                    unsafe { stb_warn(image_name, c"outofmem".as_ptr()) };
+                } else {
                     // SAFETY: Mem_Alloc returned rgba.len() valid bytes
                     unsafe {
                         core::ptr::copy_nonoverlapping(rgba.as_ptr(), data, rgba.len());
                     }
-                }
-                // stb's PNG path writes the out-dims only on success
-                // SAFETY: valid out-pointers per the C ABI contract
-                unsafe {
-                    *width = w;
-                    *height = h;
+                    // stb's PNG path writes the out-dims only on success
+                    // SAFETY: valid out-pointers per the C ABI contract
+                    unsafe {
+                        *width = w;
+                        *height = h;
+                    }
                 }
                 data
             }
@@ -216,17 +230,22 @@ pub unsafe extern "C" fn Image_DecodeSTB(
                 // SAFETY: engine allocator; stb's final buffer is likewise a
                 // Mem_Alloc'd allocation via the STBI_MALLOC plug
                 let data = unsafe { sys::Mem_Alloc(j.rgba.len()) }.cast::<u8>();
-                if !data.is_null() {
+                if data.is_null() {
+                    // load_jpeg_image writes *out_x/*out_y only after its
+                    // stbi__malloc_mad3 succeeds; a NULL there is "outofmem"
+                    // SAFETY: static reason string; image_name per contract
+                    unsafe { stb_warn(image_name, c"outofmem".as_ptr()) };
+                } else {
                     // SAFETY: Mem_Alloc returned rgba.len() valid bytes
                     unsafe {
                         core::ptr::copy_nonoverlapping(j.rgba.as_ptr(), data, j.rgba.len());
                     }
-                }
-                // stb's JPEG path writes the out-dims only on success
-                // SAFETY: valid out-pointers per the C ABI contract
-                unsafe {
-                    *width = j.width;
-                    *height = j.height;
+                    // stb's JPEG path writes the out-dims only on success
+                    // SAFETY: valid out-pointers per the C ABI contract
+                    unsafe {
+                        *width = j.width;
+                        *height = j.height;
+                    }
                 }
                 data
             }

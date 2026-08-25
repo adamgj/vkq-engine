@@ -82,6 +82,11 @@ fuzz_target!(|data: &[u8]| {
                     break;
                 }
             }
+            // dims stays None when no IHDR turns up in the first 64 chunks
+            // (or the walk runs off the end): that input is not size-gated
+            // here, but it cannot reach a decode allocation either — every
+            // other chunk arm rejects with "first not IHDR" while `first`
+            // holds, so an IHDR-less stream dies at chunk 1
             if let Some((w, h)) = dims {
                 if w.saturating_mul(h).saturating_mul(8) > (64 << 20) {
                     return;

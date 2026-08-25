@@ -198,7 +198,10 @@ jobs:
         python3 scripts/harness/run_formats_corpus.py \
           --game-data "$PWD/Misc" --gamedir vq_pak \
           --out formats-corpus-vq-pak.txt
-        grep -c '^OK .*\.png' formats-corpus-vq-pak.txt
+        # pinned: all three PNGs must produce a parity-verified OK line, so a
+        # rename or skip cannot silently thin the leg out (update the count
+        # here and the comment above when a PNG is added to Misc/vq_pak)
+        test "$(grep -c '^OK .*\.png' formats-corpus-vq-pak.txt)" -eq 3
         tail -1 formats-corpus-vq-pak.txt
     - name: Upload formats manifest
       uses: actions/upload-artifact@v4

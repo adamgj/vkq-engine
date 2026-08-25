@@ -105,9 +105,14 @@ def main():
             print(f"SKIP {entry} oversize (--max-bytes {args.max_bytes})", file=out)
         if not names:
             # a gate that silently verified nothing must not go green: an
-            # empty discovery is the signature of a broken layout/fetch
-            print(f"ERROR: no assets discovered under {gd}", file=sys.stderr)
-            failed = True
+            # empty discovery is the signature of a broken layout/fetch.
+            # Discovery that found assets and correctly skipped all of them
+            # as oversize is the other case and is not a failure.
+            if oversize:
+                print(f"# gamedir {gd}: all {len(oversize)} assets skipped oversize", file=out)
+            else:
+                print(f"ERROR: no assets discovered under {gd}", file=sys.stderr)
+                failed = True
             continue
         cmd = [
             "cargo", "run", "-p", "quake-ctest", "--locked", "--bin", "formats_corpus",

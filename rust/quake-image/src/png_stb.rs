@@ -332,7 +332,7 @@ fn push_chunk(out: &mut Vec<u8>, ctype: &[u8; 4], data: &[u8]) {
 }
 
 /// Reassemble the walked pieces into a canonical PNG for the crate.
-fn reconstruct(w: &Walked) -> Vec<u8> {
+fn reconstruct(w: &mut Walked) -> Vec<u8> {
     let mut out = Vec::with_capacity(w.idata.len() + w.palette.len() + 96);
     out.extend_from_slice(&[137, 80, 78, 71, 13, 10, 26, 10]);
     let mut ihdr = Vec::with_capacity(13);
@@ -350,10 +350,13 @@ fn reconstruct(w: &Walked) -> Vec<u8> {
     }
     // normalize the zlib CMF byte to cinfo=7 (stb ignores the declared
     // window; the crate does not have to): keep CM=8, rewrite FLG so the
-    // fcheck holds with FDICT clear
-    let mut idata = w.idata.clone();
+    // fcheck holds with FDICT clear. 0x78 0x01 is the canonical pair —
+    // (0x7801 % 31) == 0. Moved out of `w` rather than cloned: the IDAT
+    // payload runs to the ported ioff i32 bound, so a clone would put a
+    // second multi-hundred-MB copy alongside the one push_chunk makes.
+    let mut idata = core::mem::take(&mut w.idata);
     idata[0] = 0x78;
-    idata[1] = (31 - (0x7800u32 % 31)) as u8 % 31;
+    idata[1] = 0x01;
     push_chunk(&mut out, b"IDAT", &idata);
     push_chunk(&mut out, b"IEND", &[]);
     out
@@ -404,7 +407,7 @@ fn to_rgba(info: &png::OutputInfo, buf: &[u8]) -> Vec<u8> {
 /// Full decode. `file` is the whole resource, already classified as PNG by
 /// [`crate::stb_sniff`] (8-byte signature present).
 pub fn decode(file: &[u8]) -> Result<Png, Error> {
-    let walked = match walk(file)? {
+    let mut walked = match walk(file)? {
         Ok(w) => w,
         Err(()) => return Ok(Png::Fallback),
     };
@@ -423,7 +426,7 @@ pub fn decode(file: &[u8]) -> Result<Png, Error> {
         return Err(Error::Stb("outofmem"));
     }
 
-    let canonical = reconstruct(&walked);
+    let canonical = reconstruct(&mut walked);
     let mut decoder = png::Decoder::new(std::io::Cursor::new(&canonical));
     decoder.set_transformations(png::Transformations::EXPAND);
     decoder.ignore_checksums(true);

@@ -62,9 +62,12 @@ The stb_image decode swap landed with the gate applied per format:
   seam bulk-reads the resource, so a *malformed* image inside a pak whose
   streaming decode would read past the resource into neighboring pak bytes
   diverges (the out-of-resource UB class the Phase 3 M2 PCX shim first
-  documented); true allocation failure (calloc NULL on an in-int-range
-  size) aborts in Rust where C warns "outofmem" — the deterministic
-  int-overflow "outofmem" rejects are ported and gated; and Adobe
-  4-component (CMYK/YCCK) JPEGs decode with a different color transform
-  than stb (accept/dims parity held and pinned; no such asset exists in
-  any known Quake content).
+  documented); true allocation failure of the *Rust-side* decode buffers
+  aborts where C warns "outofmem" — the deterministic int-overflow
+  "outofmem" rejects are ported and gated, and a NULL from the final
+  `Mem_Alloc` in each shim arm now emits stb's "outofmem" `Con_Warning`
+  with the out-dims published exactly where stb publishes them (TGA
+  before its allocation, PNG/JPEG only on success); and Adobe 4-component
+  (CMYK/YCCK) JPEGs decode with a different color transform than stb
+  (accept/dims parity held and pinned; no such asset exists in any known
+  Quake content).
