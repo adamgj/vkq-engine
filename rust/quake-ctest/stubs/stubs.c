@@ -1987,3 +1987,97 @@ void ctest_resample_ref (int length, int loopstart, int inrate, int inwidth, int
 	memcpy (out, sc->data, out_len);
 	free (sc);
 }
+
+/* ---------------------------------------------------------------------------
+ * Phase 4 M4: mixer oracle state (snd_dma.c is not compiled here, so its
+ * globals are stub-owned), pause-state slice, and the block-hash recorder
+ * the c_ref mixer reports through the Harness_SndPaint seam.
+ */
+
+/* explicit initializers: tentative (common) definitions in an archive member
+ * are not resolvable targets for the Rust externs on macOS ld64 */
+channel_t			  snd_channels[MAX_CHANNELS] = {{0}};
+int					  total_channels = 0;
+int					  soundtime = 0;
+int					  paintedtime = 0;
+int					  s_rawend = 0;
+portable_samplepair_t s_rawsamples[MAX_RAW_SAMPLES] = {{0}};
+
+cvar_t snd_waterfx = {"snd_waterfx", "1", CVAR_NONE};
+cvar_t snd_pauselooping = {"snd_pauselooping", "1", CVAR_NONE};
+
+ctest_cl_t	cl = {0};
+ctest_svs_t svs = {0};
+keydest_t	key_dest = key_game;
+double		host_frametime = 0.0;
+
+qboolean harness_sndhash = false;
+
+static uint64_t ctest_snd_block_hash = UINT64_C (0xcbf29ce484222325);
+static int		ctest_snd_block_count = 0;
+
+static uint64_t ctest_snd_hash64 (uint64_t h, const void *data, size_t len)
+{
+	const byte *pd = (const byte *)data;
+	while (len--)
+	{
+		h ^= *pd++;
+		h *= UINT64_C (0x100000001b3);
+	}
+	return h;
+}
+
+void Harness_SndPaint (int painted, int end, const void *paintbuf, const volatile unsigned char *dmabuf, int dmabytes)
+{
+	uint64_t h = ctest_snd_block_hash;
+	h = ctest_snd_hash64 (h, &painted, sizeof (painted));
+	h = ctest_snd_hash64 (h, &end, sizeof (end));
+	h = ctest_snd_hash64 (h, paintbuf, (size_t)(end - painted) * 8);
+	h = ctest_snd_hash64 (h, (const void *)dmabuf, (size_t)dmabytes);
+	ctest_snd_block_hash = h;
+	ctest_snd_block_count++;
+}
+
+void ctest_snd_block_reset (void)
+{
+	ctest_snd_block_hash = UINT64_C (0xcbf29ce484222325);
+	ctest_snd_block_count = 0;
+	harness_sndhash = true; /* route the c_ref mixer through the hook */
+}
+
+uint64_t ctest_snd_block_get (int *count)
+{
+	*count = ctest_snd_block_count;
+	return ctest_snd_block_hash;
+}
+
+/* full DMA description for the mixer differential; buffer is caller-owned */
+void ctest_snd_setup_dma (int speed, int samplebits, int channels, int signed8, int samples, unsigned char *buffer)
+{
+	memset (&ctest_dma, 0, sizeof (ctest_dma));
+	ctest_dma.speed = speed;
+	ctest_dma.samplebits = samplebits;
+	ctest_dma.channels = channels;
+	ctest_dma.signed8 = signed8;
+	ctest_dma.samples = samples;
+	ctest_dma.buffer = buffer;
+	shm = &ctest_dma;
+}
+
+void ctest_snd_set_pause_state (int cl_paused, int sv_active, int maxclients, int keydest, double frametime)
+{
+	cl.paused = cl_paused;
+	sv.active = sv_active;
+	svs.maxclients = maxclients;
+	key_dest = (keydest_t)keydest;
+	host_frametime = frametime;
+}
+
+void ctest_snd_set_cvars (float sfxvol, float sndspeed_v, float filterquality, float waterfx, float pauselooping)
+{
+	sfxvolume.value = sfxvol;
+	sndspeed.value = sndspeed_v;
+	snd_filterquality.value = filterquality;
+	snd_waterfx.value = waterfx;
+	snd_pauselooping.value = pauselooping;
+}

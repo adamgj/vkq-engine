@@ -69,6 +69,10 @@ static inline int FindLastBitNonZero (const uint32_t mask)
 }
 #endif
 #include "mathlib.h"
+/* Phase 4: the sound surface (q_sound.h needs cvar_t and qmutex_t) */
+#include "cvar.h"
+#include "q_thread.h"
+#include "q_sound.h"
 #include "quake_rs.h"
 EOF
 

@@ -240,9 +240,6 @@ unsafe extern "C" {
     pub fn COM_Rand() -> i32;
 }
 unsafe extern "C" {
-    pub static mut com_filesize: qfileofs_t;
-}
-unsafe extern "C" {
     pub fn COM_ThreadFileSize() -> qfileofs_t;
 }
 unsafe extern "C" {

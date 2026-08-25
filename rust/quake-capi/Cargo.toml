@@ -25,6 +25,7 @@ quake-fs = { path = "../quake-fs" }
 quake-image = { path = "../quake-image" }
 quake-formats = { path = "../quake-formats" }
 quake-types = { path = "../quake-types" }
+quake-snd = { path = "../quake-snd" }
 quake-c-sys = { path = "../quake-c-sys" }
 
 [features]

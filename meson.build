@@ -272,7 +272,6 @@ srcs = [
     'Quake/sbar.c',
     'Quake/snd_codec.c',
     'Quake/snd_dma.c',
-    'Quake/snd_mem.c',
     'Quake/snd_mix.c',
     'Quake/snd_sdl.c',
     'Quake/snd_sdl3.c',
@@ -460,6 +459,17 @@ if use_rust_image
 else
     # the C PCX/LMP decoders stay in as long as the Phase 3 image switch is off
     srcs += phase3_image_c_srcs
+endif
+
+# Phase 4: the sound engine flips file-by-file; the list grows per milestone
+# and the C originals stay the comparison oracle under -Duse_rust_snd=disabled
+phase4_c_srcs = [
+    'Quake/snd_mem.c',
+]
+if use_rust_snd
+    cflags += '-DUSE_RUST_SND'
+else
+    srcs += phase4_c_srcs
 endif
 
 deps = [

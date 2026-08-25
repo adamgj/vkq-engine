@@ -207,6 +207,8 @@ exclude = [
     "Mod_LoadMD3Model", "Mod_LoadMD3SkinDefinitions", "Mod_LoadMD3SurfaceSkins",
     "Mod_LoadMD5MeshModel", "Mod_LoadMD5SurfaceSkins", "GLMesh_DeleteMeshBuffers",
     "strtoull", "strtol",
+    "S_LoadSound", "GetWavinfo", "Sfx", "SfxCache", "WavInfo", "SamplePair",
+    "Channel", "Dma",
     "GLMesh_UploadBuffers", "AliasMesh", "AllSurfacesDef", "JointPose",
     "QPathStr", "SkinDef", "SurfaceDef", "Md3XyzNormal", "Md5Vert", "Md5Vert8",
     "AliasHdr", "MAliasFrameDesc", "MSprite", "MSpriteFrameDesc",

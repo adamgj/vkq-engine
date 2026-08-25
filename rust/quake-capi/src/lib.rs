@@ -31,6 +31,8 @@ pub mod mathlib;
 pub mod mdfour;
 #[cfg(feature = "formats")]
 pub mod model_parse;
+#[cfg(feature = "snd")]
+pub mod snd_mem;
 #[cfg(feature = "fs")]
 pub mod steam;
 pub mod strl;

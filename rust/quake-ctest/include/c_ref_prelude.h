@@ -325,10 +325,12 @@ gltexture_t *TexMgr_LoadImage (
 void GLMesh_UploadBuffers (qmodel_t *mod, aliashdr_t *hdr, unsigned short *indexes, byte *vertexes, aliasmesh_t *desc, jointpose_t *joints);
 void GLMesh_DeleteMeshBuffers (aliashdr_t *mainhdr);
 
-/* server.h slice: model_parse.c reads only sv.modelname */
+/* server.h slice: model_parse.c reads sv.modelname; snd_mix.c (Phase 4)
+ * reads sv.active */
 typedef struct
 {
-	char modelname[64];
+	char	 modelname[64];
+	qboolean active;
 } ctest_server_stub_t;
 extern ctest_server_stub_t sv;
 
@@ -387,9 +389,39 @@ struct cmd_function_s *Cmd_AddCommand2 (const char *cmd_name, xcommand_t functio
 #define GetWavinfo	c_ref_GetWavinfo
 #define ResampleSfx c_ref_ResampleSfx
 
+/* snd_mix.c (Phase 4 M4): the mixer oracle. paintbuffer/scaletable/filters
+ * stay file-static; snd_channels/total_channels/paintedtime/s_rawsamples and
+ * the pause-state globals are stub-owned shared state. */
+#define S_PaintChannels			 c_ref_S_PaintChannels
+#define SND_InitScaletable		 c_ref_SND_InitScaletable
+#define S_SetUnderwaterIntensity c_ref_S_SetUnderwaterIntensity
+
+#include <limits.h>
 #include "common.h"
 #include "q_thread.h"
 #include "q_sound.h"
+
+/* the quakedef.h slice snd_mix.c's pause_loops computation reads; the stub
+ * definitions expose setters for the differential tests */
+typedef struct
+{
+	qboolean paused;
+} ctest_cl_t;
+extern ctest_cl_t cl;
+typedef struct
+{
+	int maxclients;
+} ctest_svs_t;
+extern ctest_svs_t svs;
+typedef enum
+{
+	key_game,
+	key_console,
+	key_message,
+	key_menu
+} keydest_t;
+extern keydest_t key_dest;
+extern double	 host_frametime;
 
 /* file-internal in the engine build; snd_mem.c un-statics it for this
  * oracle build (the rename above applies) */
