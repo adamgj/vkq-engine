@@ -29,6 +29,24 @@ def _stage_entry(src, dst):
         shutil.copyfile(src, dst)  # Windows without symlink privilege
 
 
+def _materialize_dir(path):
+    """Make `path` a real directory that is safe to write into.
+
+    stage_basedir symlinks whole subdirectories out of the read-only game
+    data, so a fixture staged over one (id1/music) would otherwise land
+    inside the source tree. Replace such a symlink with a real directory
+    re-linking the original entries.
+    """
+    if os.path.islink(path):
+        target = os.path.realpath(path)
+        os.unlink(path)
+        os.makedirs(path)
+        for f in sorted(os.listdir(target)):
+            _stage_entry(os.path.join(target, f), os.path.join(path, f))
+    else:
+        os.makedirs(path, exist_ok=True)
+
+
 def stage_basedir(game_data, staging):
     """Symlink each game dir (id1, hipnotic, ...) into a writable basedir."""
     for entry in sorted(os.listdir(game_data)):
@@ -66,10 +84,10 @@ def main():
         if args.fixture_dir:
             src = os.path.abspath(args.fixture_dir)
             dst = os.path.join(staging, os.path.basename(src))
-            os.makedirs(dst, exist_ok=True)
+            _materialize_dir(dst)
             for root, _dirs, files in os.walk(src):
                 rel = os.path.relpath(root, src)
-                os.makedirs(os.path.join(dst, rel), exist_ok=True)
+                _materialize_dir(os.path.join(dst, rel))
                 for f in files:
                     _stage_entry(os.path.join(root, f), os.path.join(dst, rel, f))
 

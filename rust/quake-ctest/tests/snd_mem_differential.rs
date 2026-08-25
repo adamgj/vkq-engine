@@ -150,6 +150,9 @@ fn pcm16(n: usize) -> Vec<u8> {
 
 #[test]
 fn wavinfo_synthetic_fixtures() {
+    // the stub console log and Sys_Error trap these cases drive are shared
+    // global state; ctfs::lock() is the harness-wide guard for it
+    let _guard = ctfs::lock();
     let cases: Vec<(&str, Vec<u8>)> = vec![
         ("empty", Vec::new()),
         ("garbage", b"not a wav at all, nothing here".to_vec()),
@@ -389,6 +392,9 @@ fn diff_both(tag: &str, file: &[u8]) {
 
 #[test]
 fn resample_synthetic_fixtures() {
+    // the stub console log and Sys_Error trap these cases drive are shared
+    // global state; ctfs::lock() is the harness-wide guard for it
+    let _guard = ctfs::lock();
     let cases: Vec<(&str, Vec<u8>)> = vec![
         (
             "mono8-11025",
@@ -449,6 +455,9 @@ fn pak_entries(pak: &[u8]) -> Vec<(String, usize, usize)> {
 
 #[test]
 fn real_id1_wavs() {
+    // the stub console log and Sys_Error trap these cases drive are shared
+    // global state; ctfs::lock() is the harness-wide guard for it
+    let _guard = ctfs::lock();
     let Ok(root) = std::env::var("QUAKE_GAME_DATA") else {
         eprintln!("QUAKE_GAME_DATA not set; skipping real-asset wav corpus");
         return;

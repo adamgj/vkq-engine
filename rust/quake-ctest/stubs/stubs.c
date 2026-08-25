@@ -1131,6 +1131,27 @@ void Cvar_Set (const char *var_name, const char *value)
 	ctest_cvar_log_count++;
 }
 
+/* Cvar_SetQuick / Cvar_SetCallback are reached from S_Init on both sides of
+ * the seam (c_ref snd_dma.c and the Rust shim). Routing the set through the
+ * same capture keeps the two symmetric; the callback assignment mirrors
+ * cvar.c so a registered callback still fires. */
+void Cvar_SetQuick (cvar_t *var, const char *value)
+{
+	Cvar_Set (var->name, value);
+	var->value = atof (value);
+	if (var->callback)
+		var->callback (var);
+}
+
+void Cvar_SetCallback (cvar_t *var, cvarcallback_t func)
+{
+	var->callback = func;
+	if (func)
+		var->flags |= CVAR_CALLBACK;
+	else
+		var->flags &= ~CVAR_CALLBACK;
+}
+
 void ctest_clear_cvar_log (void)
 {
 	ctest_cvar_log_count = 0;
@@ -1354,6 +1375,18 @@ cvar_t external_ents = {"external_ents", "1", CVAR_ARCHIVE};
 void ctest_set_external_ents (float value)
 {
 	external_ents.value = value;
+}
+
+/* bgmusic.c/cd_null.c seams the Phase 4 bgmusic shim imports. bgmusic.c is
+ * not compiled as a c_ref oracle, so there is no renamed counterpart to
+ * collide with; CDAudio_Play reports "no CD" exactly like cd_null.c. */
+cvar_t bgm_extmusic = {"bgm_extmusic", "1", CVAR_ARCHIVE};
+
+int CDAudio_Play (byte track, qboolean looping)
+{
+	(void)track;
+	(void)looping;
+	return -1;
 }
 
 /* Mod_FindName: static pool keyed by name, so submodel chaining

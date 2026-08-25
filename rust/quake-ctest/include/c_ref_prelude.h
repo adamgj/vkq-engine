@@ -443,6 +443,7 @@ struct cmd_function_s *Cmd_AddCommand2 (const char *cmd_name, xcommand_t functio
 #define listener_up			 c_ref_listener_up
 #define bgmvolume			 c_ref_bgmvolume
 #define sfxvolume			 c_ref_sfxvolume
+#define precache			 c_ref_precache
 #define loadas8bit			 c_ref_loadas8bit
 #define sndspeed			 c_ref_sndspeed
 #define snd_mixspeed		 c_ref_snd_mixspeed
