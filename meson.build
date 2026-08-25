@@ -272,7 +272,6 @@ srcs = [
     'Quake/sbar.c',
     'Quake/snd_codec.c',
     'Quake/snd_dma.c',
-    'Quake/snd_mix.c',
     'Quake/snd_sdl.c',
     'Quake/snd_sdl3.c',
     'Quake/snd_umx.c',
@@ -465,9 +464,14 @@ endif
 # and the C originals stay the comparison oracle under -Duse_rust_snd=disabled
 phase4_c_srcs = [
     'Quake/snd_mem.c',
+    'Quake/snd_mix.c',
+]
+phase4_glue_c_srcs = [
+    'Quake/snd_glue.c',
 ]
 if use_rust_snd
     cflags += '-DUSE_RUST_SND'
+    srcs += phase4_glue_c_srcs
 else
     srcs += phase4_c_srcs
 endif

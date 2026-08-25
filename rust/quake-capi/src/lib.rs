@@ -33,6 +33,8 @@ pub mod mdfour;
 pub mod model_parse;
 #[cfg(feature = "snd")]
 pub mod snd_mem;
+#[cfg(feature = "snd")]
+pub mod snd_mix;
 #[cfg(feature = "fs")]
 pub mod steam;
 pub mod strl;
