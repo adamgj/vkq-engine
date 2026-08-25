@@ -16,10 +16,15 @@ use quake_snd::mix::{
 use quake_types::sound::{Channel, SamplePair, Sfx, MAX_RAW_SAMPLES};
 
 extern "C" {
+    #[link_name = "c_ref_snd_channels"]
     static mut snd_channels: [Channel; 1024];
+    #[link_name = "c_ref_total_channels"]
     static mut total_channels: c_int;
+    #[link_name = "c_ref_paintedtime"]
     static mut paintedtime: c_int;
+    #[link_name = "c_ref_s_rawend"]
     static mut s_rawend: c_int;
+    #[link_name = "c_ref_s_rawsamples"]
     static mut s_rawsamples: [SamplePair; MAX_RAW_SAMPLES];
 
     fn c_ref_S_PaintChannels(endtime: c_int);

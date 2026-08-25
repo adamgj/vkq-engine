@@ -33,6 +33,11 @@ size_t UTF8_WriteCodePoint (char *dst, size_t maxbytes, uint32_t codepoint);
 
 /* mplane_t comes from the real gl_model.h, included below (Phase 3) */
 
+/* forward-declare at file scope so cvar.h's cvarcallback_t typedef (which
+ * names struct cvar_s inside a parameter list) refers to this type, keeping
+ * function pointers to real callbacks compatible (Phase 4: snd_dma.c) */
+struct cvar_s;
+
 void Sys_Error (const char *error, ...);
 
 /* quakedef.h's bit-scan helper, needed by mathlib.h's Q_log2/Q_nextPow2 */
@@ -396,6 +401,56 @@ struct cmd_function_s *Cmd_AddCommand2 (const char *cmd_name, xcommand_t functio
 #define SND_InitScaletable		 c_ref_SND_InitScaletable
 #define S_SetUnderwaterIntensity c_ref_S_SetUnderwaterIntensity
 
+/* ---- snd_dma.c (Phase 4 M6): channel/spatialization oracle ----
+ *
+ * snd_dma.c *defines* the shared sound globals and cvars, so they are all
+ * renamed c_ref_*; the c_ref sound subsystem (snd_mem/snd_mix/snd_dma) is
+ * self-consistent through these renames, and the stubs' setter functions
+ * (compiled under this same prelude) write the renamed symbols. */
+#define S_Init				 c_ref_S_Init
+#define S_Startup			 c_ref_S_Startup
+#define S_Shutdown			 c_ref_S_Shutdown
+#define S_StartSound		 c_ref_S_StartSound
+#define S_StaticSound		 c_ref_S_StaticSound
+#define S_StopSound			 c_ref_S_StopSound
+#define S_StopAllSounds		 c_ref_S_StopAllSounds
+#define S_ClearBuffer		 c_ref_S_ClearBuffer
+#define S_Update			 c_ref_S_Update
+#define S_ExtraUpdate		 c_ref_S_ExtraUpdate
+#define S_ClearAll			 c_ref_S_ClearAll
+#define S_BlockSound		 c_ref_S_BlockSound
+#define S_UnblockSound		 c_ref_S_UnblockSound
+#define S_PrecacheSound		 c_ref_S_PrecacheSound
+#define S_TouchSound		 c_ref_S_TouchSound
+#define S_LocalSound		 c_ref_S_LocalSound
+#define S_RawSamples		 c_ref_S_RawSamples
+#define SND_PickChannel		 c_ref_SND_PickChannel
+#define SND_Spatialize		 c_ref_SND_Spatialize
+#define S_ClearPrecache		 c_ref_S_ClearPrecache
+#define S_BeginPrecaching	 c_ref_S_BeginPrecaching
+#define S_EndPrecaching		 c_ref_S_EndPrecaching
+#define snd_channels		 c_ref_snd_channels
+#define total_channels		 c_ref_total_channels
+#define shm					 c_ref_shm
+#define snd_mutex			 c_ref_snd_mutex
+#define soundtime			 c_ref_soundtime
+#define paintedtime			 c_ref_paintedtime
+#define s_rawend			 c_ref_s_rawend
+#define s_rawsamples		 c_ref_s_rawsamples
+#define listener_origin		 c_ref_listener_origin
+#define listener_forward	 c_ref_listener_forward
+#define listener_right		 c_ref_listener_right
+#define listener_up			 c_ref_listener_up
+#define bgmvolume			 c_ref_bgmvolume
+#define sfxvolume			 c_ref_sfxvolume
+#define loadas8bit			 c_ref_loadas8bit
+#define sndspeed			 c_ref_sndspeed
+#define snd_mixspeed		 c_ref_snd_mixspeed
+#define snd_filterquality	 c_ref_snd_filterquality
+#define snd_waterfx			 c_ref_snd_waterfx
+#define snd_pauselooping	 c_ref_snd_pauselooping
+
+
 #include <limits.h>
 #include "common.h"
 #include "q_thread.h"
@@ -405,7 +460,9 @@ struct cmd_function_s *Cmd_AddCommand2 (const char *cmd_name, xcommand_t functio
  * definitions expose setters for the differential tests */
 typedef struct
 {
-	qboolean paused;
+	qboolean  paused;
+	int		  viewentity;
+	qmodel_t *worldmodel;
 } ctest_cl_t;
 extern ctest_cl_t cl;
 typedef struct
@@ -426,5 +483,32 @@ extern double	 host_frametime;
 /* file-internal in the engine build; snd_mem.c un-statics it for this
  * oracle build (the rename above applies) */
 void ResampleSfx (sfx_t *sfx, int inrate, int inwidth, byte *data);
+
+/* declared file-locally in snd_dma.c/snd_mix.c; the renames above apply */
+extern cvar_t snd_waterfx;
+extern cvar_t snd_pauselooping;
+
+/* the quakedef.h slice snd_dma.c needs beyond the fs slice above */
+#define MAX_SOUNDS 2048
+#define SIGNONS	   4
+typedef enum
+{
+	ca_dedicated,
+	ca_disconnected,
+	ca_connected
+} cactive_t;
+typedef struct
+{
+	cactive_t state;
+	int		  signon;
+	int		  demonum;
+} ctest_cls_stub_t;
+extern ctest_cls_stub_t cls;
+mleaf_t				   *Mod_PointInLeaf (float *p, qmodel_t *model); /* stub-owned, settable */
+void					S_CodecInit (void);							/* snd_codec.h; stub no-ops */
+void					S_CodecShutdown (void);
+int						Cmd_Argc (void);
+const char			   *Cmd_Argv (int arg);
+void					Con_SafePrintf (const char *fmt, ...);
 
 #endif /* C_REF_PRELUDE_H */

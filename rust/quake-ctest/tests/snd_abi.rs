@@ -93,4 +93,6 @@ fn snd_consts_match_engine_headers() {
     );
     assert_eq!(sound::MAX_RAW_SAMPLES, c_abi("const.MAX_RAW_SAMPLES"));
     assert_eq!(sound::MAX_QPATH, c_abi("const.MAX_QPATH"));
+    assert_eq!(sound::NUM_AMBIENTS, c_abi("const.NUM_AMBIENTS"));
+    assert_eq!(sound::MAX_SOUNDS, c_abi("const.MAX_SOUNDS"));
 }

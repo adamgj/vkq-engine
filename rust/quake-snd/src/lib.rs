@@ -12,6 +12,7 @@
 
 #![forbid(unsafe_code)] // ADR-004: pure crate; unsafe lives in quake-capi
 
+pub mod dma;
 pub mod mix;
 pub mod resample;
 pub mod wav;

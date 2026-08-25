@@ -575,6 +575,8 @@ static const ctest_abi_entry_t ctest_abi_snd_table[] = {
 	{"const.MAX_DYNAMIC_CHANNELS", MAX_DYNAMIC_CHANNELS},
 	{"const.MAX_RAW_SAMPLES", MAX_RAW_SAMPLES},
 	{"const.MAX_QPATH", MAX_QPATH},
+	{"const.NUM_AMBIENTS", NUM_AMBIENTS},
+	{"const.MAX_SOUNDS", MAX_SOUNDS},
 };
 
 size_t ctest_abi_snd_lookup (const char *key)

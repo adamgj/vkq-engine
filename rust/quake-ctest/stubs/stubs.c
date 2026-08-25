@@ -1922,15 +1922,7 @@ void ctest_fill_dummy_textures (qmodel_t *mod)
  * the Rust shims, plus a driver for the resampler differential.
  */
 
-static dma_t	ctest_dma;
-volatile dma_t *shm = NULL;
-qmutex_t	   *snd_mutex = NULL;
-
-cvar_t loadas8bit = {"loadas8bit", "0", CVAR_NONE};
-cvar_t sndspeed = {"sndspeed", "11025", CVAR_NONE};
-cvar_t snd_mixspeed = {"snd_mixspeed", "44100", CVAR_NONE};
-cvar_t sfxvolume = {"volume", "0.7", CVAR_NONE};
-cvar_t snd_filterquality = {"snd_filterquality", "1", CVAR_NONE};
+static dma_t ctest_dma;
 
 /* the suites are single-threaded; locking is a no-op */
 qmutex_t *QMutex_Create (void)
@@ -1994,17 +1986,9 @@ void ctest_resample_ref (int length, int loopstart, int inrate, int inwidth, int
  * the c_ref mixer reports through the Harness_SndPaint seam.
  */
 
-/* explicit initializers: tentative (common) definitions in an archive member
- * are not resolvable targets for the Rust externs on macOS ld64 */
-channel_t			  snd_channels[MAX_CHANNELS] = {{0}};
-int					  total_channels = 0;
-int					  soundtime = 0;
-int					  paintedtime = 0;
-int					  s_rawend = 0;
-portable_samplepair_t s_rawsamples[MAX_RAW_SAMPLES] = {{0}};
-
-cvar_t snd_waterfx = {"snd_waterfx", "1", CVAR_NONE};
-cvar_t snd_pauselooping = {"snd_pauselooping", "1", CVAR_NONE};
+/* snd_channels/total_channels/paintedtime/... and the sound cvars are
+ * defined by the c_ref snd_dma.c (renamed c_ref_* by the prelude); tests
+ * reach them via those names. */
 
 ctest_cl_t	cl = {0};
 ctest_svs_t svs = {0};
@@ -2080,4 +2064,71 @@ void ctest_snd_set_cvars (float sfxvol, float sndspeed_v, float filterquality, f
 	snd_filterquality.value = filterquality;
 	snd_waterfx.value = waterfx;
 	snd_pauselooping.value = pauselooping;
+}
+
+/* Phase 4 M6: the snd_dma.c oracle's remaining seams */
+ctest_cls_stub_t cls = {ca_disconnected, 0, 0};
+
+static mleaf_t *ctest_point_leaf = NULL;
+void ctest_set_point_leaf (mleaf_t *leaf)
+{
+	ctest_point_leaf = leaf;
+}
+mleaf_t *Mod_PointInLeaf (float *p, qmodel_t *model)
+{
+	(void)p;
+	(void)model;
+	return ctest_point_leaf;
+}
+
+void S_CodecInit (void) {}
+void S_CodecShutdown (void) {}
+
+static int	ctest_cmd_argc = 0;
+static char ctest_cmd_argv[8][64];
+int Cmd_Argc (void)
+{
+	return ctest_cmd_argc;
+}
+const char *Cmd_Argv (int arg)
+{
+	return (arg >= 0 && arg < ctest_cmd_argc) ? ctest_cmd_argv[arg] : "";
+}
+
+CON_STUB (Con_SafePrintf, "[safe]")
+
+qboolean SNDDMA_Init (dma_t *dma)
+{
+	(void)dma;
+	return false;
+}
+int SNDDMA_GetDMAPos (void)
+{
+	return 0;
+}
+void SNDDMA_Shutdown (void) {}
+void SNDDMA_LockBuffer (void) {}
+void SNDDMA_Submit (void) {}
+void SNDDMA_BlockSound (void) {}
+void SNDDMA_UnblockSound (void) {}
+qboolean Harness_SNDDMA_Init (void *dma)
+{
+	(void)dma;
+	return false;
+}
+int Harness_SNDDMA_GetDMAPos (void)
+{
+	return 0;
+}
+void Harness_SNDDMA_Shutdown (void) {}
+
+void ctest_snd_set_listener (const float *origin, const float *right)
+{
+	memcpy ((void *)listener_origin, origin, sizeof (vec3_t));
+	memcpy ((void *)listener_right, right, sizeof (vec3_t));
+}
+
+void ctest_set_cl_viewentity (int viewentity)
+{
+	cl.viewentity = viewentity;
 }

@@ -12,7 +12,8 @@ pub const MAX_DYNAMIC_CHANNELS: usize = 128;
 pub const MAX_RAW_SAMPLES: usize = 8192;
 /// quakedef.h MAX_SOUNDS; known_sfx holds twice this (snd_dma.c)
 pub const MAX_SOUNDS: usize = 2048;
-pub const NUM_AMBIENTS: usize = 2;
+/// bspfile.h: automatic ambient sounds
+pub const NUM_AMBIENTS: usize = 4;
 pub const PAINTBUFFER_SIZE: usize = 2048;
 pub const WAV_FORMAT_PCM: i32 = 1;
 
