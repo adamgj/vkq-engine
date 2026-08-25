@@ -10,3 +10,4 @@
 pub mod lmp;
 pub mod pcx;
 pub mod stb_sniff;
+pub mod tga;

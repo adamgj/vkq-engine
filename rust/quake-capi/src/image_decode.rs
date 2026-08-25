@@ -18,7 +18,7 @@
 use core::ffi::{c_char, c_int};
 
 use quake_c_sys as sys;
-use quake_image::{lmp, pcx, stb_sniff};
+use quake_image::{lmp, pcx, stb_sniff, tga};
 
 /// Read the rest of the resource (the C originals' view of it: com_filesize
 /// truncated to int, like their `const int file_size` locals).
@@ -106,10 +106,48 @@ pub unsafe extern "C" fn Image_DecodeSTB(
             unsafe { stb_warn(image_name, c"unknown image type".as_ptr()) };
             core::ptr::null_mut()
         }
-        // Png/Jpeg/Tga: crate/hand-ported decoders land per format (M8
-        // steps 3-5); until a format's ADR-012 gate is green it routes
-        // through the C stb fallback over the same bytes
-        stb_sniff::Format::Png | stb_sniff::Format::Jpeg | stb_sniff::Format::Tga =>
+        stb_sniff::Format::Tga => match tga::decode(&file) {
+            Ok(t) => {
+                // SAFETY: engine allocator; stb's final buffer is also a
+                // Mem_Alloc'd allocation via the STBI_MALLOC plug
+                let data = unsafe { sys::Mem_Alloc(t.rgba.len()) }.cast::<u8>();
+                if !data.is_null() {
+                    // SAFETY: Mem_Alloc returned rgba.len() valid bytes
+                    unsafe {
+                        core::ptr::copy_nonoverlapping(t.rgba.as_ptr(), data, t.rgba.len());
+                    }
+                }
+                // SAFETY: valid out-pointers per the C ABI contract
+                unsafe {
+                    *width = t.width;
+                    *height = t.height;
+                }
+                data
+            }
+            Err(e) => {
+                // stb publishes *x/*y before some failures and not others;
+                // the pure decoder reports which applies
+                if let Some((w, h)) = e.dims {
+                    // SAFETY: valid out-pointers per the C ABI contract
+                    unsafe {
+                        *width = w;
+                        *height = h;
+                    }
+                }
+                let reason = match e.reason {
+                    tga::Reason::TooLarge => c"too large",
+                    tga::Reason::BadFormat => c"bad format",
+                    tga::Reason::BadPalette => c"bad palette",
+                };
+                // SAFETY: static reason string; image_name per contract
+                unsafe { stb_warn(image_name, reason.as_ptr()) };
+                core::ptr::null_mut()
+            }
+        },
+        // Png/Jpeg: crate decoders land per format (M8 steps 4-5); until a
+        // format's ADR-012 gate is green it routes through the C stb
+        // fallback over the same bytes
+        stb_sniff::Format::Png | stb_sniff::Format::Jpeg =>
         // SAFETY: caller contract (out-pointers, image_name)
         unsafe { decode_stb_mem(&file, width, height, image_name) },
     };

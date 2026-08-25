@@ -120,3 +120,10 @@ path = "fuzz_targets/fuzz_md5.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "fuzz_tga"
+path = "fuzz_targets/fuzz_tga.rs"
+test = false
+doc = false
+bench = false

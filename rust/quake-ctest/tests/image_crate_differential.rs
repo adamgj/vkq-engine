@@ -195,3 +195,269 @@ fn small_tga_decodes_identically() {
     assert_eq!(&data[0..4], &[255, 0, 0, 255]); // file row 1 px 0 (B=0,G=0,R=255)
     assert_eq!(&data[12..16], &[0, 255, 0, 255]); // file row 0 px 1
 }
+
+// ---------------------------------------------------------------------------
+// TGA matrix (M8 step 3): the hand-ported quake-image::tga vs streaming stb,
+// over every layout the loader has branches for. Each case funnels through
+// compare_both, so pixels, dims (success and failure write points), con log
+// and handle balance are all asserted.
+
+use quake_ctest::image_fixture::{build_tga, lcg_bytes, tga_rle_stream, TgaHeader};
+
+fn tga_case(name_num: &mut u32, bytes: &[u8]) -> drv::ImageOutcome {
+    let rel = format!("gfx/m{}.tga", *name_num);
+    *name_num += 1;
+    let dir = file_dir();
+    std::fs::write(dir.join(&rel), bytes).unwrap();
+    let cname = std::ffi::CString::new(rel).unwrap();
+    compare_both(&cname)
+}
+
+#[test]
+fn tga_matrix_raw_and_rle() {
+    let _guard = ctfs::lock();
+    let mut n = 100;
+    let (w, h) = (5u16, 4u16);
+    for image_type in [2u8, 3, 10, 11] {
+        let bpps: &[u8] = if image_type % 8 == 3 {
+            &[8, 16]
+        } else {
+            // bpp 8 with a "truecolor" type is a legal-quirk grey decode
+            &[8, 15, 16, 24, 32]
+        };
+        for &bpp in bpps {
+            for descriptor in [0u8, 0x20] {
+                let px_size = match bpp {
+                    8 => 1usize,
+                    15 | 16 => 2,
+                    24 => 3,
+                    _ => 4,
+                };
+                let pixels = usize::from(w) * usize::from(h);
+                let payload = if image_type >= 8 {
+                    tga_rle_stream(px_size, pixels, u32::from(bpp) * 7 + u32::from(descriptor))
+                } else {
+                    lcg_bytes(
+                        u32::from(bpp) * 13 + u32::from(descriptor),
+                        pixels * px_size,
+                    )
+                };
+                let hdr = TgaHeader {
+                    image_type,
+                    width: w,
+                    height: h,
+                    bpp,
+                    descriptor,
+                    ..Default::default()
+                };
+                let out = tga_case(&mut n, &build_tga(&hdr, &payload));
+                assert_eq!(
+                    (out.width, out.height),
+                    (i32::from(w), i32::from(h)),
+                    "type {image_type} bpp {bpp} desc {descriptor:#x}"
+                );
+                assert!(
+                    out.data.is_some(),
+                    "type {image_type} bpp {bpp} desc {descriptor:#x} must decode"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn tga_matrix_indexed() {
+    let _guard = ctfs::lock();
+    let mut n = 200;
+    let (w, h) = (5u16, 4u16);
+    let palette_len = 6u16;
+    for image_type in [1u8, 9] {
+        for palette_bits in [8u8, 15, 16, 24, 32] {
+            for index_bpp in [8u8, 16] {
+                let entry_size = match palette_bits {
+                    8 => 1usize,
+                    15 | 16 => 2,
+                    24 => 3,
+                    _ => 4,
+                };
+                let idx_size = usize::from(index_bpp) / 8;
+                let mut payload = Vec::new();
+                payload.extend_from_slice(&lcg_bytes(3, usize::from(palette_len) * entry_size));
+                let pixels = usize::from(w) * usize::from(h);
+                if image_type == 9 {
+                    payload.extend_from_slice(&tga_rle_stream(
+                        idx_size,
+                        pixels,
+                        u32::from(palette_bits),
+                    ));
+                } else {
+                    // index stream with deliberate out-of-range values
+                    // (>= palette_len -> entry 0)
+                    for i in 0..pixels {
+                        let idx = (i % 9) as u16; // 6..8 are out of range
+                        if idx_size == 1 {
+                            payload.push(idx as u8);
+                        } else {
+                            payload.extend_from_slice(&idx.to_le_bytes());
+                        }
+                    }
+                }
+                let hdr = TgaHeader {
+                    colormap_type: 1,
+                    image_type,
+                    palette_len,
+                    palette_bits,
+                    width: w,
+                    height: h,
+                    bpp: index_bpp,
+                    descriptor: 0,
+                    ..Default::default()
+                };
+                let out = tga_case(&mut n, &build_tga(&hdr, &payload));
+                assert!(
+                    out.data.is_some(),
+                    "indexed type {image_type} pal {palette_bits} idx {index_bpp} must decode"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn tga_offsets_and_palette_start_skip() {
+    let _guard = ctfs::lock();
+    let mut n = 300;
+    // nonzero offset field: junk before the pixel data
+    let mut payload = vec![0xAA; 5];
+    payload.extend_from_slice(&lcg_bytes(11, 6));
+    let hdr = TgaHeader {
+        image_type: 2,
+        width: 2,
+        height: 1,
+        bpp: 24,
+        descriptor: 0x20,
+        offset: 5,
+        ..Default::default()
+    };
+    let out = tga_case(&mut n, &build_tga(&hdr, &payload));
+    assert!(out.data.is_some());
+
+    // nonzero palette_start: junk between the offset skip and the palette
+    let mut payload = vec![0xBB; 3]; // offset junk
+    payload.extend_from_slice(&[0xCC; 4]); // palette_start junk
+    payload.extend_from_slice(&lcg_bytes(17, 2 * 3)); // 2 BGR entries
+    payload.extend_from_slice(&[0, 1, 1, 0]); // indexes
+    let hdr = TgaHeader {
+        colormap_type: 1,
+        image_type: 1,
+        palette_start: 4,
+        palette_len: 2,
+        palette_bits: 24,
+        width: 2,
+        height: 2,
+        bpp: 8,
+        descriptor: 0,
+        offset: 3,
+        ..Default::default()
+    };
+    let out = tga_case(&mut n, &build_tga(&hdr, &payload));
+    assert!(out.data.is_some());
+
+    // descriptor alpha bits (low nibble) and x-origin are ignored by stb
+    let hdr = TgaHeader {
+        image_type: 2,
+        width: 2,
+        height: 2,
+        bpp: 32,
+        descriptor: 0x28,
+        x_origin: 7,
+        y_origin: 3,
+        ..Default::default()
+    };
+    let out = tga_case(&mut n, &build_tga(&hdr, &lcg_bytes(23, 16)));
+    assert!(out.data.is_some());
+}
+
+#[test]
+fn tga_reject_parity() {
+    let _guard = ctfs::lock();
+    let mut n = 400;
+    // empty palette: "bad palette", dims already published
+    let hdr = TgaHeader {
+        colormap_type: 1,
+        image_type: 1,
+        palette_len: 0,
+        palette_bits: 24,
+        width: 3,
+        height: 2,
+        bpp: 8,
+        ..Default::default()
+    };
+    let out = tga_case(&mut n, &build_tga(&hdr, &[0, 1, 2]));
+    assert_eq!(out.data, None);
+    assert_eq!(
+        (out.width, out.height),
+        (3, 2),
+        "dims published before the reject"
+    );
+    assert!(out.con_log[0].contains("bad palette"), "{:?}", out.con_log);
+
+    // truncated non-rgb16 palette: "bad palette"
+    let hdr = TgaHeader {
+        colormap_type: 1,
+        image_type: 1,
+        palette_len: 4,
+        palette_bits: 24,
+        width: 2,
+        height: 1,
+        bpp: 8,
+        ..Default::default()
+    };
+    let out = tga_case(&mut n, &build_tga(&hdr, &[9, 9, 9])); // 3 of 12 bytes
+    assert_eq!(out.data, None);
+    assert!(out.con_log[0].contains("bad palette"), "{:?}", out.con_log);
+
+    // truncated rgb16 palette: accepted, missing entries read as zeros
+    let hdr = TgaHeader {
+        colormap_type: 1,
+        image_type: 1,
+        palette_len: 4,
+        palette_bits: 16,
+        width: 2,
+        height: 1,
+        bpp: 8,
+        ..Default::default()
+    };
+    let mut payload = lcg_bytes(29, 3); // 1.5 of 4 entries
+    payload.extend_from_slice(&[0, 3]); // indexes
+    let out = tga_case(&mut n, &build_tga(&hdr, &payload));
+    assert!(out.data.is_some(), "truncated rgb16 palette still decodes");
+
+    // int-overflow size: "too large", dims published
+    let hdr = TgaHeader {
+        image_type: 2,
+        width: 65535,
+        height: 65535,
+        bpp: 32,
+        ..Default::default()
+    };
+    let out = tga_case(&mut n, &build_tga(&hdr, &[]));
+    assert_eq!(out.data, None);
+    assert_eq!((out.width, out.height), (65535, 65535));
+    assert!(out.con_log[0].contains("too large"), "{:?}", out.con_log);
+
+    // truncated RLE mid-run and mid-literal: accepted, zero tail
+    for (name_seed, cut) in [(1u32, 3usize), (2, 5)] {
+        let hdr = TgaHeader {
+            image_type: 10,
+            width: 4,
+            height: 4,
+            bpp: 24,
+            descriptor: 0x20,
+            ..Default::default()
+        };
+        let full = tga_rle_stream(3, 16, name_seed);
+        let out = tga_case(&mut n, &build_tga(&hdr, &full[..cut]));
+        assert!(out.data.is_some(), "truncated RLE still decodes (zeros)");
+    }
+}
