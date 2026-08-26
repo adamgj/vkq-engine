@@ -386,10 +386,17 @@ struct cmd_function_s *Cmd_AddCommand2 (const char *cmd_name, xcommand_t functio
 /* ---- Phase 4 sound slice: snd_mem.c as the sfx loader/resampler oracle ----
  *
  * COM_LoadFile / com_filesize resolve through the Phase 2 renames and fs
- * stubs above. shm / snd_mutex / loadas8bit are NOT renamed: they stay
- * stub-owned state shared by the c_ref side and (from M3 on) the Rust shims,
- * exactly like the engine's own globals. QMutex_* are no-op stubs (the
- * differential suites are single-threaded). */
+ * stubs above. QMutex_* are no-op stubs (the differential suites are
+ * single-threaded). shm / snd_mutex / loadas8bit were stub-owned through
+ * M3-M5; from M6 on snd_dma.c *defines* them, so they are renamed with the
+ * rest of that file's globals in the block below.
+ *
+ * Invariant for this whole header: every non-static global defined by a file
+ * in build.rs's C_SOURCES is either renamed c_ref_* here or listed in
+ * scripts/harness/check_ctest_symbols.sh's shared-symbol allowlist. That
+ * script is the mechanical gate -- `precache` was the one snd_dma.c global
+ * that never made it into the rename list, and nothing caught it until a
+ * linker that does not dead-strip (MSVC) got hold of it. */
 #define S_LoadSound c_ref_S_LoadSound
 #define GetWavinfo	c_ref_GetWavinfo
 #define ResampleSfx c_ref_ResampleSfx

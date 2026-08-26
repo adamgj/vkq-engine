@@ -60,13 +60,7 @@ extern cvar_t	external_ents;	  /* gl_model.c */
  * declarations must match the defining files exactly. */
 extern cvar_t snd_waterfx;		/* snd_dma.c / snd_glue.c */
 extern cvar_t snd_pauselooping;
-extern cvar_t nosound;
 extern cvar_t precache;
-extern cvar_t ambient_level;
-extern cvar_t ambient_fade;
-extern cvar_t snd_noextraupdate;
-extern cvar_t snd_show;
-extern cvar_t _snd_mixahead;
 extern dma_t  sn;				/* snd_dma.c / snd_glue.c storage for S_Startup */
 extern double host_frametime;	/* quakedef.h */
 extern int	  host_framecount;	/* quakedef.h */

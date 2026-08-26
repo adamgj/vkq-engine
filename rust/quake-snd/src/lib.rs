@@ -14,5 +14,6 @@
 
 pub mod dma;
 pub mod mix;
+pub mod mp3tag;
 pub mod resample;
 pub mod wav;

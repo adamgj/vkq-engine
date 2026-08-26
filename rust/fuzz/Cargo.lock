@@ -186,6 +186,8 @@ dependencies = [
 name = "quake-snd"
 version = "0.1.0"
 dependencies = [
+ "quake-c-sys",
+ "quake-math",
  "quake-types",
 ]
 

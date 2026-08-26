@@ -81,7 +81,7 @@ bindgen rust/quake-c-sys/bindings_wrapper.h \
     --allowlist-var 'shm|snd_mutex|snd_channels|total_channels|soundtime|paintedtime|s_rawend|s_rawsamples' \
     --allowlist-var 'listener_origin|listener_forward|listener_right|listener_up' \
     --allowlist-var 'sndspeed|snd_mixspeed|snd_filterquality|sfxvolume|loadas8bit|bgmvolume|snd_waterfx|snd_pauselooping' \
-    --allowlist-var 'nosound|precache|ambient_level|ambient_fade|snd_noextraupdate|snd_show|_snd_mixahead' \
+    --allowlist-var 'precache' \
     --allowlist-var 'host_frametime|host_framecount|harness_sndhash|safemode|sn'\
     --allowlist-var 'flac_codec|mp3_codec|vorbis_codec|opus_codec' \
     --allowlist-var 'registered|cmdline|developer|multiuser|isDedicated|harness_active|external_ents' \

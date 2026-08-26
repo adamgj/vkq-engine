@@ -1,6 +1,29 @@
 //! Safe wrappers over the c_ref_* reference C symbols (see build.rs and
 //! include/c_ref_prelude.h) so tests can differentially compare the original
 //! C implementations against the Rust ports.
+//!
+//! # Which lock covers which shared state
+//!
+//! The suites run in parallel by default, over process-global C state, so
+//! every suite that touches shared state must serialize on the *right* lock.
+//! Getting this wrong does not fail loudly -- it produces an intermittently
+//! flaky suite that CI passes by luck.
+//!
+//! * [`fs::lock`] ([`fs::FS_LOCK`]) guards the **stub-owned** state in
+//!   `stubs/stubs.c`: the handle table, the console/cvar capture logs, and
+//!   the `Sys_Error` `setjmp` trap. Any test that inspects
+//!   [`fs::con_log`]/[`fs::cvar_log`] or calls [`fs::catch_sys_error`] must
+//!   hold it -- including suites with no filesystem involvement at all
+//!   (`snd_mem_differential` races on the console log alone). It is
+//!   poison-tolerant, so one panicking test does not cascade.
+//! * A **file-local** `SERIAL` mutex (in `snd_mix_differential` and
+//!   `snd_dma_differential`) guards the c_ref mixer's own file statics --
+//!   paintbuffer, filter kernels, the underwater ramp, `snd_channels[]`.
+//!   Nothing outside those two suites touches that state, so a private mutex
+//!   is sufficient there and does not need to exclude the fs/codec suites.
+//!
+//! A suite that needs both takes `fs::lock()` as well; the two are
+//! independent and `FS_LOCK` is always the outer one.
 
 pub mod drivers;
 pub mod fs;

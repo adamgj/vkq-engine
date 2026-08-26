@@ -27,7 +27,10 @@ qboolean harness_fixed_dt = false;
 qboolean no_rendering = false;
 qboolean harness_sndhash = false;
 
-#define HARNESS_FRAME_DT   (1.0 / 72)
+/* fixed simulation rate; the -sndhash DMA clock derives from the same
+   constant so the mixer and the simulation can never drift apart */
+#define HARNESS_FRAME_RATE 72
+#define HARNESS_FRAME_DT   (1.0 / HARNESS_FRAME_RATE)
 #define HARNESS_RAND_SEED  0x76715248 /* 'vqRH' */
 #define HARNESS_MAX_CMDS   256
 #define HARNESS_HASH_BASIS UINT64_C (0xcbf29ce484222325)
@@ -278,7 +281,7 @@ int Harness_SNDDMA_GetDMAPos (void)
 {
 	/* monotone mono-sample clock: floor(framecount * speed * dt) frames of
 	   audio have "played"; samplepos counts interleaved samples mod the ring */
-	uint64_t frames = (uint64_t)host_framecount * HARNESS_SND_SPEED / 72;
+	uint64_t frames = (uint64_t)host_framecount * HARNESS_SND_SPEED / HARNESS_FRAME_RATE;
 	int		 samplepos = (int)((frames * HARNESS_SND_CHANNELS) % HARNESS_SND_SAMPLES);
 	shm->samplepos = samplepos;
 	return samplepos;

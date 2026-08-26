@@ -97,18 +97,6 @@ pub static mut snd_waterfx: cvar_t = cvar(c"snd_waterfx", c"1");
 pub static mut snd_pauselooping: cvar_t = cvar(c"snd_pauselooping", c"1");
 #[no_mangle]
 pub static mut snd_filterquality: cvar_t = cvar(c"snd_filterquality", c"1");
-#[no_mangle]
-pub static mut nosound: cvar_t = cvar(c"nosound", c"0");
-#[no_mangle]
-pub static mut ambient_level: cvar_t = cvar(c"ambient_level", c"0.3");
-#[no_mangle]
-pub static mut ambient_fade: cvar_t = cvar(c"ambient_fade", c"100");
-#[no_mangle]
-pub static mut snd_noextraupdate: cvar_t = cvar(c"snd_noextraupdate", c"0");
-#[no_mangle]
-pub static mut snd_show: cvar_t = cvar(c"snd_show", c"0");
-#[no_mangle]
-pub static mut _snd_mixahead: cvar_t = cvar(c"_snd_mixahead", c"0.1");
 
 // snd_glue.c accessors
 #[no_mangle]

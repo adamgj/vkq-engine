@@ -673,25 +673,7 @@ unsafe extern "C" {
     pub static mut snd_pauselooping: cvar_t;
 }
 unsafe extern "C" {
-    pub static mut nosound: cvar_t;
-}
-unsafe extern "C" {
     pub static mut precache: cvar_t;
-}
-unsafe extern "C" {
-    pub static mut ambient_level: cvar_t;
-}
-unsafe extern "C" {
-    pub static mut ambient_fade: cvar_t;
-}
-unsafe extern "C" {
-    pub static mut snd_noextraupdate: cvar_t;
-}
-unsafe extern "C" {
-    pub static mut snd_show: cvar_t;
-}
-unsafe extern "C" {
-    pub static mut _snd_mixahead: cvar_t;
 }
 unsafe extern "C" {
     pub static mut sn: dma_t;

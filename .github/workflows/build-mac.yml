@@ -80,16 +80,27 @@ jobs:
         meson setup build-c -Duse_rust=disabled && ninja -C build-c
         meson setup build-rs -Duse_rust=enabled && ninja -C build-rs
         meson setup build-rs-cfs -Duse_rust=enabled -Duse_rust_fs=disabled && ninja -C build-rs-cfs
+        meson setup build-rs-csnd -Duse_rust=enabled -Duse_rust_snd=disabled && ninja -C build-rs-csnd
     - name: FFI signature parity (quake_rs.h vs engine headers)
       run: |
         ./scripts/harness/check_capi_signatures.sh build-rs/quake_rs.h
         ./scripts/harness/check_capi_signatures.sh build-rs-cfs/quake_rs.h
+        ./scripts/harness/check_capi_signatures.sh build-rs-csnd/quake_rs.h
     # the corpus covers the map entries too, so the per-frame hash gate sees
     # real server/edict state and not just demo playback
     - name: Golden check (shareware tier, darwin-arm64)
       run: |
         export QUAKE_GAME_DATA="$PWD/shareware-data"
         python3 scripts/harness/run_corpus.py --vkquake build-c/vkqr-engine --check --tier shareware
+    # Phase 4: the committed *.snd / *.snd-demo.hash goldens. --compare (the
+    # Linux legs) only shows C and Rust agree with each other; --check pins the
+    # absolute mixer output against the recorded darwin-arm64 oracle, so a
+    # change that shifts both sides identically still trips. This is the only
+    # job with those goldens, so it is the only place they can be validated.
+    - name: Golden check (shareware tier, darwin-arm64, -sndhash)
+      run: |
+        export QUAKE_GAME_DATA="$PWD/shareware-data"
+        python3 scripts/harness/run_corpus.py --vkquake build-c/vkqr-engine --check --sndhash --tier shareware
     - name: Mixed build identity (rust fs vs C-only)
       run: |
         export QUAKE_GAME_DATA="$PWD/shareware-data"
@@ -98,6 +109,17 @@ jobs:
       run: |
         export QUAKE_GAME_DATA="$PWD/shareware-data"
         python3 scripts/harness/run_corpus.py --vkquake build-c/vkqr-engine --compare build-rs-cfs/vkqr-engine --tier shareware
+    # macOS is the platform whose users actually get the CoreAudio path, so
+    # mirror the Linux sound-oracle legs here rather than leaving
+    # -Duse_rust_snd=disabled Linux-only
+    - name: Mixed build identity (C sound vs C-only)
+      run: |
+        export QUAKE_GAME_DATA="$PWD/shareware-data"
+        python3 scripts/harness/run_corpus.py --vkquake build-c/vkqr-engine --compare build-rs-csnd/vkqr-engine --tier shareware
+    - name: Sound PCM-hash identity (mixed vs C sound, -sndhash)
+      run: |
+        export QUAKE_GAME_DATA="$PWD/shareware-data"
+        python3 scripts/harness/run_corpus.py --vkquake build-rs/vkqr-engine --compare build-rs-csnd/vkqr-engine --sndhash --tier shareware
     - name: Savegame byte-diff (C-only vs mixed)
       run: |
         export QUAKE_GAME_DATA="$PWD/shareware-data"

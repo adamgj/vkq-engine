@@ -83,12 +83,11 @@ cvar_t snd_filterquality = {"snd_filterquality", SND_FILTERQUALITY_DEFAULT, CVAR
 
 cvar_t bgm_extmusic = {"bgm_extmusic", "1", CVAR_ARCHIVE};
 
-cvar_t nosound = {"nosound", "0", CVAR_NONE};
-cvar_t ambient_level = {"ambient_level", "0.3", CVAR_NONE};
-cvar_t ambient_fade = {"ambient_fade", "100", CVAR_NONE};
-cvar_t snd_noextraupdate = {"snd_noextraupdate", "0", CVAR_NONE};
-cvar_t snd_show = {"snd_show", "0", CVAR_NONE};
-cvar_t _snd_mixahead = {"_snd_mixahead", "0.1", CVAR_ARCHIVE};
+/* nosound, ambient_level, ambient_fade, snd_noextraupdate, snd_show and
+   _snd_mixahead are deliberately NOT here: they were `static` in snd_dma.c and
+   no C outside it ever read them, so they live as private statics in the Rust
+   shim (quake-capi's snd_dma.rs) rather than becoming external symbols. Only
+   the genuinely C-visible compat surface belongs in this file. */
 
 // the client/server state snd_dma.c read directly (quakedef.h/client.h are
 // not bindgen-clean, so Rust reaches it through these accessors)

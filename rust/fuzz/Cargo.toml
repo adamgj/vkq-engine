@@ -142,3 +142,10 @@ path = "fuzz_targets/fuzz_wav.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "fuzz_mp3tag"
+path = "fuzz_targets/fuzz_mp3tag.rs"
+test = false
+doc = false
+bench = false

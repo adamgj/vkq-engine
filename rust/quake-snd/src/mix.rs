@@ -18,6 +18,12 @@ const M_PI: f64 = core::f64::consts::PI;
 pub struct Filter {
     memory: Vec<f32>,
     kernel: Vec<f32>,
+    /// amortised input buffer for `apply_filter`. The C uses `TEMP_ALLOC`,
+    /// which allocas below `max_thread_stack_alloc_size` and is the
+    /// *non-zeroed* variant -- so it normally neither allocates nor memsets.
+    /// Every element is overwritten on each call, so this is only ever
+    /// cleared and refilled, never zero-initialised.
+    scratch: Vec<f32>,
     kernelsize: i32,
     m: i32,
     parity: i32,
@@ -249,15 +255,22 @@ fn apply_filter(filter: &mut Filter, paint: &mut [SamplePair], lane: usize, coun
         }
     };
 
-    let mut input = vec![0.0f32; kernelsize + count];
+    // take the scratch buffer out so the fills below borrow disjoint fields;
+    // mem::take is a pointer swap, and clear()+extend reuses the capacity from
+    // the previous paint block -- no per-block allocation and no zero-fill,
+    // matching the C's non-zeroed (and usually alloca'd) TEMP_ALLOC
+    let mut input = core::mem::take(&mut filter.scratch);
+    input.clear();
+    input.reserve(kernelsize + count);
 
     // memory holds the previous kernelsize samples of input
-    input[..kernelsize].copy_from_slice(&filter.memory);
+    input.extend_from_slice(&filter.memory);
 
     for i in 0..count {
         // C: data[i*stride] / (32768.0 * 256.0) -- double division, float store
-        input[kernelsize + i] = (read(paint, i) as f64 / (32768.0 * 256.0)) as f32;
+        input.push((read(paint, i) as f64 / (32768.0 * 256.0)) as f32);
     }
+    debug_assert_eq!(input.len(), kernelsize + count);
 
     // copy out the last kernelsize samples to memory for next time
     filter
@@ -294,6 +307,7 @@ fn apply_filter(filter: &mut Filter, paint: &mut [SamplePair], lane: usize, coun
     }
 
     filter.parity = parity;
+    filter.scratch = input;
 }
 
 /// S_LowpassFilter: M/bw table keyed on snd_filterquality.

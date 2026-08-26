@@ -16,6 +16,44 @@ use quake_types::sound::{
     Channel, Sfx, MAX_CHANNELS, MAX_DYNAMIC_CHANNELS, MAX_QPATH, MAX_SOUNDS, NUM_AMBIENTS,
 };
 
+/// The cvars that were `static` in snd_dma.c. No C code outside that file
+/// ever referenced them, so they stay private to this shim -- the symbol does
+/// not exist at all, which is tighter than the C's internal linkage. The
+/// cvar system only needs a stable address, and `Cvar_RegisterVariable`
+/// replaces `string` with its own heap copy (hence `static mut`).
+/// Their C-visible counterparts (sfxvolume, bgmvolume, loadas8bit, ...) stay
+/// in snd_glue.c because menu.c and friends read that storage directly.
+mod private_cvars {
+    use quake_c_sys::cvar_t;
+
+    const fn cvar(
+        name: &'static core::ffi::CStr,
+        string: &'static core::ffi::CStr,
+        flags: u32,
+    ) -> cvar_t {
+        cvar_t {
+            name: name.as_ptr(),
+            string: string.as_ptr(),
+            flags,
+            value: 0.0,
+            default_string: core::ptr::null(),
+            callback: None,
+            completion: None,
+            next: core::ptr::null_mut(),
+        }
+    }
+
+    const CVAR_NONE: u32 = 0;
+    const CVAR_ARCHIVE: u32 = 1;
+
+    pub static mut NOSOUND: cvar_t = cvar(c"nosound", c"0", CVAR_NONE);
+    pub static mut AMBIENT_LEVEL: cvar_t = cvar(c"ambient_level", c"0.3", CVAR_NONE);
+    pub static mut AMBIENT_FADE: cvar_t = cvar(c"ambient_fade", c"100", CVAR_NONE);
+    pub static mut SND_NOEXTRAUPDATE: cvar_t = cvar(c"snd_noextraupdate", c"0", CVAR_NONE);
+    pub static mut SND_SHOW: cvar_t = cvar(c"snd_show", c"0", CVAR_NONE);
+    pub static mut SND_MIXAHEAD: cvar_t = cvar(c"_snd_mixahead", c"0.1", CVAR_ARCHIVE);
+}
+
 const AMBIENT_WATER: usize = 0;
 const AMBIENT_SKY: usize = 1;
 
@@ -149,16 +187,16 @@ pub unsafe extern "C" fn S_Init() {
 
         sys::snd_mutex = sys::QMutex_Create();
 
-        sys::Cvar_RegisterVariable(core::ptr::addr_of_mut!(sys::nosound));
+        sys::Cvar_RegisterVariable(core::ptr::addr_of_mut!(private_cvars::NOSOUND));
         sys::Cvar_RegisterVariable(core::ptr::addr_of_mut!(sys::sfxvolume));
         sys::Cvar_RegisterVariable(core::ptr::addr_of_mut!(sys::precache));
         sys::Cvar_RegisterVariable(core::ptr::addr_of_mut!(sys::loadas8bit));
         sys::Cvar_RegisterVariable(core::ptr::addr_of_mut!(sys::bgmvolume));
-        sys::Cvar_RegisterVariable(core::ptr::addr_of_mut!(sys::ambient_level));
-        sys::Cvar_RegisterVariable(core::ptr::addr_of_mut!(sys::ambient_fade));
-        sys::Cvar_RegisterVariable(core::ptr::addr_of_mut!(sys::snd_noextraupdate));
-        sys::Cvar_RegisterVariable(core::ptr::addr_of_mut!(sys::snd_show));
-        sys::Cvar_RegisterVariable(core::ptr::addr_of_mut!(sys::_snd_mixahead));
+        sys::Cvar_RegisterVariable(core::ptr::addr_of_mut!(private_cvars::AMBIENT_LEVEL));
+        sys::Cvar_RegisterVariable(core::ptr::addr_of_mut!(private_cvars::AMBIENT_FADE));
+        sys::Cvar_RegisterVariable(core::ptr::addr_of_mut!(private_cvars::SND_NOEXTRAUPDATE));
+        sys::Cvar_RegisterVariable(core::ptr::addr_of_mut!(private_cvars::SND_SHOW));
+        sys::Cvar_RegisterVariable(core::ptr::addr_of_mut!(private_cvars::SND_MIXAHEAD));
         sys::Cvar_RegisterVariable(core::ptr::addr_of_mut!(sys::sndspeed));
         sys::Cvar_RegisterVariable(core::ptr::addr_of_mut!(sys::snd_mixspeed));
         sys::Cvar_RegisterVariable(core::ptr::addr_of_mut!(sys::snd_filterquality));
@@ -369,7 +407,7 @@ pub unsafe extern "C" fn S_TouchSound(name: *const c_char) {
 pub unsafe extern "C" fn S_PrecacheSound(name: *const c_char) -> *mut Sfx {
     let st = state();
     // SAFETY: cvar read, main thread
-    if !st.sound_started || unsafe { sys::nosound.value } != 0.0 {
+    if !st.sound_started || unsafe { private_cvars::NOSOUND.value } != 0.0 {
         return core::ptr::null_mut();
     }
 
@@ -457,7 +495,7 @@ pub unsafe extern "C" fn S_StartSound(
 
     'unlock: {
         // SAFETY: cvar read under lock
-        if !st.sound_started || sfx.is_null() || unsafe { sys::nosound.value } != 0.0 {
+        if !st.sound_started || sfx.is_null() || unsafe { private_cvars::NOSOUND.value } != 0.0 {
             break 'unlock;
         }
 
@@ -726,7 +764,7 @@ fn update_ambient_sounds(st: &mut SndState) {
             } else {
                 underwater_intensity_for_contents((*leaf).contents)
             });
-            if leaf.is_null() || sys::ambient_level.value == 0.0 {
+            if leaf.is_null() || private_cvars::AMBIENT_LEVEL.value == 0.0 {
                 for i in 0..NUM_AMBIENTS {
                     (*channels_base().add(i)).sfx = core::ptr::null_mut();
                 }
@@ -739,7 +777,7 @@ fn update_ambient_sounds(st: &mut SndState) {
                 (*chan).sfx = st.ambient_sfx[ambient_channel];
 
                 // C: static float vol = (int)(ambient_level.value * level)
-                let vol = (sys::ambient_level.value
+                let vol = (private_cvars::AMBIENT_LEVEL.value
                     * leaf.ambient_sound_level[ambient_channel] as f32)
                     as i32 as f32;
                 let vol = if vol < 8.0 { 0.0 } else { vol };
@@ -747,13 +785,15 @@ fn update_ambient_sounds(st: &mut SndState) {
                 // don't adjust volume too fast
                 let level = &mut st.levels[ambient_channel];
                 if *level < vol {
-                    *level = (*level as f64 + sys::host_frametime * sys::ambient_fade.value as f64)
+                    *level = (*level as f64
+                        + sys::host_frametime * private_cvars::AMBIENT_FADE.value as f64)
                         as f32;
                     if *level > vol {
                         *level = vol;
                     }
                 } else if (*chan).master_vol as f32 > vol {
-                    *level = (*level as f64 - sys::host_frametime * sys::ambient_fade.value as f64)
+                    *level = (*level as f64
+                        - sys::host_frametime * private_cvars::AMBIENT_FADE.value as f64)
                         as f32;
                     if *level < vol {
                         *level = vol;
@@ -899,7 +939,7 @@ pub unsafe extern "C" fn S_Update(
             }
 
             // debugging output
-            if sys::snd_show.value != 0.0 {
+            if private_cvars::SND_SHOW.value != 0.0 {
                 let mut dbg_total = 0;
                 for i in 0..total {
                     let ch = base.add(i);
@@ -955,7 +995,7 @@ fn get_soundtime(st: &mut SndState) {
 #[no_mangle]
 pub unsafe extern "C" fn S_ExtraUpdate() {
     // SAFETY: cvar read
-    if unsafe { sys::snd_noextraupdate.value } != 0.0 {
+    if unsafe { private_cvars::SND_NOEXTRAUPDATE.value } != 0.0 {
         return; // don't pollute timings
     }
     let st = state();
@@ -991,8 +1031,8 @@ fn s_update_mix(st: &mut SndState) {
 
             // mix ahead of current position
             let shm = &*sys::shm;
-            let mut endtime =
-                sys::soundtime as u32 + (sys::_snd_mixahead.value * shm.speed as f32) as u32;
+            let mut endtime = sys::soundtime as u32
+                + (private_cvars::SND_MIXAHEAD.value * shm.speed as f32) as u32;
             let samps = (shm.samples >> (shm.channels - 1)) as u32;
             endtime = endtime.min(sys::soundtime as u32 + samps);
 
@@ -1213,7 +1253,7 @@ pub unsafe extern "C" fn S_LocalSound(name: *const c_char) {
     'unlock: {
         // SAFETY: cvar reads and our own exports under the recursive lock
         unsafe {
-            if sys::nosound.value != 0.0 || !st.sound_started {
+            if private_cvars::NOSOUND.value != 0.0 || !st.sound_started {
                 break 'unlock;
             }
 
