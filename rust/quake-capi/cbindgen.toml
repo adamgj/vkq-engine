@@ -207,6 +207,23 @@ int quake_rs_demo_forcetrack_line(int track, char *out, int outsize);
 int quake_rs_demo_parse_forcetrack(const char *buf, int len, int *track, int *consumed);
 long long quake_rs_demo_resume_seek_offset(void);
 #endif
+/* Phase 5 M5: the Rust loopback driver, installed into net_drivers[0] by
+ * net_bsd.c/net_win.c under USE_RUST_NET (Loop_SearchForHosts stays C until
+ * M9). Guarded on net_defs.h's own guard for the qsocket_t typedef. */
+#ifdef __NET_DEFS_H
+int rust_loop_Init(void);
+void rust_loop_Shutdown(void);
+void rust_loop_Listen(qboolean state);
+qsocket_t *rust_loop_Connect(const char *host);
+qsocket_t *rust_loop_CheckNewConnections(void);
+qsocket_t *rust_loop_GetAnyMessage(void);
+int rust_loop_GetMessage(qsocket_t *sock);
+int rust_loop_SendMessage(qsocket_t *sock, sizebuf_t *data);
+int rust_loop_SendUnreliableMessage(qsocket_t *sock, sizebuf_t *data);
+qboolean rust_loop_CanSendMessage(qsocket_t *sock);
+qboolean rust_loop_CanSendUnreliableMessage(qsocket_t *sock);
+void rust_loop_Close(qsocket_t *sock);
+#endif
 #ifdef __cplusplus
 } /* extern "C" -- these hand-written declarations sit outside cbindgen's own
    * cpp_compat guard, so they carry their own */
@@ -289,4 +306,10 @@ exclude = [
     "quake_rs_demo_record_header", "quake_rs_demo_parse_record_header",
     "quake_rs_demo_forcetrack_line", "quake_rs_demo_parse_forcetrack",
     "quake_rs_demo_resume_seek_offset",
+    "rust_loop_Init", "rust_loop_Shutdown", "rust_loop_Listen",
+    "rust_loop_Connect", "rust_loop_CheckNewConnections",
+    "rust_loop_GetAnyMessage", "rust_loop_GetMessage",
+    "rust_loop_SendMessage", "rust_loop_SendUnreliableMessage",
+    "rust_loop_CanSendMessage", "rust_loop_CanSendUnreliableMessage",
+    "rust_loop_Close",
 ]

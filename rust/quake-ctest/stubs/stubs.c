@@ -2231,3 +2231,38 @@ int ctest_open_fshandle (const char *path, fshandle_t *fh)
  */
 sizebuf_t	 net_message;
 unsigned int harness_badread_count;
+
+/* ---------------------------------------------------------------------------
+ * Phase 5 M5 (net_loop.c): the net_main.c globals the loopback oracle
+ * references (names expand to c_ref_* through the prelude), plus a tiny
+ * qsocket pool standing in for NET_NewQSocket. ctest_qsocket_reset_c lets
+ * tests restart a scenario.
+ */
+int			net_driverlevel;
+int			net_activeconnections;
+size_t		hostCacheCount;
+hostcache_t hostcache[HOSTCACHESIZE];
+cvar_t		hostname = {"hostname", "UNNAMED", CVAR_NONE};
+
+#define CTEST_QSOCKET_POOL 4
+static qsocket_t ctest_qsocket_pool[CTEST_QSOCKET_POOL];
+static int		 ctest_qsocket_used;
+
+qsocket_t *NET_NewQSocket (void)
+{
+	if (ctest_qsocket_used >= CTEST_QSOCKET_POOL)
+		return NULL;
+	memset (&ctest_qsocket_pool[ctest_qsocket_used], 0, sizeof (qsocket_t));
+	return &ctest_qsocket_pool[ctest_qsocket_used++];
+}
+
+void NET_FreeQSocket (qsocket_t *sock)
+{
+	(void)sock;
+}
+
+void ctest_qsocket_reset_c (void)
+{
+	ctest_qsocket_used = 0;
+	memset (ctest_qsocket_pool, 0, sizeof (ctest_qsocket_pool));
+}

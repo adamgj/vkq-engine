@@ -15,6 +15,9 @@
 #define C_REF_PRELUDE_H
 
 #define QUAKEDEFS_H
+/* q_stdinc.h pulls SDL.h; q_types.h + the libc includes below supply what
+ * the reference files (net_loop.c is the first direct includer) need */
+#define __QSTDINC_H
 #define BSP29_VALVE		  /* quakedef.h defines it unconditionally; bspfile.h/model_parse.c gate on it */
 #define _USE_MATH_DEFINES /* M_PI on MSVC */
 #include "q_types.h"
@@ -82,6 +85,28 @@ size_t UTF8_WriteCodePoint (char *dst, size_t maxbytes, uint32_t codepoint);
 #define SZ_Write					 c_ref_SZ_Write
 #define SZ_Print					 c_ref_SZ_Print
 #define msg_readcount				 c_ref_msg_readcount
+/* net_loop.c (Phase 5 M5): the loopback oracle + the net_main.c globals it
+ * references (stub-owned; the Rust shims' unrenamed stand-ins live in
+ * rust/quake-ctest/src/net_stubs.rs) */
+#define Loop_Init					 c_ref_Loop_Init
+#define Loop_Shutdown				 c_ref_Loop_Shutdown
+#define Loop_Listen					 c_ref_Loop_Listen
+#define Loop_SearchForHosts			 c_ref_Loop_SearchForHosts
+#define Loop_Connect				 c_ref_Loop_Connect
+#define Loop_CheckNewConnections	 c_ref_Loop_CheckNewConnections
+#define Loop_GetMessage				 c_ref_Loop_GetMessage
+#define Loop_GetAnyMessage			 c_ref_Loop_GetAnyMessage
+#define Loop_SendMessage			 c_ref_Loop_SendMessage
+#define Loop_SendUnreliableMessage	 c_ref_Loop_SendUnreliableMessage
+#define Loop_CanSendMessage			 c_ref_Loop_CanSendMessage
+#define Loop_CanSendUnreliableMessage c_ref_Loop_CanSendUnreliableMessage
+#define Loop_Close					 c_ref_Loop_Close
+#define NET_NewQSocket				 c_ref_NET_NewQSocket
+#define NET_FreeQSocket				 c_ref_NET_FreeQSocket
+#define net_driverlevel				 c_ref_net_driverlevel
+#define net_activeconnections		 c_ref_net_activeconnections
+#define hostCacheCount				 c_ref_hostCacheCount
+#define hostcache					 c_ref_hostcache
 #define msg_badread					 c_ref_msg_badread
 #define net_message					 c_ref_net_message
 #define harness_badread_count		 c_ref_harness_badread_count
@@ -391,6 +416,7 @@ typedef struct
 {
 	char	 modelname[64];
 	qboolean active;
+	char	 name[64]; /* Phase 5: net_loop.c's Loop_SearchForHosts */
 } ctest_server_stub_t;
 extern ctest_server_stub_t sv;
 
@@ -598,6 +624,12 @@ typedef struct
 extern ctest_cls_stub_t cls;
 /* ---- Phase 5 M2: net_msg.c wire serialization oracle ---- */
 #include "protocol.h" /* PRFL_* / PEXT2_* flag sets (pulls q_minmax.h's Q_rint) */
+/* Phase 5 M5: net_loop.c oracle needs the net headers (quakedef.h
+ * normally supplies net.h; here the prelude does) */
+#include "arch_def.h"
+#include "net_sys.h"
+#include "net.h"
+#include "net_defs.h"
 /* stub-owned c_ref net_message (net_main.c is not compiled here); tests
  * point .data/.cursize at fixtures. The names expand through the renames. */
 extern sizebuf_t	net_message;

@@ -11,6 +11,7 @@
 #![deny(unsafe_code)]
 
 pub mod demo;
+pub mod loopback;
 pub mod msg;
 pub mod protocol;
 pub mod sizebuf;

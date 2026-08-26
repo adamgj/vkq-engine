@@ -143,3 +143,12 @@ M5 exit (session end): full corpus incl. registered-tier local entries, record_d
   is the byte gate: -demohash-deterministic loopback session recorded by
   both builds -> .dem byte-identical (verified: 20239 bytes, C self and
   C-vs-Rust).
+- **2026-08-25 M5**: `Loop_SearchForHosts` stays C until M9 (hostcache/slist
+  plumbing over net_main.c state, not wire logic); its vtable slot keeps the
+  C symbol under USE_RUST_NET. `Loop_Init`'s `cls.state == ca_dedicated`
+  test is mirrored via the bound `isDedicated` global (host.c derives the
+  state from it before NET_Init; cls lives in a non-bindgen-clean header) --
+  COMPAT-commented. Loopback driver logic lives in quake-capi::net_loop
+  (FFI-heavy qsocket plumbing; precedent: snd_dma.rs), the frame format in
+  quake-net::loopback (pure). The ctest prelude now also neuters q_stdinc.h
+  (SDL.h) for direct includers like net_loop.c.
