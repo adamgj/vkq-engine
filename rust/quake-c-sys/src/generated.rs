@@ -182,6 +182,9 @@ unsafe extern "C" {
 unsafe extern "C" {
     pub fn Sys_Printf(fmt: *const ::std::os::raw::c_char, ...);
 }
+unsafe extern "C" {
+    pub fn Sys_DoubleTime() -> f64;
+}
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct sizebuf_s {
@@ -862,6 +865,21 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub static mut unreliableMessagesReceived: ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub static mut net_hostport: ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub static mut my_ipv4_address: [::std::os::raw::c_char; 64usize];
+}
+unsafe extern "C" {
+    pub static mut my_ipv6_address: [::std::os::raw::c_char; 64usize];
+}
+unsafe extern "C" {
+    pub static mut ipv4Available: qboolean;
+}
+unsafe extern "C" {
+    pub static mut ipv6Available: qboolean;
 }
 unsafe extern "C" {
     pub static vkquake_pak: [::std::os::raw::c_uchar; 0usize];

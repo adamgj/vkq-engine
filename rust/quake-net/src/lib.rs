@@ -16,3 +16,5 @@ pub mod loopback;
 pub mod msg;
 pub mod protocol;
 pub mod sizebuf;
+#[cfg(unix)]
+pub mod udp;

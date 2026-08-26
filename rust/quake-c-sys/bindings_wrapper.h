@@ -126,6 +126,14 @@ extern int			 droppedDatagrams;
 extern int			 messagesReceived;
 extern int			 unreliableMessagesReceived;
 
+/* Phase 5 M7b: the UDP landriver shims' engine globals (net.h) */
+extern int		net_hostport;
+extern char		my_ipv4_address[64]; /* NET_NAMELEN */
+extern char		my_ipv6_address[64];
+extern qboolean ipv4Available;
+extern qboolean ipv6Available;
+double			Sys_DoubleTime (void);
+
 /* embedded pak (generated embedded_pak.c) */
 extern const unsigned char vkquake_pak[];
 extern const int		   vkquake_pak_size;

@@ -2284,6 +2284,18 @@ int				messagesReceived;
 int				unreliableMessagesReceived;
 net_landriver_t net_landrivers[3];
 
+/* Phase 5 M7b (net_udp.c oracle + the Rust UDP shims): ambient globals and
+ * a fixed clock (expand through the c_ref renames where renamed) */
+int		 net_hostport = 26000;
+char	 my_ipv4_address[64];
+char	 my_ipv6_address[64];
+qboolean ipv4Available;
+qboolean ipv6Available;
+double	 Sys_DoubleTime (void)
+{
+	return 0.0;
+}
+
 void ctest_dgrm_reset_c (void)
 {
 	memset (&packetBuffer, 0, sizeof (packetBuffer));

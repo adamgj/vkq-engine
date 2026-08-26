@@ -342,3 +342,36 @@ M5 exit (session end): full corpus incl. registered-tier local entries, record_d
   calibrated window); record_diff .dem byte-identical (20239 bytes);
   save_diff identical; corpus --compare green; capi signature gate,
   check_headers, clippy -D warnings, fmt, cargo deny licenses clean.
+- **2026-08-26 M7b (UDP landriver via socket2)**: `quake-net` adopts
+  `socket2` + `libc` per the ADR-003 M1 amendment (`cargo deny check
+  licenses` green over the resolved tree). The landriver splits three ways:
+  `quake_net::udp` (pure address logic: AddrToString, StringToAddr,
+  AddrCompare, PartialIPAddress, port helpers -- sockaddr byte offsets are
+  identical across supported unixes), `quake_net::udp::sys` (the ADR-004
+  unsafe island: socket2 for creation/options/v6only/multicast/broadcast,
+  raw libc for recvfrom/sendto/ioctl-FIONREAD and the *same* legacy
+  resolver calls the C driver made -- gethostbyname/gethostbyaddr/
+  getaddrinfo -- so their behavior is inherited, not reimplemented), and
+  `quake-capi::net_udp` (engine globals net_hostport/my_ipv*_address/
+  ipv*Available via bindgen, the file statics as Rust module state per
+  ADR-007, Con_SafePrintf at the exact C print points).
+  **Scope decision (plan amendment)**: the flip lands in net_bsd.c only
+  (both UDP/UDP6 rows, designated initializers). net_wins.c keeps its C
+  driver: Windows CI has no UDP runtime leg (its harness legs are
+  loopback-only), and flipping a runtime-unverified network personality is
+  exactly what the ADR-017 SDL2-audio precedent defers. Recorded for M8/M10:
+  either add a Windows capture/interop leg and flip WINS, or record the
+  deferral in the phase-exit checklist.
+  COMPAT notes (documented in the sources): recvfrom's out-address is
+  zero-filled past the kernel-written length (C left stale stack bytes;
+  only _Datagram_AddPossibleHost's whole-struct memcmp could ever observe
+  it); sscanf/atoi out-of-domain behavior (UB in C) is pinned; the linux
+  iflist 1s cache is keyed per family.
+  Verified on darwin-arm64: 3 configs build; the calibrated live-capture
+  gate PASS with Rust sockets + Rust dgrm on both ends; record_diff
+  byte-identical; save_diff identical; corpus --compare green;
+  net_udp_differential (5 suites: AddrToString v4/v6/scope sweep 500+
+  randomized, StringToAddr full-match domain, AddrCompare/port matrix,
+  PartialIPAddress corner grammar, the MAXHOSTNAMELEN guard) green vs the
+  c_ref oracle; capi signature gate, check_headers, clippy -D warnings,
+  fmt, cargo deny clean; ctest 41 suites green.

@@ -34,4 +34,5 @@ serialization, the dgrm state machine, CCREQ/CCREP parsing, demo file IO,
 loopback — stays unsafe-free and mock-testable. This mirrors the
 `EdictArena`-module precedent: unsafe confined to one named module inside an
 otherwise-denying crate. The `extern "C"` driver entry points themselves
-live in `quake-capi` as usual (ADR-011).
+live in `quake-capi` as usual (ADR-011). *(Landed at M7b as
+`quake_net::udp::sys`, unix-only until the net_wins.c flip.)*
