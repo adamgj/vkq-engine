@@ -2223,3 +2223,11 @@ int ctest_open_fshandle (const char *path, fshandle_t *fh)
 	fh->pak = false;
 	return 0;
 }
+
+/* ---------------------------------------------------------------------------
+ * Phase 5 (net_msg.c): the c_ref reader state. net_main.c owns the real
+ * net_message; here the storage is stub-owned and tests aim .data/.cursize
+ * at their fixtures (the names expand to c_ref_* through the prelude).
+ */
+sizebuf_t	 net_message;
+unsigned int harness_badread_count;

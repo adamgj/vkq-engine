@@ -224,6 +224,7 @@ srcs = [
     'Quake/cl_tent.c',
     'Quake/cmd.c',
     'Quake/common.c',
+    'Quake/net_msg.c',
     'Quake/console.c',
     'Quake/cvar.c',
     'Quake/gl_draw.c',

@@ -256,6 +256,7 @@ dependencies = [
  "quake-fs",
  "quake-image",
  "quake-math",
+ "quake-net",
  "quake-snd",
  "quake-types",
  "quake-util",

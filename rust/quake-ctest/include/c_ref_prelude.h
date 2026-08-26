@@ -37,6 +37,55 @@ size_t UTF8_WriteCodePoint (char *dst, size_t maxbytes, uint32_t codepoint);
 #define MAX_DATAGRAM 64000
 #define DATAGRAM_MTU 1400
 
+/* net_msg.c (Phase 5 M2): wire serialization oracle. The renames must sit
+ * before the first common.h include so the declarations there rename too.
+ * net_message itself lives in net_main.c (not compiled here); the c_ref
+ * definition is stub-owned so tests can point its data at fixtures. */
+#define MSG_WriteChar				 c_ref_MSG_WriteChar
+#define MSG_WriteByte				 c_ref_MSG_WriteByte
+#define MSG_WriteShort				 c_ref_MSG_WriteShort
+#define MSG_WriteLong				 c_ref_MSG_WriteLong
+#define MSG_WriteUInt64				 c_ref_MSG_WriteUInt64
+#define MSG_WriteInt64				 c_ref_MSG_WriteInt64
+#define MSG_WriteFloat				 c_ref_MSG_WriteFloat
+#define MSG_WriteDouble				 c_ref_MSG_WriteDouble
+#define MSG_WriteString				 c_ref_MSG_WriteString
+#define MSG_WriteStringUnterminated	 c_ref_MSG_WriteStringUnterminated
+#define MSG_WriteCoord16			 c_ref_MSG_WriteCoord16
+#define MSG_WriteCoord24			 c_ref_MSG_WriteCoord24
+#define MSG_WriteCoord32f			 c_ref_MSG_WriteCoord32f
+#define MSG_WriteCoord				 c_ref_MSG_WriteCoord
+#define MSG_WriteAngle				 c_ref_MSG_WriteAngle
+#define MSG_WriteAngle16			 c_ref_MSG_WriteAngle16
+#define MSG_WriteEntity				 c_ref_MSG_WriteEntity
+#define MSG_BeginReading			 c_ref_MSG_BeginReading
+#define MSG_ReadChar				 c_ref_MSG_ReadChar
+#define MSG_ReadByte				 c_ref_MSG_ReadByte
+#define MSG_ReadShort				 c_ref_MSG_ReadShort
+#define MSG_ReadLong				 c_ref_MSG_ReadLong
+#define MSG_ReadUInt64				 c_ref_MSG_ReadUInt64
+#define MSG_ReadInt64				 c_ref_MSG_ReadInt64
+#define MSG_ReadFloat				 c_ref_MSG_ReadFloat
+#define MSG_ReadDouble				 c_ref_MSG_ReadDouble
+#define MSG_ReadString				 c_ref_MSG_ReadString
+#define MSG_ReadCoord16				 c_ref_MSG_ReadCoord16
+#define MSG_ReadCoord24				 c_ref_MSG_ReadCoord24
+#define MSG_ReadCoord32f			 c_ref_MSG_ReadCoord32f
+#define MSG_ReadCoord				 c_ref_MSG_ReadCoord
+#define MSG_ReadAngle				 c_ref_MSG_ReadAngle
+#define MSG_ReadAngle16				 c_ref_MSG_ReadAngle16
+#define MSG_ReadEntity				 c_ref_MSG_ReadEntity
+#define SZ_Alloc					 c_ref_SZ_Alloc
+#define SZ_Free						 c_ref_SZ_Free
+#define SZ_Clear					 c_ref_SZ_Clear
+#define SZ_GetSpace					 c_ref_SZ_GetSpace
+#define SZ_Write					 c_ref_SZ_Write
+#define SZ_Print					 c_ref_SZ_Print
+#define msg_readcount				 c_ref_msg_readcount
+#define msg_badread					 c_ref_msg_badread
+#define net_message					 c_ref_net_message
+#define harness_badread_count		 c_ref_harness_badread_count
+
 /* mplane_t comes from the real gl_model.h, included below (Phase 3) */
 
 /* forward-declare at file scope so cvar.h's cvarcallback_t typedef (which
@@ -547,6 +596,13 @@ typedef struct
 	int		  demonum;
 } ctest_cls_stub_t;
 extern ctest_cls_stub_t cls;
+/* ---- Phase 5 M2: net_msg.c wire serialization oracle ---- */
+#include "protocol.h" /* PRFL_* / PEXT2_* flag sets (pulls q_minmax.h's Q_rint) */
+/* stub-owned c_ref net_message (net_main.c is not compiled here); tests
+ * point .data/.cursize at fixtures. The names expand through the renames. */
+extern sizebuf_t	net_message;
+extern unsigned int harness_badread_count;
+
 mleaf_t				   *Mod_PointInLeaf (float *p, qmodel_t *model); /* stub-owned, settable */
 void					S_CodecInit (void);							/* snd_codec.h; stub no-ops */
 void					S_CodecShutdown (void);

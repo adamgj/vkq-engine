@@ -162,6 +162,7 @@ dependencies = [
  "quake-formats",
  "quake-fs",
  "quake-image",
+ "quake-net",
  "quake-snd",
  "quake-types",
  "quake-util",
@@ -180,6 +181,13 @@ name = "quake-math"
 version = "0.1.0"
 dependencies = [
  "quake-c-sys",
+]
+
+[[package]]
+name = "quake-net"
+version = "0.1.0"
+dependencies = [
+ "quake-types",
 ]
 
 [[package]]

@@ -29,6 +29,8 @@ quake-types = { path = "../quake-types" }
 quake-formats = { path = "../quake-formats" }
 quake-image = { path = "../quake-image" }
 quake-snd = { path = "../quake-snd" }
+# Phase 5: the wire-layer reader/writer core the net capi shims are built on
+quake-net = { path = "../quake-net" }
 
 # Empty table: this package is its own workspace root, so the parent
 # workspace at rust/Cargo.toml (which also lists it in `exclude`) never
@@ -149,3 +151,9 @@ path = "fuzz_targets/fuzz_mp3tag.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "fuzz_net_msg"
+path = "fuzz_targets/fuzz_net_msg.rs"
+test = false
+doc = false

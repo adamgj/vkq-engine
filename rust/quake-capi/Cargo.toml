@@ -33,7 +33,7 @@ quake-platform = { path = "../quake-platform" }
 [features]
 # forwarded to the pure crates; set by the Meson build when the C engine is
 # compiled with -D_DEBUG (see quake-math's engine-debug)
-engine-debug = ["quake-math/engine-debug"]
+engine-debug = ["quake-math/engine-debug", "quake-net/engine-debug"]
 # installs the #[global_allocator] bound to the engine's vendored mimalloc
 # (ADR-013). Set only by the Meson build: plain cargo test binaries don't
 # link mem.o, so the mi_* symbols don't exist there.

@@ -120,3 +120,11 @@ M5 exit (session end): full corpus incl. registered-tier local entries, record_d
   are NOT visible in -netcapture (the hooks sit at the NET_* message funnels,
   above the drivers' control-packet IO), so handshake parity is deferred to
   the M8 interop matrix / netreplay instruments rather than capture diffs.
+- **2026-08-25 M2**: the MSG/SZ wire section was **split out of common.c into
+  `Quake/net_msg.c`** (verbatim move, corpus-verified behavior-neutral)
+  instead of the planned in-file #ifdef: it lets quake-ctest compile the
+  section directly as the c_ref oracle without dragging all of common.c in,
+  and turns the M3 flip into the established whole-file Meson idiom.
+- **2026-08-25 M2**: upstream quirk found and mirrored: `MSG_ReadDouble` is
+  declared `float` in C -- it assembles the 8-byte double, then narrows to
+  float at the return. The Rust `read_double` returns f32 accordingly.

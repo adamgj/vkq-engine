@@ -10,5 +10,10 @@ publish.workspace = true
 [dependencies]
 quake-types = { path = "../quake-types" }
 
+[features]
+# mirrors the C build's DEBUG/_DEBUG (Meson sets it for debug buildtypes):
+# the MSG_Write{Char,Byte,Short} range Host_Errors exist only there
+engine-debug = []
+
 [lints]
 workspace = true
