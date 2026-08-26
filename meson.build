@@ -255,6 +255,7 @@ srcs = [
     'Quake/mem.c',
     'Quake/menu.c',
     'Quake/net_dgrm.c',
+    'Quake/net_dgrm_rel.c',
     'Quake/net_loop.c',
     'Quake/net_main.c',
     'Quake/palette.c',
