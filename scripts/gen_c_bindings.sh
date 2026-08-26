@@ -88,6 +88,7 @@ bindgen rust/quake-c-sys/bindings_wrapper.h \
     --allowlist-var 'vkquake_pak|vkquake_pak_size|vkquake_pak_decompressed_size' \
     --allowlist-function 'NET_NewQSocket|NET_FreeQSocket|SetNetTime' \
     --allowlist-var 'net_message|net_time|net_driverlevel|msg_readcount|msg_badread|harness_badread_count' \
+    --allowlist-var 'packetBuffer|packetsSent|packetsReSent|packetsReceived|receivedDuplicateCount|shortPacketCount|droppedDatagrams|messagesReceived|unreliableMessagesReceived' \
     -o rust/quake-c-sys/src/generated.rs \
     -- -IQuake
 

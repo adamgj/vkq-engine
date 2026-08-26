@@ -255,7 +255,6 @@ srcs = [
     'Quake/mem.c',
     'Quake/menu.c',
     'Quake/net_dgrm.c',
-    'Quake/net_dgrm_rel.c',
     'Quake/net_loop.c',
     'Quake/net_main.c',
     'Quake/palette.c',
@@ -484,9 +483,9 @@ phase4_glue_c_srcs = [
 # C originals stay the -Duse_rust_net=disabled comparison oracle
 if use_rust_net
     cflags += '-DUSE_RUST_NET'
-    srcs += 'Quake/net_msg_glue.c'
+    srcs += ['Quake/net_msg_glue.c', 'Quake/net_dgrm_glue.c']
 else
-    srcs += 'Quake/net_msg.c'
+    srcs += ['Quake/net_msg.c', 'Quake/net_dgrm_rel.c']
 endif
 
 if use_rust_snd
