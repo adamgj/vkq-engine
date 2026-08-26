@@ -186,11 +186,13 @@ jobs:
     # session on the C build, then the structural differ in self-compare mode
     # (parser sanity). Cross-build capture comparisons begin at the M5/M7
     # driver flips; the byte gates are the netreplay/record_diff instruments.
-    - name: Net capture smoke (C build, capture_session + capture_diff self)
+    - name: Net capture gate (C x2 for the noise floor, then C vs Rust)
       run: |
         export QUAKE_GAME_DATA="$PWD/shareware-data"
         python3 scripts/harness/capture_session.py --vkquake build-c/vkqr-engine --out session-c.cap --frames 1200
-        python3 scripts/harness/capture_diff.py session-c.cap session-c.cap -v
+        python3 scripts/harness/capture_session.py --vkquake build-c/vkqr-engine --out session-c2.cap --frames 1200
+        python3 scripts/harness/capture_session.py --vkquake build-rs/vkqr-engine --out session-rs.cap --frames 1200
+        python3 scripts/harness/capture_diff.py session-c.cap session-rs.cap --window-from session-c2.cap -v
     # Phase 3 M6: gl_model.c fans model loading out over task workers and the
     # Rust loaders run on those workers, so changing the worker count must not
     # perturb the simulation. -pinnedworkers overrides the count (tasks.c:366).

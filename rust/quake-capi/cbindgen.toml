@@ -163,6 +163,43 @@ void GLMesh_DeleteMeshBuffers(aliashdr_t *mainhdr);
 #ifdef Q_COMMON_H
 extern searchpath_t *com_searchpaths;
 extern searchpath_t *com_base_searchpaths;
+/* Phase 5 M3: the MSG/SZ wire layer. Reader entry points and SZ_Clear have
+ * no error paths and are exported under their exact common.h names; writers
+ * and the erroring SZ functions are quake_rs_* status trampolines that
+ * Quake/net_msg_glue.c re-raises from a C frame (ADR-009). Declared by hand
+ * so the signatures match common.h exactly (int vs int32_t etc.). */
+void MSG_BeginReading(void);
+int MSG_ReadChar(void);
+int MSG_ReadByte(void);
+int MSG_ReadShort(void);
+int MSG_ReadLong(void);
+unsigned long long MSG_ReadUInt64(void);
+long long MSG_ReadInt64(void);
+float MSG_ReadFloat(void);
+float MSG_ReadDouble(void);
+const char *MSG_ReadString(void);
+float MSG_ReadCoord(unsigned int flags);
+float MSG_ReadAngle(unsigned int flags);
+float MSG_ReadAngle16(unsigned int flags);
+unsigned int MSG_ReadEntity(unsigned int pext2);
+void SZ_Clear(sizebuf_t *buf);
+int quake_rs_msg_write_char(sizebuf_t *sb, int c);
+int quake_rs_msg_write_byte(sizebuf_t *sb, int c);
+int quake_rs_msg_write_short(sizebuf_t *sb, int c);
+int quake_rs_msg_write_long(sizebuf_t *sb, int c);
+int quake_rs_msg_write_uint64(sizebuf_t *sb, unsigned long long c);
+int quake_rs_msg_write_int64(sizebuf_t *sb, long long c);
+int quake_rs_msg_write_float(sizebuf_t *sb, float f);
+int quake_rs_msg_write_double(sizebuf_t *sb, double f);
+int quake_rs_msg_write_string(sizebuf_t *sb, const char *s);
+int quake_rs_msg_write_string_unterminated(sizebuf_t *sb, const char *s);
+int quake_rs_msg_write_coord(sizebuf_t *sb, float f, unsigned int flags);
+int quake_rs_msg_write_angle(sizebuf_t *sb, float f, unsigned int flags);
+int quake_rs_msg_write_angle16(sizebuf_t *sb, float f, unsigned int flags);
+int quake_rs_msg_write_entity(sizebuf_t *sb, unsigned int entnum, unsigned int pext2);
+int quake_rs_sz_get_space(sizebuf_t *buf, int length, int *offset);
+int quake_rs_sz_write(sizebuf_t *buf, const void *data, int length);
+int quake_rs_sz_print(sizebuf_t *buf, const char *data);
 #endif
 #ifdef __cplusplus
 } /* extern "C" -- these hand-written declarations sit outside cbindgen's own
@@ -231,4 +268,16 @@ exclude = [
     "AliasHdr", "MAliasFrameDesc", "MSprite", "MSpriteFrameDesc",
     "MSpriteFrame", "MSpriteGroup", "StVert", "MTriangle", "TriVertX",
     "stverts", "triangles", "poseverts",
+    "MSG_BeginReading", "MSG_ReadChar", "MSG_ReadByte", "MSG_ReadShort",
+    "MSG_ReadLong", "MSG_ReadUInt64", "MSG_ReadInt64", "MSG_ReadFloat",
+    "MSG_ReadDouble", "MSG_ReadString", "MSG_ReadCoord", "MSG_ReadAngle",
+    "MSG_ReadAngle16", "MSG_ReadEntity", "SZ_Clear",
+    "quake_rs_msg_write_char", "quake_rs_msg_write_byte",
+    "quake_rs_msg_write_short", "quake_rs_msg_write_long",
+    "quake_rs_msg_write_uint64", "quake_rs_msg_write_int64",
+    "quake_rs_msg_write_float", "quake_rs_msg_write_double",
+    "quake_rs_msg_write_string", "quake_rs_msg_write_string_unterminated",
+    "quake_rs_msg_write_coord", "quake_rs_msg_write_angle",
+    "quake_rs_msg_write_angle16", "quake_rs_msg_write_entity",
+    "quake_rs_sz_get_space", "quake_rs_sz_write", "quake_rs_sz_print",
 ]

@@ -152,7 +152,7 @@ fn apply_c(sb: &mut CSizeBuf, op: &WOp) {
     }
 }
 
-fn apply_rust(sb: &mut SizeBuf, op: &WOp) -> Result<(), WireError> {
+fn apply_rust(sb: &mut SizeBuf<'_>, op: &WOp) -> Result<(), WireError> {
     match op {
         WOp::Char(c) => msg::write_char(sb, *c),
         WOp::Byte(c) => msg::write_byte(sb, *c),
@@ -173,7 +173,8 @@ fn apply_rust(sb: &mut SizeBuf, op: &WOp) -> Result<(), WireError> {
 
 fn compare_write_ops(ops: &[WOp], ctx: &str) {
     let mut cbuf = CBuf::new(65536, false);
-    let mut rbuf = SizeBuf::alloc(65536);
+    let mut rstore = vec![0u8; 65536];
+    let mut rbuf = SizeBuf::new(&mut rstore);
     for op in ops {
         apply_c(&mut cbuf.sb, op);
         apply_rust(&mut rbuf, op).unwrap_or_else(|e| panic!("{ctx}: rust err {e:?} on {op:?}"));
@@ -193,6 +194,7 @@ const FLAG_SETS: [u32; 8] = [
     PRFL_FLOATANGLE | PRFL_FLOATCOORD | PRFL_INT32COORD,
 ];
 
+#[allow(clippy::excessive_precision)]
 fn interesting_floats() -> Vec<f32> {
     let mut v: Vec<f32> = vec![
         0.0,
@@ -350,7 +352,8 @@ fn writers_match_c() {
     compare_write_ops(&sops, "strings");
     {
         let mut cbuf = CBuf::new(65536, false);
-        let mut rbuf = SizeBuf::alloc(65536);
+        let mut rstore = vec![0u8; 65536];
+        let mut rbuf = SizeBuf::new(&mut rstore);
         // SAFETY: NULL string pointer is an accepted input of MSG_WriteString
         unsafe { c_ref_MSG_WriteString(&mut cbuf.sb, core::ptr::null()) };
         msg::write_string(&mut rbuf, None).unwrap();
@@ -365,7 +368,8 @@ fn sz_overflow_semantics_match_c() {
     // allowoverflow=true: overflow clears the buffer, sets overflowed, and
     // keeps writing from offset 0
     let mut cbuf = CBuf::new(256, true);
-    let mut rbuf = SizeBuf::alloc(256);
+    let mut rstore = vec![0u8; 256];
+    let mut rbuf = SizeBuf::new(&mut rstore);
     rbuf.allowoverflow = true;
     for i in 0..100 {
         let op = WOp::Long(i);
@@ -389,7 +393,8 @@ fn sz_overflow_semantics_match_c() {
     // SAFETY: ctest_try_host arms the Host_Error trap around fill
     let c_failed = unsafe { ctest_try_host(fill, (&mut cbuf.sb as *mut CSizeBuf).cast()) };
     assert_eq!(c_failed, 1, "C Host_Error fired");
-    let mut rbuf = SizeBuf::alloc(256);
+    let mut rstore = vec![0u8; 256];
+    let mut rbuf = SizeBuf::new(&mut rstore);
     let mut rust_err = None;
     for i in 0..100 {
         if let Err(e) = msg::write_long(&mut rbuf, i) {
@@ -419,7 +424,8 @@ fn sz_print_matches_c() {
             continue;
         }
         let mut cbuf = CBuf::new(4096, false);
-        let mut rbuf = SizeBuf::alloc(4096);
+        let mut rstore = vec![0u8; 4096];
+        let mut rbuf = SizeBuf::new(&mut rstore);
         let lead = lead.unwrap();
         apply_c(&mut cbuf.sb, &lead);
         apply_rust(&mut rbuf, &lead).unwrap();
@@ -530,8 +536,12 @@ fn compare_read_ops(buf: &mut [u8], cursize: i32, ops: &[ROp], ctx: &str) {
                     "{ctx}[{i}] entity({p:#x})"
                 ),
             }
-            assert_eq!(c_ref_msg_readcount, r.readcount, "{ctx}[{i}] readcount");
-            assert_eq!(c_ref_msg_badread, r.badread, "{ctx}[{i}] badread");
+            let (c_count, c_bad) = (
+                core::ptr::read(&raw const c_ref_msg_readcount),
+                core::ptr::read(&raw const c_ref_msg_badread),
+            );
+            assert_eq!(c_count, r.readcount, "{ctx}[{i}] readcount");
+            assert_eq!(c_bad, r.badread, "{ctx}[{i}] badread");
         }
     }
 }
@@ -603,7 +613,8 @@ fn roundtrip_rust_write_c_read() {
     let _g = lock();
     // Rust writer bytes fed to the C reader (cross-direction coverage): the
     // decoded values must agree with the Rust reader's
-    let mut rbuf = SizeBuf::alloc(4096);
+    let mut rstore = vec![0u8; 4096];
+    let mut rbuf = SizeBuf::new(&mut rstore);
     let flags = PRFL_24BITCOORD | PRFL_SHORTANGLE;
     msg::write_coord(&mut rbuf, 123.456, flags).unwrap();
     msg::write_angle(&mut rbuf, -179.5, flags).unwrap();
@@ -618,5 +629,5 @@ fn roundtrip_rust_write_c_read() {
         ROp::U64,
         ROp::Str,
     ];
-    compare_read_ops(&mut rbuf.data, cursize, &ops, "rust->c roundtrip");
+    compare_read_ops(rbuf.data, cursize, &ops, "rust->c roundtrip");
 }

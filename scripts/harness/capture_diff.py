@@ -80,6 +80,14 @@ def main():
     p.add_argument("--min-reliable-prefix", type=int, default=16384,
                    help="bytes of per-direction reliable stream that must "
                         "match exactly (clamped to the shorter stream)")
+    p.add_argument("--window-from", metavar="CAP",
+                   help="calibrate the gate window per direction to the "
+                        "common reliable prefix of cap_a and this capture "
+                        "(a second run of the SAME build): live sessions "
+                        "carry a time-bearing message near the signon tail, "
+                        "so the honest gate is 'the compared build matches "
+                        "at least as far as the reference build matches "
+                        "itself'")
     p.add_argument("--count-tolerance", type=float, default=0.5,
                    help="max relative difference in per-(direction,kind) "
                         "record counts")
@@ -88,12 +96,23 @@ def main():
 
     rec_a = parse_capture(args.cap_a)
     rec_b = parse_capture(args.cap_b)
+    rec_w = parse_capture(args.window_from) if args.window_from else None
     ok = True
 
     for direction in (0, 1):
         sa = reliable_stream(rec_a, direction)
         sb = reliable_stream(rec_b, direction)
         window = min(len(sa), len(sb), args.min_reliable_prefix)
+        if rec_w is not None:
+            sw = reliable_stream(rec_w, direction)
+            noise_floor = next(
+                (i for i in range(min(len(sa), len(sw))) if sa[i] != sw[i]),
+                min(len(sa), len(sw)))
+            if noise_floor < window:
+                print(f"note: {DIR_NAMES[direction]} window calibrated to "
+                      f"{noise_floor} bytes (reference build's own "
+                      f"run-to-run divergence point)")
+                window = noise_floor
         if (len(sa) == 0) != (len(sb) == 0):
             print(f"FAIL: {DIR_NAMES[direction]} reliable stream present in "
                   f"only one capture ({len(sa)} vs {len(sb)} bytes)")

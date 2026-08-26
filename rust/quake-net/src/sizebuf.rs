@@ -2,6 +2,10 @@
 //! overflow semantics, silent release-build truncations, and error routing all
 //! mirror the C original. Errors that C raises via `Host_Error`/`Sys_Error`
 //! surface as `Err`; the M3 capi glue re-raises them in a C frame (ADR-009).
+//!
+//! `SizeBuf` borrows its backing store, so the capi shims can wrap the
+//! engine's own `sizebuf_t` allocation (data/maxsize from the C struct) and
+//! write `cursize`/`overflowed` back after each call; pure tests wrap a Vec.
 
 /// Error paths of `SZ_GetSpace` (net_msg.c). C maps `Overflow` to
 /// `Host_Error` and `OversizeWrite` to `Sys_Error`; `RangeError` is the
@@ -16,55 +20,28 @@ pub enum WireError {
     RangeError(&'static str),
 }
 
-/// Owned mirror of `sizebuf_t` semantics for the pure crate; the buffer is
-/// allocated at `maxsize` like `SZ_Alloc` and `cursize` tracks the write
-/// position. The C-storage-backed variant used by the capi shims runs the
-/// same `get_space_raw` core.
+/// Borrowed view of a `sizebuf_t`: `data` is the full allocation (`maxsize`
+/// bytes), `cursize` the write position.
 #[derive(Debug)]
-pub struct SizeBuf {
+pub struct SizeBuf<'a> {
     pub allowoverflow: bool,
     pub overflowed: bool,
-    pub data: Vec<u8>,
+    pub data: &'a mut [u8],
     pub cursize: i32,
+    /// times the allowed-overflow path fired, so the shim can emit C's
+    /// `Con_Printf ("SZ_GetSpace: overflow\n")` per event
+    pub overflow_events: u32,
 }
 
-/// The `SZ_GetSpace` core over raw parts: returns the write offset, applying
-/// the C overflow rules (clear + set overflowed when allowed). Shared by the
-/// owned `SizeBuf` and the C-backed shim path.
-pub fn get_space_raw(
-    allowoverflow: bool,
-    overflowed: &mut bool,
-    cursize: &mut i32,
-    maxsize: i32,
-    length: i32,
-) -> Result<i32, WireError> {
-    if *cursize + length > maxsize {
-        if !allowoverflow {
-            return Err(WireError::Overflow);
-        }
-        if length > maxsize {
-            return Err(WireError::OversizeWrite);
-        }
-        // Con_Printf ("SZ_GetSpace: overflow\n") is diagnostics-only; the
-        // shim layer prints. SZ_Clear also resets overflowed, then it is
-        // re-set -- net effect below.
-        *cursize = 0;
-        *overflowed = true;
-    }
-    let at = *cursize;
-    *cursize += length;
-    Ok(at)
-}
-
-impl SizeBuf {
-    /// `SZ_Alloc`: minimum size 256, zero-filled (Mem_Alloc zeroes)
-    pub fn alloc(startsize: i32) -> SizeBuf {
-        let startsize = startsize.max(256);
+impl<'a> SizeBuf<'a> {
+    /// fresh buffer over `data` (like just-`SZ_Alloc`ed storage)
+    pub fn new(data: &'a mut [u8]) -> SizeBuf<'a> {
         SizeBuf {
             allowoverflow: false,
             overflowed: false,
-            data: vec![0u8; startsize as usize],
+            data,
             cursize: 0,
+            overflow_events: 0,
         }
     }
 
@@ -80,14 +57,20 @@ impl SizeBuf {
 
     /// `SZ_GetSpace`: reserves `length` bytes, returning their offset
     pub fn get_space(&mut self, length: i32) -> Result<usize, WireError> {
-        let maxsize = self.maxsize();
-        let at = get_space_raw(
-            self.allowoverflow,
-            &mut self.overflowed,
-            &mut self.cursize,
-            maxsize,
-            length,
-        )?;
+        if self.cursize + length > self.maxsize() {
+            if !self.allowoverflow {
+                return Err(WireError::Overflow);
+            }
+            if length > self.maxsize() {
+                return Err(WireError::OversizeWrite);
+            }
+            // C: Con_Printf + SZ_Clear (resets overflowed), then re-set
+            self.overflow_events += 1;
+            self.cursize = 0;
+            self.overflowed = true;
+        }
+        let at = self.cursize;
+        self.cursize += length;
         Ok(at as usize)
     }
 

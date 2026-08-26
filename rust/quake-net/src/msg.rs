@@ -52,21 +52,21 @@ macro_rules! debug_range_check {
 // writing functions
 //
 
-pub fn write_char(sb: &mut SizeBuf, c: i32) -> Result<(), WireError> {
+pub fn write_char(sb: &mut SizeBuf<'_>, c: i32) -> Result<(), WireError> {
     debug_range_check!(!(-128..=127).contains(&c), "MSG_WriteChar: range error");
     let at = sb.get_space(1)?;
     sb.data[at] = c as u8;
     Ok(())
 }
 
-pub fn write_byte(sb: &mut SizeBuf, c: i32) -> Result<(), WireError> {
+pub fn write_byte(sb: &mut SizeBuf<'_>, c: i32) -> Result<(), WireError> {
     debug_range_check!(!(0..=255).contains(&c), "MSG_WriteByte: range error");
     let at = sb.get_space(1)?;
     sb.data[at] = c as u8;
     Ok(())
 }
 
-pub fn write_short(sb: &mut SizeBuf, c: i32) -> Result<(), WireError> {
+pub fn write_short(sb: &mut SizeBuf<'_>, c: i32) -> Result<(), WireError> {
     debug_range_check!(
         c < i16::MIN as i32 || c > u16::MAX as i32,
         "MSG_WriteShort: range error"
@@ -77,7 +77,7 @@ pub fn write_short(sb: &mut SizeBuf, c: i32) -> Result<(), WireError> {
     Ok(())
 }
 
-pub fn write_long(sb: &mut SizeBuf, c: i32) -> Result<(), WireError> {
+pub fn write_long(sb: &mut SizeBuf<'_>, c: i32) -> Result<(), WireError> {
     let at = sb.get_space(4)?;
     sb.data[at] = (c & 0xff) as u8;
     sb.data[at + 1] = ((c >> 8) & 0xff) as u8;
@@ -88,7 +88,7 @@ pub fn write_long(sb: &mut SizeBuf, c: i32) -> Result<(), WireError> {
 
 /// 0*, 10*+1, 110*+2 ... lead-byte length prefix, up to 0xff + 8 continuation
 /// bytes (net_msg.c MSG_WriteUInt64)
-pub fn write_uint64(sb: &mut SizeBuf, c: u64) -> Result<(), WireError> {
+pub fn write_uint64(sb: &mut SizeBuf<'_>, c: u64) -> Result<(), WireError> {
     let mut b: u32 = 0;
     let mut l: u64 = 128;
     while c > l.wrapping_sub(1) {
@@ -114,7 +114,7 @@ pub fn write_uint64(sb: &mut SizeBuf, c: u64) -> Result<(), WireError> {
 }
 
 /// sign bit moved to the low bit to avoid sign extension (net_msg.c)
-pub fn write_int64(sb: &mut SizeBuf, c: i64) -> Result<(), WireError> {
+pub fn write_int64(sb: &mut SizeBuf<'_>, c: i64) -> Result<(), WireError> {
     if c < 0 {
         write_uint64(sb, (((-1 - c) as u64) << 1) | 1)
     } else {
@@ -122,11 +122,11 @@ pub fn write_int64(sb: &mut SizeBuf, c: i64) -> Result<(), WireError> {
     }
 }
 
-pub fn write_float(sb: &mut SizeBuf, f: f32) -> Result<(), WireError> {
+pub fn write_float(sb: &mut SizeBuf<'_>, f: f32) -> Result<(), WireError> {
     sb.write(&f.to_le_bytes())
 }
 
-pub fn write_double(sb: &mut SizeBuf, f: f64) -> Result<(), WireError> {
+pub fn write_double(sb: &mut SizeBuf<'_>, f: f64) -> Result<(), WireError> {
     let at = sb.get_space(8)?;
     sb.data[at..at + 8].copy_from_slice(&f.to_le_bytes());
     Ok(())
@@ -134,7 +134,7 @@ pub fn write_double(sb: &mut SizeBuf, f: f64) -> Result<(), WireError> {
 
 /// `s` is the string bytes WITHOUT the terminator; `None` mirrors a NULL
 /// `const char *` (C writes just the terminator)
-pub fn write_string(sb: &mut SizeBuf, s: Option<&[u8]>) -> Result<(), WireError> {
+pub fn write_string(sb: &mut SizeBuf<'_>, s: Option<&[u8]>) -> Result<(), WireError> {
     match s {
         None => sb.write(&[0u8]),
         Some(bytes) => {
@@ -146,13 +146,13 @@ pub fn write_string(sb: &mut SizeBuf, s: Option<&[u8]>) -> Result<(), WireError>
     }
 }
 
-pub fn write_string_unterminated(sb: &mut SizeBuf, s: &[u8]) -> Result<(), WireError> {
+pub fn write_string_unterminated(sb: &mut SizeBuf<'_>, s: &[u8]) -> Result<(), WireError> {
     sb.write(s)
 }
 
 /// 13.3 fixed point, max range +-4096 (the f*8 multiply is C float
 /// arithmetic before Q_rint's double rounding)
-pub fn write_coord16(sb: &mut SizeBuf, f: f32) -> Result<(), WireError> {
+pub fn write_coord16(sb: &mut SizeBuf<'_>, f: f32) -> Result<(), WireError> {
     write_short(sb, q_rint((f * 8.0f32) as f64))
 }
 
@@ -160,16 +160,16 @@ pub fn write_coord16(sb: &mut SizeBuf, f: f32) -> Result<(), WireError> {
 /// `(int)(f * 255) % 255` exactly as in C -- including the odd `% 255` (not
 /// 256) and the truncating cast, negative results reaching write_byte's
 /// silent truncation.
-pub fn write_coord24(sb: &mut SizeBuf, f: f32) -> Result<(), WireError> {
+pub fn write_coord24(sb: &mut SizeBuf<'_>, f: f32) -> Result<(), WireError> {
     write_short(sb, f as i32)?;
     write_byte(sb, ((f * 255.0f32) as i32) % 255)
 }
 
-pub fn write_coord32f(sb: &mut SizeBuf, f: f32) -> Result<(), WireError> {
+pub fn write_coord32f(sb: &mut SizeBuf<'_>, f: f32) -> Result<(), WireError> {
     write_float(sb, f)
 }
 
-pub fn write_coord(sb: &mut SizeBuf, f: f32, flags: u32) -> Result<(), WireError> {
+pub fn write_coord(sb: &mut SizeBuf<'_>, f: f32, flags: u32) -> Result<(), WireError> {
     if flags & PRFL_FLOATCOORD != 0 {
         write_float(sb, f)
     } else if flags & PRFL_INT32COORD != 0 {
@@ -181,7 +181,7 @@ pub fn write_coord(sb: &mut SizeBuf, f: f32, flags: u32) -> Result<(), WireError
     }
 }
 
-pub fn write_angle(sb: &mut SizeBuf, f: f32, flags: u32) -> Result<(), WireError> {
+pub fn write_angle(sb: &mut SizeBuf<'_>, f: f32, flags: u32) -> Result<(), WireError> {
     if flags & PRFL_FLOATANGLE != 0 {
         write_float(sb, f)
     } else if flags & PRFL_SHORTANGLE != 0 {
@@ -191,7 +191,7 @@ pub fn write_angle(sb: &mut SizeBuf, f: f32, flags: u32) -> Result<(), WireError
     }
 }
 
-pub fn write_angle16(sb: &mut SizeBuf, f: f32, flags: u32) -> Result<(), WireError> {
+pub fn write_angle16(sb: &mut SizeBuf<'_>, f: f32, flags: u32) -> Result<(), WireError> {
     if flags & PRFL_FLOATANGLE != 0 {
         write_float(sb, f)
     } else {
@@ -200,7 +200,7 @@ pub fn write_angle16(sb: &mut SizeBuf, f: f32, flags: u32) -> Result<(), WireErr
 }
 
 /// PEXT2_REPLACEMENTDELTAS: entnums > 0x7fff go as high short + low byte
-pub fn write_entity(sb: &mut SizeBuf, entnum: u32, pext2: u32) -> Result<(), WireError> {
+pub fn write_entity(sb: &mut SizeBuf<'_>, entnum: u32, pext2: u32) -> Result<(), WireError> {
     if entnum > 0x7fff && (pext2 & PEXT2_REPLACEMENTDELTAS) != 0 {
         write_short(sb, (0x8000 | (entnum >> 8)) as i32)?;
         write_byte(sb, (entnum & 0xff) as i32)

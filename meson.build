@@ -224,7 +224,6 @@ srcs = [
     'Quake/cl_tent.c',
     'Quake/cmd.c',
     'Quake/common.c',
-    'Quake/net_msg.c',
     'Quake/console.c',
     'Quake/cvar.c',
     'Quake/gl_draw.c',
@@ -477,11 +476,16 @@ phase4_c_srcs = [
 phase4_glue_c_srcs = [
     'Quake/snd_glue.c',
 ]
-# Phase 5: the networking wire layer flips in-file (common.c/cl_demo.c
-# ifdefs) and per driver-vtable slot (net_bsd.c/net_win.c ifdefs); the C
-# originals stay compiled as the comparison oracle in both configurations
+# Phase 5: the networking wire layer. The MSG/SZ section lives in net_msg.c
+# (split from common.c at M2) and swaps whole-file for the Rust exports plus
+# the net_msg_glue.c Host_Error trampolines; the drivers flip per
+# driver-vtable slot (net_bsd.c/net_win.c ifdefs) and cl_demo.c in-file. The
+# C originals stay the -Duse_rust_net=disabled comparison oracle
 if use_rust_net
     cflags += '-DUSE_RUST_NET'
+    srcs += 'Quake/net_msg_glue.c'
+else
+    srcs += 'Quake/net_msg.c'
 endif
 
 if use_rust_snd

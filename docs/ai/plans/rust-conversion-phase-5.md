@@ -128,3 +128,10 @@ M5 exit (session end): full corpus incl. registered-tier local entries, record_d
 - **2026-08-25 M2**: upstream quirk found and mirrored: `MSG_ReadDouble` is
   declared `float` in C -- it assembles the 8-byte double, then narrows to
   float at the return. The Rust `read_double` returns f32 accordingly.
+- **2026-08-25 M3**: live localhost sessions proved to carry ~1 byte of
+  run-to-run nondeterminism near the signon tail of the recv reliable stream
+  (C-vs-C diverges at the same offset as C-vs-Rust). `capture_diff.py` gained
+  `--window-from <second-C-run>`: the gate window is calibrated to the
+  reference build's own divergence point, so the criterion is "Rust matches
+  C at least as far as C matches itself." The CI step captures C twice +
+  Rust once accordingly.

@@ -93,7 +93,8 @@ fuzz_target!(|data: &[u8]| {
 
     // canonical roundtrips: derive values from the payload and require
     // write->read identity for the encodings that are exact
-    let mut sb = SizeBuf::alloc(4096);
+    let mut sstore = vec![0u8; 4096];
+    let mut sb = SizeBuf::new(&mut sstore);
     let mut vals_i32 = Vec::new();
     let mut vals_u64 = Vec::new();
     for chunk in payload.chunks_exact(8).take(32) {
