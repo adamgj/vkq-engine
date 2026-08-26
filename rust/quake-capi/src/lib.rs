@@ -39,6 +39,8 @@ pub mod net;
 pub mod net_dgrm;
 #[cfg(feature = "net")]
 pub mod net_loop;
+#[cfg(feature = "net")]
+pub mod net_udp;
 #[cfg(feature = "snd")]
 pub mod snd_codec;
 #[cfg(feature = "snd")]

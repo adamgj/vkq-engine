@@ -131,6 +131,41 @@ size_t UTF8_WriteCodePoint (char *dst, size_t maxbytes, uint32_t codepoint);
 #define net_time						  c_ref_net_time
 #define messagesReceived				  c_ref_messagesReceived
 #define unreliableMessagesReceived		  c_ref_unreliableMessagesReceived
+/* net_udp.c (Phase 5 M7b): the pure-address-function oracle (unix only;
+ * the socket entry points are compiled but never invoked by tests) */
+#define UDP4_Init				 c_ref_UDP4_Init
+#define UDP4_Shutdown			 c_ref_UDP4_Shutdown
+#define UDP4_Listen				 c_ref_UDP4_Listen
+#define UDP4_OpenSocket			 c_ref_UDP4_OpenSocket
+#define UDP_CloseSocket			 c_ref_UDP_CloseSocket
+#define UDP_Connect				 c_ref_UDP_Connect
+#define UDP4_CheckNewConnections c_ref_UDP4_CheckNewConnections
+#define UDP_Read				 c_ref_UDP_Read
+#define UDP_Write				 c_ref_UDP_Write
+#define UDP4_Broadcast			 c_ref_UDP4_Broadcast
+#define UDP_AddrToString		 c_ref_UDP_AddrToString
+#define UDP4_StringToAddr		 c_ref_UDP4_StringToAddr
+#define UDP_GetSocketAddr		 c_ref_UDP_GetSocketAddr
+#define UDP_GetNameFromAddr		 c_ref_UDP_GetNameFromAddr
+#define UDP4_GetAddrFromName	 c_ref_UDP4_GetAddrFromName
+#define UDP_AddrCompare			 c_ref_UDP_AddrCompare
+#define UDP_GetSocketPort		 c_ref_UDP_GetSocketPort
+#define UDP_SetSocketPort		 c_ref_UDP_SetSocketPort
+#define UDP4_GetAddresses		 c_ref_UDP4_GetAddresses
+#define UDP6_Init				 c_ref_UDP6_Init
+#define UDP6_Shutdown			 c_ref_UDP6_Shutdown
+#define UDP6_Listen				 c_ref_UDP6_Listen
+#define UDP6_OpenSocket			 c_ref_UDP6_OpenSocket
+#define UDP6_CheckNewConnections c_ref_UDP6_CheckNewConnections
+#define UDP6_Broadcast			 c_ref_UDP6_Broadcast
+#define UDP6_StringToAddr		 c_ref_UDP6_StringToAddr
+#define UDP6_GetAddrFromName	 c_ref_UDP6_GetAddrFromName
+#define UDP6_GetAddresses		 c_ref_UDP6_GetAddresses
+#define net_hostport			 c_ref_net_hostport
+#define my_ipv4_address			 c_ref_my_ipv4_address
+#define my_ipv6_address			 c_ref_my_ipv6_address
+#define ipv4Available			 c_ref_ipv4Available
+#define ipv6Available			 c_ref_ipv6Available
 
 /* mplane_t comes from the real gl_model.h, included below (Phase 3) */
 

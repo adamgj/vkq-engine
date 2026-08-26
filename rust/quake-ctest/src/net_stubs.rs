@@ -32,6 +32,62 @@ pub static mut harness_badread_count: core::ffi::c_uint = 0;
 #[no_mangle]
 pub static mut net_driverlevel: c_int = 0;
 
+// Phase 5 M7: the dgrm/udp shims' ambient C globals (net_dgrm_glue.c /
+// net_main.c / net_bsd.c in the engine). The linux linker resolves every
+// rlib object, so these must exist even in tests that never call the shims.
+#[no_mangle]
+pub static mut net_time: f64 = 0.0;
+#[no_mangle]
+pub static mut net_hostport: c_int = 26000;
+#[repr(C)]
+pub struct StubPacketBuffer(pub [u8; 64008]);
+#[no_mangle]
+pub static mut packetBuffer: StubPacketBuffer = StubPacketBuffer([0; 64008]);
+#[no_mangle]
+pub static mut packetsSent: c_int = 0;
+#[no_mangle]
+pub static mut packetsReSent: c_int = 0;
+#[no_mangle]
+pub static mut packetsReceived: c_int = 0;
+#[no_mangle]
+pub static mut receivedDuplicateCount: c_int = 0;
+#[no_mangle]
+pub static mut shortPacketCount: c_int = 0;
+#[no_mangle]
+pub static mut droppedDatagrams: c_int = 0;
+#[no_mangle]
+pub static mut messagesReceived: c_int = 0;
+#[no_mangle]
+pub static mut unreliableMessagesReceived: c_int = 0;
+
+const EMPTY_LANDRIVER: quake_types::net::NetLanDriver = quake_types::net::NetLanDriver {
+    name: core::ptr::null(),
+    initialized: false,
+    control_sock: 0,
+    init: None,
+    shutdown: None,
+    listen: None,
+    query_addresses: None,
+    open_socket: None,
+    close_socket: None,
+    connect: None,
+    check_new_connections: None,
+    read: None,
+    write: None,
+    broadcast: None,
+    addr_to_string: None,
+    string_to_addr: None,
+    get_socket_addr: None,
+    get_name_from_addr: None,
+    get_addr_from_name: None,
+    addr_compare: None,
+    get_socket_port: None,
+    set_socket_port: None,
+    listening_sock: 0,
+};
+#[no_mangle]
+pub static mut net_landrivers: [quake_types::net::NetLanDriver; 3] = [EMPTY_LANDRIVER; 3];
+
 const POOL: usize = 4;
 static mut QSOCKET_POOL: [core::mem::MaybeUninit<QSocket>; POOL] =
     [const { core::mem::MaybeUninit::uninit() }; POOL];

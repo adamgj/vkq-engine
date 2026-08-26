@@ -89,6 +89,8 @@ bindgen rust/quake-c-sys/bindings_wrapper.h \
     --allowlist-function 'NET_NewQSocket|NET_FreeQSocket|SetNetTime' \
     --allowlist-var 'net_message|net_time|net_driverlevel|msg_readcount|msg_badread|harness_badread_count' \
     --allowlist-var 'packetBuffer|packetsSent|packetsReSent|packetsReceived|receivedDuplicateCount|shortPacketCount|droppedDatagrams|messagesReceived|unreliableMessagesReceived' \
+    --allowlist-var 'net_hostport|my_ipv4_address|my_ipv6_address|ipv4Available|ipv6Available' \
+    --allowlist-function 'COM_CheckParm|Sys_DoubleTime' \
     -o rust/quake-c-sys/src/generated.rs \
     -- -IQuake
 

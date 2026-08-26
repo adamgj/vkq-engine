@@ -108,6 +108,39 @@ pub struct QSockAddr {
     pub qsa_data: [u8; 62],
 }
 
+impl QSockAddr {
+    /// an all-zero blob (C `memset (&addr, 0, sizeof (addr))`)
+    pub const fn zeroed() -> Self {
+        QSockAddr {
+            #[cfg(any(
+                target_os = "macos",
+                target_os = "freebsd",
+                target_os = "netbsd",
+                target_os = "openbsd",
+                target_os = "dragonfly"
+            ))]
+            qsa_len: 0,
+            #[cfg(any(
+                target_os = "macos",
+                target_os = "freebsd",
+                target_os = "netbsd",
+                target_os = "openbsd",
+                target_os = "dragonfly"
+            ))]
+            qsa_family: 0,
+            #[cfg(not(any(
+                target_os = "macos",
+                target_os = "freebsd",
+                target_os = "netbsd",
+                target_os = "openbsd",
+                target_os = "dragonfly"
+            )))]
+            qsa_family: 0,
+            qsa_data: [0; 62],
+        }
+    }
+}
+
 /// `qsocket_t` (net_defs.h)
 #[repr(C)]
 pub struct QSocket {

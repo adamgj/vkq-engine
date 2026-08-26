@@ -234,6 +234,38 @@ qboolean rust_dgrm_CanSendMessage(qsocket_t *sock);
 qboolean rust_dgrm_CanSendUnreliableMessage(qsocket_t *sock);
 qboolean rust_dgrm_ProcessPacket(unsigned int length, qsocket_t *sock);
 int rust_dgrm_GetMessage(qsocket_t *sock);
+/* Phase 5 M7b: the Rust UDP landriver (unix only; net_wins.c stays C until
+ * a Windows UDP runtime CI leg exists). */
+#if !defined(_WIN32)
+sys_socket_t rust_udp4_Init(void);
+sys_socket_t rust_udp6_Init(void);
+void rust_udp4_Shutdown(void);
+void rust_udp6_Shutdown(void);
+sys_socket_t rust_udp4_Listen(qboolean state);
+sys_socket_t rust_udp6_Listen(qboolean state);
+sys_socket_t rust_udp4_OpenSocket(int port);
+sys_socket_t rust_udp6_OpenSocket(int port);
+int rust_udp_CloseSocket(sys_socket_t socketid);
+int rust_udp_Connect(sys_socket_t socketid, struct qsockaddr *addr);
+sys_socket_t rust_udp4_CheckNewConnections(void);
+sys_socket_t rust_udp6_CheckNewConnections(void);
+int rust_udp_Read(sys_socket_t socketid, byte *buf, int len, struct qsockaddr *addr);
+int rust_udp_Write(sys_socket_t socketid, byte *buf, int len, struct qsockaddr *addr);
+int rust_udp4_Broadcast(sys_socket_t socketid, byte *buf, int len);
+int rust_udp6_Broadcast(sys_socket_t socketid, byte *buf, int len);
+const char *rust_udp_AddrToString(struct qsockaddr *addr, qboolean masked);
+int rust_udp4_StringToAddr(const char *string, struct qsockaddr *addr);
+int rust_udp6_StringToAddr(const char *string, struct qsockaddr *addr);
+int rust_udp_GetSocketAddr(sys_socket_t socketid, struct qsockaddr *addr);
+int rust_udp_GetNameFromAddr(struct qsockaddr *addr, char *name);
+int rust_udp4_GetAddrFromName(const char *name, struct qsockaddr *addr);
+int rust_udp6_GetAddrFromName(const char *name, struct qsockaddr *addr);
+int rust_udp_AddrCompare(struct qsockaddr *addr1, struct qsockaddr *addr2);
+int rust_udp_GetSocketPort(struct qsockaddr *addr);
+int rust_udp_SetSocketPort(struct qsockaddr *addr, int port);
+int rust_udp4_GetAddresses(qhostaddr_t *addresses, int maxaddresses);
+int rust_udp6_GetAddresses(qhostaddr_t *addresses, int maxaddresses);
+#endif
 #endif
 #ifdef __cplusplus
 } /* extern "C" -- these hand-written declarations sit outside cbindgen's own
@@ -328,4 +360,16 @@ exclude = [
     "rust_dgrm_SendMessageNext", "rust_dgrm_ReSendMessage",
     "rust_dgrm_CanSendMessage", "rust_dgrm_CanSendUnreliableMessage",
     "rust_dgrm_ProcessPacket", "rust_dgrm_GetMessage",
+    "rust_udp4_Init", "rust_udp6_Init", "rust_udp4_Shutdown",
+    "rust_udp6_Shutdown", "rust_udp4_Listen", "rust_udp6_Listen",
+    "rust_udp4_OpenSocket", "rust_udp6_OpenSocket", "rust_udp_CloseSocket",
+    "rust_udp_Connect", "rust_udp4_CheckNewConnections",
+    "rust_udp6_CheckNewConnections", "rust_udp_Read", "rust_udp_Write",
+    "rust_udp4_Broadcast", "rust_udp6_Broadcast", "rust_udp_AddrToString",
+    "rust_udp4_StringToAddr", "rust_udp6_StringToAddr",
+    "rust_udp_GetSocketAddr", "rust_udp_GetNameFromAddr",
+    "rust_udp4_GetAddrFromName", "rust_udp6_GetAddrFromName",
+    "rust_udp_AddrCompare", "rust_udp_GetSocketPort",
+    "rust_udp_SetSocketPort", "rust_udp4_GetAddresses",
+    "rust_udp6_GetAddresses",
 ]
