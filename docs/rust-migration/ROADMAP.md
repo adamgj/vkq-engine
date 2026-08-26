@@ -116,11 +116,11 @@ Crate: `quake-snd` (+ the first `quake-platform` module). Task plan: `docs/ai/pl
 
 ---
 
-## Phase 5 — Networking wire layer (L) `[~]`
+## Phase 5 — Networking wire layer (L) `[x]`
 
 Crate: `quake-net`. Protocol *logic* in `cl_parse.c`/`sv_main.c` stays C this phase — the wire layer beneath it becomes Rust. Task plan: `docs/ai/plans/rust-conversion-phase-5.md`.
 
-**Status (2026-08-25):** M1–M5 of the task plan implemented (scaffolding + ADR-011 net mirrors; MSG/SZ port with the section split into `net_msg.c` and flipped whole-file under `-Duse_rust_net`; demo file format; loopback driver flipped in vtable slot 0). Gates green on darwin-arm64: corpus `--check`/`--compare` (C vs mixed and vs the `build-rs-cnet` oracle), savegame byte-diff, `record_diff.py` .dem byte-identity, calibrated live-capture diff, `net_msg`/`net_loop` ctest differentials, fuzzers (`fuzz_net_msg`, `fuzz_net_demo`). M6 (dgrm reliable-layer port, ctest-first: net_dgrm.c split, quake-net::dgrm over a NetSys trait, differential + fuzz gates) done 2026-08-26. M7 done 2026-08-26 (M7a dgrm engine flip via net_dgrm_glue.c; M7b socket2 UDP landriver flipped in net_bsd.c -- net_wins.c stays C pending a Windows UDP runtime CI leg, ADR-017 precedent). M8 (netreplay byte gate + 4-way interop matrix, CI-wired) and M9 (net_main.c ADR-009-safe core ported; dispatch funnels stay C frames until Phase 7 -- see the task plan audit note) done 2026-08-26. Remaining: M10 phase exit.
+**Status (2026-08-25):** M1–M5 of the task plan implemented (scaffolding + ADR-011 net mirrors; MSG/SZ port with the section split into `net_msg.c` and flipped whole-file under `-Duse_rust_net`; demo file format; loopback driver flipped in vtable slot 0). Gates green on darwin-arm64: corpus `--check`/`--compare` (C vs mixed and vs the `build-rs-cnet` oracle), savegame byte-diff, `record_diff.py` .dem byte-identity, calibrated live-capture diff, `net_msg`/`net_loop` ctest differentials, fuzzers (`fuzz_net_msg`, `fuzz_net_demo`). M6 (dgrm reliable-layer port, ctest-first: net_dgrm.c split, quake-net::dgrm over a NetSys trait, differential + fuzz gates) done 2026-08-26. M7 done 2026-08-26 (M7a dgrm engine flip via net_dgrm_glue.c; M7b socket2 UDP landriver flipped in net_bsd.c -- net_wins.c stays C pending a Windows UDP runtime CI leg, ADR-017 precedent). M8 (netreplay byte gate + 4-way interop matrix, CI-wired) and M9 (net_main.c ADR-009-safe core ported; dispatch funnels stay C frames until Phase 7 -- see the task plan audit note) done 2026-08-26. M10 phase exit done 2026-08-26 (fuzz soak clean; fresh-context M6-M9 compatibility review, all findings addressed -- see the task plan).
 
 **Scope**
 - `MSG_Read*/Write*` + `SZ_*` from `common.c`: coord 16/24/32f by `protocolflags`, angle variants, varint u64, `MSG_WriteEntity` pext2-aware encoding, `ENTALPHA`/`ENTSCALE` 4.4 fixed-point rounding — golden-tested byte-for-byte.
@@ -128,12 +128,14 @@ Crate: `quake-net`. Protocol *logic* in `cl_parse.c`/`sv_main.c` stays C this ph
 - Demo file IO (`cl_demo.c` read/write path): forcetrack line + [length + 3 viewangle floats + payload] records, `fflush` cadence, resume-record `-17` seek, seek/prespawn bookkeeping.
 - Host cache / `NET_Poll` plumbing (`net_main.c`).
 
-**Exit criteria**
-- 4-way interop matrix green (C/Rust client × C/Rust server, localhost) across 15/666/999 × PRFL × PEXT combinations.
-- Captured-session replay and demo recording byte-identical vs C.
-- Net message reader fuzzers live (per protocol).
+**Exit criteria** *(met 2026-08-26 on darwin-arm64 + the Linux CI legs; see the caveats)*
+- [x] 4-way interop matrix green (C/Rust client × C/Rust server, localhost) across 15/666/999 × PRFL × PEXT combinations: `interop_matrix.py`, 6 protocol cells (`Base-`/`FTE+` × 15/666/999 — FTE+999 exercises PRFL_FLOATCOORD|SHORTANGLE, Base-999 PRFL_INT32COORD|SHORTANGLE, the FTE+ cells PEXT2) × 4 build combos, all green incl. a local-only `[::1]` IPv6 leg over the Rust UDP6 landriver. PRFL_24BITCOORD is not producible by this engine's server; it is covered at the MSG layer by `net_msg_differential`. The CI leg runs the IPv4 matrix on shareware data.
+- [x] Captured-session replay and demo recording byte-identical vs C: `netreplay_diff.py` (the `-netreplay` instrument replays a `-netcapture` recv stream deterministically; state-hash chains and a demo recorded mid-replay byte-identical C-vs-Rust, with a delivered-record floor so an inert replay cannot pass) plus `record_diff.py` loopback record byte-identity. Stated precisely: the replay hook returns above the driver vtable, so its byte gate exercises the MSG/SZ readers, cl_parse and the demo writer; the flipped dgrm/UDP drivers themselves are gated by the ctest differentials, the loopback `record_diff` byte gate, the calibrated structural `capture_diff.py` live gate (its ~1-byte run-to-run timing noise is measured C-vs-C, per the task-plan M3 amendment), and the interop matrix counts.
+- [x] Net message reader fuzzers live (per protocol): `fuzz_net_msg` (protocol 15/666/999 × PRFL × PEXT2 flag sets), `fuzz_net_dgrm` (both reliable-layer RX paths), `fuzz_net_ccreq` (the CCREQ/CCREP/slist read sequences), `fuzz_net_demo` — all in the CI fuzz job; exit soak clean.
 
-**Deletes:** `net_loop.c`, `net_dgrm.c`, `net_udp.c`, `net_wins.c`, `net_main.c`, `net_bsd.c`, `net_win.c`, MSG portion of `common.c`.
+**Carried to later phases** *(recorded at M10)*: `net_wins.c` keeps the C WINS drivers until a Windows UDP runtime CI leg exists (ADR-017 precedent); the `Host_Error`-capable dispatch funnels in `net_main.c` (NET_Connect/GetMessage/GetServerMessage/Send\*/SendToAll/Poll, NET_Init/Shutdown) and `net_dgrm.c`'s orchestration half (connect handshake, `_Datagram_ServerControlPacket`, hostcache/heartbeats/rcon) stay C frames until Phase 7 statusizes the layers beneath them (task-plan M9 audit).
+
+**Deletes** *(recorded, deferred like Phases 1–4; the C stays the `-Duse_rust_net=disabled` oracle)*: `net_loop.c`, `net_msg.c` (the MSG portion already split out of `common.c`), `net_dgrm_rel.c`, `net_udp.c`, and the ported (`#ifndef USE_RUST_NET`) sections of `net_main.c`. `net_dgrm.c`'s orchestration half, the `net_main.c` funnels, `net_wins.c`, `net_bsd.c`/`net_win.c` (vtable data) move to the Phase 7/9 deletion lists per the carve-outs above.
 
 ---
 

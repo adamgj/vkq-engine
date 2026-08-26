@@ -433,3 +433,42 @@ M5 exit (session end): full corpus incl. registered-tier local entries, record_d
   byte-identical C-vs-Rust (exercises the Rust pool via loopback connect
   too); capi signature, check_headers, net_abi, clippy -D warnings, fmt
   clean; ctest 40 suites green.
+- **2026-08-26 M10 (phase exit)**: exit evidence and the fresh-context
+  review round.
+  - Fuzz soak: 150s per net target, no findings -- fuzz_net_msg 12.2M,
+    fuzz_net_demo 84.5M, fuzz_net_dgrm 4.9M, fuzz_net_ccreq 92.5M execs.
+  - Fresh-context compatibility review (M6-M9, e6e683ae..M9): verdict
+    "findings require fixes" -- two should-fix + notes, all addressed:
+    (5) rust_udp_GetNameFromAddr's AddrToString fallback now clamps to
+    NET_NAMELEN-1 (was safe only by arithmetic: worst-case formatted
+    address is 59 bytes); (9) the netreplay gate gained an inert-replay
+    guard -- the engine reports "Harness: netreplay=<n>" delivered records
+    and netreplay_diff.py fails below a floor (default 50) or on a count
+    mismatch (the same hole class capture_diff's --min-window closed);
+    (2) COMPAT notes at all four dgrm oversize pre-checks recording that
+    C's 32-bit `receiveMessageLength + length` sum WRAPS for hostile
+    sub-header wire lengths (C then memcpy's a negative length, UB/crash)
+    while the port's usize sum takes the oversize path -- the differential
+    deliberately avoids the C-crash domain; (3) split_host_port now
+    mirrors strtoul's whitespace/sign/ULONG_MAX semantics (port ":-1" ->
+    65535 like C); (4) getaddrinfo_pick6 returns Err/Ok(None)/Ok(Some) so
+    the UDP6 no-port retry fires only on resolver errors like C, not on
+    successful IPv4-only lookups; (6)/(8) COMPAT notes for the
+    uninitialized-fromlen absorb and the zero-filled out-structs;
+    (10) interop_matrix fails loudly when the msgbadread counter line is
+    missing. Review confirmations recorded: no ADR-009 violation in the
+    newly-Rust frames (all raise-capable callees verified beneath C
+    funnels), transliteration fidelity of both dgrm RX paths, ABI mirrors
+    pinned on all three OSes, ADR-003 licensing clean.
+  - The ROADMAP Phase 5 exit-criteria checklist is filled in with the
+    per-criterion evidence, the netreplay gate's precise coverage stratum
+    (it bypasses the drivers; the flipped drivers are gated by ctest +
+    record_diff + calibrated capture + interop), and the carried-to-later
+    -phases record (net_wins.c per ADR-017; the Host_Error funnels and
+    dgrm orchestration per the M9 audit). Deletions deferred as in
+    Phases 1-4.
+  - Known unexercised surfaces, recorded honestly: rust_udp6_* runtime
+    coverage is local-only (the [::1] interop leg); Windows compiles
+    net_dgrm_rel.c as a ctest oracle for the first time on CI;
+    the Windows UDP runtime leg remains the condition for the net_wins.c
+    flip.

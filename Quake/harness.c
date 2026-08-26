@@ -39,16 +39,17 @@ qboolean harness_sndhash = false;
 #define HARNESS_HASH_BASIS UINT64_C (0xcbf29ce484222325)
 #define HARNESS_HASH_PRIME UINT64_C (0x100000001b3)
 
-static FILE		 *harness_hashfile = NULL;
-static FILE		 *harness_capturefile = NULL;
-qboolean		  harness_netreplay = false;
-static FILE		 *harness_replayfile = NULL;
-static qsocket_t *harness_replaysock = NULL;
-static int		  harness_replay_lastframe = -1;
-static FILE		 *harness_sndfile = NULL;
-static uint64_t	  harness_hashchain = HARNESS_HASH_BASIS;
-static uint64_t	  harness_sndchain = HARNESS_HASH_BASIS;
-static int		  harness_exitafter = 0;
+static FILE		   *harness_hashfile = NULL;
+static FILE		   *harness_capturefile = NULL;
+qboolean			harness_netreplay = false;
+static FILE		   *harness_replayfile = NULL;
+static qsocket_t   *harness_replaysock = NULL;
+static int			harness_replay_lastframe = -1;
+static unsigned int harness_replay_delivered = 0;
+static FILE		   *harness_sndfile = NULL;
+static uint64_t		harness_hashchain = HARNESS_HASH_BASIS;
+static uint64_t		harness_sndchain = HARNESS_HASH_BASIS;
+static int			harness_exitafter = 0;
 
 typedef struct
 {
@@ -340,6 +341,8 @@ void Harness_Shutdown (void)
 	{
 		badread_printed = true;
 		Sys_Printf ("Harness: msgbadread=%u\n", harness_badread_count);
+		if (harness_netreplay)
+			Sys_Printf ("Harness: netreplay=%u\n", harness_replay_delivered);
 	}
 	if (harness_sndfile)
 	{
@@ -430,6 +433,7 @@ int Harness_NetReplayGetMessage (void)
 			Sys_Error ("Harness: -netreplay capture truncated mid-record");
 		net_message.cursize = (int)len;
 		harness_replay_lastframe = host_framecount;
+		harness_replay_delivered++;
 		return kind;
 	}
 }

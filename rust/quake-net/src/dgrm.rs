@@ -389,6 +389,13 @@ pub fn process_packet<S: NetSys>(
         let length = length.wrapping_sub(NET_HEADERSIZE as u32) as usize;
 
         if flags & NETFLAG_EOM != 0 {
+            // COMPAT: C computes `receiveMessageLength + length` as a
+            // 32-bit unsigned sum, which WRAPS when a hostile wire length
+            // below NET_HEADERSIZE makes `length` huge -- C then passes the
+            // check and memcpy's a negative length (UB/crash). The port
+            // evaluates the sum in usize, so that domain takes this
+            // oversize path instead (accepted divergence; the differential
+            // avoids the C-crash domain).
             if sock.receive_message_length as usize + length > g.net_message_maxsize as usize {
                 sys.print("Over-sized reliable\n");
                 return true;
@@ -404,6 +411,13 @@ pub fn process_packet<S: NetSys>(
             return true; // parse this reliable!
         }
 
+        // COMPAT: C computes `receiveMessageLength + length` as a
+        // 32-bit unsigned sum, which WRAPS when a hostile wire length
+        // below NET_HEADERSIZE makes `length` huge -- C then passes the
+        // check and memcpy's a negative length (UB/crash). The port
+        // evaluates the sum in usize, so that domain takes this
+        // oversize path instead (accepted divergence; the differential
+        // avoids the C-crash domain).
         if sock.receive_message_length as usize + length > sock.receive_message.len() {
             sys.print("Over-sized reliable\n");
             return true;
@@ -556,6 +570,13 @@ pub fn get_message<S: NetSys>(
             let length = length.wrapping_sub(NET_HEADERSIZE as u32) as usize;
 
             if flags & NETFLAG_EOM != 0 {
+                // COMPAT: C computes `receiveMessageLength + length` as a
+                // 32-bit unsigned sum, which WRAPS when a hostile wire length
+                // below NET_HEADERSIZE makes `length` huge -- C then passes the
+                // check and memcpy's a negative length (UB/crash). The port
+                // evaluates the sum in usize, so that domain takes this
+                // oversize path instead (accepted divergence; the differential
+                // avoids the C-crash domain).
                 if sock.receive_message_length as usize + length > g.net_message_maxsize as usize {
                     sys.print("Over-sized reliable\n");
                     return -1;
@@ -571,6 +592,13 @@ pub fn get_message<S: NetSys>(
                 break;
             }
 
+            // COMPAT: C computes `receiveMessageLength + length` as a
+            // 32-bit unsigned sum, which WRAPS when a hostile wire length
+            // below NET_HEADERSIZE makes `length` huge -- C then passes the
+            // check and memcpy's a negative length (UB/crash). The port
+            // evaluates the sum in usize, so that domain takes this
+            // oversize path instead (accepted divergence; the differential
+            // avoids the C-crash domain).
             if sock.receive_message_length as usize + length > sock.receive_message.len() {
                 sys.print("Over-sized reliable\n");
                 return -1;

@@ -576,10 +576,14 @@ pub unsafe extern "C" fn rust_udp_GetNameFromAddr(
             }
         }
         // (v6: "meh, don't bother, its unreliable anyway.")
+        // C strcpy'd from AddrToString's 64-byte static (q_snprintf-truncated);
+        // clamp to the same bound so this FFI write can never outgrow the
+        // caller's NET_NAMELEN buffer even if the format ever lengthens
         let s = udp::addr_to_string(a);
-        let dst = core::slice::from_raw_parts_mut(name.cast::<u8>(), s.len() + 1);
-        dst[..s.len()].copy_from_slice(s.as_bytes());
-        dst[s.len()] = 0;
+        let n = s.len().min(NET_NAMELEN - 1);
+        let dst = core::slice::from_raw_parts_mut(name.cast::<u8>(), n + 1);
+        dst[..n].copy_from_slice(&s.as_bytes()[..n]);
+        dst[n] = 0;
         0
     }
 }
@@ -639,6 +643,8 @@ pub unsafe extern "C" fn rust_udp6_GetAddrFromName(
         const DUPBASE: usize = 256; // char dupbase[256]
 
         let found = if bytes.first() == Some(&b'[') {
+            // the bracket branch never retries (C sets EAI_NONAME and falls
+            // straight through to the success check)
             match bytes.iter().position(|&b| b == b']') {
                 None => None,
                 Some(close) => {
@@ -652,10 +658,13 @@ pub unsafe extern "C" fn rust_udp6_GetAddrFromName(
                     } else {
                         None
                     };
-                    sys::getaddrinfo_pick6(host, service)
+                    sys::getaddrinfo_pick6(host, service).unwrap_or(None)
                 }
             }
         } else {
+            // C retries the whole string with no service ONLY when the
+            // host:port getaddrinfo errored (or there was no colon) -- a
+            // successful lookup with no AF_INET6 result does NOT retry
             let with_port = match bytes.iter().rposition(|&b| b == b':') {
                 Some(colon) => {
                     let mut len = colon;
@@ -664,12 +673,11 @@ pub unsafe extern "C" fn rust_udp6_GetAddrFromName(
                     }
                     sys::getaddrinfo_pick6(&bytes[..len], Some(&bytes[colon + 1..]))
                 }
-                None => None,
+                None => Err(-2), // EAI_NONAME stand-in
             };
-            // failed, try string with no port
             match with_port {
-                Some(a) => Some(a),
-                None => sys::getaddrinfo_pick6(bytes, None),
+                Ok(opt) => opt,
+                Err(_) => sys::getaddrinfo_pick6(bytes, None).unwrap_or(None),
             }
         };
 
