@@ -99,20 +99,20 @@ Crates: `quake-formats`, `quake-image`. Pure functions over byte slices — call
 
 ---
 
-## Phase 4 — Sound (M) `[ ]`
+## Phase 4 — Sound (M) `[~]`
 
-Crate: `quake-snd`.
+Crate: `quake-snd` (+ the first `quake-platform` module). Task plan: `docs/ai/plans/rust-conversion-phase-4.md`.
 
-**Scope**
-- `snd_mem.c` (sfx cache/resample), `snd_mix.c` (software mixer — PCM-hash parity on fixed inputs), `snd_dma.c` (channels, spatialization), `bgmusic.c`, `snd_mp3tag.c` (ID3/APE tag skip), UMX container port.
-- Codec framework: Rust trait mirroring the `snd_codec_t` vtable; **C codec libraries stay** (libmad or mpg123, vorbis, opus, flac, + libogg) behind it ([ADR-014](adr/ADR-014-audio-codecs.md)); per-codec Symphonia/lewton swaps are a later, optional, non-compat change.
-- SDL audio backends (`snd_sdl.c`/`snd_sdl3.c`) move to `quake-platform` glue (SDL2 + SDL3 feature-gated).
+**Scope** *(all ported behind `-Duse_rust_snd`, auto-follows `use_rust`)*
+- [x] `snd_mem.c` (sfx cache/resample), `snd_mix.c` (software mixer — PCM-hash parity on fixed inputs via the `-sndhash` harness instrument and the `snd_mix_differential` ctest), `snd_dma.c` (channels, spatialization; compat storage stays C in `snd_glue.c` for the menu.c/cl_demo.c readers), `bgmusic.c`, `snd_mp3tag.c` (ID3/APE/Lyrics3/MusicMatch tag skip), UMX container port (behind the `codec-umx` cargo feature, mirroring `USE_CODEC_UMX`, which no Meson config enables).
+- [x] Codec framework: the Rust registry operates on the `snd_codec_t` vtable directly (the ADR-014 mirror); **C codec libraries stay** (mpg123/mad, vorbis, opus, flac, + libogg) behind it ([ADR-014](adr/ADR-014-audio-codecs.md)); WAV is a Rust-native codec; per-codec Symphonia/lewton swaps remain a later, optional, non-compat change.
+- [~] SDL audio backends: `snd_sdl3.c` ported to `quake-platform` over the `sdl3` crate ([ADR-017](adr/ADR-017-sdl2-sdl3.md)); the SDL2 backend `snd_sdl.c` **stays C until a use_rust+SDL2 CI leg exists to verify its Rust port** (SDL2 dev libraries are absent from the current dev/CI environments).
 
-**Exit criteria**
-- PCM-hash parity on a demo-soundtrack corpus (mixer) and per-codec decode comparisons.
-- Harness parity unchanged.
+**Exit criteria** *(met on darwin-arm64; linux/windows goldens ride the Phase 0 registered-tier deferral)*
+- [x] PCM-hash parity on the demo corpus: `run_corpus.py --sndhash` goldens (darwin-arm64), golden-checked by the macOS harness job and cross-checked C↔Rust by the Linux `--compare` legs — both **shareware tier**. The committed synthetic-WAV music entry (`music-wav`) is **`registered` tier and therefore local-only**: `-game <anything>` sets `com_modified` (→ `COM_CheckRegistered` `Sys_Error`), and independently `COM_FindFile` refuses any loose path containing `/` while `registered == 0`, so external music is unreachable on shareware data — a shareware-tier music entry would go green while testing nothing. Per-codec decode comparisons ran engine-level against the same C decoder libraries (WAV natively; vorbis + flac locally over registered-tier data — lossy fixtures need encoders CI lacks).
+- [x] Harness parity unchanged (demo state hash, savegame byte-diff, all per-module oracle configs incl. the new `build-rs-csnd`).
 
-**Deletes:** `snd_mem.c`, `snd_mix.c`, `snd_dma.c`, `bgmusic.c`, `snd_codec.c`, `snd_wave.c`, `snd_umx.c`, `snd_mp3tag.c`, `cd_sdl.c` (dead) + `cd_null.c`, codec wrapper files as each is rewrapped.
+**Deletes** *(recorded, deferred like Phases 1–3 on the PLAN §3 MinGW decision; the C stays the `-Duse_rust_snd=disabled` oracle)*: `snd_mem.c`, `snd_mix.c`, `snd_dma.c`, `bgmusic.c`, `snd_codec.c`, `snd_wave.c`, `snd_umx.c`, `snd_mp3tag.c`, `cd_sdl.c` (dead) + `cd_null.c`, codec wrapper files as each is rewrapped. `snd_sdl.c` additionally stays live as the SDL2 backend.
 
 ---
 

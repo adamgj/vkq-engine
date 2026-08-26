@@ -27,6 +27,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include "quakedef.h"
 #include "snd_codec.h"
 #include "bgmusic.h"
+#include "harness.h"
 
 static void S_Play (void);
 static void S_PlayVol (void);
@@ -143,7 +144,7 @@ void S_Startup (void)
 	if (!snd_initialized)
 		return;
 
-	sound_started = SNDDMA_Init (&sn);
+	sound_started = harness_sndhash ? Harness_SNDDMA_Init (&sn) : SNDDMA_Init (&sn);
 
 	if (!sound_started)
 	{
@@ -248,7 +249,10 @@ void S_Shutdown (void)
 
 	S_CodecShutdown ();
 
-	SNDDMA_Shutdown ();
+	if (harness_sndhash)
+		Harness_SNDDMA_Shutdown ();
+	else
+		SNDDMA_Shutdown ();
 	shm = NULL;
 }
 
@@ -937,7 +941,7 @@ static void GetSoundtime (void)
 
 	// it is possible to miscount buffers if it has wrapped twice between
 	// calls to S_Update.  Oh well.
-	samplepos = SNDDMA_GetDMAPos ();
+	samplepos = harness_sndhash ? Harness_SNDDMA_GetDMAPos () : SNDDMA_GetDMAPos ();
 
 	if (samplepos < oldsamplepos)
 	{

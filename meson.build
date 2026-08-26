@@ -215,7 +215,6 @@ foreach job : shader_jobs
 endforeach
 
 srcs = [
-    'Quake/bgmusic.c',
     'Quake/cd_null.c',
     'Quake/chase.c',
     'Quake/cl_demo.c',
@@ -270,14 +269,6 @@ srcs = [
     'Quake/r_sprite.c',
     'Quake/r_world.c',
     'Quake/sbar.c',
-    'Quake/snd_codec.c',
-    'Quake/snd_dma.c',
-    'Quake/snd_mem.c',
-    'Quake/snd_mix.c',
-    'Quake/snd_sdl.c',
-    'Quake/snd_sdl3.c',
-    'Quake/snd_umx.c',
-    'Quake/snd_wave.c',
     'Quake/steam_api.c',
     'Quake/sv_main.c',
     'Quake/sv_move.c',
@@ -385,6 +376,12 @@ if get_option('use_rust_formats').enabled() and not use_rust
     error('-Duse_rust_formats=enabled requires -Duse_rust=enabled (the brush/BSP loaders ship in libquake_rs.a)')
 endif
 use_rust_formats = use_rust and not get_option('use_rust_formats').disabled()
+# Phase 4: sound engine; the C snd_* files stay the comparison oracle under
+# -Duse_rust_snd=disabled. Same auto-follows-use_rust rule as above
+if get_option('use_rust_snd').enabled() and not use_rust
+    error('-Duse_rust_snd=enabled requires -Duse_rust=enabled (the sound engine ships in libquake_rs.a)')
+endif
+use_rust_snd = use_rust and not get_option('use_rust_snd').disabled()
 # the Rust filesystem does not implement the DO_USERDIRS lookup branches yet
 # (quake-capi fails this combination with a compile_error!); say so here
 # rather than several minutes into a cargo build
@@ -416,6 +413,9 @@ if use_rust
     if use_rust_formats
         rust_feature_list += 'formats'
     endif
+    if use_rust_snd
+        rust_feature_list += 'snd'
+    endif
     # cargo features tracking C defines the fs shims must agree with
     if use_sdl3
         rust_feature_list += 'sdl3'
@@ -423,28 +423,9 @@ if use_rust
     if get_option('do_userdirs').enabled()
         rust_feature_list += 'userdirs'
     endif
-    rust_features = ','.join(rust_feature_list)
-    rust_lib_name = host_machine.system() == 'windows' ? 'quake_rs.lib' : 'libquake_rs.a'
-    quake_rs = custom_target(
-        'quake_rs',
-        output : [rust_lib_name, 'quake_rs.h'],
-        command : [
-            python3, meson.project_source_root() / 'scripts/cargo_build.py',
-            '--cargo', cargo,
-            '--manifest-path', meson.project_source_root() / 'rust/Cargo.toml',
-            '--target-dir', meson.project_build_root() / 'cargo-target',
-            '--profile', rust_profile,
-            '--output', '@OUTPUT0@',
-            '--depfile', '@DEPFILE@',
-            '--features', rust_features,
-            '--cbindgen', cbindgen,
-            '--header-output', '@OUTPUT1@',
-        ],
-        depfile : 'quake_rs.d',
-        console : true,
-        # cargo is its own (fast) change detector; always let it decide
-        build_always_stale : true,
-    )
+    # the custom_target itself is created after the codec-library probes
+    # below, so the codec-availability cargo features can track the same
+    # dependency decisions the C build makes (Phase 4, ADR-014)
 else
     # C-only build: keep compiling the originals of the Rust-ported modules
     srcs += phase1_c_srcs
@@ -472,6 +453,32 @@ else
     srcs += phase3_image_c_srcs
 endif
 
+# Phase 4: the sound engine flips file-by-file; the list grows per milestone
+# and the C originals stay the comparison oracle under -Duse_rust_snd=disabled
+phase4_c_srcs = [
+    'Quake/bgmusic.c',
+    'Quake/snd_codec.c',
+    'Quake/snd_dma.c',
+    'Quake/snd_mem.c',
+    'Quake/snd_mix.c',
+    'Quake/snd_umx.c',
+    'Quake/snd_wave.c',
+]
+phase4_glue_c_srcs = [
+    'Quake/snd_glue.c',
+]
+if use_rust_snd
+    cflags += '-DUSE_RUST_SND'
+    srcs += phase4_glue_c_srcs
+    if not use_sdl3
+        # ADR-017: the SDL2 audio backend stays C until a use_rust+SDL2 CI
+        # leg exists to verify its Rust port (the file self-gates on USE_SDL3)
+        srcs += 'Quake/snd_sdl.c'
+    endif
+else
+    srcs += phase4_c_srcs + [ 'Quake/snd_sdl.c', 'Quake/snd_sdl3.c' ]
+endif
+
 deps = [
     cc.find_library('m', required : false),
     cc.find_library('dl', required : false),
@@ -479,12 +486,7 @@ deps = [
     sdl_dep,
 ]
 
-if use_rust
-    # link_with the staticlib; sources orders C compilation after quake_rs.h
-    # generation (the header lands in the build root, which is on the include
-    # path implicitly)
-    deps += declare_dependency(link_with : quake_rs[0], sources : quake_rs[1])
-endif
+# (the quake_rs staticlib dependency is appended after the codec probes below)
 
 if host_machine.system() == 'windows'
     win_syslibs = ['ws2_32', 'winmm', 'dbghelp', 'ole32', 'uuid']
@@ -564,15 +566,18 @@ else
     opusfile_dep = dependency('opusfile', required : get_option('use_codec_opus'))
 endif
 
+# under -Duse_rust_snd the mp3 tag skipper is the Rust port (quake-capi
+# exports mp3_skiptags); the decoder wrappers themselves stay C (ADR-014)
+mp3tag_srcs = use_rust_snd ? [] : [ 'Quake/snd_mp3tag.c' ]
 if get_option('mp3_lib') == 'mad'
     if mad_dep.found()
-        srcs += [ 'Quake/snd_mp3.c', 'Quake/snd_mp3tag.c' ]
+        srcs += [ 'Quake/snd_mp3.c' ] + mp3tag_srcs
         deps += mad_dep
         cflags += '-DUSE_CODEC_MP3'
     endif
 else
     if mpg123_dep.found()
-        srcs += [ 'Quake/snd_mpg123.c', 'Quake/snd_mp3tag.c' ]
+        srcs += [ 'Quake/snd_mpg123.c' ] + mp3tag_srcs
         deps += mpg123_dep
         cflags += '-DUSE_CODEC_MP3'
     endif
@@ -602,6 +607,53 @@ if opus_dep.found() and opusfile_dep.found()
     srcs += 'Quake/snd_opus.c'
     deps += [ opus_dep, opusfile_dep ]
     cflags += '-DUSE_CODEC_OPUS'
+endif
+
+if use_rust
+    # codec-availability cargo features mirror the USE_CODEC_* decisions just
+    # made, so the Rust codec registry (Phase 4, ADR-014) registers exactly
+    # the wrappers this build links
+    if '-DUSE_CODEC_WAVE' in cflags
+        rust_feature_list += 'codec-wave'
+    endif
+    if '-DUSE_CODEC_MP3' in cflags
+        rust_feature_list += 'codec-mp3'
+    endif
+    if '-DUSE_CODEC_FLAC' in cflags
+        rust_feature_list += 'codec-flac'
+    endif
+    if '-DUSE_CODEC_VORBIS' in cflags
+        rust_feature_list += 'codec-vorbis'
+    endif
+    if '-DUSE_CODEC_OPUS' in cflags
+        rust_feature_list += 'codec-opus'
+    endif
+    rust_features = ','.join(rust_feature_list)
+    rust_lib_name = host_machine.system() == 'windows' ? 'quake_rs.lib' : 'libquake_rs.a'
+    quake_rs = custom_target(
+        'quake_rs',
+        output : [rust_lib_name, 'quake_rs.h'],
+        command : [
+            python3, meson.project_source_root() / 'scripts/cargo_build.py',
+            '--cargo', cargo,
+            '--manifest-path', meson.project_source_root() / 'rust/Cargo.toml',
+            '--target-dir', meson.project_build_root() / 'cargo-target',
+            '--profile', rust_profile,
+            '--output', '@OUTPUT0@',
+            '--depfile', '@DEPFILE@',
+            '--features', rust_features,
+            '--cbindgen', cbindgen,
+            '--header-output', '@OUTPUT1@',
+        ],
+        depfile : 'quake_rs.d',
+        console : true,
+        # cargo is its own (fast) change detector; always let it decide
+        build_always_stale : true,
+    )
+    # link_with the staticlib; sources orders C compilation after quake_rs.h
+    # generation (the header lands in the build root, which is on the include
+    # path implicitly)
+    deps += declare_dependency(link_with : quake_rs[0], sources : quake_rs[1])
 endif
 
 if get_option('buildtype').startswith('debug')

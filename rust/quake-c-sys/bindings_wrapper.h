@@ -11,6 +11,9 @@
 #include "sys.h"
 #include "cvar.h"
 #include "steam.h"
+#include "q_thread.h"
+#include "q_sound.h"
+#include "harness.h"
 
 /* console.h is not a bindgen-clean root (it needs quakeparms_t from
  * quakedef.h), so the console functions called from Rust are declared
@@ -51,6 +54,46 @@ extern qboolean isDedicated;  /* quakedef.h */
 extern cvar_t	developer;	  /* quakedef.h */
 extern qboolean harness_active; /* harness.h */
 extern cvar_t	external_ents;	  /* gl_model.c */
+
+/* Phase 4 sound: cvars declared in snd_dma.c/snd_glue.c rather than a
+ * header, and engine globals from quakedef.h (not a bindgen-clean root);
+ * declarations must match the defining files exactly. */
+extern cvar_t snd_waterfx;		/* snd_dma.c / snd_glue.c */
+extern cvar_t snd_pauselooping;
+extern cvar_t precache;
+extern dma_t  sn;				/* snd_dma.c / snd_glue.c storage for S_Startup */
+extern double host_frametime;	/* quakedef.h */
+extern int	  host_framecount;	/* quakedef.h */
+
+/* cmd.h / console.h are not bindgen-clean roots; must match those headers */
+int			Cmd_Argc (void);
+const char *Cmd_Argv (int arg);
+void		Con_SafePrintf (const char *fmt, ...) FUNC_PRINTF (1, 2);
+
+/* Phase 4 M7: the codec framework types and the C decoder wrappers' vtable
+ * statics. snd_codec.h/snd_codeci.h are bindgen-clean (fshandle_t comes
+ * from common.h above). The *_codec statics are declared in per-codec
+ * headers behind USE_CODEC_* defines; declared here unconditionally -- the
+ * Rust registry references each only under its codec-* cargo feature. */
+#include "snd_codec.h"
+#include "snd_codeci.h"
+extern snd_codec_t flac_codec;
+extern snd_codec_t mp3_codec;
+extern snd_codec_t vorbis_codec;
+extern snd_codec_t opus_codec;
+/* common.h helpers the codec framework uses */
+const char *COM_FileGetExtension (const char *in);
+
+/* snd_glue.c accessors (compiled only under -Duse_rust_snd): the
+ * client/server state snd_dma.c read directly. The real return types are
+ * pointers to qmodel_t and mleaf_t (gl_model.h, not bindgen-clean); only
+ * the address is passed through, and the Rust side views mleaf_t via its
+ * quake-types mirror. */
+qboolean SND_Glue_ClientConnected (void);
+int		 SND_Glue_ViewEntity (void);
+void	*SND_Glue_Worldmodel (void);
+void	*SND_Glue_PointInLeaf (float *p);
+qboolean SND_Glue_PauseLoops (void);
 
 /* embedded pak (generated embedded_pak.c) */
 extern const unsigned char vkquake_pak[];

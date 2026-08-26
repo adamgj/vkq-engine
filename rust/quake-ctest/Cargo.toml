@@ -11,10 +11,11 @@ publish.workspace = true
 quake-util = { path = "../quake-util" }
 quake-math = { path = "../quake-math" }
 quake-types = { path = "../quake-types" }
+quake-snd = { path = "../quake-snd" }
 quake-c-sys = { path = "../quake-c-sys" }
 # Phase 2: the differential suites compare the fs shims against the c_ref_*
 # build of common_fs.c/steam.c, so the fs feature must be on
-quake-capi = { path = "../quake-capi", features = ["fs", "image", "formats"] }
+quake-capi = { path = "../quake-capi", features = ["fs", "image", "formats", "snd", "codec-wave", "codec-mp3", "codec-umx"] }
 quake-fs = { path = "../quake-fs" }
 # Phase 3 M6: threaded_parse asserts the pure parsers' outputs are Send/Sync
 # (ADR-016), so it needs the crates directly, not just through quake-capi

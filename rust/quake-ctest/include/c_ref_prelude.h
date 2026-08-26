@@ -33,6 +33,11 @@ size_t UTF8_WriteCodePoint (char *dst, size_t maxbytes, uint32_t codepoint);
 
 /* mplane_t comes from the real gl_model.h, included below (Phase 3) */
 
+/* forward-declare at file scope so cvar.h's cvarcallback_t typedef (which
+ * names struct cvar_s inside a parameter list) refers to this type, keeping
+ * function pointers to real callbacks compatible (Phase 4: snd_dma.c) */
+struct cvar_s;
+
 void Sys_Error (const char *error, ...);
 
 /* quakedef.h's bit-scan helper, needed by mathlib.h's Q_log2/Q_nextPow2 */
@@ -325,10 +330,12 @@ gltexture_t *TexMgr_LoadImage (
 void GLMesh_UploadBuffers (qmodel_t *mod, aliashdr_t *hdr, unsigned short *indexes, byte *vertexes, aliasmesh_t *desc, jointpose_t *joints);
 void GLMesh_DeleteMeshBuffers (aliashdr_t *mainhdr);
 
-/* server.h slice: model_parse.c reads only sv.modelname */
+/* server.h slice: model_parse.c reads sv.modelname; snd_mix.c (Phase 4)
+ * reads sv.active */
 typedef struct
 {
-	char modelname[64];
+	char	 modelname[64];
+	qboolean active;
 } ctest_server_stub_t;
 extern ctest_server_stub_t sv;
 
@@ -375,5 +382,170 @@ typedef enum
 } cmd_source_t;
 struct cmd_function_s *Cmd_AddCommand2 (const char *cmd_name, xcommand_t function, cmd_source_t srctype, qboolean qcinterceptable);
 #define Cmd_AddCommand(cmdname, func) Cmd_AddCommand2 (cmdname, func, src_command, false)
+
+/* ---- Phase 4 sound slice: snd_mem.c as the sfx loader/resampler oracle ----
+ *
+ * COM_LoadFile / com_filesize resolve through the Phase 2 renames and fs
+ * stubs above. QMutex_* are no-op stubs (the differential suites are
+ * single-threaded). shm / snd_mutex / loadas8bit were stub-owned through
+ * M3-M5; from M6 on snd_dma.c *defines* them, so they are renamed with the
+ * rest of that file's globals in the block below.
+ *
+ * Invariant for this whole header: every non-static global defined by a file
+ * in build.rs's C_SOURCES is either renamed c_ref_* here or listed in
+ * scripts/harness/check_ctest_symbols.sh's shared-symbol allowlist. That
+ * script is the mechanical gate -- `precache` was the one snd_dma.c global
+ * that never made it into the rename list, and nothing caught it until a
+ * linker that does not dead-strip (MSVC) got hold of it. */
+#define S_LoadSound c_ref_S_LoadSound
+#define GetWavinfo	c_ref_GetWavinfo
+#define ResampleSfx c_ref_ResampleSfx
+
+/* snd_mix.c (Phase 4 M4): the mixer oracle. paintbuffer/scaletable/filters
+ * stay file-static; snd_channels/total_channels/paintedtime/s_rawsamples and
+ * the pause-state globals are stub-owned shared state. */
+#define S_PaintChannels			 c_ref_S_PaintChannels
+#define SND_InitScaletable		 c_ref_SND_InitScaletable
+#define S_SetUnderwaterIntensity c_ref_S_SetUnderwaterIntensity
+
+/* ---- snd_dma.c (Phase 4 M6): channel/spatialization oracle ----
+ *
+ * snd_dma.c *defines* the shared sound globals and cvars, so they are all
+ * renamed c_ref_*; the c_ref sound subsystem (snd_mem/snd_mix/snd_dma) is
+ * self-consistent through these renames, and the stubs' setter functions
+ * (compiled under this same prelude) write the renamed symbols. */
+#define S_Init				 c_ref_S_Init
+#define S_Startup			 c_ref_S_Startup
+#define S_Shutdown			 c_ref_S_Shutdown
+#define S_StartSound		 c_ref_S_StartSound
+#define S_StaticSound		 c_ref_S_StaticSound
+#define S_StopSound			 c_ref_S_StopSound
+#define S_StopAllSounds		 c_ref_S_StopAllSounds
+#define S_ClearBuffer		 c_ref_S_ClearBuffer
+#define S_Update			 c_ref_S_Update
+#define S_ExtraUpdate		 c_ref_S_ExtraUpdate
+#define S_ClearAll			 c_ref_S_ClearAll
+#define S_BlockSound		 c_ref_S_BlockSound
+#define S_UnblockSound		 c_ref_S_UnblockSound
+#define S_PrecacheSound		 c_ref_S_PrecacheSound
+#define S_TouchSound		 c_ref_S_TouchSound
+#define S_LocalSound		 c_ref_S_LocalSound
+#define S_RawSamples		 c_ref_S_RawSamples
+#define SND_PickChannel		 c_ref_SND_PickChannel
+#define SND_Spatialize		 c_ref_SND_Spatialize
+#define S_ClearPrecache		 c_ref_S_ClearPrecache
+#define S_BeginPrecaching	 c_ref_S_BeginPrecaching
+#define S_EndPrecaching		 c_ref_S_EndPrecaching
+#define snd_channels		 c_ref_snd_channels
+#define total_channels		 c_ref_total_channels
+#define shm					 c_ref_shm
+#define snd_mutex			 c_ref_snd_mutex
+#define soundtime			 c_ref_soundtime
+#define paintedtime			 c_ref_paintedtime
+#define s_rawend			 c_ref_s_rawend
+#define s_rawsamples		 c_ref_s_rawsamples
+#define listener_origin		 c_ref_listener_origin
+#define listener_forward	 c_ref_listener_forward
+#define listener_right		 c_ref_listener_right
+#define listener_up			 c_ref_listener_up
+#define bgmvolume			 c_ref_bgmvolume
+#define sfxvolume			 c_ref_sfxvolume
+#define precache			 c_ref_precache
+#define loadas8bit			 c_ref_loadas8bit
+#define sndspeed			 c_ref_sndspeed
+#define snd_mixspeed		 c_ref_snd_mixspeed
+#define snd_filterquality	 c_ref_snd_filterquality
+#define snd_waterfx			 c_ref_snd_waterfx
+#define snd_pauselooping	 c_ref_snd_pauselooping
+
+
+#include <limits.h>
+#include "common.h"
+#include "q_thread.h"
+#include "q_sound.h"
+
+/* the quakedef.h slice snd_mix.c's pause_loops computation reads; the stub
+ * definitions expose setters for the differential tests */
+typedef struct
+{
+	qboolean  paused;
+	int		  viewentity;
+	qmodel_t *worldmodel;
+} ctest_cl_t;
+extern ctest_cl_t cl;
+typedef struct
+{
+	int maxclients;
+} ctest_svs_t;
+extern ctest_svs_t svs;
+typedef enum
+{
+	key_game,
+	key_console,
+	key_message,
+	key_menu
+} keydest_t;
+extern keydest_t key_dest;
+extern double	 host_frametime;
+
+/* file-internal in the engine build; snd_mem.c un-statics it for this
+ * oracle build (the rename above applies) */
+void ResampleSfx (sfx_t *sfx, int inrate, int inwidth, byte *data);
+
+/* declared file-locally in snd_dma.c/snd_mix.c; the renames above apply */
+extern cvar_t snd_waterfx;
+extern cvar_t snd_pauselooping;
+
+/* ---- Phase 4 M7: codec framework oracle ----
+ * snd_codec.c + the portable codecs (wav/umx/mp3tag). The mp3 *decoder*
+ * wrapper is not compiled; c_ref_mp3_codec is a stub dummy vtable identical
+ * to the Rust side's, so both frameworks register the same shape. */
+#define USE_CODEC_WAVE
+#define USE_CODEC_MP3
+#define USE_CODEC_UMX
+#define S_CodecInit			  c_ref_S_CodecInit
+#define S_CodecShutdown		  c_ref_S_CodecShutdown
+#define S_CodecOpenStreamType c_ref_S_CodecOpenStreamType
+#define S_CodecOpenStreamExt  c_ref_S_CodecOpenStreamExt
+#define S_CodecOpenStreamAny  c_ref_S_CodecOpenStreamAny
+#define S_CodecForwardStream  c_ref_S_CodecForwardStream
+#define S_CodecCloseStream	  c_ref_S_CodecCloseStream
+#define S_CodecRewindStream	  c_ref_S_CodecRewindStream
+#define S_CodecJumpToOrder	  c_ref_S_CodecJumpToOrder
+#define S_CodecReadStream	  c_ref_S_CodecReadStream
+#define S_CodecUtilOpen		  c_ref_S_CodecUtilOpen
+#define S_CodecUtilClose	  c_ref_S_CodecUtilClose
+#define S_CodecIsAvailable	  c_ref_S_CodecIsAvailable
+#define wav_codec			  c_ref_wav_codec
+#define umx_codec			  c_ref_umx_codec
+#define mp3_codec			  c_ref_mp3_codec
+#define mp3_skiptags		  c_ref_mp3_skiptags
+#define S_WAV_CodecReadStream c_ref_S_WAV_CodecReadStream
+
+#include "snd_codec.h"
+#include "snd_codeci.h"
+
+/* the quakedef.h slice snd_dma.c needs beyond the fs slice above */
+#define MAX_SOUNDS 2048
+#define SIGNONS	   4
+typedef enum
+{
+	ca_dedicated,
+	ca_disconnected,
+	ca_connected
+} cactive_t;
+typedef struct
+{
+	cactive_t state;
+	int		  signon;
+	int		  demonum;
+} ctest_cls_stub_t;
+extern ctest_cls_stub_t cls;
+mleaf_t				   *Mod_PointInLeaf (float *p, qmodel_t *model); /* stub-owned, settable */
+void					S_CodecInit (void);							/* snd_codec.h; stub no-ops */
+void					S_CodecShutdown (void);
+int						Cmd_Argc (void);
+const char			   *Cmd_Argv (int arg);
+void					Con_SafePrintf (const char *fmt, ...);
 
 #endif /* C_REF_PRELUDE_H */

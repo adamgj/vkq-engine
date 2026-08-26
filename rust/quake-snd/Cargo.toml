@@ -7,5 +7,10 @@ rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
+[dependencies]
+quake-types = { path = "../quake-types" }
+quake-c-sys = { path = "../quake-c-sys" }
+quake-math = { path = "../quake-math" }
+
 [lints]
 workspace = true

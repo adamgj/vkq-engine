@@ -1284,7 +1284,17 @@ void Host_Init (void)
 			Sbar_Init ();
 		}
 		else
+		{
 			R_InitParticles (); // particle simulation still runs headless
+			if (harness_sndhash)
+			{
+				// -sndhash: the mixer must run headless, on the deterministic
+				// harness DMA clock (Phase 4 PCM-hash gate)
+				S_Init ();
+				CDAudio_Init ();
+				BGM_Init ();
+			}
+		}
 		CL_Init ();
 		Tests_Init ();
 	}

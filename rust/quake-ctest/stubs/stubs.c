@@ -1131,6 +1131,27 @@ void Cvar_Set (const char *var_name, const char *value)
 	ctest_cvar_log_count++;
 }
 
+/* Cvar_SetQuick / Cvar_SetCallback are reached from S_Init on both sides of
+ * the seam (c_ref snd_dma.c and the Rust shim). Routing the set through the
+ * same capture keeps the two symmetric; the callback assignment mirrors
+ * cvar.c so a registered callback still fires. */
+void Cvar_SetQuick (cvar_t *var, const char *value)
+{
+	Cvar_Set (var->name, value);
+	var->value = atof (value);
+	if (var->callback)
+		var->callback (var);
+}
+
+void Cvar_SetCallback (cvar_t *var, cvarcallback_t func)
+{
+	var->callback = func;
+	if (func)
+		var->flags |= CVAR_CALLBACK;
+	else
+		var->flags &= ~CVAR_CALLBACK;
+}
+
 void ctest_clear_cvar_log (void)
 {
 	ctest_cvar_log_count = 0;
@@ -1354,6 +1375,18 @@ cvar_t external_ents = {"external_ents", "1", CVAR_ARCHIVE};
 void ctest_set_external_ents (float value)
 {
 	external_ents.value = value;
+}
+
+/* bgmusic.c/cd_null.c seams the Phase 4 bgmusic shim imports. bgmusic.c is
+ * not compiled as a c_ref oracle, so there is no renamed counterpart to
+ * collide with; CDAudio_Play reports "no CD" exactly like cd_null.c. */
+cvar_t bgm_extmusic = {"bgm_extmusic", "1", CVAR_ARCHIVE};
+
+int CDAudio_Play (byte track, qboolean looping)
+{
+	(void)track;
+	(void)looping;
+	return -1;
 }
 
 /* Mod_FindName: static pool keyed by name, so submodel chaining
@@ -1915,4 +1948,278 @@ void ctest_fill_dummy_textures (qmodel_t *mod)
 
 	mod->textures[mod->numtextures - 2] = &ctest_notexture_mip;
 	mod->textures[mod->numtextures - 1] = &ctest_notexture_mip2;
+}
+
+/* ---------------------------------------------------------------------------
+ * Phase 4 sound: stub-owned globals shared by c_ref snd_mem.c and (from M3)
+ * the Rust shims, plus a driver for the resampler differential.
+ */
+
+static dma_t ctest_dma;
+
+/* the suites are single-threaded; locking is a no-op */
+qmutex_t *QMutex_Create (void)
+{
+	return NULL;
+}
+void QMutex_Destroy (qmutex_t *mutex)
+{
+	(void)mutex;
+}
+void QMutex_Lock (qmutex_t *mutex)
+{
+	(void)mutex;
+}
+void QMutex_Unlock (qmutex_t *mutex)
+{
+	(void)mutex;
+}
+
+void ctest_snd_setup (int shm_speed, float loadas8bit_value)
+{
+	memset (&ctest_dma, 0, sizeof (ctest_dma));
+	ctest_dma.speed = shm_speed;
+	ctest_dma.samplebits = 16;
+	ctest_dma.channels = 2;
+	shm = &ctest_dma;
+	loadas8bit.value = loadas8bit_value;
+}
+
+/* Runs c_ref ResampleSfx exactly as S_LoadSound would: the cache header is
+ * pre-filled from the wav info, out_len is S_LoadSound's alloc size. Copies
+ * the rewritten header into meta_out[5] (length, loopstart, speed, width,
+ * stereo) and the resampled PCM into out. */
+void ctest_resample_ref (int length, int loopstart, int inrate, int inwidth, int stereo, const byte *data, byte *out, int out_len, int meta_out[5])
+{
+	sfx_t		sfx;
+	sfxcache_t *sc = (sfxcache_t *)Mem_Alloc (out_len + sizeof (sfxcache_t));
+
+	memset (&sfx, 0, sizeof (sfx));
+	sc->length = length;
+	sc->loopstart = loopstart;
+	sc->speed = inrate;
+	sc->width = inwidth;
+	sc->stereo = stereo;
+	sfx.cache = sc;
+
+	ResampleSfx (&sfx, inrate, inwidth, (byte *)data);
+
+	meta_out[0] = sc->length;
+	meta_out[1] = sc->loopstart;
+	meta_out[2] = sc->speed;
+	meta_out[3] = sc->width;
+	meta_out[4] = sc->stereo;
+	memcpy (out, sc->data, out_len);
+	free (sc);
+}
+
+/* ---------------------------------------------------------------------------
+ * Phase 4 M4: mixer oracle state (snd_dma.c is not compiled here, so its
+ * globals are stub-owned), pause-state slice, and the block-hash recorder
+ * the c_ref mixer reports through the Harness_SndPaint seam.
+ */
+
+/* snd_channels/total_channels/paintedtime/... and the sound cvars are
+ * defined by the c_ref snd_dma.c (renamed c_ref_* by the prelude); tests
+ * reach them via those names. */
+
+ctest_cl_t	cl = {0};
+ctest_svs_t svs = {0};
+keydest_t	key_dest = key_game;
+double		host_frametime = 0.0;
+
+qboolean harness_sndhash = false;
+
+static uint64_t ctest_snd_block_hash = UINT64_C (0xcbf29ce484222325);
+static int		ctest_snd_block_count = 0;
+
+static uint64_t ctest_snd_hash64 (uint64_t h, const void *data, size_t len)
+{
+	const byte *pd = (const byte *)data;
+	while (len--)
+	{
+		h ^= *pd++;
+		h *= UINT64_C (0x100000001b3);
+	}
+	return h;
+}
+
+void Harness_SndPaint (int painted, int end, const void *paintbuf, const volatile unsigned char *dmabuf, int dmabytes)
+{
+	uint64_t h = ctest_snd_block_hash;
+	h = ctest_snd_hash64 (h, &painted, sizeof (painted));
+	h = ctest_snd_hash64 (h, &end, sizeof (end));
+	h = ctest_snd_hash64 (h, paintbuf, (size_t)(end - painted) * 8);
+	h = ctest_snd_hash64 (h, (const void *)dmabuf, (size_t)dmabytes);
+	ctest_snd_block_hash = h;
+	ctest_snd_block_count++;
+}
+
+void ctest_snd_block_reset (void)
+{
+	ctest_snd_block_hash = UINT64_C (0xcbf29ce484222325);
+	ctest_snd_block_count = 0;
+	harness_sndhash = true; /* route the c_ref mixer through the hook */
+}
+
+uint64_t ctest_snd_block_get (int *count)
+{
+	*count = ctest_snd_block_count;
+	return ctest_snd_block_hash;
+}
+
+/* full DMA description for the mixer differential; buffer is caller-owned */
+void ctest_snd_setup_dma (int speed, int samplebits, int channels, int signed8, int samples, unsigned char *buffer)
+{
+	memset (&ctest_dma, 0, sizeof (ctest_dma));
+	ctest_dma.speed = speed;
+	ctest_dma.samplebits = samplebits;
+	ctest_dma.channels = channels;
+	ctest_dma.signed8 = signed8;
+	ctest_dma.samples = samples;
+	ctest_dma.buffer = buffer;
+	shm = &ctest_dma;
+}
+
+void ctest_snd_set_pause_state (int cl_paused, int sv_active, int maxclients, int keydest, double frametime)
+{
+	cl.paused = cl_paused;
+	sv.active = sv_active;
+	svs.maxclients = maxclients;
+	key_dest = (keydest_t)keydest;
+	host_frametime = frametime;
+}
+
+void ctest_snd_set_cvars (float sfxvol, float sndspeed_v, float filterquality, float waterfx, float pauselooping)
+{
+	sfxvolume.value = sfxvol;
+	sndspeed.value = sndspeed_v;
+	snd_filterquality.value = filterquality;
+	snd_waterfx.value = waterfx;
+	snd_pauselooping.value = pauselooping;
+}
+
+/* Phase 4 M6: the snd_dma.c oracle's remaining seams */
+ctest_cls_stub_t cls = {ca_disconnected, 0, 0};
+
+static mleaf_t *ctest_point_leaf = NULL;
+void ctest_set_point_leaf (mleaf_t *leaf)
+{
+	ctest_point_leaf = leaf;
+}
+mleaf_t *Mod_PointInLeaf (float *p, qmodel_t *model)
+{
+	(void)p;
+	(void)model;
+	return ctest_point_leaf;
+}
+
+static int	ctest_cmd_argc = 0;
+static char ctest_cmd_argv[8][64];
+int Cmd_Argc (void)
+{
+	return ctest_cmd_argc;
+}
+const char *Cmd_Argv (int arg)
+{
+	return (arg >= 0 && arg < ctest_cmd_argc) ? ctest_cmd_argv[arg] : "";
+}
+
+CON_STUB (Con_SafePrintf, "[safe]")
+
+qboolean SNDDMA_Init (dma_t *dma)
+{
+	(void)dma;
+	return false;
+}
+int SNDDMA_GetDMAPos (void)
+{
+	return 0;
+}
+void SNDDMA_Shutdown (void) {}
+void SNDDMA_LockBuffer (void) {}
+void SNDDMA_Submit (void) {}
+void SNDDMA_BlockSound (void) {}
+void SNDDMA_UnblockSound (void) {}
+qboolean Harness_SNDDMA_Init (void *dma)
+{
+	(void)dma;
+	return false;
+}
+int Harness_SNDDMA_GetDMAPos (void)
+{
+	return 0;
+}
+void Harness_SNDDMA_Shutdown (void) {}
+
+void ctest_snd_set_listener (const float *origin, const float *right)
+{
+	memcpy ((void *)listener_origin, origin, sizeof (vec3_t));
+	memcpy ((void *)listener_right, right, sizeof (vec3_t));
+}
+
+void ctest_set_cl_viewentity (int viewentity)
+{
+	cl.viewentity = viewentity;
+}
+
+/* ---------------------------------------------------------------------------
+ * Phase 4 M7: the c_ref codec framework's remaining seams (q_strcasecmp /
+ * q_snprintf already stubbed above). The dummy c_ref mp3 codec mirrors the
+ * Rust-side dummy in src/snd_stubs.rs exactly.
+ */
+
+static qboolean ctest_dummy_codec_init (void)
+{
+	return true;
+}
+static void ctest_dummy_codec_shutdown (void) {}
+static qboolean ctest_dummy_codec_open (snd_stream_t *stream)
+{
+	(void)stream;
+	return false;
+}
+static int ctest_dummy_codec_read (snd_stream_t *stream, int bytes, void *buffer)
+{
+	(void)stream;
+	(void)bytes;
+	(void)buffer;
+	return 0;
+}
+static int ctest_dummy_codec_rewind (snd_stream_t *stream)
+{
+	(void)stream;
+	return -1;
+}
+static void ctest_dummy_codec_close (snd_stream_t *stream)
+{
+	(void)stream;
+}
+
+snd_codec_t mp3_codec = {
+	CODECTYPE_MP3,
+	true,
+	"mp3",
+	ctest_dummy_codec_init,
+	ctest_dummy_codec_shutdown,
+	ctest_dummy_codec_open,
+	ctest_dummy_codec_read,
+	ctest_dummy_codec_rewind,
+	NULL,
+	ctest_dummy_codec_close,
+	NULL};
+
+/* open a stand-alone fshandle_t over a plain OS file (start 0, full length) */
+int ctest_open_fshandle (const char *path, fshandle_t *fh)
+{
+	FILE *f = Sys_fopen (path, "rb");
+	if (!f)
+		return -1;
+	memset (fh, 0, sizeof (*fh));
+	fh->file = f;
+	fh->start = 0;
+	fh->pos = 0;
+	fh->length = Sys_filelength (f);
+	fh->pak = false;
+	return 0;
 }

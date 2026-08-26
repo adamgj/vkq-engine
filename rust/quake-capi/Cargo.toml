@@ -25,7 +25,9 @@ quake-fs = { path = "../quake-fs" }
 quake-image = { path = "../quake-image" }
 quake-formats = { path = "../quake-formats" }
 quake-types = { path = "../quake-types" }
+quake-snd = { path = "../quake-snd" }
 quake-c-sys = { path = "../quake-c-sys" }
+quake-platform = { path = "../quake-platform" }
 
 [features]
 # forwarded to the pure crates; set by the Meson build when the C engine is
@@ -47,8 +49,20 @@ image = []
 # Meson when -Duse_rust_formats is enabled, and by quake-ctest for the
 # differential suites
 formats = []
-# tracks the C build's USE_SDL3 (folder-picker dialog availability)
-sdl3 = []
+# the Phase 4 sound-engine shims; set by Meson when -Duse_rust_snd is
+# enabled, and by quake-ctest for the differential suites
+snd = []
+# codec-availability flags mirroring the C build's USE_CODEC_* defines; the
+# Rust codec registry (ADR-014) registers exactly the wrappers Meson links
+codec-wave = []
+codec-umx = []
+codec-mp3 = []
+codec-flac = []
+codec-vorbis = []
+codec-opus = []
+# tracks the C build's USE_SDL3 (folder-picker dialog availability; with
+# snd, also selects the quake-platform SDL3 audio backend per ADR-017)
+sdl3 = ["quake-platform/sdl3"]
 # tracks the C build's DO_USERDIRS (extra per-user localization lookups)
 userdirs = []
 

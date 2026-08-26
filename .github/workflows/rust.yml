@@ -98,7 +98,7 @@ jobs:
   # the audit job uses) runs each target longer — 12 targets x 300s is a
   # deliberate ~60min weekly soak, bounded by timeout-minutes below.
   fuzz-smoke:
-    name: fuzz smoke (fs + formats + image parsers)
+    name: fuzz smoke (fs + formats + image + sound parsers)
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
@@ -116,7 +116,7 @@ jobs:
       run: |
         for t in fuzz_pak fuzz_wad fuzz_kpf fuzz_loc fuzz_vdf \
                  fuzz_pcx fuzz_lmp fuzz_bsp fuzz_mdl fuzz_spr fuzz_md3 fuzz_md5 \
-                 fuzz_tga fuzz_image_stb; do
+                 fuzz_tga fuzz_image_stb fuzz_wav fuzz_mp3tag; do
           mkdir -p "fuzz/corpus/$t"
           cargo +nightly fuzz run "$t" "fuzz/corpus/$t" "fuzz/corpus-seed/$t" -- \
             -max_total_time="$MAX_TOTAL_TIME" -rss_limit_mb=4096
@@ -143,6 +143,15 @@ jobs:
     - uses: dtolnay/rust-toolchain@stable
       with:
         toolchain: 1.97.1
+    # the c_ref oracle sources must export only c_ref_* symbols: a missed
+    # rename collides with the Rust definition, and ld64/rust-lld dead-strip
+    # the evidence so only MSVC would notice (see the script's header)
+    # (nm + ELF/Mach-O .o files; the MSVC leg produces .obj and has no nm.
+    # One platform is enough -- the symbol set it checks is not OS-specific,
+    # and it is precisely the Windows-only failure it exists to pre-empt)
+    - name: quake-ctest oracle symbol gate
+      if: matrix.os == 'ubuntu-latest'
+      run: ./scripts/harness/check_ctest_symbols.sh
     - name: cargo test
       working-directory: rust
       run: cargo test --workspace --locked --release

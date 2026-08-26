@@ -104,6 +104,16 @@
       "demo": "demo1",
       "requires_dir": "quoth",
       "download_hint": "Quoth: https://tomeofpreach.wordpress.com/quoth/"
+    },
+    {
+      "name": "music-wav",
+      "tier": "registered",
+      "game": "sndfix",
+      "fixture_dir": "Misc/harness/fixtures/sndfix",
+      "cmds": ["5 music track90", "300 music track91", "500 music_stop", "560 quit"],
+      "exitafter": 700,
+      "note": "Phase 4: committed synthetic WAV music through the codec framework/bgmusic; meaningful mainly under --sndhash (mixer PCM), harmless in the demo state hash. Registered tier for two independent reasons, so CI (shareware tier) skips it and the goldens are regression-tested locally like gamedir-switch: '-game' sets com_modified, which makes COM_CheckRegistered Sys_Error without the registered version, and COM_FindFile refuses any loose file whose name contains '/' when registered==0, which external music ('music/track90.wav') always does",
+      "requires": [{"path": "id1/PAK1.PAK", "sha256": "94e355836ec42bc464e4cbe794cfb7b5163c6efa1bcc575622bb36475bf1cf30"}]
     }
   ]
 }

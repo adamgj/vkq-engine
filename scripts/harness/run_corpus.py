@@ -74,15 +74,23 @@ def entry_available(entry, game_data):
     return None
 
 
-def run_entry(vkquake, entry, game_data, out, extra_args=""):
+def run_entry(vkquake, entry, game_data, out, extra_args="", sndhash=False):
     cmd = [sys.executable, RUN_DEMO, "--vkquake", vkquake,
            "--game-data", game_data, "--out", out]
+    if sndhash:
+        # the mixer PCM-hash chain lands next to the demo hash (Phase 4 gate);
+        # note the demo hash itself differs from the non-sndhash goldens (the
+        # sound engine draws from the shared RNG), so sndhash goldens live in
+        # their own <name>.snd / <name>.snd-demo.hash namespace
+        extra_args = (extra_args + " " if extra_args else "") + "-sndhash " + out + ".snd"
     if extra_args:
         cmd += ["--extra-args", extra_args]
     if entry.get("demo"):
         cmd += ["--demo", entry["demo"]]
     if entry.get("game"):
         cmd += [f"--game={entry['game']}"]
+    if entry.get("fixture_dir"):
+        cmd += ["--fixture-dir", os.path.join(ROOT, entry["fixture_dir"])]
     if entry.get("exitafter"):
         cmd += ["--exitafter", str(entry["exitafter"])]
     if entry.get("cmds"):
@@ -110,6 +118,10 @@ def main():
     #   --compare <same exe> --extra-args "-pinnedworkers 0" \
     #                        --compare-extra-args "-pinnedworkers 0,1,2,3,4,5,6,7"
     # which is what gates the parallel model loaders on order independence.
+    p.add_argument("--sndhash", action="store_true",
+                   help="also run the software mixer on the deterministic "
+                        "harness DMA clock and hash its output (Phase 4); "
+                        "goldens are <name>.snd + <name>.snd-demo.hash")
     p.add_argument("--extra-args", default="")
     p.add_argument("--compare-extra-args", default=None,
                    help="engine argv for the --compare/--stability second run "
@@ -147,22 +159,42 @@ def main():
             skipped.append((name, reason))
             continue
 
-        golden = os.path.join(golden_dir, f"{name}.hash")
+        def outputs(base):
+            # the artifacts one run produces: the demo state-hash chain plus,
+            # under --sndhash, the mixer PCM-hash chain
+            return [base] + ([base + ".snd"] if args.sndhash else [])
+
+        def same(a, b):
+            return all(open(x, "rb").read() == open(y, "rb").read()
+                       for x, y in zip(outputs(a), outputs(b)))
+
+        if args.sndhash:
+            golden = os.path.join(golden_dir, f"{name}.snd-demo.hash")
+            golden_alias = {golden: golden, golden + ".snd":
+                            os.path.join(golden_dir, f"{name}.snd")}
+        else:
+            golden = os.path.join(golden_dir, f"{name}.hash")
+            golden_alias = {golden: golden}
         if args.generate:
             os.makedirs(golden_dir, exist_ok=True)
-            ok = run_entry(exe, entry, data_root, golden, args.extra_args)
+            ok = run_entry(exe, entry, data_root, golden, args.extra_args,
+                           args.sndhash)
+            if ok and args.sndhash:
+                os.replace(golden + ".snd", golden_alias[golden + ".snd"])
             print(f"{'generated' if ok else 'FAILED'}: {name}")
             (ran if ok else failed).append(name)
         elif args.check:
-            if not os.path.isfile(golden):
+            if not all(os.path.isfile(g) for g in golden_alias.values()):
                 skipped.append((name, f"no golden for {plat}"))
                 continue
             out = tempfile.NamedTemporaryFile(suffix=".hash", delete=False).name
-            ok = run_entry(exe, entry, data_root, out, args.extra_args)
+            ok = run_entry(exe, entry, data_root, out, args.extra_args,
+                           args.sndhash)
             if not ok:
                 print(f"RUN FAILED: {name} (no hash produced)")
                 failed.append(name)
-            elif open(out, "rb").read() == open(golden, "rb").read():
+            elif all(open(o, "rb").read() == open(golden_alias[g], "rb").read()
+                     for o, g in zip(outputs(out), outputs(golden))):
                 print(f"ok: {name}")
                 ran.append(name)
             else:
@@ -172,12 +204,12 @@ def main():
             a = tempfile.NamedTemporaryFile(suffix=".hash", delete=False).name
             b = tempfile.NamedTemporaryFile(suffix=".hash", delete=False).name
             other = os.path.abspath(args.compare) if args.compare else exe
-            ok = (run_entry(exe, entry, data_root, a, args.extra_args)
-                  and run_entry(other, entry, data_root, b, args_b))
+            ok = (run_entry(exe, entry, data_root, a, args.extra_args, args.sndhash)
+                  and run_entry(other, entry, data_root, b, args_b, args.sndhash))
             if not ok:
                 print(f"RUN FAILED: {name} (no hash produced)")
                 failed.append(name)
-            elif open(a, "rb").read() == open(b, "rb").read():
+            elif same(a, b):
                 print(f"{'identical' if args.compare else 'stable'}: {name}")
                 ran.append(name)
             else:
