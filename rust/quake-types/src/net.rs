@@ -229,17 +229,25 @@ pub struct NetDriver {
     pub shutdown: Option<unsafe extern "C" fn()>,
 }
 
-// Layout pins that hold on every supported 64-bit target; the per-platform
-// gate against the engine's own headers is tests/net_abi.rs
+// Pointer-width-independent pins
+const _: () = {
+    assert!(core::mem::size_of::<QSockAddr>() == 64);
+    assert!(core::mem::offset_of!(QSockAddr, qsa_data) == 2);
+    assert!(NET_MAXMESSAGE & (NETFLAG_LENGTH_MASK as usize) == NET_MAXMESSAGE);
+};
+
+// Layout pins for the 64-bit targets (the whole current CI matrix). These are
+// const asserts, so they would fail COMPILATION rather than degrade on a
+// 32-bit target -- which upstream QuakeSpasm still builds and common.make
+// does not forbid -- hence the cfg. The real per-platform gate against the
+// engine's own headers is tests/net_abi.rs, which runs everywhere.
+#[cfg(target_pointer_width = "64")]
 const _: () = {
     assert!(core::mem::size_of::<SizeBuf>() == 24);
     assert!(core::mem::offset_of!(SizeBuf, data) == 8);
     assert!(core::mem::offset_of!(SizeBuf, cursize) == 20);
-    assert!(core::mem::size_of::<QSockAddr>() == 64);
-    assert!(core::mem::offset_of!(QSockAddr, qsa_data) == 2);
     assert!(core::mem::offset_of!(QSocket, isvirtual) == 32);
     assert!(core::mem::offset_of!(QSocket, driver) == 36);
     // fields past `socket` shift between unix (int) and windows (UINT_PTR);
     // those offsets are pinned per-platform by net_abi.rs only
-    assert!(NET_MAXMESSAGE & (NETFLAG_LENGTH_MASK as usize) == NET_MAXMESSAGE);
 };

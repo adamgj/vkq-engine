@@ -154,9 +154,13 @@ static int CL_GetDemoMessage (void)
 
 		// get the next message
 #ifdef USE_RUST_NET
-	// COMPAT (accepted divergence): the header is read atomically, so a demo
-	// truncated 4-15 bytes into a record stops playback WITHOUT the partial
-	// cl.mviewangles updates the C per-field reads would have left behind.
+	// COMPAT (accepted divergence): the 16-byte header is read atomically,
+	// where C read the length and then each viewangle separately. On a demo
+	// truncated 4-15 bytes into a record header, C has already run the
+	// mviewangles[0] -> [1] copy (it follows the successful 4-byte length
+	// read) and partially updated mviewangles[0]; this build leaves both
+	// untouched. Consequently the copy also runs BEFORE the MAX_MSGLEN check
+	// here and after it in C -- immaterial, since that path Sys_Errors.
 	// Only malformed demos differ, and both builds stop playback.
 	{
 		byte header[16];
@@ -748,6 +752,8 @@ play [demoname]
 */
 void CL_PlayDemo_f (void)
 {
+	qboolean invalid;
+
 	if (cmd_source != src_command)
 		return;
 
@@ -788,17 +794,15 @@ void CL_PlayDemo_f (void)
 		int		   consumed = 0;
 		qfileofs_t linestart = Sys_ftell (cls.demofile);
 		int		   got = (int)fread (trackline, 1, sizeof (trackline), cls.demofile);
-		if (!quake_rs_demo_parse_forcetrack (trackline, got, &cls.forcetrack, &consumed))
-			goto invalid_demo;
-		Sys_fseek (cls.demofile, linestart + consumed, SEEK_SET);
+		invalid = !quake_rs_demo_parse_forcetrack (trackline, got, &cls.forcetrack, &consumed);
+		if (!invalid)
+			Sys_fseek (cls.demofile, linestart + consumed, SEEK_SET);
 	}
-	if (0)
-	{
-	invalid_demo:
 #else
-	if (fscanf (cls.demofile, "%i", &cls.forcetrack) != 1 || fgetc (cls.demofile) != '\n')
-	{
+	invalid = (fscanf (cls.demofile, "%i", &cls.forcetrack) != 1 || fgetc (cls.demofile) != '\n');
 #endif
+	if (invalid)
+	{
 		fclose (cls.demofile);
 		cls.demofile = NULL;
 		cls.demonum = -1; // stop demo loop

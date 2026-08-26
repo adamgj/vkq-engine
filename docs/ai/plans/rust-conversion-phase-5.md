@@ -240,3 +240,41 @@ M5 exit (session end): full corpus incl. registered-tier local entries, record_d
   the differential skips that input class, pinning it against the port's own
   contract instead. Verified against glibc in a container: 0 mismatches over
   the fixed vectors plus the 20k randomized sweep.
+- **2026-08-26 PR review fixes** (adversarial review on PR #21; all seven
+  findings accepted and addressed):
+  1. `capture_diff.py`: the `--min-window` floor was gated on
+     `min(len(sa), len(sb))`, which disabled it in exactly the case it
+     existed to catch — a *compared* build emitting a truncated reliable
+     stream shrinks `window` itself and would then match trivially over its
+     own short prefix. The floor is now judged against the reference stream
+     only, and applies on the uncalibrated path too (the same hole existed
+     there). Verified empirically: a capture whose recv reliable stream was
+     truncated 5274 -> 300 bytes PASSED the old gate and FAILS the new one,
+     while the healthy capture still passes.
+  2. `sizebuf.rs::print`: the trailing-NUL branch could index one past the
+     slice (allowoverflow + trailing NUL + `s.len() == maxsize`, where
+     `get_space` resets cursize to 0), turning C's out-of-allocation
+     scribble into a Rust panic/abort. Writes are now clamped to the
+     allocation and both COMPAT deviations are documented; a regression test
+     pins it (verified to fail against the pre-fix code).
+  3. `quake_rs_demo_forcetrack_line` silently clamped to `outsize` while
+     returning the length the caller writes — a corrupt demo header with no
+     diagnostic if the invariant ever rotted. Now a fatal `Sys_Error`.
+  4. `net_msg_glue.c`: documented that the `length` argument is a
+     PLACEHOLDER for the writers whose reservation is computed inside Rust,
+     and unreachable (SZ_Alloc floors maxsize at 256).
+  5. `net_loop.rs`: the `Sys_Error`-for-`Host_Error` substitution is marked
+     DO-NOT-CARRY for the M6/M7 dgrm receive path, which assembles wire
+     fragments and has no bounded-sizebuf guarantee — there the M3
+     status-plus-C-frame shape is required.
+  6. `cl_demo.c`: the `goto`-into-`if (0)` seam is replaced by an `invalid`
+     flag with one unconditional error block; the record-header COMPAT note
+     now also records that the `mviewangles[0] -> [1]` copy is skipped and
+     that it runs before the MAX_MSGLEN check (C ran it after).
+  7. `quake-types/src/net.rs`: the pointer-width-dependent layout asserts
+     are behind `#[cfg(target_pointer_width = "64")]` so they cannot
+     hard-fail a 32-bit build. Verified with an actual
+     `i686-unknown-linux-gnu` check: zero errors now originate in net.rs.
+     NOTE: the crate still does not compile 32-bit — 8 pre-existing asserts
+     in `json.rs` (Phase 1) and `sound.rs` (Phase 4) fail there. Out of
+     Phase 5 scope; worth a separate issue if 32-bit is wanted.

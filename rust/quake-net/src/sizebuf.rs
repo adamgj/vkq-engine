@@ -84,10 +84,20 @@ impl<'a> SizeBuf<'a> {
     /// `SZ_Print`: strcats `s` (no NUL in the slice) plus a terminator onto
     /// the buffer, overwriting an existing trailing NUL.
     ///
-    /// COMPAT: with `cursize == 0` the C original reads `data[-1]` (heap
-    /// garbage before the allocation) to decide the branch -- undefined
-    /// behavior it survives by luck. This port takes the "no trailing 0"
-    /// append branch in that case; no engine call site hits it.
+    /// Two COMPAT deviations, both confined to states where the C original
+    /// has already left the allocation (undefined behavior it survives by
+    /// luck) and neither reachable from an engine call site -- every
+    /// `SZ_Print` caller passes a short string into a >= 256-byte buffer:
+    ///
+    /// * with `cursize == 0` C reads `data[-1]` to pick the branch; this
+    ///   port takes the "no trailing 0" append branch instead;
+    /// * in the trailing-NUL branch C writes starting at
+    ///   `SZ_GetSpace (len - 1) - 1`, so when the allowed-overflow path
+    ///   inside `get_space` has just reset `cursize` to 0 that start is
+    ///   `data[-1]`. This port clamps the start to 0 and the tail to the
+    ///   allocation, dropping the bytes C would have written outside it --
+    ///   the alternative would be a Rust panic (process abort) standing in
+    ///   for C's silent one-byte scribble, a louder change than the bug.
     pub fn print(&mut self, s: &[u8]) -> Result<(), WireError> {
         let len = s.len() as i32 + 1;
         let trailing_nul = self.cursize > 0 && self.data[self.cursize as usize - 1] == 0;
@@ -96,16 +106,55 @@ impl<'a> SizeBuf<'a> {
             self.data[at..at + s.len()].copy_from_slice(s);
             self.data[at + s.len()] = 0;
         } else {
-            // COMPAT: if the overflow path inside get_space just reset
-            // cursize to 0, C would write at data[-1] (UB); clamp to 0
             let at = self.get_space(len - 1)?.saturating_sub(1);
-            self.data[at..at + s.len()].copy_from_slice(s);
-            self.data[at + s.len()] = 0;
+            // clamped per the COMPAT note above; in every reachable state
+            // `end` is `at + s.len()` and the terminator lands in bounds
+            let end = (at + s.len()).min(self.data.len());
+            self.data[at..end].copy_from_slice(&s[..end - at]);
+            if end < self.data.len() {
+                self.data[end] = 0;
+            }
         }
         Ok(())
     }
 
     pub fn written(&self) -> &[u8] {
         &self.data[..self.cursize as usize]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Regression guard for the COMPAT clamp in `print`: the allowed-overflow
+    /// reset state must not turn C's out-of-allocation scribble into a Rust
+    /// panic. Shape: allowoverflow, a trailing NUL, and `s.len() == maxsize`,
+    /// so `get_space` resets cursize to 0 and the naive terminator write
+    /// would land one past the slice.
+    #[test]
+    fn print_overflow_reset_does_not_panic() {
+        let mut store = vec![0u8; 256];
+        let mut sb = SizeBuf::new(&mut store);
+        sb.allowoverflow = true;
+        // establish a trailing NUL and a non-zero cursize
+        sb.write(b"hi\0").unwrap();
+        assert!(sb.cursize > 0);
+
+        let s = vec![b'x'; 256]; // == maxsize
+        sb.print(&s).unwrap();
+
+        assert!(sb.overflowed, "the allowed-overflow path should have fired");
+        assert!(sb.cursize <= sb.maxsize());
+    }
+
+    /// The normal branch still terminates in place (no clamp interference)
+    #[test]
+    fn print_overwrites_trailing_nul() {
+        let mut store = vec![0u8; 256];
+        let mut sb = SizeBuf::new(&mut store);
+        sb.write(b"ab\0").unwrap();
+        sb.print(b"cd").unwrap();
+        assert_eq!(sb.written(), b"abcd\0");
     }
 }

@@ -45,6 +45,16 @@ qboolean msg_badread;
 #define SZ_ERR_RANGE_BYTE  4
 #define SZ_ERR_RANGE_SHORT 5
 
+/* `value` and `length` only feed the diagnostic text of the raises below.
+   `length` is exact where the caller reserves a fixed size (and for the SZ_*
+   entry points, which are handed the caller's own length), but it is a
+   PLACEHOLDER for the writers whose reservation is computed inside Rust:
+   MSG_WriteUInt64 reserves 1..10 bytes rather than 9, MSG_WriteInt64
+   forwards to it rather than reserving 10, and the coord/angle wrappers
+   reserve 1, 2 or 4 depending on the protocol flags. It is never printed:
+   SZ_ERR_OVERSIZE requires a reservation larger than the whole buffer, and
+   SZ_Alloc floors maxsize at 256, so no <= 10-byte reservation can reach it.
+   Do not read these numbers as the real reservation sizes. */
 static void NetMsg_Raise (int status, int value, int length)
 {
 	/* ADR-009/aliasing: the Rust exports must not call Con_Printf (it is not

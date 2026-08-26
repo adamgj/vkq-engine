@@ -131,6 +131,13 @@ unsafe fn fill_net_message(payload: &[u8]) {
             // which is net_message's own allocation size. C would Host_Error
             // out of SZ_GetSpace; a longjmp must not cross this Rust frame
             // (ADR-009), so the impossible case is a hard stop instead.
+            //
+            // DO NOT CARRY THIS TO THE DGRM DRIVER (M6/M7): substituting a
+            // fatal Sys_Error for a recoverable Host_Error is only defensible
+            // because both loopback endpoints' sizebufs are bounded by
+            // construction. Datagram_GetMessage assembles fragments off the
+            // wire and has no such bound, so there the M3 shape is required
+            // -- return a status and let a C frame raise Host_Error.
             c::Sys_Error(c"Loop_GetMessage: net_message overflow".as_ptr());
         }
         ptr::copy_nonoverlapping(payload.as_ptr(), (*nm).data, payload.len());

@@ -117,14 +117,22 @@ def main():
                       f"{noise_floor} bytes (reference build's own "
                       f"run-to-run divergence point)")
                 window = noise_floor
-            # only gate the floor where a stream exists at all: the send
-            # direction of a short session can be legitimately tiny
-            if window < args.min_window and min(len(sa), len(sb)) >= args.min_window:
-                print(f"FAIL: {DIR_NAMES[direction]} gate window degenerate "
-                      f"({window} < --min-window {args.min_window}): the "
-                      f"reference captures diverge too early to gate anything")
-                ok = False
-                continue
+        # The floor is judged against the REFERENCE stream only. Gating it on
+        # min(len(sa), len(sb)) would disable it in exactly the case it
+        # exists to catch: a compared build that emits a truncated reliable
+        # stream shrinks `window` itself, and would then match trivially over
+        # its own short prefix. A legitimately tiny reference stream (the
+        # send direction of a short session) skips the floor and is compared
+        # in full below.
+        if len(sa) >= args.min_window and window < args.min_window:
+            cause = (f"compared capture's stream is only {len(sb)} bytes"
+                     if len(sb) < args.min_window
+                     else "reference captures diverge too early")
+            print(f"FAIL: {DIR_NAMES[direction]} gate window degenerate "
+                  f"({window} < --min-window {args.min_window}): {cause}, so "
+                  f"the byte comparison would prove nothing")
+            ok = False
+            continue
         if (len(sa) == 0) != (len(sb) == 0):
             print(f"FAIL: {DIR_NAMES[direction]} reliable stream present in "
                   f"only one capture ({len(sa)} vs {len(sb)} bytes)")

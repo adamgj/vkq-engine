@@ -403,10 +403,19 @@ pub unsafe extern "C" fn quake_rs_demo_forcetrack_line(
     outsize: c_int,
 ) -> c_int {
     let line = quake_net::demo::forcetrack_line(track);
-    let n = line.len().min(outsize.max(0) as usize);
-    // SAFETY: caller contract; n clamped to outsize
-    unsafe { core::ptr::copy_nonoverlapping(line.as_ptr().cast::<c_char>(), out, n) };
-    n as c_int
+    // The caller writes exactly the returned length to the demo file, so a
+    // silent clamp here would emit a truncated (corrupt) header with no
+    // diagnostic. cls.forcetrack is an int, so the line is at most 12 bytes
+    // and every call site passes >= 32 -- make the contract fatal rather
+    // than let that invariant rot quietly. Sys_Error exits (no longjmp), so
+    // raising it from this frame is ADR-009-safe.
+    if line.len() > outsize.max(0) as usize {
+        // SAFETY: plain fatal exit, no unwinding back through this frame
+        unsafe { c::Sys_Error(c"quake_rs_demo_forcetrack_line: buffer too small".as_ptr()) };
+    }
+    // SAFETY: caller contract; length checked against outsize above
+    unsafe { core::ptr::copy_nonoverlapping(line.as_ptr().cast::<c_char>(), out, line.len()) };
+    line.len() as c_int
 }
 
 /// fscanf("%i") + fgetc-newline parse over a prefix chunk of the demo file.
