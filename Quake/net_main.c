@@ -428,6 +428,9 @@ qsocket_t *NET_Connect (const char *host)
 	size_t	   n;
 	int		   numdrivers = net_numdrivers;
 
+	if (harness_netreplay)
+		return Harness_NetReplayConnect (); /* Phase 5 M8: replayed session */
+
 	SetNetTime ();
 
 	if (host && *host == 0)
@@ -573,6 +576,9 @@ int NET_GetMessage (qsocket_t *sock)
 		return -1;
 	}
 
+	if (harness_netreplay && Harness_NetReplayOwns (sock))
+		return Harness_NetReplayGetMessage ();
+
 	SetNetTime ();
 
 	ret = sfunc.QGetMessage (sock);
@@ -674,6 +680,9 @@ int NET_SendMessage (qsocket_t *sock, sizebuf_t *data)
 		return -1;
 	}
 
+	if (harness_netreplay && Harness_NetReplayOwns (sock))
+		return 1; /* Phase 5 M8: the replay absorbs client output */
+
 	SetNetTime ();
 	r = sfunc.QSendMessage (sock, data);
 	if (r == 1)
@@ -696,6 +705,9 @@ int NET_SendUnreliableMessage (qsocket_t *sock, sizebuf_t *data)
 		Con_Printf ("NET_SendMessage: disconnected socket\n");
 		return -1;
 	}
+
+	if (harness_netreplay && Harness_NetReplayOwns (sock))
+		return 1;
 
 	SetNetTime ();
 	r = sfunc.SendUnreliableMessage (sock, data);
@@ -722,6 +734,9 @@ qboolean NET_CanSendMessage (qsocket_t *sock)
 
 	if (sock->disconnected)
 		return false;
+
+	if (harness_netreplay && Harness_NetReplayOwns (sock))
+		return true;
 
 	SetNetTime ();
 

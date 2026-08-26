@@ -200,6 +200,20 @@ jobs:
         export QUAKE_GAME_DATA="$PWD/shareware-data"
         python3 scripts/harness/record_diff.py --vkquake build-c/vkqr-engine
         python3 scripts/harness/record_diff.py --vkquake build-c/vkqr-engine --vkquake-b build-rs/vkqr-engine
+    # Phase 5 M8 (ADR-019 gate 4): the timing-noise-free byte gate -- replay
+    # the captured session on both builds; state-hash chains and the demo
+    # recorded during the replay must be byte-identical
+    - name: Captured-session replay byte gate (C self, then C vs Rust)
+      run: |
+        export QUAKE_GAME_DATA="$PWD/shareware-data"
+        python3 scripts/harness/netreplay_diff.py --capture session-c.cap --vkquake build-c/vkqr-engine
+        python3 scripts/harness/netreplay_diff.py --capture session-c.cap --vkquake build-c/vkqr-engine --vkquake-b build-rs/vkqr-engine
+    # Phase 5 M8: 4-way C/Rust interop across the negotiable protocol cells
+    # (localhost IPv4; the IPv6 leg is local-only per the task plan)
+    - name: Interop matrix (C/Rust client x server, protocol cells)
+      run: |
+        export QUAKE_GAME_DATA="$PWD/shareware-data"
+        python3 scripts/harness/interop_matrix.py --vkquake-c build-c/vkqr-engine --vkquake-rs build-rs/vkqr-engine
     # Phase 3 M6: gl_model.c fans model loading out over task workers and the
     # Rust loaders run on those workers, so changing the worker count must not
     # perturb the simulation. -pinnedworkers overrides the count (tasks.c:366).

@@ -67,6 +67,21 @@ void Harness_Shutdown (void);  /* finalize the hash+capture files; safe to call 
    no reliability information available at that point. */
 void Harness_NetCapture (int direction, int driver, int kind, const byte *data, int len);
 
+/* -netreplay <capture> (Phase 5 M8, ADR-019 gate 4 "captured-session
+   replay"): deterministic client-side replay of a -netcapture recv stream.
+   NET_Connect hands out a pseudo-socket, each host frame delivers at most
+   one captured recv record into net_message, and the send/can-send funnels
+   absorb the client's output. Forces the fixed timestep, so with -demohash
+   the replayed session's state-hash chain (and any demo recorded during
+   it) is byte-comparable across builds. The instrument is identical C in
+   every configuration; the surface under test is everything beneath the
+   funnels -- the MSG/SZ readers, cl_parse, and the demo writer. */
+extern qboolean harness_netreplay;
+
+struct qsocket_s *Harness_NetReplayConnect (void);
+qboolean		  Harness_NetReplayOwns (struct qsocket_s *sock);
+int				  Harness_NetReplayGetMessage (void);
+
 /* cumulative count of MSG_Read* underruns (msg_badread events). Not a
    zero-gate: the dgrm connect path deliberately probes optional ProQuake
    fields until badread reports end-of-message. Printed at Harness_Shutdown

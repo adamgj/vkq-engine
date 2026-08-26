@@ -20,6 +20,9 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 // harness.c -- differential-verification harness (Rust migration Phase 0, ADR-019)
 
 #include "quakedef.h"
+#include "arch_def.h"
+#include "net_sys.h"
+#include "net_defs.h"
 #include "harness.h"
 
 qboolean harness_active = false;
@@ -36,12 +39,16 @@ qboolean harness_sndhash = false;
 #define HARNESS_HASH_BASIS UINT64_C (0xcbf29ce484222325)
 #define HARNESS_HASH_PRIME UINT64_C (0x100000001b3)
 
-static FILE	   *harness_hashfile = NULL;
-static FILE	   *harness_capturefile = NULL;
-static FILE	   *harness_sndfile = NULL;
-static uint64_t harness_hashchain = HARNESS_HASH_BASIS;
-static uint64_t harness_sndchain = HARNESS_HASH_BASIS;
-static int		harness_exitafter = 0;
+static FILE		 *harness_hashfile = NULL;
+static FILE		 *harness_capturefile = NULL;
+qboolean		  harness_netreplay = false;
+static FILE		 *harness_replayfile = NULL;
+static qsocket_t *harness_replaysock = NULL;
+static int		  harness_replay_lastframe = -1;
+static FILE		 *harness_sndfile = NULL;
+static uint64_t	  harness_hashchain = HARNESS_HASH_BASIS;
+static uint64_t	  harness_sndchain = HARNESS_HASH_BASIS;
+static int		  harness_exitafter = 0;
 
 typedef struct
 {
@@ -74,10 +81,12 @@ void Harness_CheckArgs (void)
 	if (COM_CheckParm ("-headless"))
 		no_rendering = true;
 	if (COM_CheckParm ("-headless") || COM_CheckParm ("-demohash") || COM_CheckParm ("-exitafter") || COM_CheckParm ("-harnesscmds") ||
-		COM_CheckParm ("-netcapture") || COM_CheckParm ("-sndhash"))
+		COM_CheckParm ("-netcapture") || COM_CheckParm ("-sndhash") || COM_CheckParm ("-netreplay"))
 		harness_active = true;
-	if (COM_CheckParm ("-demohash") || COM_CheckParm ("-sndhash"))
+	if (COM_CheckParm ("-demohash") || COM_CheckParm ("-sndhash") || COM_CheckParm ("-netreplay"))
 		harness_fixed_dt = true;
+	if (COM_CheckParm ("-netreplay"))
+		harness_netreplay = true;
 	if (COM_CheckParm ("-sndhash"))
 		harness_sndhash = true;
 	if (isDedicated)
@@ -162,6 +171,16 @@ void Harness_Init (void)
 		if (!harness_capturefile)
 			Sys_Error ("Harness: can't open -netcapture file %s", com_argv[i + 1]);
 	}
+
+	i = COM_CheckParm ("-netreplay");
+	if (i && i < com_argc - 1)
+	{
+		harness_replayfile = Sys_fopen (com_argv[i + 1], "rb");
+		if (!harness_replayfile)
+			Sys_Error ("Harness: can't open -netreplay file %s", com_argv[i + 1]);
+	}
+	else if (harness_netreplay)
+		Sys_Error ("Harness: -netreplay needs a capture file argument");
 
 	i = COM_CheckParm ("-exitafter");
 	if (i && i < com_argc - 1)
@@ -356,6 +375,63 @@ void Harness_NetCapture (int direction, int driver, int kind, const byte *data, 
 	header[6] = (byte)((len >> 24) & 0xff);
 	fwrite (header, 1, sizeof (header), harness_capturefile);
 	fwrite (data, 1, len, harness_capturefile);
+}
+
+struct qsocket_s *Harness_NetReplayConnect (void)
+{
+	qsocket_t *sock = NET_NewQSocket ();
+	if (!sock)
+		Sys_Error ("Harness: -netreplay could not allocate a qsocket");
+	/* loop driver id: IS_LOOP_DRIVER skips timeouts and live counters, and
+	   its Close tolerates a socket it never connected */
+	sock->driver = 0;
+	strcpy (sock->trueaddress, "netreplay");
+	strcpy (sock->maskedaddress, "netreplay");
+	harness_replaysock = sock;
+	return sock;
+}
+
+qboolean Harness_NetReplayOwns (struct qsocket_s *sock)
+{
+	return harness_replaysock != NULL && sock == harness_replaysock;
+}
+
+/* delivers at most one captured recv record per host frame into
+   net_message; returns the record's kind (1 reliable / 2 unreliable), or 0
+   when none is due (send records and the server funnel's kind-0 records are
+   skipped; EOF parks the connection with no traffic). */
+int Harness_NetReplayGetMessage (void)
+{
+	byte hdr[7];
+
+	if (host_framecount == harness_replay_lastframe)
+		return 0;
+
+	for (;;)
+	{
+		unsigned int len;
+		int			 direction, kind;
+
+		if (fread (hdr, 1, 7, harness_replayfile) != 7)
+			return 0; /* EOF: idle out the rest of the session */
+		direction = hdr[0];
+		kind = hdr[2];
+		len = hdr[3] | (hdr[4] << 8) | (hdr[5] << 16) | ((unsigned int)hdr[6] << 24);
+
+		if (direction != 0 || kind == 0)
+		{
+			if (Sys_fseek (harness_replayfile, len, SEEK_CUR) != 0)
+				return 0;
+			continue;
+		}
+		if (len > (unsigned int)net_message.maxsize)
+			Sys_Error ("Harness: -netreplay record larger than net_message (%u)", len);
+		if (fread (net_message.data, 1, len, harness_replayfile) != len)
+			Sys_Error ("Harness: -netreplay capture truncated mid-record");
+		net_message.cursize = (int)len;
+		harness_replay_lastframe = host_framecount;
+		return kind;
+	}
 }
 
 static void Harness_Exit (int code)
