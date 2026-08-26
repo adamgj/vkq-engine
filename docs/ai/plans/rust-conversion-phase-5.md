@@ -212,3 +212,31 @@ M5 exit (session end): full corpus incl. registered-tier local entries, record_d
     round-trip leg (today: byte-identical .dem files + the generic corpus
     playback compose to cover it); an explicit multi-client listen-server
     smoke.
+
+- **2026-08-26 CI fix (M2 gate domain)**: `uint64_bug_domain_goldens` pinned
+  the ten-byte lead form (`c >= 2^63`, `b == 9`), where `MSG_WriteUInt64`
+  evaluates `c >> 64`. That is UB with no stable answer: gcc (all -O) and
+  MSVC emit the register-masked shift, but clang folds it to 0 at -O2/-O3 --
+  the level the engine and the `cargo test --release` binaries build at --
+  so the macOS leg produced `0` where the golden (captured from a debug
+  build) had `c & 0xff`. The goldens now stop at `2^63 - 1`, the writer
+  sweeps filter on `wire_value_is_defined`, and the new
+  `uint64_ub_domain_variants` states the real contract for the UB domain:
+  identical length, lead byte and every other continuation byte, the port
+  pinned to the masked form, the c_ref byte allowed to be either observed
+  form, and both readers agreeing over the same bytes. `write_uint64` gained
+  the matching COMPAT note (accepted divergence; reachable only from the QC
+  `WriteUInt64`/`WriteInt64` builtins, and the ten-byte form never
+  round-trips through `MSG_ReadUInt64` anyway).
+- **2026-08-26 CI fix (M4 gate domain)**: `forcetrack_parse_matches_libc`
+  compared the port against the *host* libc, but `%i` on a `0x`/`0X` prefix
+  with no hex digit after it is a genuine libc disagreement: C99 7.21.6.2p9
+  allows one character of pushback (macOS libc and MSVC honour it) while
+  glibc swallows the whole `0x` and converts 0, so on Linux a header line of
+  exactly `"0x\n"` is accepted as track 0 and elsewhere it is not. The C
+  engine already behaves differently per platform there. `parse_forcetrack`
+  implements the one-character-pushback reading everywhere (COMPAT-noted as
+  an accepted divergence, reachable only from a hand-authored header) and
+  the differential skips that input class, pinning it against the port's own
+  contract instead. Verified against glibc in a container: 0 mismatches over
+  the fixed vectors plus the 20k randomized sweep.

@@ -10,7 +10,9 @@
 //!   past `cursize` into the allocated buffer without setting badread;
 //! * `MSG_ReadUInt64` shifts an `int` by up to 56 bits -- UB that every
 //!   supported compiler resolves as a 31-masked shift, with the signed
-//!   result sign-extended into the u64 (see `read_uint64`).
+//!   result sign-extended into the u64 (see `read_uint64`); the writer's
+//!   matching UB is stable everywhere except the ten-byte lead form, whose
+//!   accepted divergence is spelled out in `write_uint64`.
 //!
 //! Reader state (`msg_readcount`/`msg_badread`/the `net_message` buffer) is
 //! ambient C state in the engine; here it is an explicit `MsgReader` and the
@@ -119,7 +121,17 @@ pub fn write_uint64(sb: &mut SizeBuf<'_>, c: u64) -> Result<(), WireError> {
     // COMPAT: for b >= 8 (c >= 2^56; b == 9 is reachable via
     // MSG_WriteInt64 extremes) the C shift amounts leave [0,31]/[0,63] --
     // UB the supported targets' variable-shift instructions resolve by
-    // masking. wrapping_shl/shr mask identically; verified differentially.
+    // masking, which wrapping_shl/shr reproduce. At b == 8 the UB only
+    // feeds the lead byte, which is OR'd with 0xff, so C and Rust agree
+    // whatever the compiler does. At b == 9 (c >= 2^63) it lands in the
+    // first continuation byte and C has no stable answer: clang emits the
+    // masked shift at -O0/-O1 (= this port) but folds `c >> 64` to 0 at
+    // -O2/-O3, so an optimized C build writes 0 there where this writes
+    // `c & 0xff`. ACCEPTED DIVERGENCE -- see quake-ctest's
+    // `uint64_ub_domain_variants`. Unreachable from the engine itself: only
+    // the QC `WriteUInt64`/`WriteInt64` builtins (pr_ext.c) can reach it,
+    // and the ten-byte form does not round-trip through MSG_ReadUInt64
+    // anyway (the reader consumes nine bytes).
     let lead = ((0xffu32.wrapping_shl((8i32.wrapping_sub(b as i32)) as u32) as u64)
         | c.wrapping_shr(b * 8)) as u8;
     let mut out = at;

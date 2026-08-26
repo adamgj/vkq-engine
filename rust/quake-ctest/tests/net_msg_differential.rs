@@ -81,6 +81,35 @@ impl Rng {
     }
 }
 
+/// `MSG_WriteUInt64`'s byte output is only STABLE below 2^63.
+///
+/// Its lead byte is `0xffu << (8 - b) | (c >> (b * 8))` and its
+/// continuation loop shifts down from `b - 1`, where `b` counts the extra
+/// bytes. `b` reaches 8 at `c >= 2^56` and 9 at `c >= 2^63` (the `l <<= 7`
+/// ladder wraps), so `c >> 64` -- an oversized shift, i.e. undefined
+/// behavior -- is evaluated in both cases, and `b == 9` also evaluates
+/// `0xffu << -1`. At `b == 8` that UB is unobservable: it only feeds the
+/// lead byte, which is OR'd with 0xff. At `b == 9` it lands in the first
+/// continuation byte, and the result is NOT stable across optimization
+/// levels -- clang on arm64 and x86-64 emits the register-masked shift at
+/// -O0/-O1 (`c & 0xff`) but folds `c >> 64` to 0 at -O2/-O3, which is what
+/// the engine and the CI test binaries build at. Byte-for-byte C-vs-Rust
+/// comparison is therefore only meaningful below 2^63;
+/// `uint64_ub_domain_variants` covers the rest with both observed C forms
+/// spelled out.
+fn wire_value_is_defined(c: u64) -> bool {
+    c < (1u64 << 63)
+}
+
+/// The value `MSG_WriteInt64` forwards to `MSG_WriteUInt64` (net_msg.c)
+fn int64_wire_value(c: i64) -> u64 {
+    if c < 0 {
+        (((-1 - c) as u64) << 1) | 1
+    } else {
+        (c as u64).wrapping_shl(1)
+    }
+}
+
 /// A C sizebuf over a Rust-owned backing store
 struct CBuf {
     store: Vec<u8>,
@@ -284,8 +313,10 @@ fn writers_match_c() {
         .collect();
     compare_write_ops(&ops, "int writers");
 
-    // varints: the full length-prefix ladder incl. the b>=8 masked-shift
-    // domain (reachable via WriteInt64 extremes)
+    // varints: the full length-prefix ladder. Values whose encoding needs the
+    // ten-byte lead form (>= 2^63) sit in the C original's UB domain and are
+    // compared separately by `uint64_ub_domain_variants` -- see
+    // `wire_value_is_defined`.
     let mut u64s: Vec<u64> = vec![0, 1, 127, 128, 16383, 16384, u64::MAX];
     let mut i64s: Vec<i64> = vec![0, 1, -1, 63, 64, -64, -65, i64::MAX, i64::MIN];
     for b in 0..64 {
@@ -300,11 +331,19 @@ fn writers_match_c() {
         i64s.push(rng.next() as i64);
     }
     compare_write_ops(
-        &u64s.iter().map(|&c| WOp::U64(c)).collect::<Vec<_>>(),
+        &u64s
+            .iter()
+            .filter(|&&c| wire_value_is_defined(c))
+            .map(|&c| WOp::U64(c))
+            .collect::<Vec<_>>(),
         "u64",
     );
     compare_write_ops(
-        &i64s.iter().map(|&c| WOp::I64(c)).collect::<Vec<_>>(),
+        &i64s
+            .iter()
+            .filter(|&&c| wire_value_is_defined(int64_wire_value(c)))
+            .map(|&c| WOp::I64(c))
+            .collect::<Vec<_>>(),
         "i64",
     );
 
@@ -633,9 +672,10 @@ fn roundtrip_rust_write_c_read() {
 }
 
 /// Golden pins for the ReadUInt64/WriteUInt64 COMPAT bug domain (values
-/// needing >= 4 continuation bytes). The C original's `int` shifts are UB
-/// that both supported architectures' variable-shift instructions resolve
-/// by 31-masking; these vectors pin the observed encode bytes and (buggy)
+/// needing >= 4 continuation bytes, up to the well-defined ceiling of
+/// `wire_value_is_defined`). The C original's `int` shifts are UB that both
+/// supported architectures' variable-shift instructions resolve by
+/// 31-masking; these vectors pin the observed encode bytes and (buggy)
 /// decode values on BOTH the Rust port and the c_ref oracle, so an
 /// optimization- or platform-dependent codegen change in either breaks the
 /// gate loudly instead of silently shifting the wire format.
@@ -647,12 +687,12 @@ fn uint64_bug_domain_goldens() {
         1u64 << 28,
         1u64 << 35,
         1u64 << 56,
-        u64::MAX,
+        (1u64 << 63) - 1,
         0x123456789ABCDEF0,
     ];
-    const GOLDEN_BYTES: [u8; 43] = [
+    const GOLDEN_BYTES: [u8; 42] = [
         239, 255, 255, 255, 240, 16, 0, 0, 0, 248, 8, 0, 0, 0, 0, 255, 1, 0, 0, 0, 0, 0, 0, 0, 255,
-        255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 18, 52, 86, 120, 154, 188, 222, 240,
+        127, 255, 255, 255, 255, 255, 255, 255, 255, 18, 52, 86, 120, 154, 188, 222, 240,
     ];
     const GOLDEN_DECODE: [u64; 6] = [
         0xfffffff,
@@ -660,13 +700,14 @@ fn uint64_bug_domain_goldens() {
         0x8,       // 1<<35: masked-shift truncation
         0x1000000, // 1<<56: masked-shift truncation
         0xffffffffffffffff,
-        0xffffffffff9abcde, // sign-extension of the shifted int
+        0xffffffff9abcdef8, // sign-extension of the shifted int
     ];
 
     // Rust writer + reader
     let mut store = vec![0u8; 4096];
     let mut sb = SizeBuf::new(&mut store);
     for &v in &VALS {
+        assert!(wire_value_is_defined(v));
         msg::write_uint64(&mut sb, v).unwrap();
     }
     assert_eq!(sb.written(), GOLDEN_BYTES, "rust encode golden");
@@ -690,6 +731,74 @@ fn uint64_bug_domain_goldens() {
         c_ref_MSG_BeginReading();
         for (i, &want) in GOLDEN_DECODE.iter().enumerate() {
             assert_eq!(c_ref_MSG_ReadUInt64(), want, "c_ref decode golden [{i}]");
+        }
+    }
+}
+
+/// `c >= 2^63` drives `MSG_WriteUInt64` into `c >> 64` (see
+/// `wire_value_is_defined`), where the C original has no single answer: the
+/// masked-shift form (`c & 0xff`) and the folded form (0) are both observed
+/// from clang, chosen by optimization level. The port pins the masked form.
+/// This test states that contract instead of pretending to a byte identity
+/// that cannot hold: length, lead byte and every other continuation byte
+/// must still agree, and the c_ref build must produce one of the two forms.
+#[test]
+fn uint64_ub_domain_variants() {
+    let _g = lock();
+    let mut rng = Rng(0x5EED_0000_0000_0001);
+    let mut vals: Vec<u64> = vec![
+        1u64 << 63,
+        (1u64 << 63) + 1,
+        u64::MAX,
+        u64::MAX - 1,
+        int64_wire_value(i64::MIN),
+    ];
+    for _ in 0..64 {
+        vals.push(rng.next() | (1u64 << 63));
+    }
+
+    for v in vals {
+        assert!(!wire_value_is_defined(v));
+
+        let mut store = vec![0u8; 64];
+        let mut sb = SizeBuf::new(&mut store);
+        msg::write_uint64(&mut sb, v).unwrap();
+        let rust = sb.written().to_vec();
+        // ten-byte lead form, masked shift in the first continuation byte
+        assert_eq!(rust.len(), 10, "{v:#x}: length");
+        assert_eq!(rust[1], (v & 0xff) as u8, "{v:#x}: rust masked-shift byte");
+
+        let mut cbuf = CBuf::new(64, false);
+        // SAFETY: serialized under TEST_LOCK; live sizebuf
+        unsafe { c_ref_MSG_WriteUInt64(&mut cbuf.sb, v) };
+        let cref = cbuf.written().to_vec();
+
+        assert_eq!(cref.len(), rust.len(), "{v:#x}: c_ref length");
+        assert_eq!(cref[0], rust[0], "{v:#x}: lead byte");
+        assert_eq!(cref[2..], rust[2..], "{v:#x}: defined continuation bytes");
+        assert!(
+            cref[1] == rust[1] || cref[1] == 0,
+            "{v:#x}: c_ref UB byte {} is neither the masked-shift form {} nor 0",
+            cref[1],
+            rust[1]
+        );
+
+        // read side: the lead byte can encode at most eight continuation
+        // bytes, so the reader never consumes all ten and leaves the stream
+        // desynchronized -- defined behavior on both sides, over the same
+        // bytes. (This is why the ten-byte form must never reach the wire.)
+        let mut rd = MsgReader::begin(&rust, rust.len() as i32);
+        let rust_decoded = rd.read_uint64();
+        assert!(rd.readcount < 10, "{v:#x}: rust readcount {}", rd.readcount);
+        // SAFETY: serialized under TEST_LOCK; live globals over `rust`
+        unsafe {
+            c_ref_net_message.data = rust.as_ptr().cast_mut();
+            c_ref_net_message.maxsize = rust.len() as c_int;
+            c_ref_net_message.cursize = rust.len() as c_int;
+            c_ref_MSG_BeginReading();
+            assert_eq!(c_ref_MSG_ReadUInt64(), rust_decoded, "{v:#x}: decode");
+            let cref_readcount = (&raw const c_ref_msg_readcount).read();
+            assert_eq!(cref_readcount, rd.readcount, "{v:#x}: readcount");
         }
     }
 }

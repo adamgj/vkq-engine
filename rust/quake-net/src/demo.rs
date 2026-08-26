@@ -59,6 +59,17 @@ pub fn forcetrack_line(track: i32) -> Vec<u8> {
 /// engine-written demo hits these corners (the writer emits plain decimal);
 /// the reachable domain is differentially tested against libc
 /// (net_demo_differential.rs).
+///
+/// COMPAT (accepted divergence): a `0x`/`0X` prefix with no hex digit after
+/// it is the one place the libcs themselves disagree, so the C engine
+/// already behaves differently per platform. C99 7.21.6.2p9 allows scanf
+/// one character of pushback, which macOS libc and MSVC honour -- the `x`
+/// is pushed back, cl_demo.c's explicit `fgetc () == '\n'` sees it and
+/// rejects the file. glibc swallows the whole `0x`, so on Linux a header
+/// line of exactly `"0x\n"` is accepted as track 0. This parser implements
+/// the one-character-pushback reading on every platform, which on Linux
+/// turns that one malformed header from accepted into "not a demo file".
+/// Only a hand-authored header can reach it.
 pub fn parse_forcetrack(buf: &[u8]) -> Option<(i32, usize)> {
     let mut i = 0;
     while i < buf.len() && matches!(buf[i], b' ' | b'\t' | b'\n' | b'\x0b' | b'\x0c' | b'\r') {
