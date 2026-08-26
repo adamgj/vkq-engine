@@ -84,3 +84,25 @@ previously in the graph was dev- or build-only. Introduction-bar review:
   license). Alternatives: jpeg-decoder (slower, less maintained),
   keeping stb (remains the revert lever — `Image_DecodeSTBMem` stays
   compiled in every configuration).
+
+## Amended (Phase 5 M1, 2026-08-25) — planned network dependencies
+
+Phase 5's M7 UDP landriver plans three new direct dependencies, recorded
+here at phase start so the introduction-bar review happens before any code
+depends on them (adoption and the full `cargo deny check` land with M7):
+
+- **`socket2`** ("MIT OR Apache-2.0" → MIT) — one cross-platform socket
+  layer replacing the net_udp.c/net_wins.c near-duplicate pair; exposes
+  v6only, multicast join, and broadcast directly, and its raw-fd interop
+  maps onto the `sys_socket_t` slots in the C vtable ABI. Maintained by the
+  rust-lang org.
+- **`libc`** (already on the expected list above) — unix `getifaddrs`
+  address enumeration, which socket2 does not provide.
+- **`windows-sys`** ("MIT OR Apache-2.0" → MIT, Microsoft) —
+  `GetAdaptersAddresses` and WSA specifics on Windows targets; its
+  `windows-targets` transitives are the same dual license.
+
+All three satisfy the allowlist via MIT (deny.toml excludes Apache-only
+licenses; none of these trees are Apache-only). The M7 PR must still run
+`cargo deny check licenses` over the full resolved tree and verify the
+`*-pc-windows-gnu` build before merging.

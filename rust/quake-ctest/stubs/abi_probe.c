@@ -16,6 +16,12 @@
 #include "cvar.h"
 #include "q_thread.h"
 #include "q_sound.h"
+/* Phase 5 net: net_sys.h needs the PLATFORM_* detection from arch_def.h and
+ * must precede net_defs.h; NET_MAXMESSAGE/qhostaddr_t come from net.h */
+#include "arch_def.h"
+#include "net_sys.h"
+#include "net.h"
+#include "net_defs.h"
 
 size_t ctest_abi_max_ospath (void)
 {
@@ -585,5 +591,131 @@ size_t ctest_abi_snd_lookup (const char *key)
 	for (i = 0; i < sizeof (ctest_abi_snd_table) / sizeof (ctest_abi_snd_table[0]); i++)
 		if (!strcmp (ctest_abi_snd_table[i].name, key))
 			return ctest_abi_snd_table[i].value;
+	return (size_t)-1;
+}
+
+/* Phase 5 net ABI (common.h sizebuf, net.h, net_defs.h): the Rust wire layer
+ * shares net_message/qsocket_t storage with C and its driver functions are
+ * installed into the C vtables; see tests/net_abi.rs. The net headers are not
+ * bindgen-clean, so the Rust side is hand-mirrored (ADR-011). */
+static const ctest_abi_entry_t ctest_abi_net_table[] = {
+	SZ ("sizebuf_t", sizebuf_t),
+	OFF ("sizebuf_t", sizebuf_t, allowoverflow),
+	OFF ("sizebuf_t", sizebuf_t, overflowed),
+	OFF ("sizebuf_t", sizebuf_t, data),
+	OFF ("sizebuf_t", sizebuf_t, maxsize),
+	OFF ("sizebuf_t", sizebuf_t, cursize),
+	SZ ("qsockaddr", struct qsockaddr),
+	OFF ("qsockaddr", struct qsockaddr, qsa_family),
+	OFF ("qsockaddr", struct qsockaddr, qsa_data),
+	SZ ("qsocket_t", qsocket_t),
+	OFF ("qsocket_t", qsocket_t, next),
+	OFF ("qsocket_t", qsocket_t, connecttime),
+	OFF ("qsocket_t", qsocket_t, lastMessageTime),
+	OFF ("qsocket_t", qsocket_t, lastSendTime),
+	OFF ("qsocket_t", qsocket_t, isvirtual),
+	OFF ("qsocket_t", qsocket_t, disconnected),
+	OFF ("qsocket_t", qsocket_t, canSend),
+	OFF ("qsocket_t", qsocket_t, sendNext),
+	OFF ("qsocket_t", qsocket_t, driver),
+	OFF ("qsocket_t", qsocket_t, landriver),
+	OFF ("qsocket_t", qsocket_t, socket),
+	OFF ("qsocket_t", qsocket_t, driverdata),
+	OFF ("qsocket_t", qsocket_t, ackSequence),
+	OFF ("qsocket_t", qsocket_t, sendSequence),
+	OFF ("qsocket_t", qsocket_t, unreliableSendSequence),
+	OFF ("qsocket_t", qsocket_t, sendMessageLength),
+	OFF ("qsocket_t", qsocket_t, sendMessage),
+	OFF ("qsocket_t", qsocket_t, receiveSequence),
+	OFF ("qsocket_t", qsocket_t, unreliableReceiveSequence),
+	OFF ("qsocket_t", qsocket_t, receiveMessageLength),
+	OFF ("qsocket_t", qsocket_t, receiveMessage),
+	OFF ("qsocket_t", qsocket_t, addr),
+	OFF ("qsocket_t", qsocket_t, trueaddress),
+	OFF ("qsocket_t", qsocket_t, maskedaddress),
+	OFF ("qsocket_t", qsocket_t, proquake_angle_hack),
+	OFF ("qsocket_t", qsocket_t, max_datagram),
+	OFF ("qsocket_t", qsocket_t, pending_max_datagram),
+	SZ ("net_landriver_t", net_landriver_t),
+	OFF ("net_landriver_t", net_landriver_t, name),
+	OFF ("net_landriver_t", net_landriver_t, initialized),
+	OFF ("net_landriver_t", net_landriver_t, controlSock),
+	OFF ("net_landriver_t", net_landriver_t, Init),
+	OFF ("net_landriver_t", net_landriver_t, Shutdown),
+	OFF ("net_landriver_t", net_landriver_t, Listen),
+	OFF ("net_landriver_t", net_landriver_t, QueryAddresses),
+	OFF ("net_landriver_t", net_landriver_t, Open_Socket),
+	OFF ("net_landriver_t", net_landriver_t, Close_Socket),
+	OFF ("net_landriver_t", net_landriver_t, Connect),
+	OFF ("net_landriver_t", net_landriver_t, CheckNewConnections),
+	OFF ("net_landriver_t", net_landriver_t, Read),
+	OFF ("net_landriver_t", net_landriver_t, Write),
+	OFF ("net_landriver_t", net_landriver_t, Broadcast),
+	OFF ("net_landriver_t", net_landriver_t, AddrToString),
+	OFF ("net_landriver_t", net_landriver_t, StringToAddr),
+	OFF ("net_landriver_t", net_landriver_t, GetSocketAddr),
+	OFF ("net_landriver_t", net_landriver_t, GetNameFromAddr),
+	OFF ("net_landriver_t", net_landriver_t, GetAddrFromName),
+	OFF ("net_landriver_t", net_landriver_t, AddrCompare),
+	OFF ("net_landriver_t", net_landriver_t, GetSocketPort),
+	OFF ("net_landriver_t", net_landriver_t, SetSocketPort),
+	OFF ("net_landriver_t", net_landriver_t, listeningSock),
+	SZ ("net_driver_t", net_driver_t),
+	OFF ("net_driver_t", net_driver_t, name),
+	OFF ("net_driver_t", net_driver_t, initialized),
+	OFF ("net_driver_t", net_driver_t, Init),
+	OFF ("net_driver_t", net_driver_t, Listen),
+	OFF ("net_driver_t", net_driver_t, QueryAddresses),
+	OFF ("net_driver_t", net_driver_t, SearchForHosts),
+	OFF ("net_driver_t", net_driver_t, Connect),
+	OFF ("net_driver_t", net_driver_t, CheckNewConnections),
+	OFF ("net_driver_t", net_driver_t, QGetAnyMessage),
+	OFF ("net_driver_t", net_driver_t, QGetMessage),
+	OFF ("net_driver_t", net_driver_t, QSendMessage),
+	OFF ("net_driver_t", net_driver_t, SendUnreliableMessage),
+	OFF ("net_driver_t", net_driver_t, CanSendMessage),
+	OFF ("net_driver_t", net_driver_t, CanSendUnreliableMessage),
+	OFF ("net_driver_t", net_driver_t, Close),
+	OFF ("net_driver_t", net_driver_t, Shutdown),
+	{"const.NET_NAMELEN", NET_NAMELEN},
+	{"const.NET_MAXMESSAGE", NET_MAXMESSAGE},
+	{"const.MAX_MSGLEN", MAX_MSGLEN},
+	{"const.MAX_DATAGRAM", MAX_DATAGRAM},
+	{"const.DATAGRAM_MTU", DATAGRAM_MTU},
+	{"const.NET_HEADERSIZE", NET_HEADERSIZE},
+	{"const.NET_DATAGRAMSIZE", NET_DATAGRAMSIZE},
+	{"const.NETFLAG_LENGTH_MASK", NETFLAG_LENGTH_MASK},
+	{"const.NETFLAG_DATA", NETFLAG_DATA},
+	{"const.NETFLAG_ACK", NETFLAG_ACK},
+	{"const.NETFLAG_NAK", NETFLAG_NAK},
+	{"const.NETFLAG_EOM", NETFLAG_EOM},
+	{"const.NETFLAG_UNRELIABLE", NETFLAG_UNRELIABLE},
+	{"const.NETFLAG_CTL", NETFLAG_CTL},
+	{"const.NET_LOOPBACKBUFFERS", NET_LOOPBACKBUFFERS},
+	{"const.NET_LOOPBACKHEADERSIZE", NET_LOOPBACKHEADERSIZE},
+	{"const.NET_PROTOCOL_VERSION", NET_PROTOCOL_VERSION},
+	{"const.CCREQ_CONNECT", CCREQ_CONNECT},
+	{"const.CCREQ_SERVER_INFO", CCREQ_SERVER_INFO},
+	{"const.CCREQ_PLAYER_INFO", CCREQ_PLAYER_INFO},
+	{"const.CCREQ_RULE_INFO", CCREQ_RULE_INFO},
+	{"const.CCREQ_RCON", CCREQ_RCON},
+	{"const.CCREP_ACCEPT", CCREP_ACCEPT},
+	{"const.CCREP_REJECT", CCREP_REJECT},
+	{"const.CCREP_SERVER_INFO", CCREP_SERVER_INFO},
+	{"const.CCREP_PLAYER_INFO", CCREP_PLAYER_INFO},
+	{"const.CCREP_RULE_INFO", CCREP_RULE_INFO},
+	{"const.CCREP_RCON", CCREP_RCON},
+	{"const.HOSTCACHESIZE", HOSTCACHESIZE},
+	{"const.SA_FAM_OFFSET", SA_FAM_OFFSET},
+	{"sizeof.sys_socket_t", sizeof (sys_socket_t)},
+	{"sizeof.qhostaddr_t", sizeof (qhostaddr_t)},
+};
+
+size_t ctest_abi_net_lookup (const char *key)
+{
+	size_t i;
+	for (i = 0; i < sizeof (ctest_abi_net_table) / sizeof (ctest_abi_net_table[0]); i++)
+		if (!strcmp (ctest_abi_net_table[i].name, key))
+			return ctest_abi_net_table[i].value;
 	return (size_t)-1;
 }

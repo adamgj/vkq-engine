@@ -2223,3 +2223,72 @@ int ctest_open_fshandle (const char *path, fshandle_t *fh)
 	fh->pak = false;
 	return 0;
 }
+
+/* ---------------------------------------------------------------------------
+ * Phase 5 (net_msg.c): the c_ref reader state. net_main.c owns the real
+ * net_message; here the storage is stub-owned and tests aim .data/.cursize
+ * at their fixtures (the names expand to c_ref_* through the prelude).
+ */
+sizebuf_t	 net_message;
+unsigned int harness_badread_count;
+
+/* ---------------------------------------------------------------------------
+ * Phase 5 M5 (net_loop.c): the net_main.c globals the loopback oracle
+ * references (names expand to c_ref_* through the prelude), plus a tiny
+ * qsocket pool standing in for NET_NewQSocket. ctest_qsocket_reset_c lets
+ * tests restart a scenario.
+ */
+int			net_driverlevel;
+int			net_activeconnections;
+size_t		hostCacheCount;
+hostcache_t hostcache[HOSTCACHESIZE];
+cvar_t		hostname = {"hostname", "UNNAMED", CVAR_NONE};
+
+#define CTEST_QSOCKET_POOL 4
+static qsocket_t ctest_qsocket_pool[CTEST_QSOCKET_POOL];
+static int		 ctest_qsocket_used;
+
+qsocket_t *NET_NewQSocket (void)
+{
+	if (ctest_qsocket_used >= CTEST_QSOCKET_POOL)
+		return NULL;
+	memset (&ctest_qsocket_pool[ctest_qsocket_used], 0, sizeof (qsocket_t));
+	return &ctest_qsocket_pool[ctest_qsocket_used++];
+}
+
+void NET_FreeQSocket (qsocket_t *sock)
+{
+	(void)sock;
+}
+
+void ctest_qsocket_reset_c (void)
+{
+	ctest_qsocket_used = 0;
+	memset (ctest_qsocket_pool, 0, sizeof (ctest_qsocket_pool));
+}
+
+/* ---------------------------------------------------------------------------
+ * Phase 5 M4 (review follow-up): fscanf oracle for the demo forcetrack
+ * header parse. This is the exact C idiom CL_PlayDemo_f used --
+ * fscanf ("%i") then an explicit fgetc == '\n' -- run over a memory buffer
+ * via tmpfile so quake_net::demo::parse_forcetrack can be differentially
+ * tested against the platform libc instead of the implementer's reading.
+ */
+int ctest_demo_forcetrack_oracle (const char *bytes, int len, int *track, int *consumed)
+{
+	FILE *f = tmpfile ();
+	int	  ok;
+	if (!f)
+		return -1;
+	if (len > 0 && fwrite (bytes, 1, (size_t)len, f) != (size_t)len)
+	{
+		fclose (f);
+		return -1;
+	}
+	rewind (f);
+	ok = !(fscanf (f, "%i", track) != 1 || fgetc (f) != '\n');
+	if (ok)
+		*consumed = (int)ftell (f);
+	fclose (f);
+	return ok;
+}

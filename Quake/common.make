@@ -226,6 +226,7 @@ OBJS := strlcat.o \
 	$(SYSOBJ_CDA) \
 	$(SYSOBJ_NET) \
 	net_dgrm.o \
+	net_msg.o \
 	net_loop.o \
 	net_main.o \
 	chase.o \

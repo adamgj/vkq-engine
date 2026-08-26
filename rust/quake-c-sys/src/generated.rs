@@ -182,6 +182,22 @@ unsafe extern "C" {
 unsafe extern "C" {
     pub fn Sys_Printf(fmt: *const ::std::os::raw::c_char, ...);
 }
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct sizebuf_s {
+    pub allowoverflow: qboolean,
+    pub overflowed: qboolean,
+    pub data: *mut byte,
+    pub maxsize: ::std::os::raw::c_int,
+    pub cursize: ::std::os::raw::c_int,
+}
+pub type sizebuf_t = sizebuf_s;
+unsafe extern "C" {
+    pub static mut msg_readcount: ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub static mut msg_badread: qboolean;
+}
 unsafe extern "C" {
     pub fn q_strtrim(str_: *mut ::std::os::raw::c_char) -> *mut ::std::os::raw::c_char;
 }
@@ -589,6 +605,9 @@ unsafe extern "C" {
     pub static mut harness_sndhash: qboolean;
 }
 unsafe extern "C" {
+    pub static mut harness_badread_count: ::std::os::raw::c_uint;
+}
+unsafe extern "C" {
     pub fn Harness_SNDDMA_Init(dma: *mut ::std::os::raw::c_void) -> qboolean;
 }
 unsafe extern "C" {
@@ -786,6 +805,29 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn SND_Glue_PauseLoops() -> qboolean;
+}
+unsafe extern "C" {
+    pub static mut net_message: sizebuf_t;
+}
+unsafe extern "C" {
+    pub static mut net_time: f64;
+}
+unsafe extern "C" {
+    pub static mut net_driverlevel: ::std::os::raw::c_int;
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct qsocket_s {
+    _unused: [u8; 0],
+}
+unsafe extern "C" {
+    pub fn NET_NewQSocket() -> *mut qsocket_s;
+}
+unsafe extern "C" {
+    pub fn NET_FreeQSocket(sock: *mut qsocket_s);
+}
+unsafe extern "C" {
+    pub fn SetNetTime() -> f64;
 }
 unsafe extern "C" {
     pub static vkquake_pak: [::std::os::raw::c_uchar; 0usize];

@@ -24,6 +24,9 @@ The engine is anchored on global singletons read/written across modules: `cl`/`c
 | `mod_known[]` | P3 (data) / P8 (vk members) | P3–P8 | P8 |
 | sound globals (`shm`/`sn`, `snd_channels[]`/`total_channels`, timing, listener vectors, the 16 sound cvars, `snd_mutex`) | P4 | P4–P9: storage stays C in `snd_glue.c` for the direct C readers (menu.c cvar storage, cl_demo.c channel iteration, gl_screen timing); all *logic* is Rust, reaching the storage via `quake_c_sys` under the recursive `snd_mutex` on the main thread | P9 (host inversion) |
 | mixer/sfx-registry internals (paintbuffer, scaletable, filters, underwater, `known_sfx[]`, DMA wrap counters) | — | none: Rust-owned statics from P4, never visible to C | P4 |
+| net message globals (`net_message`, `msg_readcount`, `msg_badread`) | P7 | P5–P7: storage stays C (common.c, later `net_glue.c`) for the direct C readers (cl_parse.c, sv_main.c, cl_demo.c incl. the `CL_Record_Signons` `net_message.data` swap); the MSG/SZ *logic* is Rust from P5 M3, reaching the storage via `quake_c_sys` | P7 |
+| `net_drivers[]`/`net_landrivers[]` vtables, `qsocket_t` pool (`net_activeSockets`/`net_freeSockets`), hostcache, `net_driverlevel`/`net_time` | P5 M9 | P5 M5–M9: arrays and pool stay C-owned in net_bsd.c/net_win.c/net_main.c while Rust driver functions are installed slot-by-slot and read the ambient state via `quake_c_sys` | P5 M9 (Rust-owned driver table; `net_glue.c` keeps the C-visible remainder) |
+| driver internals (loopback buffers, dgrm packet buffer/state machine, UDP socket state) | — | none: Rust-owned module state from each driver's flip milestone, never visible to C | P5 |
 
 **End state (Phase 9/10):** singletons become fields of a `Host` struct created in `main()` and passed by `&mut` (split-borrowed into subsystem structs). Remaining `static` state exists only where a C remnant requires it, listed in the Phase-10 unsafe inventory.
 

@@ -15,6 +15,9 @@
 #define C_REF_PRELUDE_H
 
 #define QUAKEDEFS_H
+/* q_stdinc.h pulls SDL.h; q_types.h + the libc includes below supply what
+ * the reference files (net_loop.c is the first direct includer) need */
+#define __QSTDINC_H
 #define BSP29_VALVE		  /* quakedef.h defines it unconditionally; bspfile.h/model_parse.c gate on it */
 #define _USE_MATH_DEFINES /* M_PI on MSVC */
 #include "q_types.h"
@@ -30,6 +33,83 @@ size_t UTF8_WriteCodePoint (char *dst, size_t maxbytes, uint32_t codepoint);
 #define PITCH 0
 #define YAW	  1
 #define ROLL  2
+
+/* quakedef.h net message limits (Phase 5: net_defs.h's NET_DATAGRAMSIZE and
+ * the abi_probe net table use them) */
+#define MAX_MSGLEN	 64000
+#define MAX_DATAGRAM 64000
+#define DATAGRAM_MTU 1400
+
+/* net_msg.c (Phase 5 M2): wire serialization oracle. The renames must sit
+ * before the first common.h include so the declarations there rename too.
+ * net_message itself lives in net_main.c (not compiled here); the c_ref
+ * definition is stub-owned so tests can point its data at fixtures. */
+#define MSG_WriteChar				 c_ref_MSG_WriteChar
+#define MSG_WriteByte				 c_ref_MSG_WriteByte
+#define MSG_WriteShort				 c_ref_MSG_WriteShort
+#define MSG_WriteLong				 c_ref_MSG_WriteLong
+#define MSG_WriteUInt64				 c_ref_MSG_WriteUInt64
+#define MSG_WriteInt64				 c_ref_MSG_WriteInt64
+#define MSG_WriteFloat				 c_ref_MSG_WriteFloat
+#define MSG_WriteDouble				 c_ref_MSG_WriteDouble
+#define MSG_WriteString				 c_ref_MSG_WriteString
+#define MSG_WriteStringUnterminated	 c_ref_MSG_WriteStringUnterminated
+#define MSG_WriteCoord16			 c_ref_MSG_WriteCoord16
+#define MSG_WriteCoord24			 c_ref_MSG_WriteCoord24
+#define MSG_WriteCoord32f			 c_ref_MSG_WriteCoord32f
+#define MSG_WriteCoord				 c_ref_MSG_WriteCoord
+#define MSG_WriteAngle				 c_ref_MSG_WriteAngle
+#define MSG_WriteAngle16			 c_ref_MSG_WriteAngle16
+#define MSG_WriteEntity				 c_ref_MSG_WriteEntity
+#define MSG_BeginReading			 c_ref_MSG_BeginReading
+#define MSG_ReadChar				 c_ref_MSG_ReadChar
+#define MSG_ReadByte				 c_ref_MSG_ReadByte
+#define MSG_ReadShort				 c_ref_MSG_ReadShort
+#define MSG_ReadLong				 c_ref_MSG_ReadLong
+#define MSG_ReadUInt64				 c_ref_MSG_ReadUInt64
+#define MSG_ReadInt64				 c_ref_MSG_ReadInt64
+#define MSG_ReadFloat				 c_ref_MSG_ReadFloat
+#define MSG_ReadDouble				 c_ref_MSG_ReadDouble
+#define MSG_ReadString				 c_ref_MSG_ReadString
+#define MSG_ReadCoord16				 c_ref_MSG_ReadCoord16
+#define MSG_ReadCoord24				 c_ref_MSG_ReadCoord24
+#define MSG_ReadCoord32f			 c_ref_MSG_ReadCoord32f
+#define MSG_ReadCoord				 c_ref_MSG_ReadCoord
+#define MSG_ReadAngle				 c_ref_MSG_ReadAngle
+#define MSG_ReadAngle16				 c_ref_MSG_ReadAngle16
+#define MSG_ReadEntity				 c_ref_MSG_ReadEntity
+#define SZ_Alloc					 c_ref_SZ_Alloc
+#define SZ_Free						 c_ref_SZ_Free
+#define SZ_Clear					 c_ref_SZ_Clear
+#define SZ_GetSpace					 c_ref_SZ_GetSpace
+#define SZ_Write					 c_ref_SZ_Write
+#define SZ_Print					 c_ref_SZ_Print
+#define msg_readcount				 c_ref_msg_readcount
+/* net_loop.c (Phase 5 M5): the loopback oracle + the net_main.c globals it
+ * references (stub-owned; the Rust shims' unrenamed stand-ins live in
+ * rust/quake-ctest/src/net_stubs.rs) */
+#define Loop_Init					 c_ref_Loop_Init
+#define Loop_Shutdown				 c_ref_Loop_Shutdown
+#define Loop_Listen					 c_ref_Loop_Listen
+#define Loop_SearchForHosts			 c_ref_Loop_SearchForHosts
+#define Loop_Connect				 c_ref_Loop_Connect
+#define Loop_CheckNewConnections	 c_ref_Loop_CheckNewConnections
+#define Loop_GetMessage				 c_ref_Loop_GetMessage
+#define Loop_GetAnyMessage			 c_ref_Loop_GetAnyMessage
+#define Loop_SendMessage			 c_ref_Loop_SendMessage
+#define Loop_SendUnreliableMessage	 c_ref_Loop_SendUnreliableMessage
+#define Loop_CanSendMessage			 c_ref_Loop_CanSendMessage
+#define Loop_CanSendUnreliableMessage c_ref_Loop_CanSendUnreliableMessage
+#define Loop_Close					 c_ref_Loop_Close
+#define NET_NewQSocket				 c_ref_NET_NewQSocket
+#define NET_FreeQSocket				 c_ref_NET_FreeQSocket
+#define net_driverlevel				 c_ref_net_driverlevel
+#define net_activeconnections		 c_ref_net_activeconnections
+#define hostCacheCount				 c_ref_hostCacheCount
+#define hostcache					 c_ref_hostcache
+#define msg_badread					 c_ref_msg_badread
+#define net_message					 c_ref_net_message
+#define harness_badread_count		 c_ref_harness_badread_count
 
 /* mplane_t comes from the real gl_model.h, included below (Phase 3) */
 
@@ -336,6 +416,7 @@ typedef struct
 {
 	char	 modelname[64];
 	qboolean active;
+	char	 name[64]; /* Phase 5: net_loop.c's Loop_SearchForHosts */
 } ctest_server_stub_t;
 extern ctest_server_stub_t sv;
 
@@ -541,6 +622,19 @@ typedef struct
 	int		  demonum;
 } ctest_cls_stub_t;
 extern ctest_cls_stub_t cls;
+/* ---- Phase 5 M2: net_msg.c wire serialization oracle ---- */
+#include "protocol.h" /* PRFL_* / PEXT2_* flag sets (pulls q_minmax.h's Q_rint) */
+/* Phase 5 M5: net_loop.c oracle needs the net headers (quakedef.h
+ * normally supplies net.h; here the prelude does) */
+#include "arch_def.h"
+#include "net_sys.h"
+#include "net.h"
+#include "net_defs.h"
+/* stub-owned c_ref net_message (net_main.c is not compiled here); tests
+ * point .data/.cursize at fixtures. The names expand through the renames. */
+extern sizebuf_t	net_message;
+extern unsigned int harness_badread_count;
+
 mleaf_t				   *Mod_PointInLeaf (float *p, qmodel_t *model); /* stub-owned, settable */
 void					S_CodecInit (void);							/* snd_codec.h; stub no-ops */
 void					S_CodecShutdown (void);

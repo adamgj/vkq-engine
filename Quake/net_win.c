@@ -27,10 +27,36 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 #include "net_dgrm.h"
 #include "net_loop.h"
+#ifdef USE_RUST_NET
+#include "steam.h" // quake_rs.h declares the Phase 2 Steam shims in terms of steamgame_t
+#include "quake_rs.h"
+#endif
 
 net_driver_t net_drivers[] = {
+#ifdef USE_RUST_NET
+	/* Rust migration Phase 5 M5: the loopback driver slots point at the Rust
+	   implementation; Loop_SearchForHosts (hostcache/slist plumbing) stays C
+	   until M9. Loop must stay driver 0 (IS_LOOP_DRIVER). */
+	{.name = "Loopback",
+	 .initialized = false,
+	 .Init = rust_loop_Init,
+	 .Listen = rust_loop_Listen,
+	 .QueryAddresses = Loop_QueryAddresses,
+	 .SearchForHosts = Loop_SearchForHosts,
+	 .Connect = rust_loop_Connect,
+	 .CheckNewConnections = rust_loop_CheckNewConnections,
+	 .QGetAnyMessage = rust_loop_GetAnyMessage,
+	 .QGetMessage = rust_loop_GetMessage,
+	 .QSendMessage = rust_loop_SendMessage,
+	 .SendUnreliableMessage = rust_loop_SendUnreliableMessage,
+	 .CanSendMessage = rust_loop_CanSendMessage,
+	 .CanSendUnreliableMessage = rust_loop_CanSendUnreliableMessage,
+	 .Close = rust_loop_Close,
+	 .Shutdown = rust_loop_Shutdown},
+#else
 	{"Loopback", false, Loop_Init, Loop_Listen, Loop_QueryAddresses, Loop_SearchForHosts, Loop_Connect, Loop_CheckNewConnections, Loop_GetAnyMessage,
 	 Loop_GetMessage, Loop_SendMessage, Loop_SendUnreliableMessage, Loop_CanSendMessage, Loop_CanSendUnreliableMessage, Loop_Close, Loop_Shutdown},
+#endif
 
 	{"Datagram", false, Datagram_Init, Datagram_Listen, Datagram_QueryAddresses, Datagram_SearchForHosts, Datagram_Connect, Datagram_CheckNewConnections,
 	 Datagram_GetAnyMessage, Datagram_GetMessage, Datagram_SendMessage, Datagram_SendUnreliableMessage, Datagram_CanSendMessage,

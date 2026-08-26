@@ -163,6 +163,67 @@ void GLMesh_DeleteMeshBuffers(aliashdr_t *mainhdr);
 #ifdef Q_COMMON_H
 extern searchpath_t *com_searchpaths;
 extern searchpath_t *com_base_searchpaths;
+/* Phase 5 M3: the MSG/SZ wire layer. Reader entry points and SZ_Clear have
+ * no error paths and are exported under their exact common.h names; writers
+ * and the erroring SZ functions are quake_rs_* status trampolines that
+ * Quake/net_msg_glue.c re-raises from a C frame (ADR-009). Declared by hand
+ * so the signatures match common.h exactly (int vs int32_t etc.). */
+void MSG_BeginReading(void);
+int MSG_ReadChar(void);
+int MSG_ReadByte(void);
+int MSG_ReadShort(void);
+int MSG_ReadLong(void);
+unsigned long long MSG_ReadUInt64(void);
+long long MSG_ReadInt64(void);
+float MSG_ReadFloat(void);
+float MSG_ReadDouble(void);
+const char *MSG_ReadString(void);
+float MSG_ReadCoord(unsigned int flags);
+float MSG_ReadAngle(unsigned int flags);
+float MSG_ReadAngle16(unsigned int flags);
+unsigned int MSG_ReadEntity(unsigned int pext2);
+void SZ_Clear(sizebuf_t *buf);
+int quake_rs_msg_write_char(sizebuf_t *sb, int c);
+int quake_rs_msg_write_byte(sizebuf_t *sb, int c);
+int quake_rs_msg_write_short(sizebuf_t *sb, int c);
+int quake_rs_msg_write_long(sizebuf_t *sb, int c);
+int quake_rs_msg_write_uint64(sizebuf_t *sb, unsigned long long c);
+int quake_rs_msg_write_int64(sizebuf_t *sb, long long c);
+int quake_rs_msg_write_float(sizebuf_t *sb, float f);
+int quake_rs_msg_write_double(sizebuf_t *sb, double f);
+int quake_rs_msg_write_string(sizebuf_t *sb, const char *s);
+int quake_rs_msg_write_string_unterminated(sizebuf_t *sb, const char *s);
+int quake_rs_msg_write_coord(sizebuf_t *sb, float f, unsigned int flags);
+int quake_rs_msg_write_angle(sizebuf_t *sb, float f, unsigned int flags);
+int quake_rs_msg_write_angle16(sizebuf_t *sb, float f, unsigned int flags);
+int quake_rs_msg_write_entity(sizebuf_t *sb, unsigned int entnum, unsigned int pext2);
+int quake_rs_sz_get_space(sizebuf_t *buf, int length, int *offset);
+int quake_rs_sz_write(sizebuf_t *buf, const void *data, int length);
+int quake_rs_sz_print(sizebuf_t *buf, const char *data);
+unsigned int quake_rs_sz_take_overflow_events(void);
+/* Phase 5 M4: demo file format (cl_demo.c keeps the raw stdio) */
+void quake_rs_demo_record_header(int cursize, const float *viewangles, unsigned char *out16);
+int quake_rs_demo_parse_record_header(const unsigned char *header, int *cursize, float *viewangles);
+int quake_rs_demo_forcetrack_line(int track, char *out, int outsize);
+int quake_rs_demo_parse_forcetrack(const char *buf, int len, int *track, int *consumed);
+long long quake_rs_demo_resume_seek_offset(void);
+#endif
+/* Phase 5 M5: the Rust loopback driver, installed into net_drivers[0] by
+ * net_bsd.c/net_win.c under USE_RUST_NET (Loop_SearchForHosts stays C until
+ * M9). Guarded on net_defs.h's own guard for the qsocket_t typedef. */
+#ifdef __NET_DEFS_H
+int rust_loop_Init(void);
+void rust_loop_Shutdown(void);
+void rust_loop_Listen(qboolean state);
+qsocket_t *rust_loop_Connect(const char *host);
+qsocket_t *rust_loop_CheckNewConnections(void);
+qsocket_t *rust_loop_GetAnyMessage(void);
+int rust_loop_GetMessage(qsocket_t *sock);
+int rust_loop_SendMessage(qsocket_t *sock, sizebuf_t *data);
+int rust_loop_SendUnreliableMessage(qsocket_t *sock, sizebuf_t *data);
+qboolean rust_loop_CanSendMessage(qsocket_t *sock);
+qboolean rust_loop_CanSendUnreliableMessage(qsocket_t *sock);
+void rust_loop_Close(qsocket_t *sock);
 #endif
 #ifdef __cplusplus
 } /* extern "C" -- these hand-written declarations sit outside cbindgen's own
@@ -231,4 +292,26 @@ exclude = [
     "AliasHdr", "MAliasFrameDesc", "MSprite", "MSpriteFrameDesc",
     "MSpriteFrame", "MSpriteGroup", "StVert", "MTriangle", "TriVertX",
     "stverts", "triangles", "poseverts",
+    "MSG_BeginReading", "MSG_ReadChar", "MSG_ReadByte", "MSG_ReadShort",
+    "MSG_ReadLong", "MSG_ReadUInt64", "MSG_ReadInt64", "MSG_ReadFloat",
+    "MSG_ReadDouble", "MSG_ReadString", "MSG_ReadCoord", "MSG_ReadAngle",
+    "MSG_ReadAngle16", "MSG_ReadEntity", "SZ_Clear",
+    "quake_rs_msg_write_char", "quake_rs_msg_write_byte",
+    "quake_rs_msg_write_short", "quake_rs_msg_write_long",
+    "quake_rs_msg_write_uint64", "quake_rs_msg_write_int64",
+    "quake_rs_msg_write_float", "quake_rs_msg_write_double",
+    "quake_rs_msg_write_string", "quake_rs_msg_write_string_unterminated",
+    "quake_rs_msg_write_coord", "quake_rs_msg_write_angle",
+    "quake_rs_msg_write_angle16", "quake_rs_msg_write_entity",
+    "quake_rs_sz_get_space", "quake_rs_sz_write", "quake_rs_sz_print",
+    "quake_rs_sz_take_overflow_events",
+    "quake_rs_demo_record_header", "quake_rs_demo_parse_record_header",
+    "quake_rs_demo_forcetrack_line", "quake_rs_demo_parse_forcetrack",
+    "quake_rs_demo_resume_seek_offset",
+    "rust_loop_Init", "rust_loop_Shutdown", "rust_loop_Listen",
+    "rust_loop_Connect", "rust_loop_CheckNewConnections",
+    "rust_loop_GetAnyMessage", "rust_loop_GetMessage",
+    "rust_loop_SendMessage", "rust_loop_SendUnreliableMessage",
+    "rust_loop_CanSendMessage", "rust_loop_CanSendUnreliableMessage",
+    "rust_loop_Close",
 ]

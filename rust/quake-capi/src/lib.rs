@@ -33,6 +33,10 @@ pub mod mathlib;
 pub mod mdfour;
 #[cfg(feature = "formats")]
 pub mod model_parse;
+#[cfg(feature = "net")]
+pub mod net;
+#[cfg(feature = "net")]
+pub mod net_loop;
 #[cfg(feature = "snd")]
 pub mod snd_codec;
 #[cfg(feature = "snd")]

@@ -382,6 +382,12 @@ if get_option('use_rust_snd').enabled() and not use_rust
     error('-Duse_rust_snd=enabled requires -Duse_rust=enabled (the sound engine ships in libquake_rs.a)')
 endif
 use_rust_snd = use_rust and not get_option('use_rust_snd').disabled()
+# Phase 5: networking wire layer; the C originals stay the comparison oracle
+# under -Duse_rust_net=disabled. Same auto-follows-use_rust rule as above
+if get_option('use_rust_net').enabled() and not use_rust
+    error('-Duse_rust_net=enabled requires -Duse_rust=enabled (the networking wire layer ships in libquake_rs.a)')
+endif
+use_rust_net = use_rust and not get_option('use_rust_net').disabled()
 # the Rust filesystem does not implement the DO_USERDIRS lookup branches yet
 # (quake-capi fails this combination with a compile_error!); say so here
 # rather than several minutes into a cargo build
@@ -415,6 +421,9 @@ if use_rust
     endif
     if use_rust_snd
         rust_feature_list += 'snd'
+    endif
+    if use_rust_net
+        rust_feature_list += 'net'
     endif
     # cargo features tracking C defines the fs shims must agree with
     if use_sdl3
@@ -467,6 +476,18 @@ phase4_c_srcs = [
 phase4_glue_c_srcs = [
     'Quake/snd_glue.c',
 ]
+# Phase 5: the networking wire layer. The MSG/SZ section lives in net_msg.c
+# (split from common.c at M2) and swaps whole-file for the Rust exports plus
+# the net_msg_glue.c Host_Error trampolines; the drivers flip per
+# driver-vtable slot (net_bsd.c/net_win.c ifdefs) and cl_demo.c in-file. The
+# C originals stay the -Duse_rust_net=disabled comparison oracle
+if use_rust_net
+    cflags += '-DUSE_RUST_NET'
+    srcs += 'Quake/net_msg_glue.c'
+else
+    srcs += 'Quake/net_msg.c'
+endif
+
 if use_rust_snd
     cflags += '-DUSE_RUST_SND'
     srcs += phase4_glue_c_srcs

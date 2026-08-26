@@ -24,6 +24,14 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 #include "bgmusic.h"
 
+#ifdef USE_RUST_NET
+// Rust migration Phase 5 M4: the demo file *format* (record framing,
+// forcetrack line, resume offset) lives in quake-net; the raw stdio on
+// cls.demofile (which may sit inside a pak) stays here.
+#include "steam.h" // quake_rs.h declares the Phase 2 Steam shims in terms of steamgame_t
+#include "quake_rs.h"
+#endif
+
 static void CL_FinishTimeDemo (void);
 
 static char name[MAX_OSPATH];
@@ -76,6 +84,14 @@ Dumps the current net message, prefixed by the length and view angles
 */
 static void CL_WriteDemoMessage (void)
 {
+#ifdef USE_RUST_NET
+	byte header[16];
+
+	quake_rs_demo_record_header (net_message.cursize, cl.viewangles, header);
+	fwrite (header, sizeof (header), 1, cls.demofile);
+	fwrite (net_message.data, net_message.cursize, 1, cls.demofile);
+	fflush (cls.demofile);
+#else
 	int	  len;
 	int	  i;
 	float f;
@@ -89,12 +105,16 @@ static void CL_WriteDemoMessage (void)
 	}
 	fwrite (net_message.data, net_message.cursize, 1, cls.demofile);
 	fflush (cls.demofile);
+#endif
 }
 
 static int CL_GetDemoMessage (void)
 {
-	int	  r, i;
+	int r;
+#ifndef USE_RUST_NET
+	int	  i;
 	float f;
+#endif
 
 	if (cls.demopaused)
 		return 0;
@@ -132,7 +152,29 @@ static int CL_GetDemoMessage (void)
 	else if (cls.signon < (SIGNONS - 2))
 		cls.demo_prespawn_end = 0;
 
-	// get the next message
+		// get the next message
+#ifdef USE_RUST_NET
+	// COMPAT (accepted divergence): the 16-byte header is read atomically,
+	// where C read the length and then each viewangle separately. On a demo
+	// truncated 4-15 bytes into a record header, C has already run the
+	// mviewangles[0] -> [1] copy (it follows the successful 4-byte length
+	// read) and partially updated mviewangles[0]; this build leaves both
+	// untouched. Consequently the copy also runs BEFORE the MAX_MSGLEN check
+	// here and after it in C -- immaterial, since that path Sys_Errors.
+	// Only malformed demos differ, and both builds stop playback.
+	{
+		byte header[16];
+
+		if (fread (header, sizeof (header), 1, cls.demofile) != 1)
+		{
+			CL_StopPlayback ();
+			return 0;
+		}
+		VectorCopy (cl.mviewangles[0], cl.mviewangles[1]);
+		if (!quake_rs_demo_parse_record_header (header, &net_message.cursize, cl.mviewangles[0]))
+			Sys_Error ("Demo message > MAX_MSGLEN");
+	}
+#else
 	if (fread (&net_message.cursize, 4, 1, cls.demofile) != 1)
 	{
 		CL_StopPlayback ();
@@ -152,6 +194,7 @@ static int CL_GetDemoMessage (void)
 	net_message.cursize = LittleLong (net_message.cursize);
 	if (net_message.cursize > MAX_MSGLEN)
 		Sys_Error ("Demo message > MAX_MSGLEN");
+#endif
 	r = fread (net_message.data, net_message.cursize, 1, cls.demofile);
 	if (r != 1)
 	{
@@ -656,7 +699,15 @@ void CL_Record_f (void)
 	}
 
 	cls.forcetrack = track;
+#ifdef USE_RUST_NET
+	{
+		char trackline[32];
+		int	 tracklen = quake_rs_demo_forcetrack_line (cls.forcetrack, trackline, sizeof (trackline));
+		fwrite (trackline, tracklen, 1, cls.demofile);
+	}
+#else
 	fprintf (cls.demofile, "%i\n", cls.forcetrack);
+#endif
 
 	cls.demorecording = true;
 
@@ -681,7 +732,11 @@ void CL_Resume_Record (qboolean recordsignons)
 		return;
 	}
 	// overwrite svc_disconnect
+#ifdef USE_RUST_NET
+	Sys_fseek (cls.demofile, quake_rs_demo_resume_seek_offset (), SEEK_END);
+#else
 	Sys_fseek (cls.demofile, -17, SEEK_END);
+#endif
 	Con_Printf ("Demo recording resumed\n");
 	cls.demorecording = true;
 	if (recordsignons)
@@ -697,6 +752,8 @@ play [demoname]
 */
 void CL_PlayDemo_f (void)
 {
+	qboolean invalid;
+
 	if (cmd_source != src_command)
 		return;
 
@@ -727,7 +784,24 @@ void CL_PlayDemo_f (void)
 	// O.S.: if a space character e.g. 0x20 (' ') follows '\n',
 	// fscanf skips that byte too and screws up further reads.
 	//	fscanf (cls.demofile, "%i\n", &cls.forcetrack);
-	if (fscanf (cls.demofile, "%i", &cls.forcetrack) != 1 || fgetc (cls.demofile) != '\n')
+#ifdef USE_RUST_NET
+	// COMPAT: fscanf's whitespace/digit runs were unbounded; this reads a
+	// 64-byte chunk, so a hand-authored header line longer than that is
+	// rejected as invalid where the C build would accept it. No known demo
+	// comes close (the writer emits at most 12 bytes).
+	{
+		char	   trackline[64];
+		int		   consumed = 0;
+		qfileofs_t linestart = Sys_ftell (cls.demofile);
+		int		   got = (int)fread (trackline, 1, sizeof (trackline), cls.demofile);
+		invalid = !quake_rs_demo_parse_forcetrack (trackline, got, &cls.forcetrack, &consumed);
+		if (!invalid)
+			Sys_fseek (cls.demofile, linestart + consumed, SEEK_SET);
+	}
+#else
+	invalid = (fscanf (cls.demofile, "%i", &cls.forcetrack) != 1 || fgetc (cls.demofile) != '\n');
+#endif
+	if (invalid)
 	{
 		fclose (cls.demofile);
 		cls.demofile = NULL;
