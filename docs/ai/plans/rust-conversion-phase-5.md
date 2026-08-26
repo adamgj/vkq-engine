@@ -375,3 +375,29 @@ M5 exit (session end): full corpus incl. registered-tier local entries, record_d
   PartialIPAddress corner grammar, the MAXHOSTNAMELEN guard) green vs the
   c_ref oracle; capi signature gate, check_headers, clippy -D warnings,
   fmt, cargo deny clean; ctest 41 suites green.
+- **2026-08-26 M8 (netreplay + interop matrix)**: two instruments close the
+  phase's remaining gate-4 surface.
+  1. `-netreplay <capture>` (harness.c + guarded funnel hooks in
+     net_main.c, identical C in every configuration): NET_Connect hands out
+     a pseudo-socket, one captured recv record is delivered into
+     net_message per host frame, sends are absorbed; forces the fixed
+     timestep. `netreplay_diff.py` replays one capture on two builds and
+     byte-compares the -demohash state-hash chains plus a demo recorded
+     mid-replay -- the timing-noise-free "captured-session replay"
+     criterion (live sessions keep the calibrated structural gate).
+  2. `interop_matrix.py`: 4-way C/Rust client x server localhost sessions
+     across every protocol cell this server can negotiate (Base-/FTE+
+     x 15/666/999; FTE+999 = PRFL_FLOATCOORD|SHORTANGLE, Base-999 =
+     PRFL_INT32COORD|SHORTANGLE -- PRFL_24BITCOORD is not reachable from
+     this engine's server, covered at the MSG layer by ctest instead).
+     Checks per cell: expected negotiated protocol string, signon health,
+     exact reliable-count match across the four combos, unreliable counts
+     within the live noise floor, and the msgbadread profile normalized as
+     (badread - messages received) -- the raw counter scales with message
+     count, so +-1-message timing noise shifts it (observed 117 vs 116
+     tracking 117 vs 116 messages exactly).
+  Calibration findings recorded: a Base-15 idle session legitimately emits
+  almost no unreliables (C/C baseline: 2 in 600 frames), so per-cell health
+  is judged against the C/C baseline rather than an absolute floor.
+  CI: build-linux.yml gains the replay byte gate (C self + C-vs-Rust) and
+  the IPv4 matrix; the IPv6 [::1] leg is local-only as planned.
