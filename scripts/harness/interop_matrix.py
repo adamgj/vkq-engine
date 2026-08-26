@@ -118,7 +118,9 @@ def run_cell(server_exe, client_exe, game_data, cell, host, port, frames, map_na
         m = re.search(r"Using protocol (\S+)", out)
         proto = m.group(1) if m else None
         m = re.search(r"Harness: msgbadread=(\d+)", out)
-        badread = int(m.group(1)) if m else None
+        if not m:
+            return None, "no msgbadread counter in client output:\n" + out[-1500:]
+        badread = int(m.group(1))
         cap = os.path.join(cl_dir, "harness.cap")
         if not os.path.isfile(cap) or os.path.getsize(cap) == 0:
             return None, "no capture produced:\n" + out[-1500:]

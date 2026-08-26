@@ -183,7 +183,8 @@ fn scan_d(s: &[u8]) -> Option<(i32, usize)> {
 
 /// `PartialIPAddress`: dotted-partial address completed from `my_addr4`
 /// (network byte order, as the C static holds it). Returns the address or
-/// None (-1).
+/// None (-1). COMPAT: the out-struct's tail is zero-filled (C left the
+/// caller's stack bytes) -- see `string_to_addr4`.
 pub fn partial_ip_address(input: &[u8], my_addr4: u32, net_hostport: i32) -> Option<QSockAddr> {
     let mut buff = Vec::with_capacity(input.len() + 2);
     buff.push(b'.');
@@ -235,7 +236,10 @@ pub fn partial_ip_address(input: &[u8], my_addr4: u32, net_hostport: i32) -> Opt
 
 /// `UDP4_StringToAddr`. COMPAT: the C sscanf leaves the outputs
 /// uninitialized on a partial match (UB); missing conversions read as 0
-/// here. Always returns the address like C returns 0.
+/// here. Always returns the address like C returns 0. COMPAT: C wrote only
+/// family/port/addr into the caller's (uninitialized stack) qsockaddr; the
+/// port zero-fills the remainder -- unobservable (no whole-struct consumer
+/// sees these addresses) but recorded.
 pub fn string_to_addr4(s: &[u8]) -> QSockAddr {
     let mut vals = [0i32; 5];
     let mut pos = 0usize;
@@ -329,13 +333,26 @@ pub fn split_host_port(name: &[u8], maxhostnamelen: usize) -> Option<(Vec<u8>, O
                 return None;
             }
             let host = name[..colon].to_vec();
-            // strtoul(colon+1, NULL, 10) truncated to unsigned short
+            // strtoul(colon+1, NULL, 10) truncated to unsigned short:
+            // leading whitespace, optional sign ('-' wraps modulo
+            // ULONG_MAX+1), digits, clamp at ULONG_MAX, then the u16 cut
+            let s = &name[colon + 1..];
+            let mut i = 0;
+            while i < s.len() && (s[i] == b' ' || (0x09..=0x0d).contains(&s[i])) {
+                i += 1;
+            }
+            let mut neg = false;
+            if i < s.len() && (s[i] == b'+' || s[i] == b'-') {
+                neg = s[i] == b'-';
+                i += 1;
+            }
             let mut v: u64 = 0;
-            for &c in &name[colon + 1..] {
-                if !c.is_ascii_digit() {
-                    break;
-                }
-                v = (v * 10 + (c - b'0') as u64).min(u64::from(u32::MAX));
+            while i < s.len() && s[i].is_ascii_digit() {
+                v = v.saturating_mul(10).saturating_add((s[i] - b'0') as u64);
+                i += 1;
+            }
+            if neg {
+                v = v.wrapping_neg();
             }
             Some((host, Some(v as u16)))
         }

@@ -15,6 +15,7 @@ Without --vkquake-b the same build runs twice (self-determinism check).
 
 import argparse
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -61,7 +62,9 @@ def run_replay(exe, game_data, capture, frames, record_at):
         hashes = open(os.path.join(work, "harness.hash"), "rb").read()
         demo_path = os.path.join(work, "id1", "replaydemo.dem")
         demo = open(demo_path, "rb").read() if os.path.isfile(demo_path) else b""
-        return hashes, demo, proc.stdout
+        m = re.search(r"Harness: netreplay=(\d+)", proc.stdout)
+        delivered = int(m.group(1)) if m else 0
+        return hashes, demo, delivered, proc.stdout
     finally:
         shutil.rmtree(work, ignore_errors=True)
 
@@ -74,17 +77,32 @@ def main():
     p.add_argument("--game-data", default=os.environ.get("QUAKE_GAME_DATA"))
     p.add_argument("--frames", type=int, default=1400)
     p.add_argument("--record-at", type=int, default=60)
+    p.add_argument("--min-delivered", type=int, default=50,
+                   help="floor on records the replay must deliver (inert-replay guard)")
     args = p.parse_args()
 
     if not args.game_data or not os.path.isdir(os.path.join(args.game_data, "id1")):
         sys.exit("error: game data not found; pass --game-data or set QUAKE_GAME_DATA")
 
-    ha, da, _ = run_replay(args.vkquake, args.game_data, args.capture,
-                           args.frames, args.record_at)
-    hb, db, outb = run_replay(args.vkquake_b or args.vkquake, args.game_data,
-                              args.capture, args.frames, args.record_at)
+    ha, da, na, _ = run_replay(args.vkquake, args.game_data, args.capture,
+                               args.frames, args.record_at)
+    hb, db, nb, outb = run_replay(args.vkquake_b or args.vkquake, args.game_data,
+                                  args.capture, args.frames, args.record_at)
 
     ok = True
+    # an inert replay (wrong capture format, filtered-out records, silent
+    # seek/read failures) produces two identical empty sessions and would
+    # otherwise "PASS" -- the same hole capture_diff's --min-window closed.
+    # The engines report how many records they actually delivered.
+    if na < args.min_delivered or nb < args.min_delivered:
+        print(f"FAIL: replay delivered too few records "
+              f"({na} vs {nb}, floor {args.min_delivered}) -- inert replay?")
+        ok = False
+    elif na != nb:
+        print(f"FAIL: replay delivery counts differ ({na} vs {nb})")
+        ok = False
+    else:
+        print(f"ok: both replays delivered {na} records")
     if not ha:
         print("FAIL: replay produced no state-hash chain")
         ok = False

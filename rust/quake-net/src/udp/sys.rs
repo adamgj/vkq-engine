@@ -139,7 +139,9 @@ pub fn available(fd: i32) -> Result<i32, i32> {
     }
 }
 
-/// the "quietly absorb empty packets" zero-length recvfrom
+/// the "quietly absorb empty packets" zero-length recvfrom.
+/// COMPAT: the C v4 variant passed an UNINITIALIZED `fromlen` (UB; the v6
+/// variant initializes it) -- the port always passes sizeof(sockaddr_in).
 pub fn absorb_empty(fd: i32) {
     let mut from: libc::sockaddr_in = // SAFETY: plain data out-param
         unsafe { mem::zeroed() };
@@ -284,8 +286,10 @@ pub fn gethostbyaddr4(s_addr: u32) -> Option<Vec<u8>> {
 }
 
 /// the `getaddrinfo` call of `UDP6_GetAddrFromName`: SOCK_DGRAM/UDP hints,
-/// any family requested, first AF_INET6 result copied out raw
-pub fn getaddrinfo_pick6(node: &[u8], service: Option<&[u8]>) -> Option<QSockAddr> {
+/// any family requested, first AF_INET6 result copied out raw.
+/// Err(code) = getaddrinfo failed; Ok(None) = it succeeded with no
+/// AF_INET6 result -- C retries only on the former.
+pub fn getaddrinfo_pick6(node: &[u8], service: Option<&[u8]>) -> Result<Option<QSockAddr>, i32> {
     let mut cnode = node.to_vec();
     cnode.push(0);
     let cserv = service.map(|s| {
@@ -309,7 +313,7 @@ pub fn getaddrinfo_pick6(node: &[u8], service: Option<&[u8]>) -> Option<QSockAdd
             &mut res,
         );
         if err != 0 {
-            return None;
+            return Err(err);
         }
         let mut out = None;
         let mut pos = res;
@@ -326,7 +330,7 @@ pub fn getaddrinfo_pick6(node: &[u8], service: Option<&[u8]>) -> Option<QSockAdd
             pos = (*pos).ai_next;
         }
         libc::freeaddrinfo(res);
-        out
+        Ok(out)
     }
 }
 
