@@ -95,6 +95,18 @@ void	*SND_Glue_Worldmodel (void);
 void	*SND_Glue_PointInLeaf (float *p);
 qboolean SND_Glue_PauseLoops (void);
 
+/* Phase 5 net: net.h/net_defs.h are not bindgen-clean roots (net_sys.h pulls
+ * the system socket headers), so the wire-layer globals and the qsocket-pool
+ * entry points are declared directly; must match net.h/net_defs.h exactly.
+ * qsocket_t stays opaque here -- the Rust side views it through the
+ * hand-written quake-types::net mirror (ADR-011). */
+extern sizebuf_t net_message;	 /* net.h */
+extern double	 net_time;		 /* net.h */
+extern int		 net_driverlevel; /* net_defs.h */
+struct qsocket_s *NET_NewQSocket (void);
+void			  NET_FreeQSocket (struct qsocket_s *sock);
+double			  SetNetTime (void);
+
 /* embedded pak (generated embedded_pak.c) */
 extern const unsigned char vkquake_pak[];
 extern const int		   vkquake_pak_size;

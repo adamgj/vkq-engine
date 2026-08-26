@@ -1192,6 +1192,7 @@ int MSG_ReadChar (void)
 	if (msg_readcount + 1 > net_message.cursize)
 	{
 		msg_badread = true;
+		harness_badread_count++;
 		return -1;
 	}
 
@@ -1208,6 +1209,7 @@ int MSG_ReadByte (void)
 	if (msg_readcount + 1 > net_message.cursize)
 	{
 		msg_badread = true;
+		harness_badread_count++;
 		return -1;
 	}
 
@@ -1224,6 +1226,7 @@ int MSG_ReadShort (void)
 	if (msg_readcount + 2 > net_message.cursize)
 	{
 		msg_badread = true;
+		harness_badread_count++;
 		return -1;
 	}
 
@@ -1241,6 +1244,7 @@ int MSG_ReadLong (void)
 	if (msg_readcount + 4 > net_message.cursize)
 	{
 		msg_badread = true;
+		harness_badread_count++;
 		return -1;
 	}
 

@@ -236,6 +236,7 @@ dependencies = [
  "quake-fs",
  "quake-image",
  "quake-math",
+ "quake-net",
  "quake-platform",
  "quake-snd",
  "quake-types",
@@ -304,6 +305,9 @@ dependencies = [
 [[package]]
 name = "quake-net"
 version = "0.1.0"
+dependencies = [
+ "quake-types",
+]
 
 [[package]]
 name = "quake-platform"

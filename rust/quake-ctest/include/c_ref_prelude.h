@@ -31,6 +31,12 @@ size_t UTF8_WriteCodePoint (char *dst, size_t maxbytes, uint32_t codepoint);
 #define YAW	  1
 #define ROLL  2
 
+/* quakedef.h net message limits (Phase 5: net_defs.h's NET_DATAGRAMSIZE and
+ * the abi_probe net table use them) */
+#define MAX_MSGLEN	 64000
+#define MAX_DATAGRAM 64000
+#define DATAGRAM_MTU 1400
+
 /* mplane_t comes from the real gl_model.h, included below (Phase 3) */
 
 /* forward-declare at file scope so cvar.h's cvarcallback_t typedef (which

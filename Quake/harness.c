@@ -312,8 +312,16 @@ void Harness_SndPaint (int painted, int end, const void *paintbuf, const volatil
 	harness_sndchain = h;
 }
 
+unsigned int harness_badread_count = 0;
+
 void Harness_Shutdown (void)
 {
+	static qboolean badread_printed = false;
+	if (harness_active && !badread_printed)
+	{
+		badread_printed = true;
+		Sys_Printf ("Harness: msgbadread=%u\n", harness_badread_count);
+	}
 	if (harness_sndfile)
 	{
 		fprintf (harness_sndfile, "END %d %016" PRIx64 "\n", host_framecount, harness_sndchain);

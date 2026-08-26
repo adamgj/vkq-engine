@@ -11,6 +11,7 @@ pub mod json;
 pub mod md3;
 pub mod model_mem;
 pub mod modelgen;
+pub mod net;
 pub mod plane;
 pub mod sound;
 pub mod spritegn;

@@ -67,6 +67,13 @@ void Harness_Shutdown (void);  /* finalize the hash+capture files; safe to call 
    no reliability information available at that point. */
 void Harness_NetCapture (int direction, int driver, int kind, const byte *data, int len);
 
+/* cumulative count of MSG_Read* underruns (msg_badread events). Not a
+   zero-gate: the dgrm connect path deliberately probes optional ProQuake
+   fields until badread reports end-of-message. Printed at Harness_Shutdown
+   ("Harness: msgbadread=<n>") so interop scripts can compare C and Rust
+   builds cell-for-cell (Phase 5). */
+extern unsigned int harness_badread_count;
+
 /* fixed timestep fed to Host_Frame when harness_active */
 double Harness_FrameTime (void);
 
