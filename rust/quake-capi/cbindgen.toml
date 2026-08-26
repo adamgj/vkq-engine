@@ -200,6 +200,12 @@ int quake_rs_msg_write_entity(sizebuf_t *sb, unsigned int entnum, unsigned int p
 int quake_rs_sz_get_space(sizebuf_t *buf, int length, int *offset);
 int quake_rs_sz_write(sizebuf_t *buf, const void *data, int length);
 int quake_rs_sz_print(sizebuf_t *buf, const char *data);
+/* Phase 5 M4: demo file format (cl_demo.c keeps the raw stdio) */
+void quake_rs_demo_record_header(int cursize, const float *viewangles, unsigned char *out16);
+int quake_rs_demo_parse_record_header(const unsigned char *header, int *cursize, float *viewangles);
+int quake_rs_demo_forcetrack_line(int track, char *out, int outsize);
+int quake_rs_demo_parse_forcetrack(const char *buf, int len, int *track, int *consumed);
+long long quake_rs_demo_resume_seek_offset(void);
 #endif
 #ifdef __cplusplus
 } /* extern "C" -- these hand-written declarations sit outside cbindgen's own
@@ -280,4 +286,7 @@ exclude = [
     "quake_rs_msg_write_coord", "quake_rs_msg_write_angle",
     "quake_rs_msg_write_angle16", "quake_rs_msg_write_entity",
     "quake_rs_sz_get_space", "quake_rs_sz_write", "quake_rs_sz_print",
+    "quake_rs_demo_record_header", "quake_rs_demo_parse_record_header",
+    "quake_rs_demo_forcetrack_line", "quake_rs_demo_parse_forcetrack",
+    "quake_rs_demo_resume_seek_offset",
 ]

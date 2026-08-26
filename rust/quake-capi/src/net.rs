@@ -318,3 +318,101 @@ pub extern "C" fn MSG_ReadString() -> *const c_char {
         p.cast::<c_char>()
     }
 }
+
+// ---------------------------------------------------------------------------
+// M4: demo file format (cl_demo.c keeps the raw stdio; these own the bytes)
+// ---------------------------------------------------------------------------
+
+/// # Safety
+/// `viewangles` points at 3 floats, `out` at 16 writable bytes.
+#[no_mangle]
+pub unsafe extern "C" fn quake_rs_demo_record_header(
+    cursize: c_int,
+    viewangles: *const f32,
+    out: *mut u8,
+) {
+    // SAFETY: caller contract
+    unsafe {
+        let angles = [*viewangles, *viewangles.add(1), *viewangles.add(2)];
+        let h = quake_net::demo::record_header(cursize, angles);
+        core::ptr::copy_nonoverlapping(h.as_ptr(), out, h.len());
+    }
+}
+
+/// Returns 0 for the `Sys_Error ("Demo message > MAX_MSGLEN")` path, 1 ok.
+///
+/// # Safety
+/// `header` points at 16 bytes, `cursize` and `viewangles` (3 floats) are
+/// valid out pointers.
+#[no_mangle]
+pub unsafe extern "C" fn quake_rs_demo_parse_record_header(
+    header: *const u8,
+    cursize: *mut c_int,
+    viewangles: *mut f32,
+) -> c_int {
+    // SAFETY: caller contract
+    unsafe {
+        let mut h = [0u8; quake_net::demo::RECORD_HEADER_SIZE];
+        core::ptr::copy_nonoverlapping(header, h.as_mut_ptr(), h.len());
+        match quake_net::demo::parse_record_header(&h) {
+            Some((len, angles)) => {
+                *cursize = len;
+                for (i, a) in angles.iter().enumerate() {
+                    *viewangles.add(i) = *a;
+                }
+                1
+            }
+            None => 0,
+        }
+    }
+}
+
+/// Writes the "%i\n" forcetrack header line; returns its length.
+///
+/// # Safety
+/// `out` covers `outsize` bytes.
+#[no_mangle]
+pub unsafe extern "C" fn quake_rs_demo_forcetrack_line(
+    track: c_int,
+    out: *mut c_char,
+    outsize: c_int,
+) -> c_int {
+    let line = quake_net::demo::forcetrack_line(track);
+    let n = line.len().min(outsize.max(0) as usize);
+    // SAFETY: caller contract; n clamped to outsize
+    unsafe { core::ptr::copy_nonoverlapping(line.as_ptr().cast::<c_char>(), out, n) };
+    n as c_int
+}
+
+/// fscanf("%i") + fgetc-newline parse over a prefix chunk of the demo file.
+/// Returns 1 with `track`/`consumed` set, or 0 for the invalid-demo path.
+///
+/// # Safety
+/// `buf` covers `len` bytes; `track` and `consumed` are valid out pointers.
+#[no_mangle]
+pub unsafe extern "C" fn quake_rs_demo_parse_forcetrack(
+    buf: *const c_char,
+    len: c_int,
+    track: *mut c_int,
+    consumed: *mut c_int,
+) -> c_int {
+    // SAFETY: caller contract
+    unsafe {
+        let bytes = core::slice::from_raw_parts(buf.cast::<u8>(), len.max(0) as usize);
+        match quake_net::demo::parse_forcetrack(bytes) {
+            Some((t, n)) => {
+                *track = t;
+                *consumed = n as c_int;
+                1
+            }
+            None => 0,
+        }
+    }
+}
+
+/// `Sys_fseek (cls.demofile, -17, SEEK_END)` offset when resuming a
+/// recording (4 length + 12 viewangles + 1 svc_disconnect byte).
+#[no_mangle]
+pub extern "C" fn quake_rs_demo_resume_seek_offset() -> i64 {
+    quake_net::demo::RESUME_RECORD_SEEK_END_OFFSET
+}

@@ -157,3 +157,9 @@ name = "fuzz_net_msg"
 path = "fuzz_targets/fuzz_net_msg.rs"
 test = false
 doc = false
+
+[[bin]]
+name = "fuzz_net_demo"
+path = "fuzz_targets/fuzz_net_demo.rs"
+test = false
+doc = false

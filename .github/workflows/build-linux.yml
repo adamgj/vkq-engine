@@ -193,6 +193,13 @@ jobs:
         python3 scripts/harness/capture_session.py --vkquake build-c/vkqr-engine --out session-c2.cap --frames 1200
         python3 scripts/harness/capture_session.py --vkquake build-rs/vkqr-engine --out session-rs.cap --frames 1200
         python3 scripts/harness/capture_diff.py session-c.cap session-rs.cap --window-from session-c2.cap -v
+    # Phase 5 M4 (ADR-019 gate 4): deterministic loopback session recorded by
+    # both builds must produce byte-identical .dem files
+    - name: Demo record byte-diff (C self, then C vs Rust)
+      run: |
+        export QUAKE_GAME_DATA="$PWD/shareware-data"
+        python3 scripts/harness/record_diff.py --vkquake build-c/vkqr-engine
+        python3 scripts/harness/record_diff.py --vkquake build-c/vkqr-engine --vkquake-b build-rs/vkqr-engine
     # Phase 3 M6: gl_model.c fans model loading out over task workers and the
     # Rust loaders run on those workers, so changing the worker count must not
     # perturb the simulation. -pinnedworkers overrides the count (tasks.c:366).

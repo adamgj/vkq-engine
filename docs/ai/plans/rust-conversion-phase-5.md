@@ -135,3 +135,11 @@ M5 exit (session end): full corpus incl. registered-tier local entries, record_d
   reference build's own divergence point, so the criterion is "Rust matches
   C at least as far as C matches itself." The CI step captures C twice +
   Rust once accordingly.
+- **2026-08-25 M4**: demo seam refined: Rust owns the byte *format* (record
+  header assembly/parse, forcetrack line format + fscanf-%i-equivalent
+  parse, resume seek constant); the raw stdio on cls.demofile (which may
+  sit inside a pak) stays in cl_demo.c under #ifdef. The forcetrack parse
+  reads a bounded chunk and seeks to the consumed offset. record_diff.py
+  is the byte gate: -demohash-deterministic loopback session recorded by
+  both builds -> .dem byte-identical (verified: 20239 bytes, C self and
+  C-vs-Rust).
