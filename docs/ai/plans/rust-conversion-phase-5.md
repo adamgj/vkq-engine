@@ -401,3 +401,35 @@ M5 exit (session end): full corpus incl. registered-tier local entries, record_d
   is judged against the C/C baseline rather than an absolute floor.
   CI: build-linux.yml gains the replay byte gate (C self + C-vs-Rust) and
   the IPv4 matrix; the IPv6 [::1] leg is local-only as planned.
+- **2026-08-26 M9 (net_main.c core port; audit-driven scope amendment)**:
+  the ADR-009 audit reshaped M9 away from the planned whole-file exclusion
+  + net_glue.c sketch. Finding: the dispatch funnels -- NET_Connect,
+  NET_GetMessage, NET_GetServerMessage, NET_SendMessage/Unreliable,
+  NET_CanSendMessage, NET_SendToAll, NET_Poll/SchedulePollProcedure, and
+  NET_Init/Shutdown -- all have `Host_Error`-capable code beneath them
+  (the dgrm glue's SZ_GetSpace re-raise, `_Datagram_ServerControlPacket`
+  -> SV_ConnectClient, the MSG-writer glue under SearchForHosts/connect
+  handshakes), and a longjmp must never unwind a Rust frame. Those
+  functions ARE the C boundary frames ADR-009 requires until Phase 7
+  statusizes the strata beneath, so they stay verbatim C in net_main.c;
+  whole-file exclusion would only have shuffled them into a glue file.
+  Ported instead (quake-capi::net_main, Phase-3 in-file #ifdef idiom with
+  trampolines/#defines in net_main.c): SetNetTime, the qsocket pool
+  (NET_NewQSocket/FreeQSocket over the C-owned pool + new NetMain_*
+  svs/sv accessor funnels), all eight NET_QSocket* accessors, the
+  listen/maxplayers/port command handlers, the slist UI (sort +
+  byte-exact %-W.Ws print helpers + the two static-buffer print
+  functions; `slistLastShown` moves to Rust), and the leaf driver loops
+  NET_Close / NET_CheckNewConnections / NET_ListAddresses (only
+  Sys_Error-exit paths beneath them). hostcache_t and PollProcedure
+  gained ADR-011 mirrors pinned by abi_probe/net_abi.
+  Deletion note for M10: net_main.c is now part-ported; its funnel
+  remainder (and net_dgrm.c's orchestration half) transfer to the Phase 7
+  deletion list.
+  Verified on darwin-arm64: 3 configs build; corpus --check (both) and
+  --compare (mixed + cnet oracle) green; save/record byte-identical;
+  calibrated capture PASS; netreplay_diff PASS; interop subset PASS; a
+  listen-server slist/maxplayers/port/listen console smoke is
+  byte-identical C-vs-Rust (exercises the Rust pool via loopback connect
+  too); capi signature, check_headers, net_abi, clippy -D warnings, fmt
+  clean; ctest 40 suites green.

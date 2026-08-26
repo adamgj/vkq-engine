@@ -88,6 +88,57 @@ const EMPTY_LANDRIVER: quake_types::net::NetLanDriver = quake_types::net::NetLan
 #[no_mangle]
 pub static mut net_landrivers: [quake_types::net::NetLanDriver; 3] = [EMPTY_LANDRIVER; 3];
 
+// Phase 5 M9: the net_main.c core's ambient globals
+#[no_mangle]
+pub static mut net_activeSockets: *mut qsocket_s = ptr::null_mut();
+#[no_mangle]
+pub static mut net_freeSockets: *mut qsocket_s = ptr::null_mut();
+#[no_mangle]
+pub static mut net_activeconnections: c_int = 0;
+#[no_mangle]
+pub static mut DEFAULTnet_hostport: c_int = 26000;
+#[no_mangle]
+pub static mut listening: bool = false;
+#[no_mangle]
+pub static mut hostCacheCount: usize = 0;
+
+const EMPTY_HOSTCACHE: quake_types::net::HostCache = quake_types::net::HostCache {
+    name: [0; 64],
+    map: [0; 16],
+    gamedir: [0; 16],
+    cname: [0; 64],
+    users: 0,
+    maxusers: 0,
+    driver: 0,
+    ldriver: 0,
+    addr: quake_types::net::QSockAddr::zeroed(),
+};
+#[no_mangle]
+pub static mut hostcache: [quake_types::net::HostCache; 128] = [EMPTY_HOSTCACHE; 128];
+
+const EMPTY_DRIVER: quake_types::net::NetDriver = quake_types::net::NetDriver {
+    name: core::ptr::null(),
+    initialized: false,
+    init: None,
+    listen: None,
+    query_addresses: None,
+    search_for_hosts: None,
+    connect: None,
+    check_new_connections: None,
+    qget_any_message: None,
+    qget_message: None,
+    qsend_message: None,
+    send_unreliable_message: None,
+    can_send_message: None,
+    can_send_unreliable_message: None,
+    close: None,
+    shutdown: None,
+};
+#[no_mangle]
+pub static mut net_drivers: [quake_types::net::NetDriver; 2] = [EMPTY_DRIVER; 2];
+#[no_mangle]
+pub static net_numdrivers: c_int = 2;
+
 const POOL: usize = 4;
 static mut QSOCKET_POOL: [core::mem::MaybeUninit<QSocket>; POOL] =
     [const { core::mem::MaybeUninit::uninit() }; POOL];

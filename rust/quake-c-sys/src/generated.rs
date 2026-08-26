@@ -607,6 +607,11 @@ unsafe extern "C" {
 unsafe extern "C" {
     pub static mut harness_sndhash: qboolean;
 }
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct qsocket_s {
+    _unused: [u8; 0],
+}
 unsafe extern "C" {
     pub static mut harness_badread_count: ::std::os::raw::c_uint;
 }
@@ -818,11 +823,6 @@ unsafe extern "C" {
 unsafe extern "C" {
     pub static mut net_driverlevel: ::std::os::raw::c_int;
 }
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct qsocket_s {
-    _unused: [u8; 0],
-}
 unsafe extern "C" {
     pub fn NET_NewQSocket() -> *mut qsocket_s;
 }
@@ -880,6 +880,39 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub static mut ipv6Available: qboolean;
+}
+unsafe extern "C" {
+    pub static mut net_activeSockets: *mut qsocket_s;
+}
+unsafe extern "C" {
+    pub static mut net_freeSockets: *mut qsocket_s;
+}
+unsafe extern "C" {
+    pub static mut net_activeconnections: ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub static mut DEFAULTnet_hostport: ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub static mut listening: qboolean;
+}
+unsafe extern "C" {
+    pub static mut hostCacheCount: usize;
+}
+unsafe extern "C" {
+    pub fn NetMain_SVActive() -> qboolean;
+}
+unsafe extern "C" {
+    pub fn NetMain_MaxClients() -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn NetMain_MaxClientsLimit() -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn NetMain_SetMaxClients(n: ::std::os::raw::c_int);
+}
+unsafe extern "C" {
+    pub fn Cbuf_AddText(text: *const ::std::os::raw::c_char);
 }
 unsafe extern "C" {
     pub static vkquake_pak: [::std::os::raw::c_uchar; 0usize];

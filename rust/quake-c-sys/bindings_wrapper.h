@@ -134,6 +134,21 @@ extern qboolean ipv4Available;
 extern qboolean ipv6Available;
 double			Sys_DoubleTime (void);
 
+/* Phase 5 M9: the net_main.c core the Rust port reads/writes (net.h /
+ * net_defs.h; qsocket_t stays opaque -- ADR-011 mirror) plus the
+ * svs/sv accessor funnels net_main.c defines under USE_RUST_NET */
+extern struct qsocket_s *net_activeSockets;
+extern struct qsocket_s *net_freeSockets;
+extern int				 net_activeconnections;
+extern int				 DEFAULTnet_hostport;
+extern qboolean			 listening;
+extern size_t			 hostCacheCount;
+qboolean				 NetMain_SVActive (void);
+int						 NetMain_MaxClients (void);
+int						 NetMain_MaxClientsLimit (void);
+void					 NetMain_SetMaxClients (int n);
+void					 Cbuf_AddText (const char *text);
+
 /* embedded pak (generated embedded_pak.c) */
 extern const unsigned char vkquake_pak[];
 extern const int		   vkquake_pak_size;
