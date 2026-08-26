@@ -829,6 +829,40 @@ unsafe extern "C" {
 unsafe extern "C" {
     pub fn SetNetTime() -> f64;
 }
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct dgrm_packet_t {
+    pub length: ::std::os::raw::c_uint,
+    pub sequence: ::std::os::raw::c_uint,
+    pub data: [::std::os::raw::c_uchar; 64000usize],
+}
+unsafe extern "C" {
+    pub static mut packetBuffer: dgrm_packet_t;
+}
+unsafe extern "C" {
+    pub static mut packetsSent: ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub static mut packetsReSent: ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub static mut packetsReceived: ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub static mut receivedDuplicateCount: ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub static mut shortPacketCount: ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub static mut droppedDatagrams: ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub static mut messagesReceived: ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub static mut unreliableMessagesReceived: ::std::os::raw::c_int;
+}
 unsafe extern "C" {
     pub static vkquake_pak: [::std::os::raw::c_uchar; 0usize];
 }

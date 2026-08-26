@@ -224,6 +224,16 @@ int rust_loop_SendUnreliableMessage(qsocket_t *sock, sizebuf_t *data);
 qboolean rust_loop_CanSendMessage(qsocket_t *sock);
 qboolean rust_loop_CanSendUnreliableMessage(qsocket_t *sock);
 void rust_loop_Close(qsocket_t *sock);
+/* Phase 5 M7: the Rust dgrm reliable layer, wrapped by net_dgrm_glue.c
+ * (which keeps the Datagram_* names for the vtables and net_dgrm.c). */
+int rust_dgrm_SendMessage(qsocket_t *sock, sizebuf_t *data);
+int rust_dgrm_SendUnreliableMessage(qsocket_t *sock, sizebuf_t *data);
+int rust_dgrm_SendMessageNext(qsocket_t *sock);
+int rust_dgrm_ReSendMessage(qsocket_t *sock);
+qboolean rust_dgrm_CanSendMessage(qsocket_t *sock);
+qboolean rust_dgrm_CanSendUnreliableMessage(qsocket_t *sock);
+qboolean rust_dgrm_ProcessPacket(unsigned int length, qsocket_t *sock);
+int rust_dgrm_GetMessage(qsocket_t *sock);
 #endif
 #ifdef __cplusplus
 } /* extern "C" -- these hand-written declarations sit outside cbindgen's own
@@ -314,4 +324,8 @@ exclude = [
     "rust_loop_SendMessage", "rust_loop_SendUnreliableMessage",
     "rust_loop_CanSendMessage", "rust_loop_CanSendUnreliableMessage",
     "rust_loop_Close",
+    "rust_dgrm_SendMessage", "rust_dgrm_SendUnreliableMessage",
+    "rust_dgrm_SendMessageNext", "rust_dgrm_ReSendMessage",
+    "rust_dgrm_CanSendMessage", "rust_dgrm_CanSendUnreliableMessage",
+    "rust_dgrm_ProcessPacket", "rust_dgrm_GetMessage",
 ]

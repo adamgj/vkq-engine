@@ -325,3 +325,20 @@ M5 exit (session end): full corpus incl. registered-tier local entries, record_d
     seeds and are in the CI fuzz list. Engine flip of the rel layer is M7
     (whole-file exclusion of net_dgrm_rel.c + glue, alongside the UDP
     landriver).
+- **2026-08-26 M7a (dgrm engine flip)**: `net_dgrm_rel.c` swaps whole-file
+  for `net_dgrm_glue.c` under `-Duse_rust_net` (the Phase 4 idiom): the glue
+  keeps the `Datagram_*`/`SendMessageNext`/`ReSendMessage`/
+  `Datagram_ProcessPacket` names so the net_bsd.c/net_win.c vtables and
+  net_dgrm.c's orchestration half are untouched, owns the shared statics
+  (packetBuffer + counters, bindgen-bound for the shims), pre-validates the
+  send paths in its C frames (DEBUG Sys_Errors + the release oversize guard
+  where C memcpy'd blindly), and re-raises rust_dgrm_GetMessage's -2 status
+  as the exact SZ_GetSpace Host_Error (ADR-009). quake-capi::net_dgrm
+  marshals counters/net_message/scratch per call, reaches
+  `net_landrivers[]` through the ADR-011 mirror, and defers Con prints
+  until every C-memory borrow ends (M3 lesson). Verified on darwin-arm64:
+  3 configs build; calibrated live-capture gate PASS with the Rust dgrm
+  layer on both ends (recv reliable prefix identical over the 4708-byte
+  calibrated window); record_diff .dem byte-identical (20239 bytes);
+  save_diff identical; corpus --compare green; capi signature gate,
+  check_headers, clippy -D warnings, fmt, cargo deny licenses clean.

@@ -107,6 +107,25 @@ struct qsocket_s *NET_NewQSocket (void);
 void			  NET_FreeQSocket (struct qsocket_s *sock);
 double			  SetNetTime (void);
 
+/* Phase 5 M7: the dgrm shared statics (net_dgrm_glue.c under USE_RUST_NET,
+ * net_dgrm_rel.c otherwise) and the net_main message counters the reliable
+ * layer increments; must match net_dgrm_int.h / net_defs.h exactly */
+typedef struct
+{
+	unsigned int  length;
+	unsigned int  sequence;
+	unsigned char data[64000]; /* MAX_DATAGRAM */
+} dgrm_packet_t;
+extern dgrm_packet_t packetBuffer;
+extern int			 packetsSent;
+extern int			 packetsReSent;
+extern int			 packetsReceived;
+extern int			 receivedDuplicateCount;
+extern int			 shortPacketCount;
+extern int			 droppedDatagrams;
+extern int			 messagesReceived;
+extern int			 unreliableMessagesReceived;
+
 /* embedded pak (generated embedded_pak.c) */
 extern const unsigned char vkquake_pak[];
 extern const int		   vkquake_pak_size;
