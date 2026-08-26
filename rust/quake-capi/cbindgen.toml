@@ -266,6 +266,30 @@ int rust_udp_SetSocketPort(struct qsockaddr *addr, int port);
 int rust_udp4_GetAddresses(qhostaddr_t *addresses, int maxaddresses);
 int rust_udp6_GetAddresses(qhostaddr_t *addresses, int maxaddresses);
 #endif
+/* Phase 5 M9: the ADR-009-safe net_main.c core (net_main.c keeps
+ * trampolines; the dispatch funnels stay C). */
+double rust_net_SetNetTime(void);
+qsocket_t *rust_net_NewQSocket(void);
+void rust_net_FreeQSocket(qsocket_t *sock);
+int rust_net_QSocketGetSequenceIn(const qsocket_t *s);
+int rust_net_QSocketGetSequenceOut(const qsocket_t *s);
+double rust_net_QSocketGetTime(const qsocket_t *s);
+const char *rust_net_QSocketGetTrueAddressString(const qsocket_t *s);
+const char *rust_net_QSocketGetMaskedAddressString(const qsocket_t *s);
+qboolean rust_net_QSocketGetProQuakeAngleHack(const qsocket_t *s);
+void rust_net_QSocketSetMSS(qsocket_t *s, int mss);
+void rust_net_Listen_f(void);
+void rust_net_MaxPlayers_f(void);
+void rust_net_Port_f(void);
+void rust_net_PrintSlistHeader(void);
+void rust_net_PrintSlist(void);
+void rust_net_PrintSlistTrailer(void);
+void rust_net_SlistSort(void);
+const char *rust_net_SlistPrintServer(size_t idx);
+const char *rust_net_SlistPrintServerName(size_t idx);
+void rust_net_Close(qsocket_t *sock);
+qsocket_t *rust_net_CheckNewConnections(void);
+int rust_net_ListAddresses(qhostaddr_t *addresses, int maxaddresses);
 #endif
 #ifdef __cplusplus
 } /* extern "C" -- these hand-written declarations sit outside cbindgen's own
@@ -372,4 +396,15 @@ exclude = [
     "rust_udp_AddrCompare", "rust_udp_GetSocketPort",
     "rust_udp_SetSocketPort", "rust_udp4_GetAddresses",
     "rust_udp6_GetAddresses",
+    "rust_net_SetNetTime", "rust_net_NewQSocket", "rust_net_FreeQSocket",
+    "rust_net_QSocketGetSequenceIn", "rust_net_QSocketGetSequenceOut",
+    "rust_net_QSocketGetTime", "rust_net_QSocketGetTrueAddressString",
+    "rust_net_QSocketGetMaskedAddressString",
+    "rust_net_QSocketGetProQuakeAngleHack", "rust_net_QSocketSetMSS",
+    "rust_net_Listen_f", "rust_net_MaxPlayers_f", "rust_net_Port_f",
+    "rust_net_PrintSlistHeader", "rust_net_PrintSlist",
+    "rust_net_PrintSlistTrailer", "rust_net_SlistSort",
+    "rust_net_SlistPrintServer", "rust_net_SlistPrintServerName",
+    "rust_net_Close", "rust_net_CheckNewConnections",
+    "rust_net_ListAddresses",
 ]

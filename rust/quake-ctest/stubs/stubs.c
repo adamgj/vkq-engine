@@ -2296,6 +2296,29 @@ double	 Sys_DoubleTime (void)
 	return 0.0;
 }
 
+/* Phase 5 M9: the net_main.c accessor funnels + Cbuf the Rust core
+ * references (linux links every rlib object; never invoked by tests) */
+qboolean NetMain_SVActive (void)
+{
+	return false;
+}
+int NetMain_MaxClients (void)
+{
+	return 4; /* matches the test qsocket pools */
+}
+int NetMain_MaxClientsLimit (void)
+{
+	return 4;
+}
+void NetMain_SetMaxClients (int n)
+{
+	(void)n;
+}
+void Cbuf_AddText (const char *text)
+{
+	Con_Printf ("ctest Cbuf_AddText %s", text);
+}
+
 void ctest_dgrm_reset_c (void)
 {
 	memset (&packetBuffer, 0, sizeof (packetBuffer));

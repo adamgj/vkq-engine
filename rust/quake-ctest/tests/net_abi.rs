@@ -11,7 +11,8 @@ use core::mem::{offset_of, size_of};
 
 use quake_ctest as _;
 use quake_types::net::{
-    self, NetDriver, NetLanDriver, QHostAddr, QSockAddr, QSocket, SizeBuf, SysSocket,
+    self, HostCache, NetDriver, NetLanDriver, PollProcedure, QHostAddr, QSockAddr, QSocket,
+    SizeBuf, SysSocket,
 };
 
 extern "C" {
@@ -160,6 +161,23 @@ fn net_mirrors_match_engine_headers() {
         listening_sock,
         "net_landriver_t.listeningSock"
     );
+
+    check_size!(HostCache, "hostcache_t");
+    check_offset!(HostCache, name, "hostcache_t.name");
+    check_offset!(HostCache, map, "hostcache_t.map");
+    check_offset!(HostCache, gamedir, "hostcache_t.gamedir");
+    check_offset!(HostCache, cname, "hostcache_t.cname");
+    check_offset!(HostCache, users, "hostcache_t.users");
+    check_offset!(HostCache, maxusers, "hostcache_t.maxusers");
+    check_offset!(HostCache, driver, "hostcache_t.driver");
+    check_offset!(HostCache, ldriver, "hostcache_t.ldriver");
+    check_offset!(HostCache, addr, "hostcache_t.addr");
+
+    check_size!(PollProcedure, "PollProcedure");
+    check_offset!(PollProcedure, next, "PollProcedure.next");
+    check_offset!(PollProcedure, next_time, "PollProcedure.nextTime");
+    check_offset!(PollProcedure, procedure, "PollProcedure.procedure");
+    check_offset!(PollProcedure, arg, "PollProcedure.arg");
 
     check_size!(NetDriver, "net_driver_t");
     check_offset!(NetDriver, name, "net_driver_t.name");

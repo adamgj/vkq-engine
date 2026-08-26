@@ -237,6 +237,30 @@ pub struct NetLanDriver {
     pub listening_sock: SysSocket,
 }
 
+/// `hostcache_t` (net_defs.h)
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct HostCache {
+    pub name: [c_char; 64],
+    pub map: [c_char; 16],
+    pub gamedir: [c_char; 16],
+    pub cname: [c_char; NET_NAMELEN],
+    pub users: c_int,
+    pub maxusers: c_int,
+    pub driver: c_int,
+    pub ldriver: c_int,
+    pub addr: QSockAddr,
+}
+
+/// `PollProcedure` (net_defs.h)
+#[repr(C)]
+pub struct PollProcedure {
+    pub next: *mut PollProcedure,
+    pub next_time: f64,
+    pub procedure: Option<unsafe extern "C" fn(arg: *mut c_void)>,
+    pub arg: *mut c_void,
+}
+
 /// `net_driver_t` (net_defs.h). Field order is ABI (see `NetLanDriver`).
 /// Loop driver must always be registered first (`IS_LOOP_DRIVER(0)`).
 #[repr(C)]
@@ -267,6 +291,8 @@ const _: () = {
     assert!(core::mem::size_of::<QSockAddr>() == 64);
     assert!(core::mem::offset_of!(QSockAddr, qsa_data) == 2);
     assert!(NET_MAXMESSAGE & (NETFLAG_LENGTH_MASK as usize) == NET_MAXMESSAGE);
+    assert!(core::mem::size_of::<HostCache>() == 64 + 16 + 16 + 64 + 16 + 64);
+    assert!(core::mem::offset_of!(HostCache, addr) == 176);
 };
 
 // Layout pins for the 64-bit targets (the whole current CI matrix). These are

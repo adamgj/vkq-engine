@@ -91,6 +91,8 @@ bindgen rust/quake-c-sys/bindings_wrapper.h \
     --allowlist-var 'packetBuffer|packetsSent|packetsReSent|packetsReceived|receivedDuplicateCount|shortPacketCount|droppedDatagrams|messagesReceived|unreliableMessagesReceived' \
     --allowlist-var 'net_hostport|my_ipv4_address|my_ipv6_address|ipv4Available|ipv6Available' \
     --allowlist-function 'COM_CheckParm|Sys_DoubleTime' \
+    --allowlist-var 'net_activeSockets|net_freeSockets|net_activeconnections|DEFAULTnet_hostport|listening|hostCacheCount' \
+    --allowlist-function 'NetMain_SVActive|NetMain_MaxClients|NetMain_MaxClientsLimit|NetMain_SetMaxClients|Cbuf_AddText|Cvar_Set' \
     -o rust/quake-c-sys/src/generated.rs \
     -- -IQuake
 
