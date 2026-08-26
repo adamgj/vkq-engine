@@ -278,3 +278,50 @@ M5 exit (session end): full corpus incl. registered-tier local entries, record_d
      NOTE: the crate still does not compile 32-bit — 8 pre-existing asserts
      in `json.rs` (Phase 1) and `sound.rs` (Phase 4) fail there. Out of
      Phase 5 scope; worth a separate issue if 32-bit is wanted.
+
+- **2026-08-26 M6 (dgrm reliable layer, ctest-first)**: net_dgrm.c was split
+  like net_msg.c at M2: the reliable/unreliable wire layer (SendMessage /
+  SendMessageNext / ReSendMessage / CanSend* / SendUnreliableMessage /
+  ProcessPacket / GetMessage, the `packetBuffer` scratch and the six stat
+  counters) moved **verbatim** to `Quake/net_dgrm_rel.c`, with the shared
+  statics de-static'd through the new internal header `net_dgrm_int.h`
+  (net_dgrm.c's GetAnyMessage and NET_Stats_f keep using them). The
+  orchestration (connect handshake, `_Datagram_ServerControlPacket`,
+  hostcache/slist, heartbeats, rcon, Test/Test2) stays in net_dgrm.c -- it
+  is engine-entangled (svs/menus/cvars/SV_ConnectClient) and its
+  byte-serialization already flows through the Rust MSG/SZ layer under
+  `-Duse_rust_net`; its Rust port is M9 territory.
+  Port decisions (quake-net::dgrm, pure, `NetSys` trait for
+  sfunc.Read/Write/AddrCompare/AddrToString + Con prints):
+  - BOTH RX paths transliterated separately as planned; their asymmetries
+    are load-bearing (ProcessPacket ACKs to sock->addr and pre-checks the
+    unreliable maxsize; GetMessage ACKs to readaddr and has NO unreliable
+    maxsize pre-check -- that C path Host_Errors inside SZ_GetSpace, so the
+    port returns `GET_MESSAGE_NET_MESSAGE_OVERFLOW` for the M7 glue to
+    re-raise (ADR-009 M3 shape), honoring the M5 DO-NOT-CARRY note).
+  - The C `packetBuffer` static is shared TX/RX scratch and its stale bytes
+    are observable (a wire header claiming more bytes than were received
+    copies stale scratch into net_message); every port function takes the
+    same persistent scratch slice, and the differential compares the full
+    64008-byte scratch after every op. COMPAT divergences (documented in
+    dgrm.rs): reads beyond the scratch end (C UB) zero-fill; the
+    release-mode oversize-send memcpy overflow (C UB) is a hard error.
+  - Counters stay C-owned globals in the engine (NET_Stats_f untouched);
+    the port mutates a `DgrmCounters` view the M7 shim will marshal.
+  - `net_dgrm_rel.c` compiles as the c_ref oracle (the prelude gained the
+    dgrm renames; stubs gained BigLong=LongSwap and the ambient net
+    globals + a 3-slot `net_landrivers` whose Read/Write/AddrCompare/
+    AddrToString slots the test aims at Rust trampolines sharing one mock
+    core per side). `net_dgrm_differential.rs`: 12 suites -- ack cycles,
+    fragmentation, resend timing, dup/stale/gap sequencing, junk (CTL,
+    unknown flags, short, stray addr, read error), all oversize paths
+    incl. the Host_Error mapping, stale-scratch reproduction, and a
+    60-round randomized op sweep; compares returns, all qsocket sequencing
+    fields, buffers, net_message, scratch, counters, emitted wire packets
+    (bytes+addr), and the con-log diagnostics.
+  - `fuzz_net_dgrm` (op-stream over the two RX + send paths, invariant
+    asserts) and `fuzz_net_ccreq` (the exact CCREQ/CCREP/slist/
+    getserversResponse read sequences over the Rust MSG reader) live with
+    seeds and are in the CI fuzz list. Engine flip of the rel layer is M7
+    (whole-file exclusion of net_dgrm_rel.c + glue, alongside the UDP
+    landriver).

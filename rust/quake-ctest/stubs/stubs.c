@@ -2267,6 +2267,32 @@ void ctest_qsocket_reset_c (void)
 	memset (ctest_qsocket_pool, 0, sizeof (ctest_qsocket_pool));
 }
 
+/*
+ * Phase 5 M6 (net_dgrm_rel.c): byte-order dispatch plus the ambient net
+ * globals the reliable layer references (all names expand through the
+ * c_ref renames). Every CI host is little-endian, so BigLong swaps --
+ * matching COM_Init's runtime dispatch in the engine.
+ */
+static int ctest_LongSwap (int l)
+{
+	byte b1 = l & 255, b2 = (l >> 8) & 255, b3 = (l >> 16) & 255, b4 = (l >> 24) & 255;
+	return ((int)b1 << 24) + ((int)b2 << 16) + ((int)b3 << 8) + b4;
+}
+int (*BigLong) (int l) = ctest_LongSwap;
+double			net_time;
+int				messagesReceived;
+int				unreliableMessagesReceived;
+net_landriver_t net_landrivers[3];
+
+void ctest_dgrm_reset_c (void)
+{
+	memset (&packetBuffer, 0, sizeof (packetBuffer));
+	packetsSent = packetsReSent = packetsReceived = 0;
+	receivedDuplicateCount = shortPacketCount = droppedDatagrams = 0;
+	net_time = 0;
+	messagesReceived = unreliableMessagesReceived = 0;
+}
+
 /* ---------------------------------------------------------------------------
  * Phase 5 M4 (review follow-up): fscanf oracle for the demo forcetrack
  * header parse. This is the exact C idiom CL_PlayDemo_f used --

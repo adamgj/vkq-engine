@@ -11,6 +11,7 @@
 #![deny(unsafe_code)]
 
 pub mod demo;
+pub mod dgrm;
 pub mod loopback;
 pub mod msg;
 pub mod protocol;

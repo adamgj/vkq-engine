@@ -110,6 +110,27 @@ size_t UTF8_WriteCodePoint (char *dst, size_t maxbytes, uint32_t codepoint);
 #define msg_badread					 c_ref_msg_badread
 #define net_message					 c_ref_net_message
 #define harness_badread_count		 c_ref_harness_badread_count
+/* net_dgrm_rel.c (Phase 5 M6): the datagram reliable-layer oracle + the
+ * ambient net globals it references (stub-owned) */
+#define Datagram_SendMessage			  c_ref_Datagram_SendMessage
+#define SendMessageNext					  c_ref_SendMessageNext
+#define ReSendMessage					  c_ref_ReSendMessage
+#define Datagram_CanSendMessage			  c_ref_Datagram_CanSendMessage
+#define Datagram_CanSendUnreliableMessage c_ref_Datagram_CanSendUnreliableMessage
+#define Datagram_SendUnreliableMessage	  c_ref_Datagram_SendUnreliableMessage
+#define Datagram_ProcessPacket			  c_ref_Datagram_ProcessPacket
+#define Datagram_GetMessage				  c_ref_Datagram_GetMessage
+#define packetBuffer					  c_ref_packetBuffer
+#define packetsSent						  c_ref_packetsSent
+#define packetsReSent					  c_ref_packetsReSent
+#define packetsReceived					  c_ref_packetsReceived
+#define receivedDuplicateCount			  c_ref_receivedDuplicateCount
+#define shortPacketCount				  c_ref_shortPacketCount
+#define droppedDatagrams				  c_ref_droppedDatagrams
+#define net_landrivers					  c_ref_net_landrivers
+#define net_time						  c_ref_net_time
+#define messagesReceived				  c_ref_messagesReceived
+#define unreliableMessagesReceived		  c_ref_unreliableMessagesReceived
 
 /* mplane_t comes from the real gl_model.h, included below (Phase 3) */
 
@@ -630,6 +651,8 @@ extern ctest_cls_stub_t cls;
 #include "net_sys.h"
 #include "net.h"
 #include "net_defs.h"
+#include "net_dgrm.h"	  /* Phase 5 M6: the reliable-layer oracle decls */
+#include "net_dgrm_int.h" /* dgrm_packet_t + the rel-layer shared statics */
 /* stub-owned c_ref net_message (net_main.c is not compiled here); tests
  * point .data/.cursize at fixtures. The names expand through the renames. */
 extern sizebuf_t	net_message;
