@@ -181,3 +181,34 @@ M5 exit (session end): full corpus incl. registered-tier local entries, record_d
     safe; `CL_Record_Signons`' scratch buffer is `static byte
     [NET_MAXMESSAGE]`, exactly net_message.maxsize, so the shim slice
     construction stays in-bounds during the data swap.
+- **2026-08-26 second review pass** (M4/M5/ABI/CI surfaces; verdict "ready
+  with stated residual risk", no correctness/ABI/build defects found):
+  1. `capture_diff.py` gained `--min-window` (default 1024): a degenerate
+     early C-vs-C reference divergence now FAILS the gate instead of
+     silently shrinking the byte-compare window to nothing.
+  2. New `net_demo_differential.rs` + `ctest_demo_forcetrack_oracle` stub:
+     `parse_forcetrack` is differentially tested against the platform
+     libc's actual `fscanf("%i")`+`fgetc` (20k randomized inputs + corner
+     grammar), closing the M4 "file-level differential" gap.
+  3. COMPAT notes added in cl_demo.c for the two accepted divergences: the
+     64-byte forcetrack chunk bound (C's fscanf run was unbounded) and the
+     atomic 16-byte header read (no partial cl.mviewangles updates on a
+     truncated record; both builds stop playback).
+  4. `parse_forcetrack` now accumulates in the sign's direction so overflow
+     saturates to LONG_MIN like strtol (was -LONG_MAX).
+  5. The USE_RUST_NET vtable entries in net_bsd.c/net_win.c use designated
+     initializers: the three same-signature slot pairs can no longer swap
+     silently.
+  6. debug_asserts record the loopback aliasing invariant (peer != sock).
+  - Verified during review (recorded): pak-embedded forcetrack seek
+    arithmetic exact; Loop_Init isDedicated substitution sound (host.c
+    derives cls.state from the same parm before NET_Init); net_abi.rs runs
+    on windows-latest via rust.yml's 3-OS cargo test, gating SysSocket and
+    the qsa_family ladder on MSVC; build-windows.yml/build-mac.yml's
+    -Duse_rust=enabled legs auto-enable use_rust_net, so the flipped
+    configuration compiles on all three OSes in CI; the workflows' shared
+    paths filter admits all changed paths.
+  - Deferred to M8/M10 (recorded): a cross-build record->playback
+    round-trip leg (today: byte-identical .dem files + the generic corpus
+    playback compose to cover it); an explicit multi-client listen-server
+    smoke.

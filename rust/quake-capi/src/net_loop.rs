@@ -183,6 +183,9 @@ pub unsafe extern "C" fn rust_loop_SendMessage(sock: *mut QSocket, data: *mut Si
         if s.driverdata.is_null() {
             return -1;
         }
+        // aliasing invariant: Loop_Connect always cross-links two DISTINCT
+        // pool sockets, so `peer` never overlaps `s`
+        debug_assert!(!core::ptr::eq(s.driverdata.cast::<QSocket>(), sock));
         let peer = &mut *s.driverdata.cast::<QSocket>();
         let payload = core::slice::from_raw_parts((*data).data, (*data).cursize as usize);
         if !loopback::push_reliable(
@@ -212,6 +215,8 @@ pub unsafe extern "C" fn rust_loop_SendUnreliableMessage(
         if s.driverdata.is_null() {
             return -1;
         }
+        // aliasing invariant: see rust_loop_SendMessage
+        debug_assert!(!core::ptr::eq(s.driverdata.cast::<QSocket>(), sock));
         let peer = &mut *s.driverdata.cast::<QSocket>();
         let payload = core::slice::from_raw_parts((*data).data, (*data).cursize as usize);
         if loopback::push_unreliable(

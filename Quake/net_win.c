@@ -37,9 +37,22 @@ net_driver_t net_drivers[] = {
 	/* Rust migration Phase 5 M5: the loopback driver slots point at the Rust
 	   implementation; Loop_SearchForHosts (hostcache/slist plumbing) stays C
 	   until M9. Loop must stay driver 0 (IS_LOOP_DRIVER). */
-	{"Loopback", false, rust_loop_Init, rust_loop_Listen, Loop_QueryAddresses, Loop_SearchForHosts, rust_loop_Connect, rust_loop_CheckNewConnections,
-	 rust_loop_GetAnyMessage, rust_loop_GetMessage, rust_loop_SendMessage, rust_loop_SendUnreliableMessage, rust_loop_CanSendMessage,
-	 rust_loop_CanSendUnreliableMessage, rust_loop_Close, rust_loop_Shutdown},
+	{.name = "Loopback",
+	 .initialized = false,
+	 .Init = rust_loop_Init,
+	 .Listen = rust_loop_Listen,
+	 .QueryAddresses = Loop_QueryAddresses,
+	 .SearchForHosts = Loop_SearchForHosts,
+	 .Connect = rust_loop_Connect,
+	 .CheckNewConnections = rust_loop_CheckNewConnections,
+	 .QGetAnyMessage = rust_loop_GetAnyMessage,
+	 .QGetMessage = rust_loop_GetMessage,
+	 .QSendMessage = rust_loop_SendMessage,
+	 .SendUnreliableMessage = rust_loop_SendUnreliableMessage,
+	 .CanSendMessage = rust_loop_CanSendMessage,
+	 .CanSendUnreliableMessage = rust_loop_CanSendUnreliableMessage,
+	 .Close = rust_loop_Close,
+	 .Shutdown = rust_loop_Shutdown},
 #else
 	{"Loopback", false, Loop_Init, Loop_Listen, Loop_QueryAddresses, Loop_SearchForHosts, Loop_Connect, Loop_CheckNewConnections, Loop_GetAnyMessage,
 	 Loop_GetMessage, Loop_SendMessage, Loop_SendUnreliableMessage, Loop_CanSendMessage, Loop_CanSendUnreliableMessage, Loop_Close, Loop_Shutdown},

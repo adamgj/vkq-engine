@@ -69,11 +69,11 @@ unsafe fn with_sizebuf(
     raw.overflowed = view.overflowed;
     let events = view.overflow_events;
     let _ = view; // end the sizebuf borrow before touching module state
-    // ADR-009/aliasing: no C is called from this frame. The overflow
-    // diagnostics ("SZ_GetSpace: overflow") are accumulated here and emitted
-    // by net_msg_glue.c's C frame after the export returns -- Con_Printf is
-    // not a leaf (it can reach SCR_UpdateScreen), so it must not run while
-    // Rust holds borrows of the sizebuf.
+                  // ADR-009/aliasing: no C is called from this frame. The overflow
+                  // diagnostics ("SZ_GetSpace: overflow") are accumulated here and emitted
+                  // by net_msg_glue.c's C frame after the export returns -- Con_Printf is
+                  // not a leaf (it can reach SCR_UpdateScreen), so it must not run while
+                  // Rust holds borrows of the sizebuf.
     if events > 0 {
         // SAFETY: single-threaded host frame (caller contract)
         unsafe {

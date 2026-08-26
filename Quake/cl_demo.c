@@ -154,6 +154,10 @@ static int CL_GetDemoMessage (void)
 
 		// get the next message
 #ifdef USE_RUST_NET
+	// COMPAT (accepted divergence): the header is read atomically, so a demo
+	// truncated 4-15 bytes into a record stops playback WITHOUT the partial
+	// cl.mviewangles updates the C per-field reads would have left behind.
+	// Only malformed demos differ, and both builds stop playback.
 	{
 		byte header[16];
 
@@ -775,6 +779,10 @@ void CL_PlayDemo_f (void)
 	// fscanf skips that byte too and screws up further reads.
 	//	fscanf (cls.demofile, "%i\n", &cls.forcetrack);
 #ifdef USE_RUST_NET
+	// COMPAT: fscanf's whitespace/digit runs were unbounded; this reads a
+	// 64-byte chunk, so a hand-authored header line longer than that is
+	// rejected as invalid where the C build would accept it. No known demo
+	// comes close (the writer emits at most 12 bytes).
 	{
 		char	   trackline[64];
 		int		   consumed = 0;

@@ -80,6 +80,10 @@ def main():
     p.add_argument("--min-reliable-prefix", type=int, default=16384,
                    help="bytes of per-direction reliable stream that must "
                         "match exactly (clamped to the shorter stream)")
+    p.add_argument("--min-window", type=int, default=1024,
+                   help="fail if the calibrated gate window drops below this "
+                        "many bytes: a degenerate early reference divergence "
+                        "must not silently reduce the gate to a no-op")
     p.add_argument("--window-from", metavar="CAP",
                    help="calibrate the gate window per direction to the "
                         "common reliable prefix of cap_a and this capture "
@@ -113,6 +117,14 @@ def main():
                       f"{noise_floor} bytes (reference build's own "
                       f"run-to-run divergence point)")
                 window = noise_floor
+            # only gate the floor where a stream exists at all: the send
+            # direction of a short session can be legitimately tiny
+            if window < args.min_window and min(len(sa), len(sb)) >= args.min_window:
+                print(f"FAIL: {DIR_NAMES[direction]} gate window degenerate "
+                      f"({window} < --min-window {args.min_window}): the "
+                      f"reference captures diverge too early to gate anything")
+                ok = False
+                continue
         if (len(sa) == 0) != (len(sb) == 0):
             print(f"FAIL: {DIR_NAMES[direction]} reliable stream present in "
                   f"only one capture ({len(sa)} vs {len(sb)} bytes)")

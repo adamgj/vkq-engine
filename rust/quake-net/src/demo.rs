@@ -53,9 +53,12 @@ pub fn forcetrack_line(track: i32) -> Vec<u8> {
 ///
 /// fscanf's `%i` is strtol base 0: leading C whitespace skipped, optional
 /// sign, `0x` hex / leading-`0` octal / decimal. COMPAT: out-of-range
-/// values are undefined in C (glibc/macOS saturate then truncate to int);
-/// mirrored via saturating i64 accumulation. No engine-written demo hits
-/// any of these corners (the writer emits plain decimal).
+/// values are undefined in C; glibc/macOS strtol saturates to
+/// LONG_MAX/LONG_MIN before the int truncation, mirrored here by
+/// accumulating in the sign's own direction with i64 saturation. No
+/// engine-written demo hits these corners (the writer emits plain decimal);
+/// the reachable domain is differentially tested against libc
+/// (net_demo_differential.rs).
 pub fn parse_forcetrack(buf: &[u8]) -> Option<(i32, usize)> {
     let mut i = 0;
     while i < buf.len() && matches!(buf[i], b' ' | b'\t' | b'\n' | b'\x0b' | b'\x0c' | b'\r') {
@@ -93,14 +96,20 @@ pub fn parse_forcetrack(buf: &[u8]) -> Option<(i32, usize)> {
             (b'A'..=b'F', 16) => i64::from(c - b'A') + 10,
             _ => break,
         };
-        val = val.saturating_mul(base).saturating_add(d);
+        // accumulate in the sign's direction so overflow saturates to
+        // LONG_MIN/LONG_MAX like strtol, not to -LONG_MAX
+        val = if neg {
+            val.saturating_mul(base).saturating_sub(d)
+        } else {
+            val.saturating_mul(base).saturating_add(d)
+        };
         digits += 1;
         i += 1;
     }
     if digits == 0 {
         return None;
     }
-    let track = if neg { val.wrapping_neg() } else { val } as i32;
+    let track = val as i32;
     // the explicit fgetc check: the very next byte must be the newline
     if buf.get(i) != Some(&b'\n') {
         return None;

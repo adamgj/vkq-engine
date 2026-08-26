@@ -2266,3 +2266,29 @@ void ctest_qsocket_reset_c (void)
 	ctest_qsocket_used = 0;
 	memset (ctest_qsocket_pool, 0, sizeof (ctest_qsocket_pool));
 }
+
+/* ---------------------------------------------------------------------------
+ * Phase 5 M4 (review follow-up): fscanf oracle for the demo forcetrack
+ * header parse. This is the exact C idiom CL_PlayDemo_f used --
+ * fscanf ("%i") then an explicit fgetc == '\n' -- run over a memory buffer
+ * via tmpfile so quake_net::demo::parse_forcetrack can be differentially
+ * tested against the platform libc instead of the implementer's reading.
+ */
+int ctest_demo_forcetrack_oracle (const char *bytes, int len, int *track, int *consumed)
+{
+	FILE *f = tmpfile ();
+	int	  ok;
+	if (!f)
+		return -1;
+	if (len > 0 && fwrite (bytes, 1, (size_t)len, f) != (size_t)len)
+	{
+		fclose (f);
+		return -1;
+	}
+	rewind (f);
+	ok = !(fscanf (f, "%i", track) != 1 || fgetc (f) != '\n');
+	if (ok)
+		*consumed = (int)ftell (f);
+	fclose (f);
+	return ok;
+}

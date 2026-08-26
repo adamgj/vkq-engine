@@ -56,6 +56,7 @@ def run_record(exe, game_data, map_name, frames):
          "-harnesscmds", "harness.cmds"],
         cwd=staging, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
         text=True, timeout=600)
+    # -exitafter exits with code 2 by design (harness runaway guard)
     if proc.returncode not in (0, 2):
         sys.stderr.write(proc.stdout[-3000:])
         sys.exit(f"error: {exe} exited with {proc.returncode}")
