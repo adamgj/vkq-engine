@@ -631,3 +631,65 @@ fn roundtrip_rust_write_c_read() {
     ];
     compare_read_ops(rbuf.data, cursize, &ops, "rust->c roundtrip");
 }
+
+/// Golden pins for the ReadUInt64/WriteUInt64 COMPAT bug domain (values
+/// needing >= 4 continuation bytes). The C original's `int` shifts are UB
+/// that both supported architectures' variable-shift instructions resolve
+/// by 31-masking; these vectors pin the observed encode bytes and (buggy)
+/// decode values on BOTH the Rust port and the c_ref oracle, so an
+/// optimization- or platform-dependent codegen change in either breaks the
+/// gate loudly instead of silently shifting the wire format.
+#[test]
+fn uint64_bug_domain_goldens() {
+    let _g = lock();
+    const VALS: [u64; 6] = [
+        (1u64 << 28) - 1,
+        1u64 << 28,
+        1u64 << 35,
+        1u64 << 56,
+        u64::MAX,
+        0x123456789ABCDEF0,
+    ];
+    const GOLDEN_BYTES: [u8; 43] = [
+        239, 255, 255, 255, 240, 16, 0, 0, 0, 248, 8, 0, 0, 0, 0, 255, 1, 0, 0, 0, 0, 0, 0, 0, 255,
+        255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 18, 52, 86, 120, 154, 188, 222, 240,
+    ];
+    const GOLDEN_DECODE: [u64; 6] = [
+        0xfffffff,
+        0x10000000,
+        0x8,       // 1<<35: masked-shift truncation
+        0x1000000, // 1<<56: masked-shift truncation
+        0xffffffffffffffff,
+        0xffffffffff9abcde, // sign-extension of the shifted int
+    ];
+
+    // Rust writer + reader
+    let mut store = vec![0u8; 4096];
+    let mut sb = SizeBuf::new(&mut store);
+    for &v in &VALS {
+        msg::write_uint64(&mut sb, v).unwrap();
+    }
+    assert_eq!(sb.written(), GOLDEN_BYTES, "rust encode golden");
+    let cursize = sb.cursize;
+    let mut rd = quake_net::msg::MsgReader::begin(sb.data, cursize);
+    for (i, &want) in GOLDEN_DECODE.iter().enumerate() {
+        assert_eq!(rd.read_uint64(), want, "rust decode golden [{i}]");
+    }
+
+    // c_ref oracle writer + reader over the same vectors
+    let mut cbuf = CBuf::new(4096, false);
+    // SAFETY: serialized under TEST_LOCK; live sizebuf/globals
+    unsafe {
+        for &v in &VALS {
+            c_ref_MSG_WriteUInt64(&mut cbuf.sb, v);
+        }
+        assert_eq!(cbuf.written(), GOLDEN_BYTES, "c_ref encode golden");
+        c_ref_net_message.data = cbuf.store.as_mut_ptr();
+        c_ref_net_message.maxsize = cbuf.store.len() as c_int;
+        c_ref_net_message.cursize = cbuf.sb.cursize;
+        c_ref_MSG_BeginReading();
+        for (i, &want) in GOLDEN_DECODE.iter().enumerate() {
+            assert_eq!(c_ref_MSG_ReadUInt64(), want, "c_ref decode golden [{i}]");
+        }
+    }
+}

@@ -152,3 +152,32 @@ M5 exit (session end): full corpus incl. registered-tier local entries, record_d
   (FFI-heavy qsocket plumbing; precedent: snd_dma.rs), the frame format in
   quake-net::loopback (pure). The ctest prelude now also neuters q_stdinc.h
   (SDL.h) for direct includers like net_loop.c.
+- **2026-08-26 review fixes** (fresh-context compatibility review of M1–M5):
+  1. `Con_Printf` is not a leaf (it can reach `SCR_UpdateScreen`), so the
+     Rust `with_sizebuf` frame no longer calls it while holding sizebuf
+     borrows: allowed-overflow diagnostics accumulate Rust-side and
+     `net_msg_glue.c`'s `NetMsg_Raise` drains them via
+     `quake_rs_sz_take_overflow_events()` and prints from its C frame,
+     before any Host_Error (same output order as C).
+  2. C's float→int conversion is UB out-of-domain and the two architectures
+     resolve it differently (x86-64 cvtt* → INT_MIN incl. NaN; arm64 fcvtzs
+     saturates, NaN→0, = Rust `as`): `c_cast_i32` in msg.rs now reproduces
+     each platform's C behavior (Q_rint casts + coord24's two casts), so
+     per-platform C-vs-Rust parity holds on the x86-64 CI legs too.
+  3. `uint64_bug_domain_goldens` pins the exact encode bytes and (buggy)
+     decode values of the ReadUInt64/WriteUInt64 masked-shift domain on both
+     the Rust port and the c_ref oracle, so an optimization- or
+     platform-dependent codegen change breaks the gate loudly. Note: the
+     c_ref oracle is compiled at the cargo profile's opt level (-O0 for
+     tests), the engine at -O2; the goldens plus the engine-level corpus
+     gates bracket that gap.
+  4. Explicit `break;` after each noreturn raise in `NetMsg_Raise`.
+  - Accepted divergence (recorded): the glue's `Sys_Error ("SZ_GetSpace: %i
+    is > full buffer size")` prints a fixed per-writer length placeholder
+    rather than the exact internal request on multi-write ops — fatal-path
+    message text only, unreachable with SZ_Alloc-sized buffers.
+  - Verified during review: `Sys_Error` exits (no longjmp) on both
+    sys_sdl_unix.c and sys_sdl_win.c, so Sys_Error-from-Rust is ADR-009
+    safe; `CL_Record_Signons`' scratch buffer is `static byte
+    [NET_MAXMESSAGE]`, exactly net_message.maxsize, so the shim slice
+    construction stays in-bounds during the data swap.

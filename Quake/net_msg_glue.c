@@ -47,20 +47,33 @@ qboolean msg_badread;
 
 static void NetMsg_Raise (int status, int value, int length)
 {
+	/* ADR-009/aliasing: the Rust exports must not call Con_Printf (it is not
+	   a leaf) while they hold borrows of the sizebuf, so the allowed-overflow
+	   diagnostics are accumulated Rust-side and printed here, in a C frame,
+	   before any error is raised -- same output order as the C original. */
+	unsigned int overflows = quake_rs_sz_take_overflow_events ();
+	while (overflows--)
+		Con_Printf ("SZ_GetSpace: overflow\n");
+
 	switch (status)
 	{
 	case SZ_OK:
 		return;
 	case SZ_ERR_OVERFLOW:
 		Host_Error ("SZ_GetSpace: overflow without allowoverflow set"); // ericw -- made Host_Error to be less annoying
+		break;
 	case SZ_ERR_OVERSIZE:
 		Sys_Error ("SZ_GetSpace: %i is > full buffer size", length);
+		break;
 	case SZ_ERR_RANGE_CHAR:
 		Host_Error ("MSG_WriteChar: range error = %i not in -128..127", value);
+		break;
 	case SZ_ERR_RANGE_BYTE:
 		Host_Error ("MSG_WriteByte: range error = %i not in 0..255", value);
+		break;
 	case SZ_ERR_RANGE_SHORT:
 		Host_Error ("MSG_WriteShort: range error = %i not in -32768..65535", value);
+		break;
 	default:
 		Sys_Error ("NetMsg_Raise: unknown status %i", status);
 	}

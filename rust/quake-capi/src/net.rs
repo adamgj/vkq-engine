@@ -67,13 +67,38 @@ unsafe fn with_sizebuf(
     let r = f(&mut view);
     raw.cursize = view.cursize;
     raw.overflowed = view.overflowed;
-    for _ in 0..view.overflow_events {
-        // SAFETY: plain variadic print, no longjmp
-        unsafe { c::Con_Printf(c"SZ_GetSpace: overflow\n".as_ptr()) };
+    let events = view.overflow_events;
+    let _ = view; // end the sizebuf borrow before touching module state
+    // ADR-009/aliasing: no C is called from this frame. The overflow
+    // diagnostics ("SZ_GetSpace: overflow") are accumulated here and emitted
+    // by net_msg_glue.c's C frame after the export returns -- Con_Printf is
+    // not a leaf (it can reach SCR_UpdateScreen), so it must not run while
+    // Rust holds borrows of the sizebuf.
+    if events > 0 {
+        // SAFETY: single-threaded host frame (caller contract)
+        unsafe {
+            PENDING_OVERFLOW_PRINTS = PENDING_OVERFLOW_PRINTS.wrapping_add(events);
+        }
     }
     match r {
         Ok(()) => SZ_OK,
         Err(e) => status_of(e),
+    }
+}
+
+/// pending "SZ_GetSpace: overflow" diagnostics for the glue to print in a C
+/// frame; single-threaded host frame like the C original's console path
+static mut PENDING_OVERFLOW_PRINTS: c_uint = 0;
+
+/// Drains the pending overflow-diagnostic count; net_msg_glue.c prints one
+/// "SZ_GetSpace: overflow" line per event from its own C frame.
+#[no_mangle]
+pub extern "C" fn quake_rs_sz_take_overflow_events() -> c_uint {
+    // SAFETY: single-threaded host frame
+    unsafe {
+        let n = PENDING_OVERFLOW_PRINTS;
+        PENDING_OVERFLOW_PRINTS = 0;
+        n
     }
 }
 

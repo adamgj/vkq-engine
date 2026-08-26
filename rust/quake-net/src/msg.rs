@@ -22,16 +22,36 @@ use crate::protocol::{
 };
 use crate::sizebuf::{SizeBuf, WireError};
 
+/// COMPAT (ADR-010): C's float->int conversion is UB for NaN/out-of-range,
+/// and the two supported architectures resolve it differently at runtime:
+/// x86-64's cvttss2si/cvttsd2si produce INT_MIN (the "integer indefinite"
+/// value, NaN included), arm64's fcvtzs saturates (NaN -> 0) -- which is
+/// exactly what Rust's `as` does. The engine's C build therefore already
+/// differs across platforms here; this helper reproduces each platform's C
+/// behavior so C-vs-Rust parity holds per platform. Reachable only with
+/// out-of-domain inputs (e.g. NaN viewangles from buggy QC).
+#[inline]
+fn c_cast_i32(x: f64) -> i32 {
+    if cfg!(target_arch = "x86_64") {
+        if !(-2147483648.0..2147483648.0).contains(&x) {
+            i32::MIN
+        } else {
+            x as i32
+        }
+    } else {
+        x as i32
+    }
+}
+
 /// `Q_rint` (q_minmax.h) applied to a double argument: the macro adds the
 /// double literal 0.5, so every call site promotes to double before the
-/// truncating cast. Out-of-range casts saturate (arm64 C behavior; x86 C is
-/// UB and differs -- per-platform differential testing is the gate, ADR-010).
+/// truncating cast (see `c_cast_i32` for the out-of-domain behavior).
 #[inline]
 fn q_rint(x: f64) -> i32 {
     if x > 0.0 {
-        (x + 0.5) as i32
+        c_cast_i32(x + 0.5)
     } else {
-        (x - 0.5) as i32
+        c_cast_i32(x - 0.5)
     }
 }
 
@@ -161,8 +181,8 @@ pub fn write_coord16(sb: &mut SizeBuf<'_>, f: f32) -> Result<(), WireError> {
 /// 256) and the truncating cast, negative results reaching write_byte's
 /// silent truncation.
 pub fn write_coord24(sb: &mut SizeBuf<'_>, f: f32) -> Result<(), WireError> {
-    write_short(sb, f as i32)?;
-    write_byte(sb, ((f * 255.0f32) as i32) % 255)
+    write_short(sb, c_cast_i32(f as f64))?;
+    write_byte(sb, c_cast_i32((f * 255.0f32) as f64) % 255)
 }
 
 pub fn write_coord32f(sb: &mut SizeBuf<'_>, f: f32) -> Result<(), WireError> {
