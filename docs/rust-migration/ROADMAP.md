@@ -139,9 +139,11 @@ Crate: `quake-net`. Protocol *logic* in `cl_parse.c`/`sv_main.c` stays C this ph
 
 ---
 
-## Phase 6 — Progs VM (L — highest compatibility risk) `[ ]`
+## Phase 6 — Progs VM (L — highest compatibility risk) `[~]`
 
-Crate: `quake-progs`. Done **before** client/server so Phase 7 sits on the Rust VM. Near-transliteration first; idiomatize only after trace parity.
+Crate: `quake-progs`. Done **before** client/server so Phase 7 sits on the Rust VM. Near-transliteration first; idiomatize only after trace parity. Task plan: `docs/ai/plans/rust-conversion-phase-6.md`.
+
+**Status (2026-08-27):** M1 of the task plan implemented — the `quake-types::progs` ABI mirrors (incl. all 47 `qcvm_t` offsets and the `DEBUG`/`_DEBUG` `edict_t` fork) with the `progs_abi.rs` per-platform gate; the `use_rust_progs` meson switch + `progs` cargo feature + the `build-rs-cprogs` oracle config; and **`scripts/harness/trace_diff.py`**, the ADR-019 gate-3 consumer Phase 0 deliberately left unbuilt. Verified finding: demo playback never starts a server and emits **zero** progs trace records, so the trace oracle's scenarios are maps and the differ carries a minimum-record floor.
 
 **Scope**
 - Loader (`pr_edict.c`): `PROG_VERSION 6`, `PROGHEADER_CRC 5927` (+ known-foreign-CRC diagnostics), byteswap rules, CRC16 + folded-MD4 recording, **`PR_MergeEngineFieldDefs`** (exact append order; synthesized `colormod_x/_y/_z` defs), reverse-built symbol hash maps, string table with negative engine strings.

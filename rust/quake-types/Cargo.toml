@@ -9,3 +9,9 @@ publish.workspace = true
 
 [lints]
 workspace = true
+
+[features]
+# Mirrors the C build's DEBUG/_DEBUG (Meson sets it for debug buildtypes).
+# `edict_t` grows three bookkeeping fields under it (Quake/progs.h), so the
+# progs mirrors are build-profile dependent.
+engine-debug = []

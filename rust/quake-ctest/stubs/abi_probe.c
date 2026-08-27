@@ -739,3 +739,203 @@ size_t ctest_abi_net_lookup (const char *key)
 			return ctest_abi_net_table[i].value;
 	return (size_t)-1;
 }
+
+/* ---------------------------------------------------------------------------
+ * Phase 6 (progs VM) ABI probe. Under -Duse_rust_progs the Rust VM reads and
+ * writes the C-owned qcvm_t embedded in `sv`/`cl`, strides the C-allocated
+ * edict array by qcvm->edict_size, and calls C builtins out of
+ * qcvm->builtins[], so a mirror drift is silent memory corruption. edict_t's
+ * layout additionally forks on DEBUG/_DEBUG, which is why the table reports
+ * `const.ENGINE_DEBUG`: tests/progs_abi.rs asserts the Rust `engine-debug`
+ * feature agrees with how this TU was compiled.
+ */
+#include "progs.h"
+
+static const ctest_abi_entry_t ctest_abi_progs_table[] = {
+	SZ ("dstatement_t", dstatement_t),
+	OFF ("dstatement_t", dstatement_t, op),
+	OFF ("dstatement_t", dstatement_t, a),
+	OFF ("dstatement_t", dstatement_t, b),
+	OFF ("dstatement_t", dstatement_t, c),
+
+	SZ ("ddef_t", ddef_t),
+	OFF ("ddef_t", ddef_t, type),
+	OFF ("ddef_t", ddef_t, ofs),
+	OFF ("ddef_t", ddef_t, s_name),
+
+	SZ ("dfunction_t", dfunction_t),
+	OFF ("dfunction_t", dfunction_t, first_statement),
+	OFF ("dfunction_t", dfunction_t, parm_start),
+	OFF ("dfunction_t", dfunction_t, locals),
+	OFF ("dfunction_t", dfunction_t, profile),
+	OFF ("dfunction_t", dfunction_t, s_name),
+	OFF ("dfunction_t", dfunction_t, s_file),
+	OFF ("dfunction_t", dfunction_t, numparms),
+	OFF ("dfunction_t", dfunction_t, parm_size),
+
+	SZ ("dprograms_t", dprograms_t),
+	OFF ("dprograms_t", dprograms_t, version),
+	OFF ("dprograms_t", dprograms_t, crc),
+	OFF ("dprograms_t", dprograms_t, ofs_statements),
+	OFF ("dprograms_t", dprograms_t, ofs_globals),
+	OFF ("dprograms_t", dprograms_t, entityfields),
+
+	SZ ("globalvars_t", globalvars_t),
+	OFF ("globalvars_t", globalvars_t, self),
+	OFF ("globalvars_t", globalvars_t, time),
+	OFF ("globalvars_t", globalvars_t, v_forward),
+	OFF ("globalvars_t", globalvars_t, trace_endpos),
+	OFF ("globalvars_t", globalvars_t, main),
+	OFF ("globalvars_t", globalvars_t, SetChangeParms),
+
+	SZ ("entvars_t", entvars_t),
+	OFF ("entvars_t", entvars_t, modelindex),
+	OFF ("entvars_t", entvars_t, origin),
+	OFF ("entvars_t", entvars_t, classname),
+	OFF ("entvars_t", entvars_t, nextthink),
+	OFF ("entvars_t", entvars_t, netname),
+	OFF ("entvars_t", entvars_t, noise3),
+
+	SZ ("entity_state_t", entity_state_t),
+	OFF ("entity_state_t", entity_state_t, origin),
+	OFF ("entity_state_t", entity_state_t, effects),
+	OFF ("entity_state_t", entity_state_t, velocity),
+	OFF ("entity_state_t", entity_state_t, colormod),
+	OFF ("entity_state_t", entity_state_t, solidsize),
+
+	SZ ("link_t", link_t),
+	OFF ("link_t", link_t, prev),
+	OFF ("link_t", link_t, next),
+
+	SZ ("prstack_t", prstack_t),
+	OFF ("prstack_t", prstack_t, s),
+	OFF ("prstack_t", prstack_t, f),
+
+	SZ ("freelist_t", freelist_t),
+	OFF ("freelist_t", freelist_t, size),
+	OFF ("freelist_t", freelist_t, head_index),
+	OFF ("freelist_t", freelist_t, circular_buffer),
+
+	SZ ("areanode_t", areanode_t),
+	OFF ("areanode_t", areanode_t, axis),
+	OFF ("areanode_t", areanode_t, dist),
+	OFF ("areanode_t", areanode_t, children),
+	OFF ("areanode_t", areanode_t, trigger_edicts),
+	OFF ("areanode_t", areanode_t, solid_edicts),
+
+	SZ ("edict_t", edict_t),
+#if defined(DEBUG) || defined(_DEBUG)
+	OFF ("edict_t", edict_t, edict_ptr),
+	OFF ("edict_t", edict_t, qcvm_owner),
+	OFF ("edict_t", edict_t, edict_num),
+#endif
+	OFF ("edict_t", edict_t, area),
+	OFF ("edict_t", edict_t, num_leafs),
+	OFF ("edict_t", edict_t, leafnums),
+	OFF ("edict_t", edict_t, baseline),
+	OFF ("edict_t", edict_t, alpha),
+	OFF ("edict_t", edict_t, sendinterval),
+	OFF ("edict_t", edict_t, sendinterval_default),
+	OFF ("edict_t", edict_t, oldframe),
+	OFF ("edict_t", edict_t, oldthinktime),
+	OFF ("edict_t", edict_t, predthinkpos),
+	OFF ("edict_t", edict_t, lastthink),
+	OFF ("edict_t", edict_t, freetime),
+	OFF ("edict_t", edict_t, free),
+	OFF ("edict_t", edict_t, v),
+
+	SZ ("pr_extglobals_s", struct pr_extglobals_s),
+	OFF ("pr_extglobals_s", struct pr_extglobals_s, time),
+	OFF ("pr_extglobals_s", struct pr_extglobals_s, physics_mode),
+	OFF ("pr_extglobals_s", struct pr_extglobals_s, player_localentnum),
+
+	SZ ("pr_extfuncs_s", struct pr_extfuncs_s),
+	OFF ("pr_extfuncs_s", struct pr_extfuncs_s, GameCommand),
+	OFF ("pr_extfuncs_s", struct pr_extfuncs_s, CSQC_DrawHud),
+	OFF ("pr_extfuncs_s", struct pr_extfuncs_s, CSQC_Parse_Print),
+
+	SZ ("pr_extfields_s", struct pr_extfields_s),
+	OFF ("pr_extfields_s", struct pr_extfields_s, alpha),
+	OFF ("pr_extfields_s", struct pr_extfields_s, customphysics),
+	OFF ("pr_extfields_s", struct pr_extfields_s, SendFlags),
+
+	SZ ("qcvm_t", qcvm_t),
+	OFF ("qcvm_t", qcvm_t, progs),
+	OFF ("qcvm_t", qcvm_t, functions),
+	OFF ("qcvm_t", qcvm_t, function_map),
+	OFF ("qcvm_t", qcvm_t, statements),
+	OFF ("qcvm_t", qcvm_t, globals),
+	OFF ("qcvm_t", qcvm_t, fielddefs),
+	OFF ("qcvm_t", qcvm_t, fielddefs_map),
+	OFF ("qcvm_t", qcvm_t, edict_size),
+	OFF ("qcvm_t", qcvm_t, builtins),
+	OFF ("qcvm_t", qcvm_t, numbuiltins),
+	OFF ("qcvm_t", qcvm_t, argc),
+	OFF ("qcvm_t", qcvm_t, trace),
+	OFF ("qcvm_t", qcvm_t, xfunction),
+	OFF ("qcvm_t", qcvm_t, xstatement),
+	OFF ("qcvm_t", qcvm_t, progscrc),
+	OFF ("qcvm_t", qcvm_t, progshash),
+	OFF ("qcvm_t", qcvm_t, progssize),
+	OFF ("qcvm_t", qcvm_t, extglobals),
+	OFF ("qcvm_t", qcvm_t, extfuncs),
+	OFF ("qcvm_t", qcvm_t, extfields),
+	OFF ("qcvm_t", qcvm_t, strings),
+	OFF ("qcvm_t", qcvm_t, stringssize),
+	OFF ("qcvm_t", qcvm_t, knownstrings),
+	OFF ("qcvm_t", qcvm_t, knownstringsowned),
+	OFF ("qcvm_t", qcvm_t, maxknownstrings),
+	OFF ("qcvm_t", qcvm_t, numknownstrings),
+	OFF ("qcvm_t", qcvm_t, progsstrings),
+	OFF ("qcvm_t", qcvm_t, freeknownstrings),
+	OFF ("qcvm_t", qcvm_t, globaldefs),
+	OFF ("qcvm_t", qcvm_t, globaldefs_map),
+	OFF ("qcvm_t", qcvm_t, knownzone),
+	OFF ("qcvm_t", qcvm_t, knownzonesize),
+	OFF ("qcvm_t", qcvm_t, stack),
+	OFF ("qcvm_t", qcvm_t, depth),
+	OFF ("qcvm_t", qcvm_t, localstack),
+	OFF ("qcvm_t", qcvm_t, localstack_used),
+	OFF ("qcvm_t", qcvm_t, time),
+	OFF ("qcvm_t", qcvm_t, num_edicts),
+	OFF ("qcvm_t", qcvm_t, reserved_edicts),
+	OFF ("qcvm_t", qcvm_t, max_edicts),
+	OFF ("qcvm_t", qcvm_t, edicts),
+	OFF ("qcvm_t", qcvm_t, free_list),
+	OFF ("qcvm_t", qcvm_t, worldmodel),
+	OFF ("qcvm_t", qcvm_t, GetModel),
+	OFF ("qcvm_t", qcvm_t, areanodes),
+	OFF ("qcvm_t", qcvm_t, numareanodes),
+
+	{"sizeof.builtin_t", sizeof (builtin_t)},
+	{"const.PROG_VERSION", PROG_VERSION},
+	{"const.PROGHEADER_CRC", PROGHEADER_CRC},
+	{"const.MAX_PARMS", MAX_PARMS},
+	{"const.DEF_SAVEGLOBAL", DEF_SAVEGLOBAL},
+	{"const.OFS_RETURN", OFS_RETURN},
+	{"const.OFS_PARM0", OFS_PARM0},
+	{"const.OFS_PARM7", OFS_PARM7},
+	{"const.RESERVED_OFS", RESERVED_OFS},
+	{"const.MAX_ENT_LEAFS", MAX_ENT_LEAFS},
+	{"const.MAX_EDICTS", MAX_EDICTS},
+	{"const.MAX_AREA_DEPTH", MAX_AREA_DEPTH},
+	{"const.AREA_NODES", AREA_NODES},
+	{"const.MAX_STACK_DEPTH", MAX_STACK_DEPTH},
+	{"const.LOCALSTACK_SIZE", LOCALSTACK_SIZE},
+	{"const.STRINGTEMP_BUFFERS", STRINGTEMP_BUFFERS},
+	{"const.STRINGTEMP_LENGTH", STRINGTEMP_LENGTH},
+#if defined(DEBUG) || defined(_DEBUG)
+	{"const.ENGINE_DEBUG", 1},
+#else
+	{"const.ENGINE_DEBUG", 0},
+#endif
+};
+
+size_t ctest_abi_progs_lookup (const char *key)
+{
+	size_t i;
+	for (i = 0; i < sizeof (ctest_abi_progs_table) / sizeof (ctest_abi_progs_table[0]); i++)
+		if (!strcmp (ctest_abi_progs_table[i].name, key))
+			return ctest_abi_progs_table[i].value;
+	return (size_t)-1;
+}

@@ -388,6 +388,14 @@ if get_option('use_rust_net').enabled() and not use_rust
     error('-Duse_rust_net=enabled requires -Duse_rust=enabled (the networking wire layer ships in libquake_rs.a)')
 endif
 use_rust_net = use_rust and not get_option('use_rust_net').disabled()
+# Phase 6: the progs VM; the C pr_*.c originals stay the comparison oracle
+# under -Duse_rust_progs=disabled -- and here that is load-bearing beyond
+# convention: the ADR-019 gate-3 trace differ needs a C build to diff against.
+# Same auto-follows-use_rust rule as above
+if get_option('use_rust_progs').enabled() and not use_rust
+    error('-Duse_rust_progs=enabled requires -Duse_rust=enabled (the progs VM ships in libquake_rs.a)')
+endif
+use_rust_progs = use_rust and not get_option('use_rust_progs').disabled()
 # the Rust filesystem does not implement the DO_USERDIRS lookup branches yet
 # (quake-capi fails this combination with a compile_error!); say so here
 # rather than several minutes into a cargo build
@@ -424,6 +432,9 @@ if use_rust
     endif
     if use_rust_net
         rust_feature_list += 'net'
+    endif
+    if use_rust_progs
+        rust_feature_list += 'progs'
     endif
     # cargo features tracking C defines the fs shims must agree with
     if use_sdl3
@@ -486,6 +497,14 @@ if use_rust_net
     srcs += ['Quake/net_msg_glue.c', 'Quake/net_dgrm_glue.c']
 else
     srcs += ['Quake/net_msg.c', 'Quake/net_dgrm_rel.c']
+endif
+
+# Phase 6: the progs VM. The flip is per-file and lands milestone by milestone
+# (pr_exec.c first, then pr_edict.c, then the builtin tables slot by slot); M1
+# only wires the switch so -Duse_rust_progs=disabled exists as an oracle
+# configuration from the start of the phase.
+if use_rust_progs
+    cflags += '-DUSE_RUST_PROGS'
 endif
 
 if use_rust_snd

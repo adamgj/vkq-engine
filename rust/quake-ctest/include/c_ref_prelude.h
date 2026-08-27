@@ -40,6 +40,14 @@ size_t UTF8_WriteCodePoint (char *dst, size_t maxbytes, uint32_t codepoint);
 #define MAX_DATAGRAM 64000
 #define DATAGRAM_MTU 1400
 
+/* quakedef.h per-level limits the Phase 6 progs oracles need: freelist_t
+ * sizes its circular buffer on MAX_EDICTS, and ED_Alloc's reuse policy is
+ * written in terms of the two age thresholds */
+#define MIN_EDICTS						256
+#define MAX_EDICTS						32000
+#define MIN_EDICT_AGE_FOR_REUSE			2.0
+#define MAX_EDICT_FREETIME_ALWAYS_REUSE 2.0
+
 /* net_msg.c (Phase 5 M2): wire serialization oracle. The renames must sit
  * before the first common.h include so the declarations there rename too.
  * net_message itself lives in net_main.c (not compiled here); the c_ref

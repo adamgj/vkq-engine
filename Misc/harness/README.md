@@ -33,6 +33,7 @@ Harness runs are hermetic: per-user files (`vkQuake.cfg`, `basedirs.txt`, consol
 - `netreplay_diff.py` — replay one capture on two builds; state-hash chains + a demo recorded mid-replay must be byte-identical (the timing-noise-free net gate)
 - `interop_matrix.py` — 4-way C/Rust client x server localhost matrix across the negotiable protocol cells (`Base-/FTE+` 15/666/999; optional `--ipv6` leg)
 - `run_trace.py` — progs trace collection on a `-Dtrace=true` build
+- `trace_diff.py` — the ADR-019 gate-3 consumer: same headless scenario on two `-Dtrace=true` builds, every VM record compared in order, with a minimum-record floor (demo playback starts no server and so emits **zero** progs records — the oracle scenarios are maps)
 - `fetch_shareware.py` — pull the redistributable 1.06 shareware data for CI
 - `check_headers.sh` — core headers compile standalone + bindgen smoke
 

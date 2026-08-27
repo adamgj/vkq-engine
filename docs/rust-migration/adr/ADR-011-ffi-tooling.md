@@ -50,3 +50,22 @@ The transition period needs C→Rust bindings (Rust calling remaining C) and Rus
   cannot express (struct tags, pointer-to-array parameters, opaque handles)
   are excluded from generation and hand-declared in cbindgen's
   `after_includes`, covered by the same gate.
+
+## Amended (Phase 6 M1, 2026-08-27)
+
+`progs.h` joins `net_defs.h` on the not-a-bindgen-clean-root list: it pulls
+`pr_comp.h`, `progdefs.h` (→ `progdefs.q1`), `common.h` for `link_t` and
+`protocol.h` for `entity_state_t`, and its `MAX_EDICTS`-sized free list comes
+from `quakedef.h`. The progs ABI is therefore hand-written in
+`quake-types::progs` — `dprograms_t`, `dstatement_t`, `ddef_t`, `dfunction_t`,
+`globalvars_t`, `entvars_t`, `entity_state_t`, `link_t`, `prstack_t`,
+`freelist_t`, `areanode_t`, `edict_t`'s fixed header, the three `pr_ext*`
+structs, and the whole of `qcvm_t` — and verified per-platform by
+`quake-ctest/tests/progs_abi.rs` against a probe compiled from the engine's
+own headers.
+
+`edict_t` carries a **per-build-profile** fork (`DEBUG`/`_DEBUG` prepends
+three bookkeeping fields), so the mirror is gated on the `engine-debug` cargo
+feature and the probe publishes `const.ENGINE_DEBUG`. The suite asserts the
+two agree *before* checking any offset — a mismatch there would otherwise make
+every subsequent assertion compare against the wrong C layout.
