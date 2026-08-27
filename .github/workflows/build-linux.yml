@@ -186,7 +186,10 @@ jobs:
     - name: Progs trace parity (Rust VM vs C)
       run: |
         export QUAKE_GAME_DATA="$PWD/shareware-data"
-        for m in e1m1 e1m2 e1m3; do
+        # e1m1/e1m2/start are the shareware maps the corpus already
+        # proves are present; the wider map set and the mission-pack
+        # gamedirs are registered-tier and run locally
+        for m in e1m1 e1m2 start; do
           python3 scripts/harness/trace_diff.py --vkquake build-c-trace/vkqr-engine \
             --vkquake-b build-rs-trace/vkqr-engine --map "$m" --exitafter 400
         done
