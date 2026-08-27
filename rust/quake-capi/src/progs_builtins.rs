@@ -9,13 +9,20 @@ use core::ffi::c_int;
 
 use quake_c_sys as c;
 use quake_progs::arena::{EdictArena, VmRaw};
-use quake_progs::builtins::{self, BuiltinError, BuiltinSys};
+use quake_progs::builtins::{self, BuiltinError, BuiltinSys, MsgKind, MsgValue};
 use quake_types::progs::QcVm;
 
 /// Status codes shared with `Quake/pr_cmds_glue.c` (keep in sync).
 const PRBI_OK: c_int = 0;
 const PRBI_ERR_FIND_BAD_STRING: c_int = 1;
 const PRBI_ERR_NO_STRING: c_int = 2;
+/// A guarded seam raised; `detail` carries `Host_Guard`'s result and the C
+/// wrapper re-issues the jump with `Host_Reraise` (ADR-009).
+const PRBI_ERR_GUARD: c_int = 3;
+const PRBI_ERR_PROGRAM_ERROR: c_int = 4;
+const PRBI_ERR_WRITEDEST_NOT_CLIENT: c_int = 5;
+const PRBI_ERR_WRITEDEST_BAD_DEST: c_int = 6;
+const PRBI_ERR_BAD_EDICT_POINTER: c_int = 7;
 
 /// Deferred console output, for the same reason the parser and loader shims
 /// defer theirs: `Con_Printf` is not a leaf.
@@ -129,6 +136,77 @@ impl BuiltinSys for EngineBuiltin {
         unsafe { c::Cbuf_AddText(text.as_ptr().cast()) }
     }
 
+    fn ed_alloc(&mut self) -> Result<c_int, BuiltinError> {
+        let mut num = 0;
+        // SAFETY: the glue runs ED_Alloc under its own Host_Guard, so its
+        // "no free edicts" raise never crosses this frame (ADR-009).
+        let guard = unsafe { c::PRBI_Glue_EdAlloc(&mut num) };
+        if guard != 0 {
+            return Err(BuiltinError::GuardCaught(guard));
+        }
+        Ok(num)
+    }
+
+    fn ed_free(&mut self, num: c_int) -> Result<(), BuiltinError> {
+        // SAFETY: guarded, as `ed_alloc`.
+        let guard = unsafe { c::PRBI_Glue_EdFree(num) };
+        if guard != 0 {
+            return Err(BuiltinError::GuardCaught(guard));
+        }
+        Ok(())
+    }
+
+    fn ed_print_with_banner(&mut self, banner: &[u8], num: c_int) -> Result<(), BuiltinError> {
+        let banner = cstring(banner);
+        // SAFETY: NUL-terminated; guarded, as `ed_alloc`. Both halves run in
+        // the C frame so the console order matches C's.
+        let guard = unsafe { c::PRBI_Glue_EdPrintWithBanner(banner.as_ptr().cast(), num) };
+        if guard != 0 {
+            return Err(BuiltinError::GuardCaught(guard));
+        }
+        Ok(())
+    }
+
+    fn ed_print_num(&mut self, num: c_int) -> Result<(), BuiltinError> {
+        // SAFETY: guarded, as `ed_alloc`.
+        let guard = unsafe { c::PRBI_Glue_EdPrintNum(num) };
+        if guard != 0 {
+            return Err(BuiltinError::GuardCaught(guard));
+        }
+        Ok(())
+    }
+
+    fn maxclients(&mut self) -> c_int {
+        // SAFETY: reads one int out of svs.
+        unsafe { c::PRBI_Glue_MaxClients() }
+    }
+
+    fn msg_write(&mut self, dest: c_int, entnum: c_int, kind: MsgKind, value: MsgValue) {
+        let kind = match kind {
+            MsgKind::Byte => 0,
+            MsgKind::Char => 1,
+            MsgKind::Short => 2,
+            MsgKind::Long => 3,
+            MsgKind::Angle => 4,
+            MsgKind::Coord => 5,
+            MsgKind::Str => 6,
+            MsgKind::Entity => 7,
+        };
+        let (i, f, bytes) = match value {
+            MsgValue::Int(v) => (v, 0.0, None),
+            MsgValue::Float(v) => (0, v, None),
+            MsgValue::Bytes(b) => (0, 0.0, Some(cstring(b))),
+        };
+        let p = bytes
+            .as_ref()
+            .map_or(core::ptr::null(), |b| b.as_ptr().cast());
+        // SAFETY: `p` is NUL-terminated when the kind is Str and unread
+        // otherwise; the glue resolves `dest`/`entnum` back to the sizebuf
+        // WriteDest chose. MSG_Write* can Sys_Error on overflow, which exits
+        // rather than longjmping, so no Rust frame is skipped.
+        unsafe { c::PRBI_Glue_MsgWrite(dest, entnum, kind, i, f, p) }
+    }
+
     fn changelevel_issued(&mut self, set: bool) -> bool {
         // SAFETY: reads and conditionally sets one `qboolean` in `svs`.
         unsafe { c::PRBI_Glue_ChangelevelIssued(set) }
@@ -198,6 +276,15 @@ fn run(
             unsafe { *detail = n };
             PRBI_ERR_NO_STRING
         }
+        Err(BuiltinError::GuardCaught(g)) => {
+            // SAFETY: as above.
+            unsafe { *detail = g };
+            PRBI_ERR_GUARD
+        }
+        Err(BuiltinError::ProgramError) => PRBI_ERR_PROGRAM_ERROR,
+        Err(BuiltinError::WriteDestNotAClient) => PRBI_ERR_WRITEDEST_NOT_CLIENT,
+        Err(BuiltinError::WriteDestBadDestination) => PRBI_ERR_WRITEDEST_BAD_DEST,
+        Err(BuiltinError::BadEdictPointer) => PRBI_ERR_BAD_EDICT_POINTER,
     }
 }
 
@@ -494,6 +581,152 @@ pub unsafe extern "C" fn quake_rs_pf_coredump(detail: *mut c_int) -> c_int {
     run(detail, |_vm, sys| {
         builtins::pf_coredump(sys);
         Ok(())
+    })
+}
+
+/// `PF_Spawn`.
+///
+/// # Safety
+///
+/// Called only from the builtin table, with `detail` pointing at a live `int`.
+#[no_mangle]
+pub unsafe extern "C" fn quake_rs_pf_Spawn(detail: *mut c_int) -> c_int {
+    run(detail, |vm, sys| builtins::pf_spawn(vm, sys))
+}
+
+/// `PF_Remove`.
+///
+/// # Safety
+///
+/// Called only from the builtin table, with `detail` pointing at a live `int`.
+#[no_mangle]
+pub unsafe extern "C" fn quake_rs_pf_Remove(detail: *mut c_int) -> c_int {
+    run(detail, |vm, sys| builtins::pf_remove(vm, sys))
+}
+
+/// `PF_eprint`.
+///
+/// # Safety
+///
+/// Called only from the builtin table, with `detail` pointing at a live `int`.
+#[no_mangle]
+pub unsafe extern "C" fn quake_rs_pf_eprint(detail: *mut c_int) -> c_int {
+    run(detail, |vm, sys| builtins::pf_eprint(vm, sys))
+}
+
+/// `PF_error`.
+///
+/// # Safety
+///
+/// Called only from the builtin table, with `detail` pointing at a live `int`.
+#[no_mangle]
+pub unsafe extern "C" fn quake_rs_pf_error(detail: *mut c_int) -> c_int {
+    run(detail, |vm, sys| builtins::pf_error(vm, sys))
+}
+
+/// `PF_objerror`.
+///
+/// # Safety
+///
+/// Called only from the builtin table, with `detail` pointing at a live `int`.
+#[no_mangle]
+pub unsafe extern "C" fn quake_rs_pf_objerror(detail: *mut c_int) -> c_int {
+    run(detail, |vm, sys| builtins::pf_objerror(vm, sys))
+}
+
+/// `PF_sv_WriteByte`.
+///
+/// # Safety
+///
+/// Called only from the builtin table, with `detail` pointing at a live `int`.
+#[no_mangle]
+pub unsafe extern "C" fn quake_rs_pf_sv_WriteByte(detail: *mut c_int) -> c_int {
+    run(detail, |vm, sys| {
+        builtins::pf_sv_write(vm, sys, MsgKind::Byte)
+    })
+}
+
+/// `PF_sv_WriteChar`.
+///
+/// # Safety
+///
+/// Called only from the builtin table, with `detail` pointing at a live `int`.
+#[no_mangle]
+pub unsafe extern "C" fn quake_rs_pf_sv_WriteChar(detail: *mut c_int) -> c_int {
+    run(detail, |vm, sys| {
+        builtins::pf_sv_write(vm, sys, MsgKind::Char)
+    })
+}
+
+/// `PF_sv_WriteShort`.
+///
+/// # Safety
+///
+/// Called only from the builtin table, with `detail` pointing at a live `int`.
+#[no_mangle]
+pub unsafe extern "C" fn quake_rs_pf_sv_WriteShort(detail: *mut c_int) -> c_int {
+    run(detail, |vm, sys| {
+        builtins::pf_sv_write(vm, sys, MsgKind::Short)
+    })
+}
+
+/// `PF_sv_WriteLong`.
+///
+/// # Safety
+///
+/// Called only from the builtin table, with `detail` pointing at a live `int`.
+#[no_mangle]
+pub unsafe extern "C" fn quake_rs_pf_sv_WriteLong(detail: *mut c_int) -> c_int {
+    run(detail, |vm, sys| {
+        builtins::pf_sv_write(vm, sys, MsgKind::Long)
+    })
+}
+
+/// `PF_sv_WriteAngle`.
+///
+/// # Safety
+///
+/// Called only from the builtin table, with `detail` pointing at a live `int`.
+#[no_mangle]
+pub unsafe extern "C" fn quake_rs_pf_sv_WriteAngle(detail: *mut c_int) -> c_int {
+    run(detail, |vm, sys| {
+        builtins::pf_sv_write(vm, sys, MsgKind::Angle)
+    })
+}
+
+/// `PF_sv_WriteCoord`.
+///
+/// # Safety
+///
+/// Called only from the builtin table, with `detail` pointing at a live `int`.
+#[no_mangle]
+pub unsafe extern "C" fn quake_rs_pf_sv_WriteCoord(detail: *mut c_int) -> c_int {
+    run(detail, |vm, sys| {
+        builtins::pf_sv_write(vm, sys, MsgKind::Coord)
+    })
+}
+
+/// `PF_sv_WriteString`.
+///
+/// # Safety
+///
+/// Called only from the builtin table, with `detail` pointing at a live `int`.
+#[no_mangle]
+pub unsafe extern "C" fn quake_rs_pf_sv_WriteString(detail: *mut c_int) -> c_int {
+    run(detail, |vm, sys| {
+        builtins::pf_sv_write(vm, sys, MsgKind::Str)
+    })
+}
+
+/// `PF_sv_WriteEntity`.
+///
+/// # Safety
+///
+/// Called only from the builtin table, with `detail` pointing at a live `int`.
+#[no_mangle]
+pub unsafe extern "C" fn quake_rs_pf_sv_WriteEntity(detail: *mut c_int) -> c_int {
+    run(detail, |vm, sys| {
+        builtins::pf_sv_write(vm, sys, MsgKind::Entity)
     })
 }
 

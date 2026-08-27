@@ -33,9 +33,15 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include "quake_rs.h"
 
 /* status codes shared with rust/quake-capi/src/progs_builtins.rs */
-#define PRBI_OK					 0
-#define PRBI_ERR_FIND_BAD_STRING 1
-#define PRBI_ERR_NO_STRING		 2
+#define PRBI_OK						  0
+#define PRBI_ERR_FIND_BAD_STRING	  1
+#define PRBI_ERR_NO_STRING			  2
+/* a guarded seam raised: detail is Host_Guard's result, re-issued below */
+#define PRBI_ERR_GUARD				  3
+#define PRBI_ERR_PROGRAM_ERROR		  4
+#define PRBI_ERR_WRITEDEST_NOT_CLIENT 5
+#define PRBI_ERR_WRITEDEST_BAD_DEST	  6
+#define PRBI_ERR_BAD_EDICT_POINTER	  7
 
 /* ---- engine seams. Every one of these is a leaf, or reaches only
    Sys_Error/Con_* -- none can Host_Error, which is the rule that decides
@@ -84,6 +90,147 @@ qboolean PRBI_Glue_ChangelevelIssued (qboolean set)
 	return was;
 }
 
+/* ---- guarded seams (ADR-009 rule 3) ----
+   ED_Alloc, ED_Free, ED_Print and ED_PrintNum can all Host_Error. The
+   interpreter's Host_Guard wraps the builtin *dispatch*, so a raise from
+   inside a ported builtin would longjmp over its Rust frame. Each of these
+   therefore carries its own guard: the jump is caught here, travels back
+   through Rust as a plain status, and PRBI_Raise re-issues it below once the
+   Rust frame has returned. This is what makes batch 2 portable at all. */
+
+typedef struct
+{
+	int num;
+} prbi_edict_arg_t;
+
+static void PRBI_DoEdAlloc (void *p)
+{
+	((prbi_edict_arg_t *)p)->num = NUM_FOR_EDICT_NO_CHECK (ED_Alloc ());
+}
+
+int PRBI_Glue_EdAlloc (int *num)
+{
+	prbi_edict_arg_t arg;
+	int				 guard;
+
+	arg.num = 0;
+	guard = Host_Guard (PRBI_DoEdAlloc, &arg);
+	if (!guard)
+		*num = arg.num;
+	return guard;
+}
+
+static void PRBI_DoEdFree (void *p)
+{
+	ED_Free (EDICT_NUM_NO_CHECK (((prbi_edict_arg_t *)p)->num));
+}
+
+int PRBI_Glue_EdFree (int num)
+{
+	prbi_edict_arg_t arg;
+	arg.num = num;
+	return Host_Guard (PRBI_DoEdFree, &arg);
+}
+
+/* PF_error/PF_objerror print a banner and then dump the entity. ED_Print
+   writes to the console too, so the two halves have to run in one C frame:
+   deferring the banner the way the other diagnostics are deferred would put
+   the entity dump above the "======SERVER ERROR" line. */
+typedef struct
+{
+	const char *banner;
+	int			num;
+} prbi_banner_arg_t;
+
+static void PRBI_DoEdPrintWithBanner (void *p)
+{
+	prbi_banner_arg_t *a = (prbi_banner_arg_t *)p;
+	Con_Printf ("%s", a->banner);
+	ED_Print (EDICT_NUM_NO_CHECK (a->num));
+}
+
+int PRBI_Glue_EdPrintWithBanner (const char *banner, int num)
+{
+	prbi_banner_arg_t arg;
+	arg.banner = banner;
+	arg.num = num;
+	return Host_Guard (PRBI_DoEdPrintWithBanner, &arg);
+}
+
+static void PRBI_DoEdPrintNum (void *p)
+{
+	ED_PrintNum (((prbi_edict_arg_t *)p)->num);
+}
+
+int PRBI_Glue_EdPrintNum (int num)
+{
+	prbi_edict_arg_t arg;
+	arg.num = num;
+	return Host_Guard (PRBI_DoEdPrintNum, &arg);
+}
+
+/* ---- message writing ---- */
+
+int PRBI_Glue_MaxClients (void)
+{
+	return svs.maxclients;
+}
+
+/* The sizebuf_t WriteDest chose, rebuilt from the destination code and (for
+   MSG_ONE) the client's edict number the Rust side already range-checked.
+   MSG_EXT_ENTITY reuses MSG_EXT_MULTICAST's buffer, as it does in C. */
+static sizebuf_t *PRBI_WriteDest (int dest, int entnum)
+{
+	switch (dest)
+	{
+	case MSG_ONE:
+		return &svs.clients[entnum - 1].message;
+	case MSG_ALL:
+		return &sv.reliable_datagram;
+	case MSG_INIT:
+		return &sv.signon;
+	case MSG_EXT_MULTICAST:
+	case MSG_EXT_ENTITY:
+		return &sv.multicast;
+	default:
+		return &sv.datagram;
+	}
+}
+
+void PRBI_Glue_MsgWrite (int dest, int entnum, int kind, int i, float f, const char *bytes)
+{
+	extern unsigned int sv_protocol_pext2; /* as PF_sv_WriteEntity declares it */
+	sizebuf_t		   *sb = PRBI_WriteDest (dest, entnum);
+
+	switch (kind)
+	{
+	case 0:
+		MSG_WriteByte (sb, i);
+		break;
+	case 1:
+		MSG_WriteChar (sb, i);
+		break;
+	case 2:
+		MSG_WriteShort (sb, i);
+		break;
+	case 3:
+		MSG_WriteLong (sb, i);
+		break;
+	case 4:
+		MSG_WriteAngle (sb, f, sv.protocolflags);
+		break;
+	case 5:
+		MSG_WriteCoord (sb, f, sv.protocolflags);
+		break;
+	case 6:
+		MSG_WriteString (sb, LOC_GetString (bytes));
+		break;
+	default:
+		MSG_WriteEntity (sb, i, sv_protocol_pext2);
+		break;
+	}
+}
+
 /* ---- the builtin_t wrappers named by pr_cmds.c's tables ---- */
 
 /* Every raise happens here, in a C frame, after the Rust builtin has returned
@@ -98,6 +245,19 @@ FUNC_NORETURN static void PRBI_Raise (int status, int detail, const char *name)
 		PR_RunError ("PF_Find: bad search string");
 	case PRBI_ERR_NO_STRING:
 		Host_Error ("PR_GetString: attempt to get a non-existant string %d\n", detail);
+	case PRBI_ERR_GUARD:
+		/* a guarded seam's Host_Error/Host_EndGame, re-issued now that the
+		   Rust frame has returned normally (ADR-009 rule 3). */
+		Host_Reraise (detail);
+		Sys_Error ("PRBI_Raise: Host_Reraise returned");
+	case PRBI_ERR_PROGRAM_ERROR:
+		Host_Error ("Program error");
+	case PRBI_ERR_WRITEDEST_NOT_CLIENT:
+		PR_RunError ("WriteDest: not a client");
+	case PRBI_ERR_WRITEDEST_BAD_DEST:
+		PR_RunError ("WriteDest: bad destination");
+	case PRBI_ERR_BAD_EDICT_POINTER:
+		Host_Error ("NUM_FOR_EDICT: bad pointer");
 	default:
 		PR_RunError ("PF_%s: unknown status %i", name, status);
 	}
@@ -134,3 +294,16 @@ RUST_PF (precache_file)
 RUST_PF (dprint)
 RUST_PF (coredump)
 RUST_PF (Find)
+RUST_PF (Spawn)
+RUST_PF (Remove)
+RUST_PF (eprint)
+RUST_PF (error)
+RUST_PF (objerror)
+RUST_PF (sv_WriteByte)
+RUST_PF (sv_WriteChar)
+RUST_PF (sv_WriteShort)
+RUST_PF (sv_WriteLong)
+RUST_PF (sv_WriteAngle)
+RUST_PF (sv_WriteCoord)
+RUST_PF (sv_WriteString)
+RUST_PF (sv_WriteEntity)

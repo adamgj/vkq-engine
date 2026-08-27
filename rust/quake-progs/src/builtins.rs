@@ -88,6 +88,42 @@ pub trait BuiltinSys {
     /// guard. Returns the value *before* the set.
     fn changelevel_issued(&mut self, set: bool) -> bool;
 
+    // ---- guarded seams (ADR-009) ----
+    //
+    // Each of these can `Host_Error`, so the glue runs it under its own
+    // `Host_Guard` and hands the caught jump back as
+    // [`BuiltinError::GuardCaught`]; the C wrapper re-issues it with
+    // `Host_Reraise` once this Rust frame has returned. Without that, the
+    // interpreter's guard — which sits *outside* the builtin dispatch — would
+    // longjmp straight over these frames.
+
+    /// `ED_Alloc`, returning the new edict's number. Raises
+    /// `"ED_Alloc: no free edicts"`.
+    fn ed_alloc(&mut self) -> Result<c_int, BuiltinError>;
+    /// `ED_Free (EDICT_NUM_NO_CHECK (num))`.
+    fn ed_free(&mut self, num: c_int) -> Result<(), BuiltinError>;
+    /// `Con_Printf ("%s", banner)` then `ED_Print (EDICT_NUM_NO_CHECK (num))`,
+    /// as one seam.
+    ///
+    /// The two halves cannot be split: `ED_Print` writes to the console too,
+    /// so deferring the banner the way every other diagnostic here is deferred
+    /// would print the dumped entity *before* the "======SERVER ERROR" line.
+    /// Running both from the C frame keeps C's order and keeps the console
+    /// off the Rust side entirely.
+    fn ed_print_with_banner(&mut self, banner: &[u8], num: c_int) -> Result<(), BuiltinError>;
+    /// `ED_PrintNum (num)` — whose `EDICT_NUM` raises for an out-of-range
+    /// number.
+    fn ed_print_num(&mut self, num: c_int) -> Result<(), BuiltinError>;
+
+    // ---- message writing ----
+
+    /// `svs.maxclients`, for `WriteDest`'s `MSG_ONE` range test.
+    fn maxclients(&mut self) -> c_int;
+    /// `MSG_Write<kind> (WriteDest (), ...)`. `dest`/`entnum` are the
+    /// destination [`write_dest`] resolved; the glue turns them back into the
+    /// `sizebuf_t *` and supplies `sv.protocolflags`/`sv_protocol_pext2`.
+    fn msg_write(&mut self, dest: c_int, entnum: c_int, kind: MsgKind, value: MsgValue);
+
     /// `Con_Printf`, deferred: the console is not a leaf.
     fn print(&mut self, msg: &[u8]);
     /// `Con_DPrintf`, deferred.
@@ -98,6 +134,18 @@ pub trait BuiltinSys {
 /// C frame (ADR-009).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BuiltinError {
+    /// A guarded engine seam raised; the value is `Host_Guard`'s result, and
+    /// the C wrapper re-issues the jump with `Host_Reraise` (ADR-009).
+    GuardCaught(c_int),
+    /// `PF_error`'s `Host_Error ("Program error")`.
+    ProgramError,
+    /// `WriteDest`'s `PR_RunError ("WriteDest: not a client")`.
+    WriteDestNotAClient,
+    /// `WriteDest`'s `PR_RunError ("WriteDest: bad destination")`.
+    WriteDestBadDestination,
+    /// `NUM_FOR_EDICT`'s `Host_Error ("NUM_FOR_EDICT: bad pointer")`, reached
+    /// from `G_EDICTNUM`. Not a debug-only check.
+    BadEdictPointer,
     /// `PF_Find`'s `PR_RunError ("PF_Find: bad search string")`.
     ///
     /// COMPAT: unreachable in practice. C tests `if (!s)` after
@@ -477,6 +525,187 @@ pub fn pf_traceoff(vm: &mut VmRaw) {
 pub fn pf_precache_file(vm: &mut VmRaw) {
     let v = vm.g_i32(OFS_PARM0);
     vm.set_g_i32(OFS_RETURN, v);
+}
+
+// ---------------------------------------------------------------------------
+// edict lifetime and diagnostics
+//
+// These four were held back from M7 because `ED_Alloc`, `ED_Free`, `ED_Print`
+// and `ED_PrintNum` can all `Host_Error` and the interpreter's `Host_Guard`
+// sits outside the builtin dispatch. They are here now because the seams
+// guard themselves; see the `BuiltinSys` block.
+
+/// `entity spawn ()`
+pub fn pf_spawn(vm: &mut VmRaw, sys: &mut dyn BuiltinSys) -> Result<(), BuiltinError> {
+    let num = sys.ed_alloc()?;
+    let prog = vm.to_prog_num(num);
+    vm.set_g_i32(OFS_RETURN, prog);
+    Ok(())
+}
+
+/// `void remove (entity)`
+///
+/// COMPAT (accepted divergence in reach, not in behaviour): C's `G_EDICT` is
+/// `PROG_TO_EDICT`, which is unchecked in release builds, so a wild prog
+/// offset hands `ED_Free` a wild pointer. The port passes the same number
+/// through to `EDICT_NUM_NO_CHECK`, so the reachable behaviour is identical.
+pub fn pf_remove(vm: &mut VmRaw, sys: &mut dyn BuiltinSys) -> Result<(), BuiltinError> {
+    let num = vm.from_prog_num(vm.g_i32(OFS_PARM0));
+    sys.ed_free(num)
+}
+
+/// `void eprint (entity)`
+pub fn pf_eprint(vm: &mut VmRaw, sys: &mut dyn BuiltinSys) -> Result<(), BuiltinError> {
+    // C writes `ED_PrintNum (G_EDICTNUM (OFS_PARM0))`, and G_EDICTNUM goes
+    // through NUM_FOR_EDICT, whose range test raises in release builds too.
+    let num = num_for_edict(vm, vm.g_i32(OFS_PARM0))?;
+    sys.ed_print_num(num)
+}
+
+/// `void error (string, ...)` — terminal; kills the server.
+pub fn pf_error(vm: &mut VmRaw, sys: &mut dyn BuiltinSys) -> Result<(), BuiltinError> {
+    let s = sys.var_string(0);
+    let banner = error_banner(vm, b"======SERVER ERROR in ", &s);
+    let num = vm.from_prog_num(vm.global_self());
+    sys.ed_print_with_banner(&banner, num)?;
+    Err(BuiltinError::ProgramError)
+}
+
+/// `void objerror (string, ...)`
+///
+/// COMPAT: deliberately **not** fatal — the `Host_Error` is commented out in
+/// `pr_cmds.c` with "by design, this should not be fatal". `self` is freed and
+/// the level continues.
+pub fn pf_objerror(vm: &mut VmRaw, sys: &mut dyn BuiltinSys) -> Result<(), BuiltinError> {
+    let s = sys.var_string(0);
+    let banner = error_banner(vm, b"======OBJECT ERROR in ", &s);
+    let num = vm.from_prog_num(vm.global_self());
+    sys.ed_print_with_banner(&banner, num)?;
+    sys.ed_free(num)
+}
+
+/// `"<banner><current function>:\n<message>\n"`, the shared first line of
+/// `PF_error` and `PF_objerror`.
+fn error_banner(vm: &VmRaw, banner: &[u8], message: &[u8]) -> Vec<u8> {
+    let handle = vm
+        .function_name_handle(vm.function_index(vm.xfunction()))
+        .unwrap_or(0);
+    let name = vm.get_string_bytes(handle).unwrap_or(b"");
+    let mut out = banner.to_vec();
+    out.extend_from_slice(name);
+    out.extend_from_slice(b":\n");
+    out.extend_from_slice(message);
+    out.push(b'\n');
+    out
+}
+
+/// `NUM_FOR_EDICT (PROG_TO_EDICT (prog))` including the range test, which is
+/// **not** debug-only: `b < 0 || b >= qcvm->num_edicts` raises in release
+/// builds too.
+fn num_for_edict(vm: &VmRaw, prog: i32) -> Result<c_int, BuiltinError> {
+    let num = vm.from_prog_num(prog);
+    if num < 0 || num >= vm.num_edicts() {
+        return Err(BuiltinError::BadEdictPointer);
+    }
+    Ok(num)
+}
+
+// ---------------------------------------------------------------------------
+// message writing
+
+/// Which `MSG_Write*` a `PF_sv_Write*` builtin performs. The glue owns the
+/// actual call, so `sv.protocolflags` and `sv_protocol_pext2` never have to
+/// cross the boundary.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MsgKind {
+    Byte,
+    Char,
+    Short,
+    Long,
+    Angle,
+    Coord,
+    /// The bytes are run through `LOC_GetString` by the glue first.
+    Str,
+    Entity,
+}
+
+/// The value a `MSG_Write*` takes, already converted the way C's implicit
+/// argument conversion would convert it.
+#[derive(Clone, Debug, PartialEq)]
+pub enum MsgValue<'a> {
+    /// A C `int` parameter: the float→int conversion is the per-arch one.
+    Int(c_int),
+    /// A C `float` parameter: no conversion at all.
+    Float(f32),
+    Bytes(&'a [u8]),
+}
+
+/// `server.h` message destinations.
+pub const MSG_BROADCAST: c_int = 0;
+pub const MSG_ONE: c_int = 1;
+pub const MSG_ALL: c_int = 2;
+pub const MSG_INIT: c_int = 3;
+pub const MSG_EXT_MULTICAST: c_int = 4;
+pub const MSG_EXT_ENTITY: c_int = 5;
+
+/// `WriteDest` — which `sizebuf_t` a `PF_sv_Write*` writes into.
+///
+/// Returns the destination code plus, for `MSG_ONE`, the client's edict
+/// number; the glue turns the pair back into the buffer. `MSG_EXT_ENTITY`
+/// deliberately shares `MSG_EXT_MULTICAST`'s buffer, as it does in C.
+///
+/// COMPAT: `dest` comes from `(int)G_FLOAT (OFS_PARM0)`, so it is the per-arch
+/// float→int conversion, and `NUM_FOR_EDICT` raises before the
+/// `1 .. maxclients` test can run on a bad `msg_entity`.
+pub fn write_dest(
+    vm: &mut VmRaw,
+    sys: &mut dyn BuiltinSys,
+) -> Result<(c_int, c_int), BuiltinError> {
+    let dest = crate::exec::c_cast_i32(vm.g_f32(OFS_PARM0));
+    match dest {
+        MSG_BROADCAST | MSG_ALL | MSG_INIT | MSG_EXT_MULTICAST | MSG_EXT_ENTITY => Ok((dest, 0)),
+        MSG_ONE => {
+            let entnum = num_for_edict(vm, vm.global_msg_entity())?;
+            if entnum < 1 || entnum > sys.maxclients() {
+                return Err(BuiltinError::WriteDestNotAClient);
+            }
+            Ok((dest, entnum))
+        }
+        _ => Err(BuiltinError::WriteDestBadDestination),
+    }
+}
+
+/// The seven `PF_sv_Write*` builtins whose value is a plain number, plus
+/// `PF_sv_WriteString` and `PF_sv_WriteEntity`.
+///
+/// COMPAT: `MSG_WriteByte`/`Char`/`Short`/`Long` take a C `int`, so
+/// `G_FLOAT (OFS_PARM1)` goes through the per-arch float→int conversion;
+/// `MSG_WriteAngle`/`Coord` take a `float` and get the value untouched.
+pub fn pf_sv_write(
+    vm: &mut VmRaw,
+    sys: &mut dyn BuiltinSys,
+    kind: MsgKind,
+) -> Result<(), BuiltinError> {
+    let (dest, entnum) = write_dest(vm, sys)?;
+    match kind {
+        MsgKind::Byte | MsgKind::Char | MsgKind::Short | MsgKind::Long => {
+            let v = crate::exec::c_cast_i32(vm.g_f32(OFS_PARM1));
+            sys.msg_write(dest, entnum, kind, MsgValue::Int(v));
+        }
+        MsgKind::Angle | MsgKind::Coord => {
+            let v = vm.g_f32(OFS_PARM1);
+            sys.msg_write(dest, entnum, kind, MsgValue::Float(v));
+        }
+        MsgKind::Str => {
+            let bytes = string_arg(vm, vm.g_i32(OFS_PARM1))?;
+            sys.msg_write(dest, entnum, kind, MsgValue::Bytes(&bytes));
+        }
+        MsgKind::Entity => {
+            let num = num_for_edict(vm, vm.g_i32(OFS_PARM1))?;
+            sys.msg_write(dest, entnum, kind, MsgValue::Int(num));
+        }
+    }
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------

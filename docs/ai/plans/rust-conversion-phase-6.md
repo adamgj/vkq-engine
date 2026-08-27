@@ -427,3 +427,66 @@ Ported: `normalize`, `vlen`, `vectoyaw`, `vectoangles`, `makevectors`,
     records each); 49 ctest suites green; `check_headers`,
     `check_capi_signatures`, `check_ctest_symbols`, bindgen regen-diff, `cargo
     fmt --check` and both clippy passes clean.
+
+### 2026-08-27 M8 — guarded seams, and `pr_cmds.c` batch 2
+
+M7 ended with an explicit blocker: a ported builtin could not call an engine
+seam that raises, because the interpreter's `Host_Guard` sits *outside* the
+builtin dispatch. This milestone lifts that, and spends it on the builtins it
+unblocks plus the message writers.
+
+1. **Guarded seams (ADR-009 rule 3, applied one level down).** `ED_Alloc`,
+   `ED_Free`, `ED_Print` and `ED_PrintNum` each run under their *own*
+   `Host_Guard` in `pr_cmds_glue.c`. A caught jump comes back as a plain
+   status, travels through Rust as `BuiltinError::GuardCaught`, and
+   `PRBI_Raise` re-issues it with `Host_Reraise` once the Rust frame has
+   returned. Guards nest one at a time, exactly as M3's amendment describes:
+   the inner guard restores the interpreter's `jmp_buf` before returning, so
+   the re-issued jump lands on the outer guard, which re-raises from
+   `PR_ExecuteProgram`'s C frame. This is the general mechanism the remaining
+   builtin milestones need.
+2. **Flipped**: `PF_Spawn`, `PF_Remove`, `PF_eprint`, `PF_error`,
+   `PF_objerror`, `WriteDest` and all eight `PF_sv_Write*`.
+3. **`PF_error`/`PF_objerror` print through a single seam.** The first draft
+   deferred the `"======SERVER ERROR in ..."` banner the way every other
+   diagnostic in this phase is deferred, and called `ED_Print` separately —
+   which would have put the entity dump *above* the banner, because `ED_Print`
+   writes to the console too. `ed_print_with_banner` runs both in the one C
+   frame instead. Caught by reading the ordering, not by a gate: console text
+   is in no golden.
+4. **`G_EDICTNUM` range-checks, and that is not debug-only.** `PF_eprint`,
+   `PF_sv_WriteEntity` and `WriteDest`'s `MSG_ONE` arm all reach
+   `NUM_FOR_EDICT`, whose `b < 0 || b >= num_edicts` test raises in release
+   builds. Reported as `BuiltinError::BadEdictPointer` with C's exact
+   `"NUM_FOR_EDICT: bad pointer"`. This is the third place in the phase that
+   test has had to be reproduced by hand (after the M5 read side and the
+   PR #23 write side); it is now a shared `num_for_edict` helper.
+5. **The writers' argument conversion is per-arch, and only for four of
+   them.** `MSG_WriteByte`/`Char`/`Short`/`Long` take a C `int`, so
+   `G_FLOAT (OFS_PARM1)` goes through the float→int UB emulation;
+   `MSG_WriteAngle`/`Coord` take a `float` and get the value untouched. The
+   test pins both halves, including NaN and infinity through the float ones.
+6. **`WriteDest` returns a destination, not a pointer.** The `sizebuf_t`
+   selection stays in the glue, so `sv.datagram`/`sv.signon`/`svs.clients[]`
+   and `sv.protocolflags`/`sv_protocol_pext2` never cross the boundary. What
+   moved is the switch, the `MSG_ONE` client range test and the
+   `MSG_EXT_ENTITY`-shares-`MSG_EXT_MULTICAST` quirk.
+7. **Carve-out, recorded per the per-batch stop rule.** The rest of
+   `pr_cmds.c` stays C and moves to **Phase 7**, because its dependency is not
+   a stable funnel but the server itself: `PF_setorigin`/`PF_setsize`/
+   `PF_sv_setmodel` (`SV_LinkEdict`, `SV_TouchLinks` → re-entrant
+   `PR_ExecuteProgram`), `PF_traceline`/`PF_checkpos`/`PF_tracebox`
+   (`SV_Move`), `PF_sv_checkclient`/`PF_newcheckclient` (PVS +
+   `checkpvs`, a process-global), `PF_walkmove`/`PF_droptofloor`/
+   `PF_checkbottom`/`PF_pointcontents` (`sv_move.c`, `world.c`),
+   `PF_aim` (`sv_player`, traces, `sv_aim`), `PF_findradius`,
+   `PF_sound`/`PF_sv_ambientsound`/`PF_particle`/`PF_sv_lightstyle`/
+   `PF_sv_makestatic`/`PF_sv_setspawnparms`/`PF_sv_changelevel`,
+   `PF_stuffcmd`/`PF_bprint`/`PF_sprint`/`PF_centerprint`,
+   `PF_sv_precache_sound`/`_model`, and the whole `PF_cl_*` set. `PF_break`
+   stays C permanently (it writes through `(int *)-4` on purpose).
+8. **Gates**: five meson configs; corpus `--check` 11/11 on all three engine
+   configs plus `--compare`; `save_diff` identical; trace parity
+   byte-identical over six map/game combinations; 49 ctest suites green
+   (`progs_builtins_synthetic` now 33 tests); the three static checks, bindgen
+   regen-diff, `cargo fmt --check` and both clippy passes clean.

@@ -1074,6 +1074,12 @@ impl VmRaw {
         self.g_i32(offset_of!(quake_types::progs::GlobalVars, self_) / 4)
     }
 
+    /// `pr_global_struct->msg_entity` — `WriteDest`'s `MSG_ONE` target.
+    #[must_use]
+    pub fn global_msg_entity(&self) -> i32 {
+        self.g_i32(offset_of!(quake_types::progs::GlobalVars, msg_entity) / 4)
+    }
+
     /// `pr_global_struct->time`
     #[must_use]
     pub fn global_time(&self) -> f32 {

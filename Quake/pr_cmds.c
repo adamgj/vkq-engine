@@ -54,6 +54,19 @@ void rust_pf_localcmd (void);
 void rust_pf_dprint (void);
 void rust_pf_coredump (void);
 void rust_pf_Find (void);
+void rust_pf_Spawn (void);
+void rust_pf_Remove (void);
+void rust_pf_eprint (void);
+void rust_pf_error (void);
+void rust_pf_objerror (void);
+void rust_pf_sv_WriteByte (void);
+void rust_pf_sv_WriteChar (void);
+void rust_pf_sv_WriteShort (void);
+void rust_pf_sv_WriteLong (void);
+void rust_pf_sv_WriteAngle (void);
+void rust_pf_sv_WriteCoord (void);
+void rust_pf_sv_WriteString (void);
+void rust_pf_sv_WriteEntity (void);
 #else
 #define PF_RS(name) PF_##name
 #endif
@@ -1929,199 +1942,199 @@ static void PF_cl_particle (void)
 
 // clang-format off
 const builtin_t pr_ssqcbuiltins[] = {
-		PF_Fixme,
-	PF_RS (makevectors),       // void(entity e) makevectors		= #1
-		PF_setorigin,         // void(entity e, vector o) setorigin	= #2
-		PF_sv_setmodel,       // void(entity e, string m) setmodel	= #3
-		PF_setsize,           // void(entity e, vector min, vector max) setsize	= #4
-		PF_Fixme,             // void(entity e, vector min, vector max) setabssize	= #5
-		PF_break,             // void() break				= #6
-	PF_RS (random),            // float() random			= #7
-		PF_sound,             // void(entity e, float chan, string samp) sound	= #8
-	PF_RS (normalize),         // vector(vector v) normalize		= #9
-		PF_error,             // void(string e) error			= #10
-		PF_objerror,          // void(string e) objerror		= #11
-	PF_RS (vlen),              // float(vector v) vlen			= #12
-	PF_RS (vectoyaw),          // float(vector v) vectoyaw		= #13
-		PF_Spawn,             // entity() spawn			= #14
-		PF_Remove,            // void(entity e) remove		= #15
-		PF_traceline,         // float(vector v1, vector v2, float tryents) traceline	= #16
-		PF_sv_checkclient,    // entity() clientlist			= #17
-	PF_RS (Find),              // entity(entity start, .string fld, string match) find	= #18
-		PF_sv_precache_sound, // void(string s) precache_sound	= #19
-		PF_sv_precache_model, // void(string s) precache_model	= #20
-		PF_stuffcmd,          // void(entity client, string s)stuffcmd	= #21
-		PF_findradius,        // entity(vector org, float rad) findradius	= #22
-		PF_bprint,            // void(string s) bprint		= #23
-		PF_sprint,            // void(entity client, string s) sprint	= #24
-	PF_RS (dprint),            // void(string s) dprint		= #25
-	PF_RS (ftos),              // void(string s) ftos			= #26
-	PF_RS (vtos),              // void(string s) vtos			= #27
+	PF_Fixme,
+	PF_RS (makevectors),      // void(entity e) makevectors		= #1
+	PF_setorigin,             // void(entity e, vector o) setorigin	= #2
+	PF_sv_setmodel,           // void(entity e, string m) setmodel	= #3
+	PF_setsize,               // void(entity e, vector min, vector max) setsize	= #4
+	PF_Fixme,                 // void(entity e, vector min, vector max) setabssize	= #5
+	PF_break,                 // void() break				= #6
+	PF_RS (random),           // float() random			= #7
+	PF_sound,                 // void(entity e, float chan, string samp) sound	= #8
+	PF_RS (normalize),        // vector(vector v) normalize		= #9
+	PF_RS (error),            // void(string e) error			= #10
+	PF_RS (objerror),         // void(string e) objerror		= #11
+	PF_RS (vlen),             // float(vector v) vlen			= #12
+	PF_RS (vectoyaw),         // float(vector v) vectoyaw		= #13
+	PF_RS (Spawn),            // entity() spawn			= #14
+	PF_RS (Remove),           // void(entity e) remove		= #15
+	PF_traceline,             // float(vector v1, vector v2, float tryents) traceline	= #16
+	PF_sv_checkclient,        // entity() clientlist			= #17
+	PF_RS (Find),             // entity(entity start, .string fld, string match) find	= #18
+	PF_sv_precache_sound,     // void(string s) precache_sound	= #19
+	PF_sv_precache_model,     // void(string s) precache_model	= #20
+	PF_stuffcmd,              // void(entity client, string s)stuffcmd	= #21
+	PF_findradius,            // entity(vector org, float rad) findradius	= #22
+	PF_bprint,                // void(string s) bprint		= #23
+	PF_sprint,                // void(entity client, string s) sprint	= #24
+	PF_RS (dprint),           // void(string s) dprint		= #25
+	PF_RS (ftos),             // void(string s) ftos			= #26
+	PF_RS (vtos),             // void(string s) vtos			= #27
 	PF_RS (coredump),
 	PF_RS (traceon),
 	PF_RS (traceoff),
-		PF_eprint,   // void(entity e) debug print an entire entity
-		PF_walkmove, // float(float yaw, float dist) walkmove
-		PF_Fixme,    // float(float yaw, float dist) walkmove
-		PF_droptofloor,
-		PF_sv_lightstyle,
+	PF_RS (eprint),           // void(entity e) debug print an entire entity
+	PF_walkmove,              // float(float yaw, float dist) walkmove
+	PF_Fixme,                 // float(float yaw, float dist) walkmove
+	PF_droptofloor,
+	PF_sv_lightstyle,
 	PF_RS (rint),
 	PF_RS (floor),
 	PF_RS (ceil),
-		PF_Fixme,
-		PF_checkbottom,
-		PF_pointcontents,
-		PF_Fixme,
+	PF_Fixme,
+	PF_checkbottom,
+	PF_pointcontents,
+	PF_Fixme,
 	PF_RS (fabs),
-		PF_aim,
+	PF_aim,
 	PF_RS (cvar),
 	PF_RS (localcmd),
 	PF_RS (nextent),
-		PF_particle,
-		PF_changeyaw,
-		PF_Fixme,
+	PF_particle,
+	PF_changeyaw,
+	PF_Fixme,
 	PF_RS (vectoangles),
 
-		PF_sv_WriteByte,
-		PF_sv_WriteChar,
-		PF_sv_WriteShort,
-		PF_sv_WriteLong,
-		PF_sv_WriteCoord,
-		PF_sv_WriteAngle,
-		PF_sv_WriteString,
-		PF_sv_WriteEntity,
+	PF_RS (sv_WriteByte),
+	PF_RS (sv_WriteChar),
+	PF_RS (sv_WriteShort),
+	PF_RS (sv_WriteLong),
+	PF_RS (sv_WriteCoord),
+	PF_RS (sv_WriteAngle),
+	PF_RS (sv_WriteString),
+	PF_RS (sv_WriteEntity),
 
-		PF_Fixme,
-		PF_Fixme,
-		PF_Fixme,
-		PF_Fixme,
-		PF_Fixme,
-		PF_Fixme,
-		PF_Fixme,
+	PF_Fixme,
+	PF_Fixme,
+	PF_Fixme,
+	PF_Fixme,
+	PF_Fixme,
+	PF_Fixme,
+	PF_Fixme,
 
 	SV_MoveToGoal,
 	PF_RS (precache_file),
-		PF_sv_makestatic,
+	PF_sv_makestatic,
 
-		PF_sv_changelevel,
-		PF_Fixme,
+	PF_sv_changelevel,
+	PF_Fixme,
 
 	PF_RS (cvar_set),
-		PF_centerprint,
+	PF_centerprint,
 
-		PF_sv_ambientsound,
+	PF_sv_ambientsound,
 
-		PF_sv_precache_model,
-		PF_sv_precache_sound, // precache_sound2 is different only for qcc
+	PF_sv_precache_model,
+	PF_sv_precache_sound,     // precache_sound2 is different only for qcc
 	PF_RS (precache_file),
 
-		PF_sv_setspawnparms,
+	PF_sv_setspawnparms,
 
 	// 2021 release
-		PF_sv_finalefinished, // float() finaleFinished = #79
-		PF_sv_localsound,     // void localsound (entity client, string sample) = #80
-		PF_Fixme,             // void draw_point (vector point, float colormap, float lifetime, float depthtest) = #81
-		PF_Fixme,             // void draw_line (vector start, vector end, float colormap, float lifetime, float depthtest) = #82
-		PF_Fixme,             // void draw_arrow (vector start, vector end, float colormap, float size, float lifetime, float depthtest) = #83
-		PF_Fixme,             // void draw_ray (vector start, vector direction, float length, float colormap, float size, float lifetime, float depthtest) = #84
-		PF_Fixme,             // void draw_circle (vector origin, float radius, float colormap, float lifetime, float depthtest) = #85
-		PF_Fixme,             // void draw_bounds (vector min, vector max, float colormap, float lifetime, float depthtest) = #86
-		PF_Fixme,             // void draw_worldtext (string s, vector origin, float size, float lifetime, float depthtest) = #87
-		PF_Fixme,             // void draw_sphere (vector origin, float radius, float colormap, float lifetime, float depthtest) = #88
-		PF_Fixme,             // void draw_cylinder (vector origin, float halfHeight, float radius, float colormap, float lifetime, float depthtest) = #89
+	PF_sv_finalefinished,     // float() finaleFinished = #79
+	PF_sv_localsound,         // void localsound (entity client, string sample) = #80
+	PF_Fixme,                 // void draw_point (vector point, float colormap, float lifetime, float depthtest) = #81
+	PF_Fixme,                 // void draw_line (vector start, vector end, float colormap, float lifetime, float depthtest) = #82
+	PF_Fixme,                 // void draw_arrow (vector start, vector end, float colormap, float size, float lifetime, float depthtest) = #83
+	PF_Fixme,                 // void draw_ray (vector start, vector direction, float length, float colormap, float size, float lifetime, float depthtest) = #84
+	PF_Fixme,                 // void draw_circle (vector origin, float radius, float colormap, float lifetime, float depthtest) = #85
+	PF_Fixme,                 // void draw_bounds (vector min, vector max, float colormap, float lifetime, float depthtest) = #86
+	PF_Fixme,                 // void draw_worldtext (string s, vector origin, float size, float lifetime, float depthtest) = #87
+	PF_Fixme,                 // void draw_sphere (vector origin, float radius, float colormap, float lifetime, float depthtest) = #88
+	PF_Fixme,                 // void draw_cylinder (vector origin, float halfHeight, float radius, float colormap, float lifetime, float depthtest) = #89
 };
 const int pr_ssqcnumbuiltins = countof (pr_ssqcbuiltins);
 
 #define PF_NoCSQC   PF_Fixme
 #define PF_CSQCToDo PF_Fixme
 const builtin_t pr_csqcbuiltins[] = {
-		PF_Fixme,
-	PF_RS (makevectors), // void(entity e) makevectors		= #1
-		PF_setorigin,   // void(entity e, vector o) setorigin	= #2
-		PF_Fixme,       // void(entity e, string m) setmodel	= #3
-		PF_setsize,     // void(entity e, vector min, vector max) setsize	= #4
-		PF_Fixme,       // void(entity e, vector min, vector max) setabssize	= #5
-		PF_break,       // void() break				= #6
-	PF_RS (random),      // float() random			= #7
-		PF_cl_sound,    // void(entity e, float chan, string samp) sound	= #8
-	PF_RS (normalize),   // vector(vector v) normalize		= #9
-		PF_error,       // void(string e) error			= #10
-		PF_objerror,    // void(string e) objerror		= #11
-	PF_RS (vlen),        // float(vector v) vlen			= #12
-	PF_RS (vectoyaw),    // float(vector v) vectoyaw		= #13
-		PF_Spawn,       // entity() spawn			= #14
-		PF_Remove,      // void(entity e) remove		= #15
-		PF_traceline,   // float(vector v1, vector v2, float tryents) traceline	= #16
-		PF_NoCSQC,      // entity() checkclient (was: clientlist, apparently)			= #17
-	PF_RS (Find),        // entity(entity start, .string fld, string match) find	= #18
-		PF_cl_precache_sound,	// void(string s) precache_sound	= #19
-		PF_Fixme,	// void(string s) precache_model	= #20
-		PF_NoCSQC,      // void(entity client, string s)stuffcmd	= #21
-		PF_findradius,  // entity(vector org, float rad) findradius	= #22
-		PF_NoCSQC,      // void(string s) bprint		= #23
-		PF_NoCSQC,      // void(entity client, string s) sprint	= #24
-	PF_RS (dprint),      // void(string s) dprint		= #25
-	PF_RS (ftos),        // void(string s) ftos			= #26
-	PF_RS (vtos),        // void(string s) vtos			= #27
+	PF_Fixme,
+	PF_RS (makevectors),      // void(entity e) makevectors		= #1
+	PF_setorigin,             // void(entity e, vector o) setorigin	= #2
+	PF_Fixme,                 // void(entity e, string m) setmodel	= #3
+	PF_setsize,               // void(entity e, vector min, vector max) setsize	= #4
+	PF_Fixme,                 // void(entity e, vector min, vector max) setabssize	= #5
+	PF_break,                 // void() break				= #6
+	PF_RS (random),           // float() random			= #7
+	PF_cl_sound,              // void(entity e, float chan, string samp) sound	= #8
+	PF_RS (normalize),        // vector(vector v) normalize		= #9
+	PF_RS (error),            // void(string e) error			= #10
+	PF_RS (objerror),         // void(string e) objerror		= #11
+	PF_RS (vlen),             // float(vector v) vlen			= #12
+	PF_RS (vectoyaw),         // float(vector v) vectoyaw		= #13
+	PF_RS (Spawn),            // entity() spawn			= #14
+	PF_RS (Remove),           // void(entity e) remove		= #15
+	PF_traceline,             // float(vector v1, vector v2, float tryents) traceline	= #16
+	PF_NoCSQC,                // entity() checkclient (was: clientlist, apparently)			= #17
+	PF_RS (Find),             // entity(entity start, .string fld, string match) find	= #18
+	PF_cl_precache_sound,     // void(string s) precache_sound	= #19
+	PF_Fixme,                 // void(string s) precache_model	= #20
+	PF_NoCSQC,                // void(entity client, string s)stuffcmd	= #21
+	PF_findradius,            // entity(vector org, float rad) findradius	= #22
+	PF_NoCSQC,                // void(string s) bprint		= #23
+	PF_NoCSQC,                // void(entity client, string s) sprint	= #24
+	PF_RS (dprint),           // void(string s) dprint		= #25
+	PF_RS (ftos),             // void(string s) ftos			= #26
+	PF_RS (vtos),             // void(string s) vtos			= #27
 	PF_RS (coredump),
 	PF_RS (traceon),
 	PF_RS (traceoff),
-		PF_eprint,   // void(entity e) debug print an entire entity
-		PF_walkmove, // float(float yaw, float dist) walkmove
-		PF_Fixme,    // float(float yaw, float dist) walkmove
-		PF_droptofloor,
-		PF_Fixme,
+	PF_RS (eprint),           // void(entity e) debug print an entire entity
+	PF_walkmove,              // float(float yaw, float dist) walkmove
+	PF_Fixme,                 // float(float yaw, float dist) walkmove
+	PF_droptofloor,
+	PF_Fixme,
 	PF_RS (rint),
 	PF_RS (floor),
 	PF_RS (ceil),
-		PF_Fixme,
-		PF_checkbottom,
-		PF_pointcontents,
-		PF_Fixme,
+	PF_Fixme,
+	PF_checkbottom,
+	PF_pointcontents,
+	PF_Fixme,
 	PF_RS (fabs),
-		PF_NoCSQC, // PF_aim,
+	PF_NoCSQC,                // PF_aim,
 	PF_RS (cvar),
 	PF_RS (localcmd),
 	PF_RS (nextent),
-		PF_cl_particle,
-		PF_changeyaw,
-		PF_Fixme,
+	PF_cl_particle,
+	PF_changeyaw,
+	PF_Fixme,
 	PF_RS (vectoangles),
 
-		PF_NoCSQC, // PF_WriteByte,
-		PF_NoCSQC, // PF_WriteChar,
-		PF_NoCSQC, // PF_WriteShort,
-		PF_NoCSQC, // PF_WriteLong,
-		PF_NoCSQC, // PF_WriteCoord,
-		PF_NoCSQC, // PF_WriteAngle,
-		PF_NoCSQC, // PF_WriteString,
-		PF_NoCSQC, // PF_WriteEntity,
+	PF_NoCSQC,                // PF_WriteByte,
+	PF_NoCSQC,                // PF_WriteChar,
+	PF_NoCSQC,                // PF_WriteShort,
+	PF_NoCSQC,                // PF_WriteLong,
+	PF_NoCSQC,                // PF_WriteCoord,
+	PF_NoCSQC,                // PF_WriteAngle,
+	PF_NoCSQC,                // PF_WriteString,
+	PF_NoCSQC,                // PF_WriteEntity,
 
-		PF_Fixme,
-		PF_Fixme,
-		PF_Fixme,
-		PF_Fixme,
-		PF_Fixme,
-		PF_Fixme,
-		PF_Fixme,
+	PF_Fixme,
+	PF_Fixme,
+	PF_Fixme,
+	PF_Fixme,
+	PF_Fixme,
+	PF_Fixme,
+	PF_Fixme,
 
 	SV_MoveToGoal,
 	PF_RS (precache_file),
-		PF_cl_makestatic,
+	PF_cl_makestatic,
 
-		PF_NoCSQC, // PF_changelevel,
-		PF_Fixme,
+	PF_NoCSQC,                // PF_changelevel,
+	PF_Fixme,
 
 	PF_RS (cvar_set),
-		PF_NoCSQC, // PF_centerprint,
+	PF_NoCSQC,                // PF_centerprint,
 
-		PF_cl_ambientsound,
+	PF_cl_ambientsound,
 
-		PF_Fixme,
-		PF_cl_precache_sound,
+	PF_Fixme,
+	PF_cl_precache_sound,
 	PF_RS (precache_file),
 
-		PF_NoCSQC, // PF_setspawnparms
+	PF_NoCSQC,                // PF_setspawnparms
 };
 // clang-format on
 const int pr_csqcnumbuiltins = countof (pr_csqcbuiltins);

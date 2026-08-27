@@ -219,3 +219,13 @@ int			PRBI_Glue_StoreTempString (const char *bytes, int len);
 const char *PRBI_Glue_VarString (int first);
 float		PRBI_Glue_CvarValue (const char *name);
 qboolean	PRBI_Glue_ChangelevelIssued (qboolean set);
+
+/* Phase 6 M8: the guarded seams (ADR-009 rule 3 -- each returns Host_Guard's
+ * result, which the Rust side hands back for Host_Reraise) and the message
+ * writers' destination funnel. */
+int	 PRBI_Glue_EdAlloc (int *num);
+int	 PRBI_Glue_EdFree (int num);
+int	 PRBI_Glue_EdPrintWithBanner (const char *banner, int num);
+int	 PRBI_Glue_EdPrintNum (int num);
+int	 PRBI_Glue_MaxClients (void);
+void PRBI_Glue_MsgWrite (int dest, int entnum, int kind, int i, float f, const char *bytes);

@@ -1105,3 +1105,31 @@ unsafe extern "C" {
 unsafe extern "C" {
     pub fn PRBI_Glue_ChangelevelIssued(set: qboolean) -> qboolean;
 }
+unsafe extern "C" {
+    pub fn PRBI_Glue_EdAlloc(num: *mut ::std::os::raw::c_int) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn PRBI_Glue_EdFree(num: ::std::os::raw::c_int) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn PRBI_Glue_EdPrintWithBanner(
+        banner: *const ::std::os::raw::c_char,
+        num: ::std::os::raw::c_int,
+    ) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn PRBI_Glue_EdPrintNum(num: ::std::os::raw::c_int) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn PRBI_Glue_MaxClients() -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn PRBI_Glue_MsgWrite(
+        dest: ::std::os::raw::c_int,
+        entnum: ::std::os::raw::c_int,
+        kind: ::std::os::raw::c_int,
+        i: ::std::os::raw::c_int,
+        f: f32,
+        bytes: *const ::std::os::raw::c_char,
+    );
+}

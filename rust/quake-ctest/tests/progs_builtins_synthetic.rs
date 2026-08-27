@@ -29,7 +29,7 @@ use core::ffi::c_int;
 use quake_ctest::c_snprintf_f;
 use quake_ctest::c_snprintf_i32;
 use quake_progs::arena::{VmRaw, EDICT_V_OFFSET};
-use quake_progs::builtins::{self, BuiltinError, BuiltinSys};
+use quake_progs::builtins::{self, BuiltinError, BuiltinSys, MsgKind, MsgValue};
 use quake_types::progs::{
     DPrograms, Edict, EntVars, QcVm, OFS_PARM0, OFS_PARM1, OFS_PARM2, OFS_RETURN,
 };
@@ -49,6 +49,14 @@ struct MockSys {
     changelevel: bool,
     printed: Vec<Vec<u8>>,
     dprinted: Vec<Vec<u8>>,
+    /// Guarded seams: `Some(guard)` makes the next call to that seam report a
+    /// caught jump, the way a real `Host_Error` inside it would.
+    alloc_guard: Option<c_int>,
+    allocated: c_int,
+    freed: Vec<c_int>,
+    banners: Vec<(Vec<u8>, c_int)>,
+    maxclients: c_int,
+    writes: Vec<(c_int, c_int, MsgKind, String)>,
 }
 
 impl BuiltinSys for MockSys {
@@ -112,6 +120,42 @@ impl BuiltinSys for MockSys {
             self.changelevel = true;
         }
         was
+    }
+
+    fn ed_alloc(&mut self) -> Result<c_int, BuiltinError> {
+        if let Some(g) = self.alloc_guard.take() {
+            return Err(BuiltinError::GuardCaught(g));
+        }
+        self.allocated += 1;
+        Ok(self.allocated)
+    }
+
+    fn ed_free(&mut self, num: c_int) -> Result<(), BuiltinError> {
+        self.freed.push(num);
+        Ok(())
+    }
+
+    fn ed_print_with_banner(&mut self, banner: &[u8], num: c_int) -> Result<(), BuiltinError> {
+        self.banners.push((banner.to_vec(), num));
+        Ok(())
+    }
+
+    fn ed_print_num(&mut self, num: c_int) -> Result<(), BuiltinError> {
+        self.banners.push((Vec::new(), num));
+        Ok(())
+    }
+
+    fn maxclients(&mut self) -> c_int {
+        self.maxclients
+    }
+
+    fn msg_write(&mut self, dest: c_int, entnum: c_int, kind: MsgKind, value: MsgValue) {
+        let rendered = match value {
+            MsgValue::Int(v) => format!("i:{v}"),
+            MsgValue::Float(v) => format!("f:{}", v.to_bits()),
+            MsgValue::Bytes(b) => format!("s:{}", String::from_utf8_lossy(b)),
+        };
+        self.writes.push((dest, entnum, kind, rendered));
     }
 
     fn print(&mut self, msg: &[u8]) {
@@ -808,6 +852,237 @@ fn changeyaw_ignores_a_self_outside_the_edict_array() {
     let mut arena = unsafe { EdictArena::borrowed(base, ed_stride, count) };
     builtins::pf_changeyaw(&mut vm, &mut arena);
     assert!(f.edicts.iter().all(|&b| b == 0), "nothing was written");
+}
+
+// ---------------------------------------------------------------------------
+// M8: the builtins the guarded seams unblocked, and message writing
+
+#[test]
+fn spawn_returns_the_new_edicts_prog_offset() {
+    let mut f = Fixture::new(b"\0");
+    let mut sys = core::mem::take(&mut f.sys);
+    builtins::pf_spawn(&mut f.raw(), &mut sys).unwrap();
+    assert_eq!(f.get_i32(OFS_RETURN), f.vm.edict_size, "edict 1");
+}
+
+#[test]
+fn a_guarded_seam_that_raises_comes_back_as_a_caught_jump() {
+    // ED_Alloc's "no free edicts" Host_Error is caught by the seam's own
+    // Host_Guard and re-issued by the C wrapper once this frame has returned
+    // (ADR-009 rule 3). What the builtin must not do is swallow it.
+    let mut f = Fixture::new(b"\0");
+    f.sys.alloc_guard = Some(1);
+    let mut sys = core::mem::take(&mut f.sys);
+    assert_eq!(
+        builtins::pf_spawn(&mut f.raw(), &mut sys),
+        Err(BuiltinError::GuardCaught(1))
+    );
+    assert_eq!(f.get_i32(OFS_RETURN), 0, "and writes no return value");
+}
+
+#[test]
+fn remove_frees_the_edict_the_prog_offset_names() {
+    let mut f = Fixture::new(b"\0");
+    f.set_i32(OFS_PARM0, f.vm.edict_size * 3);
+    let mut sys = core::mem::take(&mut f.sys);
+    builtins::pf_remove(&mut f.raw(), &mut sys).unwrap();
+    assert_eq!(sys.freed, vec![3]);
+}
+
+#[test]
+fn eprint_range_checks_the_way_num_for_edict_does() {
+    // G_EDICTNUM goes through NUM_FOR_EDICT, whose `b < 0 || b >= num_edicts`
+    // test raises in release builds too -- it is not one of the DEBUG-only
+    // consistency checks.
+    let mut f = Fixture::new(b"\0");
+    f.vm.num_edicts = 4;
+    let stride = f.vm.edict_size;
+    let mut sys = core::mem::take(&mut f.sys);
+
+    f.set_i32(OFS_PARM0, stride * 2);
+    builtins::pf_eprint(&mut f.raw(), &mut sys).unwrap();
+    assert_eq!(sys.banners, vec![(Vec::new(), 2)]);
+
+    for bad in [-stride, stride * 4, stride * 100] {
+        f.set_i32(OFS_PARM0, bad);
+        assert_eq!(
+            builtins::pf_eprint(&mut f.raw(), &mut sys),
+            Err(BuiltinError::BadEdictPointer),
+            "prog offset {bad}"
+        );
+    }
+}
+
+#[test]
+fn error_banners_the_current_function_then_dumps_self_then_raises() {
+    let mut f = Fixture::new(b"\0");
+    f.sys.var_string = b"it broke".to_vec();
+    let self_ofs = core::mem::offset_of!(quake_types::progs::GlobalVars, self_) / 4;
+    f.set_i32(self_ofs, f.vm.edict_size * 2);
+    let mut sys = core::mem::take(&mut f.sys);
+
+    assert_eq!(
+        builtins::pf_error(&mut f.raw(), &mut sys),
+        Err(BuiltinError::ProgramError)
+    );
+    // the banner and the entity dump are one seam, so the console order is
+    // C's: banner first, dump second
+    assert_eq!(sys.banners.len(), 1);
+    assert_eq!(sys.banners[0].1, 2, "self");
+    assert!(
+        sys.banners[0].0.starts_with(b"======SERVER ERROR in "),
+        "{:?}",
+        String::from_utf8_lossy(&sys.banners[0].0)
+    );
+    assert!(sys.banners[0].0.ends_with(b":\nit broke\n"));
+    assert!(sys.printed.is_empty(), "nothing is printed separately");
+}
+
+#[test]
+fn objerror_is_not_fatal_and_frees_self() {
+    // pr_cmds.c comments the Host_Error out: "by design, this should not be
+    // fatal". The level continues with self removed.
+    let mut f = Fixture::new(b"\0");
+    f.sys.var_string = b"bad entity".to_vec();
+    let self_ofs = core::mem::offset_of!(quake_types::progs::GlobalVars, self_) / 4;
+    f.set_i32(self_ofs, f.vm.edict_size * 5);
+    let mut sys = core::mem::take(&mut f.sys);
+
+    assert_eq!(builtins::pf_objerror(&mut f.raw(), &mut sys), Ok(()));
+    assert!(sys.banners[0].0.starts_with(b"======OBJECT ERROR in "));
+    assert_eq!(
+        sys.freed,
+        vec![5],
+        "self is freed, the server is not killed"
+    );
+}
+
+#[test]
+fn write_dest_resolves_every_destination_and_rejects_the_rest() {
+    let mut f = Fixture::new(b"\0");
+    f.vm.num_edicts = 8;
+    f.sys.maxclients = 4;
+    let stride = f.vm.edict_size;
+    let msg_entity = core::mem::offset_of!(quake_types::progs::GlobalVars, msg_entity) / 4;
+    f.set_i32(msg_entity, stride * 2);
+    let mut sys = core::mem::take(&mut f.sys);
+
+    for dest in [0, 2, 3, 4, 5] {
+        f.set_f32(OFS_PARM0, dest as f32);
+        assert_eq!(
+            builtins::write_dest(&mut f.raw(), &mut sys),
+            Ok((dest, 0)),
+            "dest {dest}"
+        );
+    }
+
+    // MSG_ONE carries the client's edict number
+    f.set_f32(OFS_PARM0, 1.0);
+    assert_eq!(builtins::write_dest(&mut f.raw(), &mut sys), Ok((1, 2)));
+
+    // a msg_entity outside 1..maxclients is "not a client"
+    for bad in [0, 5, 7] {
+        f.set_i32(msg_entity, stride * bad);
+        assert_eq!(
+            builtins::write_dest(&mut f.raw(), &mut sys),
+            Err(BuiltinError::WriteDestNotAClient),
+            "msg_entity {bad}"
+        );
+    }
+    // and one outside the edict array raises in NUM_FOR_EDICT first
+    f.set_i32(msg_entity, stride * 9);
+    assert_eq!(
+        builtins::write_dest(&mut f.raw(), &mut sys),
+        Err(BuiltinError::BadEdictPointer)
+    );
+
+    for bad in [-1.0f32, 6.0, 1e9] {
+        f.set_f32(OFS_PARM0, bad);
+        assert_eq!(
+            builtins::write_dest(&mut f.raw(), &mut sys),
+            Err(BuiltinError::WriteDestBadDestination),
+            "dest {bad}"
+        );
+    }
+}
+
+#[test]
+fn the_integer_writers_convert_the_way_c_does_and_the_float_ones_do_not() {
+    let mut f = Fixture::new(b"\0");
+    f.vm.num_edicts = 8;
+    f.sys.maxclients = 4;
+    f.set_f32(OFS_PARM0, 0.0); // MSG_BROADCAST
+
+    // MSG_WriteByte/Char/Short/Long take a C `int`, so the float argument
+    // goes through the per-arch float->int conversion; Angle/Coord take a
+    // `float` and get the value untouched.
+    for (kind, v) in [
+        (MsgKind::Byte, 3.9f32),
+        (MsgKind::Char, -3.9),
+        (MsgKind::Short, 1e9),
+        (MsgKind::Long, -1e9),
+    ] {
+        f.set_f32(OFS_PARM1, v);
+        let mut sys = core::mem::take(&mut f.sys);
+        builtins::pf_sv_write(&mut f.raw(), &mut sys, kind).unwrap();
+        let expect = quake_progs::exec::c_cast_i32(v);
+        assert_eq!(
+            sys.writes.last().unwrap().3,
+            format!("i:{expect}"),
+            "{kind:?}"
+        );
+        f.sys = sys;
+    }
+
+    for kind in [MsgKind::Angle, MsgKind::Coord] {
+        for v in [3.9f32, -0.0, f32::NAN, f32::INFINITY] {
+            f.set_f32(OFS_PARM1, v);
+            let mut sys = core::mem::take(&mut f.sys);
+            builtins::pf_sv_write(&mut f.raw(), &mut sys, kind).unwrap();
+            assert_eq!(
+                sys.writes.last().unwrap().3,
+                format!("f:{}", v.to_bits()),
+                "{kind:?} {v}"
+            );
+            f.sys = sys;
+        }
+    }
+}
+
+#[test]
+fn writestring_raises_on_a_cleared_handle_and_writeentity_range_checks() {
+    let mut blob = vec![0u8];
+    blob.extend_from_slice(b"hello\0");
+    let mut f = Fixture::new(&blob);
+    f.vm.num_edicts = 4;
+    f.sys.maxclients = 4;
+    f.set_f32(OFS_PARM0, 0.0);
+
+    f.set_i32(OFS_PARM1, 1);
+    let mut sys = core::mem::take(&mut f.sys);
+    builtins::pf_sv_write(&mut f.raw(), &mut sys, MsgKind::Str).unwrap();
+    assert_eq!(sys.writes.last().unwrap().3, "s:hello");
+
+    // a cleared engine handle: PR_GetString raises rather than yielding ""
+    f.vm.numknownstrings = 1;
+    let mut slots: [*const core::ffi::c_char; 1] = [core::ptr::null()];
+    f.vm.knownstrings = slots.as_mut_ptr();
+    f.set_i32(OFS_PARM1, -1);
+    assert_eq!(
+        builtins::pf_sv_write(&mut f.raw(), &mut sys, MsgKind::Str),
+        Err(BuiltinError::NonExistentString(-1))
+    );
+
+    // WriteEntity goes through G_EDICTNUM, so it range-checks
+    let stride = f.vm.edict_size;
+    f.set_i32(OFS_PARM1, stride * 3);
+    builtins::pf_sv_write(&mut f.raw(), &mut sys, MsgKind::Entity).unwrap();
+    assert_eq!(sys.writes.last().unwrap().3, "i:3");
+    f.set_i32(OFS_PARM1, stride * 4);
+    assert_eq!(
+        builtins::pf_sv_write(&mut f.raw(), &mut sys, MsgKind::Entity),
+        Err(BuiltinError::BadEdictPointer)
+    );
 }
 
 /// Keeps the fixture's backing buffers alive for the whole test, which is what
