@@ -209,3 +209,13 @@ void			   PRLoad_Glue_ShutdownExtensions (void);
 void			   PRLoad_Glue_EnableExtensions (void *globaldefs);
 qboolean		   PRLoad_Glue_IsServerVM (struct qcvm_s *vm);
 void			   PRLoad_Glue_SetEffectsMask (int mask);
+
+/* Phase 6 M7: the ported builtins' engine seams (pr_cmds_glue.c). Every one
+ * is a leaf or reaches only Sys_Error/Con_*: a seam that can Host_Error would
+ * longjmp over the Rust builtin frame (ADR-009). */
+double		PRBI_Glue_Ceil (double v);
+void		PRBI_Glue_AngleVectors (const float *angles);
+int			PRBI_Glue_StoreTempString (const char *bytes, int len);
+const char *PRBI_Glue_VarString (int first);
+float		PRBI_Glue_CvarValue (const char *name);
+qboolean	PRBI_Glue_ChangelevelIssued (qboolean set);

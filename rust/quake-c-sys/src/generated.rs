@@ -1084,3 +1084,24 @@ unsafe extern "C" {
 unsafe extern "C" {
     pub fn PRLoad_Glue_SetEffectsMask(mask: ::std::os::raw::c_int);
 }
+unsafe extern "C" {
+    pub fn PRBI_Glue_Ceil(v: f64) -> f64;
+}
+unsafe extern "C" {
+    pub fn PRBI_Glue_AngleVectors(angles: *const f32);
+}
+unsafe extern "C" {
+    pub fn PRBI_Glue_StoreTempString(
+        bytes: *const ::std::os::raw::c_char,
+        len: ::std::os::raw::c_int,
+    ) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn PRBI_Glue_VarString(first: ::std::os::raw::c_int) -> *const ::std::os::raw::c_char;
+}
+unsafe extern "C" {
+    pub fn PRBI_Glue_CvarValue(name: *const ::std::os::raw::c_char) -> f32;
+}
+unsafe extern "C" {
+    pub fn PRBI_Glue_ChangelevelIssued(set: qboolean) -> qboolean;
+}

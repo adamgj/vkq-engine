@@ -337,6 +337,9 @@ pub mod entvars_ofs {
     pub const ANGLES: usize = offset_of!(EntVars, angles);
     pub const NEXTTHINK: usize = offset_of!(EntVars, nextthink);
     pub const SOLID: usize = offset_of!(EntVars, solid);
+    /// Phase 6 M7: `PF_changeyaw`.
+    pub const IDEAL_YAW: usize = offset_of!(EntVars, ideal_yaw);
+    pub const YAW_SPEED: usize = offset_of!(EntVars, yaw_speed);
 }
 
 /// The progs string table: the `strings` blob plus the `knownstrings` array of
@@ -1264,6 +1267,22 @@ impl VmRaw {
     #[must_use]
     pub fn is_world(&self, prog: i32) -> bool {
         prog == 0
+    }
+
+    /// `NUM_FOR_EDICT (PROG_TO_EDICT (prog))` — a byte offset into the edict
+    /// array divided by the stride.
+    ///
+    /// COMPAT: C computes this as pointer arithmetic and truncates toward
+    /// zero, so a `prog` that is not a multiple of `edict_size` rounds down.
+    #[must_use]
+    pub fn from_prog_num(&self, prog: i32) -> c_int {
+        quake_types::progs::prog_to_edict_num(prog, self.edict_stride().max(1))
+    }
+
+    /// `EDICT_TO_PROG (EDICT_NUM (num))`.
+    #[must_use]
+    pub fn to_prog_num(&self, num: c_int) -> i32 {
+        quake_types::progs::edict_to_prog(num, self.edict_stride())
     }
 
     /// `(byte *)((int *)&ed->v + ofs) - (byte *)qcvm->edicts` for `OP_ADDRESS`,

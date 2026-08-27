@@ -28,6 +28,7 @@
 
 pub mod alloc;
 pub mod arena;
+pub mod builtins;
 pub mod exec;
 pub mod image;
 pub mod load;

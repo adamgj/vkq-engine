@@ -515,6 +515,7 @@ if use_rust_progs
         'Quake/pr_edict_save_glue.c',
         'Quake/pr_edict_parse_glue.c',
         'Quake/pr_edict_load_glue.c',
+        'Quake/pr_cmds_glue.c',
     ]
 else
     srcs += ['Quake/pr_exec.c', 'Quake/pr_edict_save.c', 'Quake/pr_edict_parse.c', 'Quake/pr_edict_load.c']
