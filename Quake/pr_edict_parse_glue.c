@@ -27,9 +27,11 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include "quake_rs.h"
 
 /* status codes shared with rust/quake-capi/src/progs_parse.rs (keep in sync) */
-#define PRPARSE_OK				 0
-#define PRPARSE_FALSE			 1 /* C's `return false`, not an error */
-#define PRPARSE_ERR_ENTITY_RANGE 2
+#define PRPARSE_OK				  0
+#define PRPARSE_FALSE			  1 /* C's `return false`, not an error */
+#define PRPARSE_ERR_ENTITY_RANGE  2
+#define PRPARSE_ERR_BAD_EDICT_NUM 3
+#define PRPARSE_ERR_FREELIST_FULL 4
 
 /* ---- the platform conversions (ADR-010: their rounding is the contract) ---- */
 
@@ -67,9 +69,17 @@ int PRParse_Glue_FindFunction (const char *name)
 	return f ? (int)(f - qcvm->functions) : -1;
 }
 
+/* Audited for ADR-009 (Phase 6 M5 review): SV_UnlinkEdict (world.c) tests
+   ent->area.prev, calls RemoveLink (common.c) and nulls two pointers. Neither
+   can Host_Error, so this callback needs no Host_Guard.
+
+   EDICT_NUM itself *can* raise -- its `n < 0 || n >= max_edicts` check is
+   unconditional, not debug-only -- so the unchecked form is used here: the
+   Rust caller has already bounds-checked `edict_num` against max_edicts and
+   raised for a negative one before reaching this point. */
 void PRParse_Glue_UnlinkEdict (int edict_num)
 {
-	SV_UnlinkEdict (EDICT_NUM (edict_num));
+	SV_UnlinkEdict (EDICT_NUM_NO_CHECK (edict_num));
 }
 
 /* ---- the exported entry points ---- */
@@ -92,6 +102,10 @@ qboolean ED_ParseEpair (void *base, ddef_t *key, const char *s, qboolean zoned)
 		return false;
 	case PRPARSE_ERR_ENTITY_RANGE:
 		Host_Error ("ED_ParseEpair: ev_entity %d too large (max_edicts is %i)", detail, qcvm->max_edicts);
+	case PRPARSE_ERR_BAD_EDICT_NUM:
+		Host_Error ("EDICT_NUM: bad edict_num %i", detail);
+	case PRPARSE_ERR_FREELIST_FULL:
+		Host_Error ("ED_AddToFreeList : has more than max_edicts >= %i (qcvm 0x%p)", detail, qcvm);
 	default:
 		Host_Error ("ED_ParseEpair: unknown status %i", status);
 	}

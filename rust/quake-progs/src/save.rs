@@ -42,11 +42,27 @@ pub fn entalpha_tosave(a: u8) -> f32 {
 /// `progs.h` `NUM_TYPE_SIZES`
 pub const NUM_TYPE_SIZES: c_int = 8;
 
-/// `pr_edict.c` `type_size[]`
+/// `pr_edict.c` `type_size[]`. Note it only covers the eight vanilla types
+/// (`NUM_TYPE_SIZES`); the DP/FTE extended types are not in the table.
 #[must_use]
 pub fn type_size(t: c_int) -> c_int {
     match t {
         etype::EV_VECTOR => 3,
+        _ => 1,
+    }
+}
+
+/// How many 32-bit words a value of `t` actually occupies.
+///
+/// Unlike [`type_size`] this covers the extended types: the `Q_ALIGN(4)`
+/// 64-bit ones (`pr_comp.h`) take two words. Used to size the exact
+/// destination a writer or parser may touch — an over-wide slice would reach
+/// past the globals block or the last edict.
+#[must_use]
+pub fn value_words(t: c_int) -> usize {
+    match t & !c_int::from(DEF_SAVEGLOBAL) {
+        etype::EV_VECTOR => 3,
+        etype::EV_EXT_DOUBLE | etype::EV_EXT_SINT64 | etype::EV_EXT_UINT64 => 2,
         _ => 1,
     }
 }

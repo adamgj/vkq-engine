@@ -92,6 +92,16 @@ pub trait ExecSys {
 
     /// `qcvm->builtins[index] ()`, run under `Host_Guard`. Returns
     /// `HOST_GUARD_OK` (0) normally, or the caught jump.
+    ///
+    /// **On a non-zero return the VM must not be touched again.** `Host_Error`
+    /// does its work *before* it jumps — `PR_SwitchQCVM (NULL)`,
+    /// `SCR_EndLoadingPlaque`, `Host_ShutdownServer`, `CL_Disconnect`
+    /// (`host.c`) — so by the time the guard hands control back here the
+    /// ambient VM has been deselected and the server torn down. The lumps
+    /// `VmRaw`/`EdictArena` point at survive that today (`Host_ShutdownServer`
+    /// does not call `PR_ClearProgs`; only `Host_ClearMemory` does), but the
+    /// interpreter must not rely on it: it returns immediately, without
+    /// reading the VM or emitting a trace record.
     fn call_builtin(&mut self, index: c_int) -> c_int;
 
     /// `sv.state == ss_active` (the `OP_ADDRESS` world-entity guard).
@@ -455,6 +465,9 @@ pub fn execute_program(vm: &mut VmRaw, sys: &mut dyn ExecSys, fnum: u32) -> Resu
                     }
                     let guard = sys.call_builtin(i);
                     if guard != 0 {
+                        // The builtin raised. Return *without* touching the VM
+                        // -- see ExecSys::call_builtin: Host_Error has already
+                        // deselected the qcvm and shut the server down.
                         return Err(ExecError::GuardCaught(guard));
                     }
                     if tracing {

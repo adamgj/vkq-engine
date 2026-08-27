@@ -19,6 +19,12 @@ use quake_types::progs::{etype, FreeList, DEF_SAVEGLOBAL};
 use crate::alloc::{self, AllocError};
 use crate::arena::{EdictArena, EdictId, Mem, VmRaw};
 
+const _: () = assert!(
+    cfg!(target_endian = "little"),
+    "the 64-bit QC types are written low word first here; a big-endian target \
+     needs the ordering derived from target_endian (see ED_ParseEpair)"
+);
+
 /// What the parser needs from code that has not moved yet.
 pub trait ParseSys: Mem {
     /// The platform `atof` (i.e. `strtod`). Not reimplemented: its rounding is
@@ -40,17 +46,31 @@ pub trait ParseSys: Mem {
     fn unlink_edict(&mut self, id: EdictId);
 
     /// `Con_DPrintf`, deferred: the console is not a leaf.
-    fn dprint(&mut self, msg: &str);
+    ///
+    /// The arguments are raw progs bytes, not `str`: Quake strings routinely
+    /// carry high-bit bytes (the coloured-text charset), and lossy UTF-8
+    /// conversion would print different bytes than C's `%s`.
+    fn dprint(&mut self, prefix: &str, arg: &[u8], suffix: &str);
     /// `Con_Printf`, deferred.
-    fn print(&mut self, msg: &str);
+    fn print(&mut self, prefix: &str, arg: &[u8], suffix: &str);
     /// `Con_DWarning`, deferred.
-    fn dwarn(&mut self, msg: &str);
+    fn dwarn(&mut self, prefix: &str, arg: &[u8], mid: &str, arg2: &[u8], suffix: &str);
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ParseError {
     /// `ED_ParseEpair: ev_entity %d too large (max_edicts is %i)`
     EntityTooLarge { num: c_int, max_edicts: c_int },
+    /// `ED_AddToFreeList : has more than max_edicts >= %i` — a `DEBUG`/
+    /// `_DEBUG`-only check in C.
+    FreeListFull { max_edicts: c_int },
+    /// `EDICT_NUM: bad edict_num %i`.
+    ///
+    /// C only range-checks the *upper* bound in `ED_ParseEpair` itself, but
+    /// `EDICT_NUM` then rejects `n < 0` unconditionally (`pr_edict.c`), so a
+    /// negative literal raises there instead. Reported here so the raise
+    /// happens in the C frame (ADR-009).
+    BadEdictNum(c_int),
     /// Propagated from `ED_Free`'s free-list bookkeeping.
     Alloc(AllocError),
 }
@@ -139,6 +159,11 @@ pub fn ed_parse_epair(
         }
 
         etype::EV_FLOAT => dest[0] = (sys.atof(s) as f32).to_bits() as i32,
+        // COMPAT: the 64-bit types are stored low word first. C stores
+        // through `*(qcdouble_t *)d`, so on a big-endian target the order
+        // would flip; every supported target (x86-64 and arm64 on Windows,
+        // Linux and macOS) is little-endian, and the byte-diff gates only run
+        // there. Asserted below so a big-endian port cannot land silently.
         etype::EV_EXT_DOUBLE => {
             let bits = sys.atof(s).to_bits();
             dest[0] = bits as u32 as i32;
@@ -184,15 +209,14 @@ pub fn ed_parse_epair(
                 i += 1;
             }
             if i < 3 {
-                let name = vm
-                    .get_string_bytes(key_s_name)
-                    .map(|b| String::from_utf8_lossy(b).into_owned())
-                    .unwrap_or_default();
-                sys.dwarn(&format!(
-                    "Avoided reading garbage for \"{}\" \"{}\"\n",
+                let name = vm.get_string_bytes(key_s_name).unwrap_or(b"");
+                sys.dwarn(
+                    "Avoided reading garbage for \"",
                     name,
-                    s.to_string_lossy()
-                ));
+                    "\" \"",
+                    s.to_bytes(),
+                    "\"\n",
+                );
                 for slot in dest.iter_mut().take(3).skip(i) {
                     *slot = 0.0f32.to_bits() as i32;
                 }
@@ -214,6 +238,12 @@ pub fn ed_parse_epair(
                     max_edicts,
                 });
             }
+            // COMPAT: C's own guard here is upper-bound only, but every
+            // subsequent EDICT_NUM rejects `n < 0` too, so a negative literal
+            // raises rather than addressing edict 0.
+            if loaded < 0 {
+                return Err(ParseError::BadEdictNum(loaded));
+            }
 
             // loaded_ent_num can be beyond num_edicts at loading; adjust
             // first, because EDICT_NUM/ED_Free check against it.
@@ -225,12 +255,20 @@ pub fn ed_parse_epair(
                 arena.clear_edict(id);
                 arena.set_debug_header(id, vm.as_ptr().cast(), u64::from(id.0));
                 debug_assert!(!arena.free(id));
+                // C's ED_AddToFreeList raises here under DEBUG/_DEBUG; report
+                // it so the raise happens in the C frame (ADR-009) instead of
+                // silently wrapping the circular buffer.
+                if quake_types::progs::ENGINE_DEBUG
+                    && alloc::free_list_would_overflow(free_list, max_edicts)
+                {
+                    return Err(ParseError::FreeListFull { max_edicts });
+                }
                 alloc::ed_free(free_list, arena, id, vm.time(), &mut |e| {
                     sys.unlink_edict(e);
                 });
             }
 
-            let found = EdictId(loaded.max(0) as u32);
+            let found = EdictId(loaded as u32);
             if arena.free(found) {
                 alloc::remove_from_free_list(free_list, found);
                 arena.set_free(found, false);
@@ -245,7 +283,7 @@ pub fn ed_parse_epair(
                 // might not be mentioned in defs.qc
                 let b = s.to_bytes();
                 if !b.starts_with(b"sky") && b != b"fog" {
-                    sys.dprint(&format!("Can't find field {}\n", s.to_string_lossy()));
+                    sys.dprint("Can't find field ", b, "\n");
                 }
                 return Ok(false);
             };
@@ -254,7 +292,7 @@ pub fn ed_parse_epair(
 
         etype::EV_FUNCTION => {
             let Some(index) = sys.find_function(s) else {
-                sys.print(&format!("Can't find function {}\n", s.to_string_lossy()));
+                sys.print("Can't find function ", s.to_bytes(), "\n");
                 return Ok(false);
             };
             dest[0] = index;

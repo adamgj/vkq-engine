@@ -61,3 +61,23 @@ gameplay trace shows ~13 builtin calls per frame, so two `jmp_buf` copies and
 a `setjmp` per call are not measurable against a 13.9 ms frame. If a later
 milestone puts a guard somewhere genuinely hot, that measurement has to be
 redone rather than assumed.
+
+### Post-guard invariant (added at the Phase 6 M5 review)
+
+One consequence of "`Host_Error` does its work before it jumps" was not spelled
+out above and is easy to get wrong: **after `Host_Guard` returns non-zero, the
+Rust frame must not touch the state the raise was about.** By that point
+`Host_Error` has already run `PR_SwitchQCVM (NULL)`, `SCR_EndLoadingPlaque`,
+`Host_ShutdownServer` and `CL_Disconnect`. The guard makes the *jump* safe; it
+does not make the *world* unchanged.
+
+Concretely for Phase 6: `ExecSys::call_builtin` returning non-zero means the
+interpreter returns `Err` immediately, without reading `VmRaw`/`EdictArena` and
+without emitting the builtin-return trace record. The lumps happen to survive
+today — `Host_ShutdownServer` does not call `PR_ClearProgs`, only
+`Host_ClearMemory` does — so this is currently a discipline, not a live
+use-after-free. It is written down here and in the trait's doc comment because
+one added line on that path (a trace emit, a diagnostic drain) would make it
+live.
+
+Any future `Host_Guard` caller inherits the same rule.

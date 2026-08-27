@@ -132,14 +132,20 @@ impl ParseSys for TestParse {
     fn unlink_edict(&mut self, id: EdictId) {
         self.unlinked.push(id);
     }
-    fn dprint(&mut self, msg: &str) {
-        self.prints.push(msg.to_owned());
+    fn dprint(&mut self, prefix: &str, arg: &[u8], suffix: &str) {
+        self.prints
+            .push(format!("{prefix}{}{suffix}", String::from_utf8_lossy(arg)));
     }
-    fn print(&mut self, msg: &str) {
-        self.prints.push(msg.to_owned());
+    fn print(&mut self, prefix: &str, arg: &[u8], suffix: &str) {
+        self.prints
+            .push(format!("{prefix}{}{suffix}", String::from_utf8_lossy(arg)));
     }
-    fn dwarn(&mut self, msg: &str) {
-        self.prints.push(msg.to_owned());
+    fn dwarn(&mut self, prefix: &str, arg: &[u8], mid: &str, arg2: &[u8], suffix: &str) {
+        self.prints.push(format!(
+            "{prefix}{}{mid}{}{suffix}",
+            String::from_utf8_lossy(arg),
+            String::from_utf8_lossy(arg2)
+        ));
     }
 }
 
@@ -547,4 +553,71 @@ fn unhandled_types_write_nothing_and_return_true() {
         assert_eq!(r_words, c_words, "type {ty} should write nothing");
     }
     teardown();
+}
+
+/// COMPAT: `ED_ParseEpair`'s own guard is upper-bound only, but every
+/// `EDICT_NUM` it then performs rejects `n < 0` unconditionally — so a
+/// negative entity literal raises rather than addressing the world entity.
+///
+/// Caught by the M5 compatibility review: the port originally clamped to 0,
+/// which would have marked the world entity allocated and mutated the free
+/// list instead of raising.
+#[test]
+fn negative_entity_numbers_raise_rather_than_addressing_the_world() {
+    let _g = lock();
+    setup(&[def(etype::EV_VOID, 0, 0)]);
+
+    let mut vm = vm_b();
+    let mut arena = arena_b();
+    let mut free_list = new_free_list();
+    let mut sys = TestParse {
+        unlinked: Vec::new(),
+        prints: Vec::new(),
+    };
+
+    for n in [-1i32, -5, -99999] {
+        let mut dest = [0i32; 1];
+        let cs = std::ffi::CString::new(n.to_string()).unwrap();
+        let r = parse::ed_parse_epair(
+            &mut vm,
+            &mut arena,
+            &mut free_list,
+            &mut sys,
+            &mut dest,
+            etype::EV_ENTITY,
+            1,
+            &cs,
+            false,
+        );
+        assert_eq!(r, Err(ParseError::BadEdictNum(n)), "entity {n}");
+        assert_eq!(dest[0], 0, "nothing may be written on the raise path");
+    }
+    // the world entity is untouched and the free list is unchanged
+    assert!(!arena.free(EdictId(0)));
+    assert_eq!(free_list.size, 0);
+    teardown();
+}
+
+/// The destination slice must be exactly as wide as the value, so a def at
+/// the very end of the globals block cannot form a slice past the allocation.
+/// (Miri-visible; the shim previously rounded every width up to 2.)
+#[test]
+fn value_words_covers_every_type_exactly() {
+    use quake_progs::save::value_words;
+    assert_eq!(value_words(etype::EV_FLOAT), 1);
+    assert_eq!(value_words(etype::EV_STRING), 1);
+    assert_eq!(value_words(etype::EV_ENTITY), 1);
+    assert_eq!(value_words(etype::EV_FIELD), 1);
+    assert_eq!(value_words(etype::EV_FUNCTION), 1);
+    assert_eq!(value_words(etype::EV_EXT_INTEGER), 1);
+    assert_eq!(value_words(etype::EV_EXT_UINT32), 1);
+    assert_eq!(value_words(etype::EV_VECTOR), 3);
+    assert_eq!(value_words(etype::EV_EXT_DOUBLE), 2);
+    assert_eq!(value_words(etype::EV_EXT_SINT64), 2);
+    assert_eq!(value_words(etype::EV_EXT_UINT64), 2);
+    // the DEF_SAVEGLOBAL tag must be masked off first
+    assert_eq!(
+        value_words(etype::EV_VECTOR | c_int::from(quake_types::progs::DEF_SAVEGLOBAL)),
+        3
+    );
 }

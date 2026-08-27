@@ -10,19 +10,34 @@ use quake_c_sys as c;
 use quake_progs::alloc::AllocError;
 use quake_progs::arena::{EdictArena, EdictId, Mem, VmRaw};
 use quake_progs::parse::{self, ParseError, ParseSys};
-use quake_progs::save::type_size;
+use quake_progs::save::value_words;
 use quake_types::progs::{FreeList, QcVm, DEF_SAVEGLOBAL};
 
 /// Status codes shared with `Quake/pr_edict_parse_glue.c` (keep in sync).
 const PRPARSE_OK: c_int = 0;
 const PRPARSE_FALSE: c_int = 1;
 const PRPARSE_ERR_ENTITY_RANGE: c_int = 2;
+const PRPARSE_ERR_BAD_EDICT_NUM: c_int = 3;
+const PRPARSE_ERR_FREELIST_FULL: c_int = 4;
+
+/// Concatenate the pieces of a console message. Kept as raw bytes, not
+/// `String`: Quake strings carry high-bit bytes (the coloured-text charset)
+/// and a lossy UTF-8 round trip would print different bytes than C's `%s`.
+fn join(parts: &[&[u8]]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(parts.iter().map(|p| p.len()).sum::<usize>() + 1);
+    for p in parts {
+        // an embedded NUL would truncate the C string; drop them, as no
+        // progs string can contain one anyway
+        out.extend(p.iter().copied().filter(|&b| b != 0));
+    }
+    out
+}
 
 struct EngineParse {
     /// Console output accumulated rather than printed inline: `Con_Printf` is
     /// not a leaf (it can reach `SCR_UpdateScreen`), so it must not run while
     /// the parser holds its views of the VM.
-    pending: Vec<(u8, String)>,
+    pending: Vec<(u8, Vec<u8>)>,
 }
 
 impl Mem for EngineParse {
@@ -45,7 +60,7 @@ impl Mem for EngineParse {
     fn note_slot_growth(&mut self, maxknownstrings: c_int) {
         self.pending.push((
             2,
-            format!("PR_AllocStringSlots: realloc'ing for {maxknownstrings} slots\n"),
+            format!("PR_AllocStringSlots: realloc'ing for {maxknownstrings} slots\n").into_bytes(),
         ));
     }
 }
@@ -90,16 +105,27 @@ impl ParseSys for EngineParse {
         unsafe { c::PRParse_Glue_UnlinkEdict(id.0 as c_int) }
     }
 
-    fn dprint(&mut self, msg: &str) {
-        self.pending.push((1, msg.to_owned()));
+    fn dprint(&mut self, prefix: &str, arg: &[u8], suffix: &str) {
+        self.pending
+            .push((1, join(&[prefix.as_bytes(), arg, suffix.as_bytes()])));
     }
 
-    fn print(&mut self, msg: &str) {
-        self.pending.push((0, msg.to_owned()));
+    fn print(&mut self, prefix: &str, arg: &[u8], suffix: &str) {
+        self.pending
+            .push((0, join(&[prefix.as_bytes(), arg, suffix.as_bytes()])));
     }
 
-    fn dwarn(&mut self, msg: &str) {
-        self.pending.push((3, msg.to_owned()));
+    fn dwarn(&mut self, prefix: &str, arg: &[u8], mid: &str, arg2: &[u8], suffix: &str) {
+        self.pending.push((
+            3,
+            join(&[
+                prefix.as_bytes(),
+                arg,
+                mid.as_bytes(),
+                arg2,
+                suffix.as_bytes(),
+            ]),
+        ));
     }
 }
 
@@ -201,13 +227,13 @@ pub unsafe extern "C" fn quake_rs_ed_parse_epair(
     // SAFETY: the caller passes a NUL-terminated token.
     let s = unsafe { CStr::from_ptr(s) };
 
-    let ty = c_int::from(key_type) & !c_int::from(DEF_SAVEGLOBAL);
-    // C writes `type_size` words at base + ofs; a vector needs 3, the 64-bit
-    // types 2. Take the widest of the two rules so both are covered.
-    let words = (type_size(ty).max(2)) as usize;
+    // Exactly the words this type occupies: an over-wide slice would reach
+    // past the globals block (or the last edict) for a def at its tail, which
+    // `slice::from_raw_parts_mut` forbids even without a write.
+    let words = value_words(c_int::from(key_type));
 
     // SAFETY: `base + key_ofs` is where C's `(int *)base + key->ofs` points,
-    // and the block has room for the key's type.
+    // and the block has room for the key's type -- `words` is exactly that.
     let dest = unsafe { core::slice::from_raw_parts_mut(base.add(usize::from(key_ofs)), words) };
 
     // SAFETY: see ambient_vm()/ambient_arena(); ED_ParseEpair only runs from
@@ -241,6 +267,14 @@ pub unsafe extern "C" fn quake_rs_ed_parse_epair(
         Err(ParseError::EntityTooLarge { num, .. }) => {
             *detail = num;
             PRPARSE_ERR_ENTITY_RANGE
+        }
+        Err(ParseError::BadEdictNum(n)) => {
+            *detail = n;
+            PRPARSE_ERR_BAD_EDICT_NUM
+        }
+        Err(ParseError::FreeListFull { max_edicts }) => {
+            *detail = max_edicts;
+            PRPARSE_ERR_FREELIST_FULL
         }
         Err(ParseError::Alloc(AllocError::NoFreeEdicts { max_edicts })) => {
             *detail = max_edicts;
