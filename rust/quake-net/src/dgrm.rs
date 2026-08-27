@@ -123,6 +123,13 @@ fn copy_from_scratch(dst: &mut [u8], pkt: &[u8], len: usize) {
     dst[avail..len].fill(0);
 }
 
+/// INVARIANT (held outside this crate): `sock.max_datagram <=
+/// MAX_DATAGRAM`, so `packet_len = NET_HEADERSIZE + data_len` never exceeds
+/// `PACKET_BUFFER_SIZE` and the ACK paths' `copy_within` window stays
+/// inside `send_message`. The engine maintains it in sv_main.c (which
+/// clamps the negotiated MTU) plus `MAX_DATAGRAM == NET_MAXMESSAGE`; a
+/// violation would panic in the RX path, so `fuzz_net_dgrm` sweeps the
+/// whole legal range rather than trusting the constant.
 fn send_fragment<S: NetSys>(
     sys: &mut S,
     sock: &mut QSocket,

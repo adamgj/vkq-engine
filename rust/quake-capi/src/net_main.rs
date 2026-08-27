@@ -21,23 +21,29 @@
 use core::ffi::{c_char, c_int, CStr};
 
 use quake_c_sys as c;
-use quake_types::net::{HostCache, NetDriver, QHostAddr, QSocket};
+use quake_net::cnum::c_atoi;
+use quake_types::net::{HostCache, NetDriver, QHostAddr, QSocket, HOSTCACHESIZE};
 
 extern "C" {
-    /// net_bsd.c / net_win.c (ADR-011 mirror; indexed like C's arrays)
-    static mut net_drivers: NetDriver;
     static net_numdrivers: c_int;
-    static mut hostcache: HostCache;
+    /// `hostcache_t hostcache[HOSTCACHESIZE]` (net_defs.h) -- a complete
+    /// array type in C, so the extern can describe it truthfully
+    static mut hostcache: [HostCache; HOSTCACHESIZE];
 }
 
+/// `net_drivers[idx]`. See `net_dgrm::landriver`: the C array is an
+/// incomplete type, so the base pointer comes from C to give the offset
+/// provenance over the real object rather than over a fabricated one.
 fn driver(idx: c_int) -> *mut NetDriver {
-    // SAFETY: idx < net_numdrivers, matching the C array
-    unsafe { (&raw mut net_drivers).add(idx as usize) }
+    // SAFETY: every call site bounds idx by net_numdrivers, which is the
+    // count that sized the array NetMain_Drivers returns
+    unsafe { c::NetMain_Drivers().cast::<NetDriver>().add(idx as usize) }
 }
 
 fn host(idx: usize) -> *mut HostCache {
-    // SAFETY: idx < HOSTCACHESIZE, matching the C array
-    unsafe { (&raw mut hostcache).add(idx) }
+    // SAFETY: every call site bounds idx by hostCacheCount, which net_dgrm.c
+    // never lets exceed HOSTCACHESIZE -- the declared extent of the array
+    unsafe { (&raw mut hostcache).cast::<HostCache>().add(idx) }
 }
 
 fn con_print(text: &str) {
@@ -243,27 +249,6 @@ pub unsafe extern "C" fn rust_net_QSocketSetMSS(s: *mut QSocket, mss: c_int) {
     }
 }
 
-/// C `atoi` (see quake_net::udp)
-fn c_atoi(s: &[u8]) -> i32 {
-    let mut i = 0;
-    while i < s.len() && (s[i] == b' ' || (0x09..=0x0d).contains(&s[i])) {
-        i += 1;
-    }
-    let mut sign = 1i64;
-    if i < s.len() && (s[i] == b'+' || s[i] == b'-') {
-        if s[i] == b'-' {
-            sign = -1;
-        }
-        i += 1;
-    }
-    let mut v: i64 = 0;
-    while i < s.len() && s[i].is_ascii_digit() {
-        v = (v * 10 + (s[i] - b'0') as i64).clamp(i64::MIN / 2, i64::MAX / 2);
-        i += 1;
-    }
-    (sign * v).clamp(i32::MIN as i64, i32::MAX as i64) as i32
-}
-
 fn argv(i: c_int) -> Vec<u8> {
     // SAFETY: Cmd_Argv returns a NUL-terminated string valid for the command
     unsafe { CStr::from_ptr(c::Cmd_Argv(i)).to_bytes().to_vec() }
@@ -404,7 +389,15 @@ pub unsafe extern "C" fn rust_net_PrintSlist() {
             line.push(b' ');
             line.extend_from_slice(&pad_trunc(&h.map, 15));
             if h.maxusers != 0 {
-                line.extend_from_slice(format!(" {:2}/{:2}\n", h.users, h.maxusers).as_bytes());
+                // COMPAT: C's format is `%2u` applied to an `int`. Both
+                // fields are remote-controlled and can be negative --
+                // net_dgrm.c assigns MSG_ReadByte() (-1 on badread, i.e. a
+                // truncated CCREP_SERVER_INFO) and atoi() of a dpmaster
+                // `clients` key -- so the unsigned reinterpretation is
+                // observable: users == -1 prints 4294967295, not -1.
+                line.extend_from_slice(
+                    format!(" {:2}/{:2}\n", h.users as u32, h.maxusers as u32).as_bytes(),
+                );
             } else {
                 line.push(b'\n');
             }
@@ -473,7 +466,10 @@ pub unsafe extern "C" fn rust_net_SlistPrintServer(idx: usize) -> *const c_char 
             s = pad_trunc(&h.name, 17);
             s.push(b' ');
             s.extend_from_slice(&pad_trunc(&h.map, 17));
-            s.extend_from_slice(format!(" {:2}/{:2}\n", h.users, h.maxusers).as_bytes());
+            // COMPAT: `%2u` on an int -- see rust_net_PrintSlist
+            s.extend_from_slice(
+                format!(" {:2}/{:2}\n", h.users as u32, h.maxusers as u32).as_bytes(),
+            );
         } else {
             s = pad_trunc(&h.name, 19);
             s.push(b' ');

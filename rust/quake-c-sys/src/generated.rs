@@ -912,6 +912,12 @@ unsafe extern "C" {
     pub fn NetMain_SetMaxClients(n: ::std::os::raw::c_int);
 }
 unsafe extern "C" {
+    pub fn NetMain_Drivers() -> *mut ::std::os::raw::c_void;
+}
+unsafe extern "C" {
+    pub fn NetMain_LanDrivers() -> *mut ::std::os::raw::c_void;
+}
+unsafe extern "C" {
     pub fn Cbuf_AddText(text: *const ::std::os::raw::c_char);
 }
 unsafe extern "C" {

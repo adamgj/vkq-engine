@@ -9,7 +9,19 @@
 //! 0/2/6/22 of the mirror's `qsa_data`. The pure functions below work on
 //! those bytes; only [`sys`] talks to the OS.
 
+use crate::cnum::c_atoi;
 use quake_types::net::QSockAddr;
+
+/// `MAXHOSTNAMELEN` (net_sys.h). Observable, not an implementation detail:
+/// `UDP4_GetAddrFromName` rejects any `host:port` whose host part reaches
+/// it, so a drift from the C build's `<sys/param.h>` value would change
+/// which hostnames are connectable. Pinned against the engine headers by
+/// `quake-ctest/tests/net_abi.rs`.
+#[cfg(target_os = "linux")]
+pub const MAXHOSTNAMELEN: usize = 64;
+/// see the linux variant
+#[cfg(not(target_os = "linux"))]
+pub const MAXHOSTNAMELEN: usize = 256;
 
 /// libc's AF_INET / AF_INET6 for this target (pure module: constants only)
 pub const AF_INET: i32 = libc::AF_INET;
@@ -130,29 +142,6 @@ pub fn addr_to_string(addr: &QSockAddr) -> String {
     } else {
         "?".into()
     }
-}
-
-/// C `atoi`: leading whitespace, optional sign, digits (i64 accumulation --
-/// C overflow is UB, clamped here; COMPAT: out-of-int domain accepted
-/// divergence)
-fn c_atoi(s: &[u8]) -> i32 {
-    let mut i = 0;
-    while i < s.len() && (s[i] == b' ' || (0x09..=0x0d).contains(&s[i])) {
-        i += 1;
-    }
-    let mut sign = 1i64;
-    if i < s.len() && (s[i] == b'+' || s[i] == b'-') {
-        if s[i] == b'-' {
-            sign = -1;
-        }
-        i += 1;
-    }
-    let mut v: i64 = 0;
-    while i < s.len() && s[i].is_ascii_digit() {
-        v = (v * 10 + (s[i] - b'0') as i64).clamp(i64::MIN / 2, i64::MAX / 2);
-        i += 1;
-    }
-    (sign * v).clamp(i32::MIN as i64, i32::MAX as i64) as i32
 }
 
 /// `sscanf(.., "%d")`-style single conversion: (value, bytes consumed);

@@ -60,34 +60,6 @@ pub static mut messagesReceived: c_int = 0;
 #[no_mangle]
 pub static mut unreliableMessagesReceived: c_int = 0;
 
-const EMPTY_LANDRIVER: quake_types::net::NetLanDriver = quake_types::net::NetLanDriver {
-    name: core::ptr::null(),
-    initialized: false,
-    control_sock: 0,
-    init: None,
-    shutdown: None,
-    listen: None,
-    query_addresses: None,
-    open_socket: None,
-    close_socket: None,
-    connect: None,
-    check_new_connections: None,
-    read: None,
-    write: None,
-    broadcast: None,
-    addr_to_string: None,
-    string_to_addr: None,
-    get_socket_addr: None,
-    get_name_from_addr: None,
-    get_addr_from_name: None,
-    addr_compare: None,
-    get_socket_port: None,
-    set_socket_port: None,
-    listening_sock: 0,
-};
-#[no_mangle]
-pub static mut net_landrivers: [quake_types::net::NetLanDriver; 3] = [EMPTY_LANDRIVER; 3];
-
 // Phase 5 M9: the net_main.c core's ambient globals
 #[no_mangle]
 pub static mut net_activeSockets: *mut qsocket_s = ptr::null_mut();
@@ -116,26 +88,6 @@ const EMPTY_HOSTCACHE: quake_types::net::HostCache = quake_types::net::HostCache
 #[no_mangle]
 pub static mut hostcache: [quake_types::net::HostCache; 128] = [EMPTY_HOSTCACHE; 128];
 
-const EMPTY_DRIVER: quake_types::net::NetDriver = quake_types::net::NetDriver {
-    name: core::ptr::null(),
-    initialized: false,
-    init: None,
-    listen: None,
-    query_addresses: None,
-    search_for_hosts: None,
-    connect: None,
-    check_new_connections: None,
-    qget_any_message: None,
-    qget_message: None,
-    qsend_message: None,
-    send_unreliable_message: None,
-    can_send_message: None,
-    can_send_unreliable_message: None,
-    close: None,
-    shutdown: None,
-};
-#[no_mangle]
-pub static mut net_drivers: [quake_types::net::NetDriver; 2] = [EMPTY_DRIVER; 2];
 #[no_mangle]
 pub static net_numdrivers: c_int = 2;
 

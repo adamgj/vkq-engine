@@ -147,6 +147,12 @@ qboolean				 NetMain_SVActive (void);
 int						 NetMain_MaxClients (void);
 int						 NetMain_MaxClientsLimit (void);
 void					 NetMain_SetMaxClients (int n);
+struct net_driver_s;
+struct net_landriver_s;
+/* base pointers of the C driver vtable arrays (incomplete types here; the
+   Rust side views the elements through the ADR-011 mirrors) */
+void *NetMain_Drivers (void);
+void *NetMain_LanDrivers (void);
 void					 Cbuf_AddText (const char *text);
 
 /* embedded pak (generated embedded_pak.c) */

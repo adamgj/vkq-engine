@@ -472,3 +472,69 @@ M5 exit (session end): full corpus incl. registered-tier local entries, record_d
     net_dgrm_rel.c as a ctest oracle for the first time on CI;
     the Windows UDP runtime leg remains the condition for the net_wins.c
     flip.
+- **2026-08-26 M10 peer review (PR #22)**: adversarial review of M6-M10;
+  all 12 findings assessed, all accepted and fixed.
+  1. **Reachable divergence**: the slist printers used `{:2}` where C uses
+     `%2u` on an `int`. `hostcache.users/maxusers` take `MSG_ReadByte()`
+     (-1 on a truncated CCREP_SERVER_INFO) and `atoi()` of a dpmaster
+     `clients` key, so `users == -1` printed `4294967295` in C and `-1`
+     here. Both printers now cast through `u32`.
+  2. **Provenance**: `net_drivers`/`net_landrivers` were declared as a
+     single element and indexed with `.add(idx)` -- arithmetic outside the
+     declared object. Fixed *not* by fabricating an array size (the
+     reviewer suggested `MAX_NET_DRIVERS`, which is a dead constant no C
+     code enforces, and both arrays are incomplete types sized by their
+     initializers) but by adding `NetMain_Drivers`/`NetMain_LanDrivers` in
+     net_main.c: the base pointer comes from C, so the offset has
+     provenance over the real object. `hostcache` IS a complete array type,
+     so it gets a truthful `[HostCache; HOSTCACHESIZE]` extern.
+  3. `sys::host_by_name` now checks `h_addr_list`/`h_addr_list[0]` for NULL
+     and `h_length >= 4` before the copy -- the ADR-004 island makes the
+     boundary sound rather than inheriting C's unchecked deref.
+  4. `interop_matrix.py` ran the dedicated server on an unread `PIPE`,
+     which wedges once its console output fills the 64 KB buffer. Server
+     stdout now goes to a file (kept for the early-exit diagnostic).
+     Readiness: the reviewer suggested polling the server log, but probing
+     showed the engine's stdout is block-buffered when not a tty, so no
+     marker appears until exit -- polling cannot work. Replaced the blind
+     3s sleep with a **bind probe** instead (UDP4/6_OpenSocket never set
+     SO_REUSEADDR, so our bind of the same port fails EADDRINUSE exactly
+     once the server is listening): buffering-independent, and a cell now
+     costs ~5s instead of 3s of guesswork.
+  5. Deferred Con_Printf drain reorders rel-layer diagnostics against the
+     landriver's. Eager draining would reinstate the M3 re-entrancy, so the
+     divergence is accepted and documented (console text only), including a
+     note at the differential's console assertion recording that its mock
+     NetSys never prints and so cannot observe the interleaving.
+  6. `c_atoi` saturated where C truncates. NB the review's example is
+     miscomputed -- `atoi("99999999999")` is 1215752191 on LP64, not -1;
+     LONG_MAX saturation needs >9.2e18 -- but the finding is real at other
+     inputs (`"4294967300"` is 4 in C, `INT_MAX` when saturating, turning
+     `maxplayers 4294967300` from 4 players into the server maximum). Now
+     one shared `quake_net::cnum::c_atoi` implementing `(int) strtol` with
+     the accumulator in `c_long` (so the saturation point moves with the
+     platform: LP64 vs LLP64), used by both net_main and udp, and pinned by
+     a new `net_cnum_differential` against the real libc `atoi` on every CI
+     OS (fixed vectors + 20k randomized).
+  7. `MAXHOSTNAMELEN` moved to `quake_net::udp` and pinned in abi_probe /
+     net_abi (it is observable: it decides which hostnames are
+     connectable); socket2's implicit `SOCK_CLOEXEC` documented; the
+     `UDP6_GetAddrFromName` failure path now mirrors C's `sa_family = 0`
+     clobber on the resolved-but-no-AF_INET6 case, with the tail-fill
+     divergence documented.
+  8. `PollProcedure` mirror documented as a deliberate pre-pin for Phase 7.
+  9. ROADMAP: Phase 5 returned to `[~]` to match Phases 1-4 (same
+     deferred-deletion posture; the marker means "not closed out", not "not
+     done"), and every carve-out is now listed in the receiving phase's own
+     Scope and Deletes -- the funnels + dgrm orchestration in Phase 7,
+     net_wins.c + net_bsd.c/net_win.c in Phase 9.
+  10. `netreplay_diff.py` dumped build B's log when build A produced no
+      demo; fixed, and a partial (nonzero but short) record header in
+      `Harness_NetReplayGetMessage` is now fatal instead of masquerading as
+      EOF, as is a failed seek.
+  11. `fuzz_net_dgrm` now derives `max_datagram` from the input across the
+      whole legal range -- it is the one value that can drive
+      `send_fragment`'s slice and the ACK `copy_within` window out of
+      bounds, and it is held in range by another translation unit. The
+      invariant is stated on `send_fragment`. 3.3M runs clean.
+  Also removed: two ctest Rust array stand-ins made dead by fix 2.

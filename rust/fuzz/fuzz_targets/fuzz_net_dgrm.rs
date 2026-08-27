@@ -78,8 +78,16 @@ fuzz_target!(|data: &[u8]| {
     let mut sock = unsafe { Box::<QSocket>::new_zeroed().assume_init() };
     sock.addr = qs_addr(ADDR_PEER);
     sock.can_send = true;
-    sock.max_datagram = 1442;
-    sock.pending_max_datagram = 1442;
+    // max_datagram is the one input that can drive send_fragment's
+    // pkt[NET_HEADERSIZE..packet_len] slice and the ACK paths'
+    // copy_within window out of range, and the engine holds it in range
+    // from another translation unit (sv_main.c clamps limit_unreliable).
+    // Derive it from the fuzz input over the whole legal range so that
+    // invariant is pinned here rather than assumed.
+    let mds = data.first().copied().unwrap_or(0) as usize;
+    let max_datagram = 1 + (mds * 251) % quake_types::net::MAX_DATAGRAM;
+    sock.max_datagram = max_datagram as i32;
+    sock.pending_max_datagram = max_datagram as i32;
 
     let mut sys = FuzzSys::default();
     let mut nm = vec![0u8; NM_MAXSIZE];

@@ -2319,6 +2319,28 @@ void Cbuf_AddText (const char *text)
 	Con_Printf ("ctest Cbuf_AddText %s", text);
 }
 
+/* Phase 5 M10: base pointers of the driver vtable arrays. The engine
+ * defines these in net_main.c; here they hand back the stub arrays so the
+ * capi shims link on platforms whose linker resolves every rlib object
+ * (Linux) rather than only the reachable ones (macOS). */
+net_driver_t *NetMain_Drivers (void)
+{
+	static net_driver_t ctest_net_drivers[2];
+	return ctest_net_drivers;
+}
+net_landriver_t *NetMain_LanDrivers (void)
+{
+	return net_landrivers;
+}
+
+/* Phase 5 M10: the platform libc's own atoi, so quake_net::cnum::c_atoi is
+ * pinned against it rather than against a reading of the standard (the
+ * (int)strtol truncation point moves with sizeof(long): LP64 vs LLP64) */
+int ctest_atoi (const char *s)
+{
+	return atoi (s);
+}
+
 void ctest_dgrm_reset_c (void)
 {
 	memset (&packetBuffer, 0, sizeof (packetBuffer));

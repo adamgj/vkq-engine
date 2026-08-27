@@ -34,7 +34,13 @@ pub fn strerror(errno: i32) -> String {
 }
 
 /// `UDP4_OpenSocket` minus the console prints: Err carries (errno,
-/// socket-was-created) so the caller can print and mirror the close
+/// socket-was-created) so the caller can print and mirror the close.
+///
+/// COMPAT: `socket2::Socket::new` requests `SOCK_CLOEXEC` where the
+/// platform supports it; C's bare `socket()` leaves the descriptor
+/// inheritable across `exec`. Accepted divergence (the engine never
+/// `exec`s, and non-inheritable is the safer default); `Socket::new_raw`
+/// is the escape hatch if bug-for-bug parity is ever wanted.
 pub fn open_socket4(port: u16) -> Result<i32, (i32, Option<i32>)> {
     let sock = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))
         .map_err(|e| (errno_of(&e), None))?;
@@ -245,7 +251,14 @@ pub fn host_by_name(name: &[u8]) -> HostByName {
         if (*he).h_addrtype != libc::AF_INET {
             return HostByName::NotInet;
         }
+        // C dereferences h_addr_list[0] and reads 4 bytes unconditionally.
+        // The point of this island is that the boundary is made sound here
+        // rather than inherited: a resolver returning an empty address list
+        // or a short h_length is reported as a failure instead of read.
         let list = (*he).h_addr_list;
+        if list.is_null() || (*list).is_null() || (*he).h_length < 4 {
+            return HostByName::Failed("no addresses".into());
+        }
         let first = *list;
         let mut a = [0u8; 4];
         core::ptr::copy_nonoverlapping(first.cast::<u8>(), a.as_mut_ptr(), 4);

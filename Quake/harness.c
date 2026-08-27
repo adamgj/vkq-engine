@@ -415,8 +415,17 @@ int Harness_NetReplayGetMessage (void)
 		unsigned int len;
 		int			 direction, kind;
 
-		if (fread (hdr, 1, 7, harness_replayfile) != 7)
-			return 0; /* EOF: idle out the rest of the session */
+		size_t got = fread (hdr, 1, 7, harness_replayfile);
+		if (got != 7)
+		{
+			/* zero bytes at a record boundary is a clean EOF: idle out the
+			   rest of the session. A PARTIAL header means the capture is
+			   corrupt, which would otherwise masquerade as EOF and surface
+			   only as a low delivered-record count in netreplay_diff.py. */
+			if (got != 0 || ferror (harness_replayfile))
+				Sys_Error ("Harness: -netreplay capture truncated mid-header");
+			return 0;
+		}
 		direction = hdr[0];
 		kind = hdr[2];
 		len = hdr[3] | (hdr[4] << 8) | (hdr[5] << 16) | ((unsigned int)hdr[6] << 24);
@@ -424,7 +433,7 @@ int Harness_NetReplayGetMessage (void)
 		if (direction != 0 || kind == 0)
 		{
 			if (Sys_fseek (harness_replayfile, len, SEEK_CUR) != 0)
-				return 0;
+				Sys_Error ("Harness: -netreplay seek past record failed");
 			continue;
 		}
 		if (len > (unsigned int)net_message.maxsize)

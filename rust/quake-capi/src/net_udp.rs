@@ -23,10 +23,7 @@ use quake_net::udp::{self, sys, AF_INET, AF_INET6};
 use quake_types::net::{QHostAddr, QSockAddr, SysSocket, NET_NAMELEN};
 
 const INVALID: SysSocket = -1;
-#[cfg(target_os = "linux")]
-const MAXHOSTNAMELEN: usize = 64;
-#[cfg(not(target_os = "linux"))]
-const MAXHOSTNAMELEN: usize = 256;
+use quake_net::udp::MAXHOSTNAMELEN;
 
 static mut ACCEPT4: SysSocket = INVALID;
 static mut CONTROL4: SysSocket = 0;
@@ -642,6 +639,10 @@ pub unsafe extern "C" fn rust_udp6_GetAddrFromName(
         let bytes = CStr::from_ptr(name).to_bytes();
         const DUPBASE: usize = 256; // char dupbase[256]
 
+        // true when getaddrinfo returned success but no AF_INET6 entry --
+        // the one case where C has already clobbered the caller's family
+        let mut resolved_but_unusable = false;
+
         let found = if bytes.first() == Some(&b'[') {
             // the bracket branch never retries (C sets EAI_NONAME and falls
             // straight through to the success check)
@@ -658,7 +659,13 @@ pub unsafe extern "C" fn rust_udp6_GetAddrFromName(
                     } else {
                         None
                     };
-                    sys::getaddrinfo_pick6(host, service).unwrap_or(None)
+                    match sys::getaddrinfo_pick6(host, service) {
+                        Ok(opt) => {
+                            resolved_but_unusable = opt.is_none();
+                            opt
+                        }
+                        Err(_) => None,
+                    }
                 }
             }
         } else {
@@ -676,8 +683,17 @@ pub unsafe extern "C" fn rust_udp6_GetAddrFromName(
                 None => Err(-2), // EAI_NONAME stand-in
             };
             match with_port {
-                Ok(opt) => opt,
-                Err(_) => sys::getaddrinfo_pick6(bytes, None).unwrap_or(None),
+                Ok(opt) => {
+                    resolved_but_unusable = opt.is_none();
+                    opt
+                }
+                Err(_) => match sys::getaddrinfo_pick6(bytes, None) {
+                    Ok(opt) => {
+                        resolved_but_unusable = opt.is_none();
+                        opt
+                    }
+                    Err(_) => None,
+                },
             }
         };
 
@@ -686,10 +702,25 @@ pub unsafe extern "C" fn rust_udp6_GetAddrFromName(
                 if udp::get_socket_port(&a) == 0 {
                     udp::set_socket_port(&mut a, c::net_hostport);
                 }
+                // COMPAT: C memcpy's only ai_addrlen bytes, leaving the
+                // caller's tail; the port writes all 64. Unobservable --
+                // every caller gates on the return value and no consumer
+                // reads a whole qsockaddr from this path (same argument as
+                // quake_net::udp::string_to_addr4's note).
                 *addr = a;
                 0
             }
-            None => -1,
+            None => {
+                // C sets `((struct sockaddr *)addr)->sa_family = 0` before
+                // walking the addrinfo list, so a lookup that SUCCEEDS with
+                // no AF_INET6 result leaves the caller's family clobbered
+                // even though it returns -1. Mirrored; a lookup that failed
+                // outright leaves the struct untouched, as in C.
+                if resolved_but_unusable {
+                    udp::set_family(&mut *addr, 0);
+                }
+                -1
+            }
         }
     }
 }

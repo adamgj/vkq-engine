@@ -116,7 +116,7 @@ Crate: `quake-snd` (+ the first `quake-platform` module). Task plan: `docs/ai/pl
 
 ---
 
-## Phase 5 — Networking wire layer (L) `[x]`
+## Phase 5 — Networking wire layer (L) `[~]`
 
 Crate: `quake-net`. Protocol *logic* in `cl_parse.c`/`sv_main.c` stays C this phase — the wire layer beneath it becomes Rust. Task plan: `docs/ai/plans/rust-conversion-phase-5.md`.
 
@@ -128,12 +128,12 @@ Crate: `quake-net`. Protocol *logic* in `cl_parse.c`/`sv_main.c` stays C this ph
 - Demo file IO (`cl_demo.c` read/write path): forcetrack line + [length + 3 viewangle floats + payload] records, `fflush` cadence, resume-record `-17` seek, seek/prespawn bookkeeping.
 - Host cache / `NET_Poll` plumbing (`net_main.c`).
 
-**Exit criteria** *(met 2026-08-26 on darwin-arm64 + the Linux CI legs; see the caveats)*
+**Exit criteria** *(met 2026-08-26 on darwin-arm64 + the Linux CI legs; see the caveats)* — the phase stays `[~]` like Phases 1–4: its exit criteria are met and its milestones are complete, but the C originals stay compiled as the `-Duse_rust_net=disabled` oracle and the deletion wave is deferred, so the phase is not *closed out*.
 - [x] 4-way interop matrix green (C/Rust client × C/Rust server, localhost) across 15/666/999 × PRFL × PEXT combinations: `interop_matrix.py`, 6 protocol cells (`Base-`/`FTE+` × 15/666/999 — FTE+999 exercises PRFL_FLOATCOORD|SHORTANGLE, Base-999 PRFL_INT32COORD|SHORTANGLE, the FTE+ cells PEXT2) × 4 build combos, all green incl. a local-only `[::1]` IPv6 leg over the Rust UDP6 landriver. PRFL_24BITCOORD is not producible by this engine's server; it is covered at the MSG layer by `net_msg_differential`. The CI leg runs the IPv4 matrix on shareware data.
 - [x] Captured-session replay and demo recording byte-identical vs C: `netreplay_diff.py` (the `-netreplay` instrument replays a `-netcapture` recv stream deterministically; state-hash chains and a demo recorded mid-replay byte-identical C-vs-Rust, with a delivered-record floor so an inert replay cannot pass) plus `record_diff.py` loopback record byte-identity. Stated precisely: the replay hook returns above the driver vtable, so its byte gate exercises the MSG/SZ readers, cl_parse and the demo writer; the flipped dgrm/UDP drivers themselves are gated by the ctest differentials, the loopback `record_diff` byte gate, the calibrated structural `capture_diff.py` live gate (its ~1-byte run-to-run timing noise is measured C-vs-C, per the task-plan M3 amendment), and the interop matrix counts.
 - [x] Net message reader fuzzers live (per protocol): `fuzz_net_msg` (protocol 15/666/999 × PRFL × PEXT2 flag sets), `fuzz_net_dgrm` (both reliable-layer RX paths), `fuzz_net_ccreq` (the CCREQ/CCREP/slist read sequences), `fuzz_net_demo` — all in the CI fuzz job; exit soak clean.
 
-**Carried to later phases** *(recorded at M10)*: `net_wins.c` keeps the C WINS drivers until a Windows UDP runtime CI leg exists (ADR-017 precedent); the `Host_Error`-capable dispatch funnels in `net_main.c` (NET_Connect/GetMessage/GetServerMessage/Send\*/SendToAll/Poll, NET_Init/Shutdown) and `net_dgrm.c`'s orchestration half (connect handshake, `_Datagram_ServerControlPacket`, hostcache/heartbeats/rcon) stay C frames until Phase 7 statusizes the layers beneath them (task-plan M9 audit).
+**Carried to later phases** *(recorded at M10; each item is also listed in the receiving phase's Scope and Deletes)*: `net_wins.c` keeps the C WINS drivers until a Windows UDP runtime CI leg exists (ADR-017 precedent); the `Host_Error`-capable dispatch funnels in `net_main.c` (NET_Connect/GetMessage/GetServerMessage/Send\*/SendToAll/Poll, NET_Init/Shutdown) and `net_dgrm.c`'s orchestration half (connect handshake, `_Datagram_ServerControlPacket`, hostcache/heartbeats/rcon) stay C frames until Phase 7 statusizes the layers beneath them (task-plan M9 audit).
 
 **Deletes** *(recorded, deferred like Phases 1–4; the C stays the `-Duse_rust_net=disabled` oracle)*: `net_loop.c`, `net_msg.c` (the MSG portion already split out of `common.c`), `net_dgrm_rel.c`, `net_udp.c`, and the ported (`#ifndef USE_RUST_NET`) sections of `net_main.c`. `net_dgrm.c`'s orchestration half, the `net_main.c` funnels, `net_wins.c`, `net_bsd.c`/`net_win.c` (vtable data) move to the Phase 7/9 deletion lists per the carve-outs above.
 
@@ -169,6 +169,7 @@ Crates: `quake-host` (lib for now), remaining parts of `quake-net`, `quake-cvar`
 **Scope**
 - Server: `sv_phys.c` (incl. pusher-support-frame subsystem modes 0–3, `sv_smoothplatformlerps`, gravity half-step), `sv_user.c` (libm trig call-through per [ADR-010](adr/ADR-010-determinism-policy.md)), `world.c` (**both** hull-check implementations behind `sv_fte_recursivehullckeck`; `SV_LinkEdict`/`SV_TouchLinks` area-node ordering), `sv_move.c`, `sv_main.c` (protocol negotiation, FTE delta writer, `MSG_WriteStaticOrBaseLine`), `sv_user.c` client-move reads.
 - Client: `cl_main.c` (lerp, relink), `cl_parse.c` (svc dispatch incl. collision disambiguation), `cl_input.c`, `cl_tent.c`, `cl_demo.c` playback logic, `view.c`, `chase.c`.
+- **Carried over from Phase 5** (see its "Carried to later phases" note): the `Host_Error`-capable networking dispatch funnels left as C frames by the Phase 5 M9 ADR-009 audit — `NET_Connect`, `NET_GetMessage`, `NET_GetServerMessage`, `NET_SendMessage`/`NET_SendUnreliableMessage`, `NET_CanSendMessage`, `NET_SendToAll`, `NET_Poll`/`SchedulePollProcedure`, `NET_Init`/`NET_Shutdown` (`net_main.c`) — plus `net_dgrm.c`'s orchestration half (connect handshake, `_Datagram_ServerControlPacket` and its `SV_ConnectClient` path, hostcache/slist, heartbeats, rcon). They become portable once this phase statusizes the strata beneath them; `PollProcedure` is already ABI-mirrored.
 - Host: `host.c` (fixed-step accumulator, `Host_FilterTime`, frame orchestration — setjmp remains C-side until Phase 9), `host_cmd.c` (savegame writer/reader — the byte-diff gate's subject — plus all game commands), `cmd.c`/`cvar.c` (registry with C-callable callbacks), `keys.c`, `console.c`, `menu.c`, `sbar.c`, `r_part.c`/`r_part_fte.c` particle *simulation* (their Vulkan buffer code stays C until Phase 8).
 - `config.cfg` writer (exact order) + boot sequence (`quake.rc`, `autoexec.cfg`).
 
@@ -177,7 +178,7 @@ Crates: `quake-host` (lib for now), remaining parts of `quake-net`, `quake-cvar`
 - Netplay soak: mixed C/Rust client-server sessions across protocol matrix, hours-long, no desync.
 - Savegame/config byte-diff clean end-to-end (now generated by Rust code).
 
-**Deletes:** `sv_*.c`, `world.c`, `cl_*.c`, `view.c`, `chase.c`, `host.c`*, `host_cmd.c`, `cmd.c`, `cvar.c`, `keys.c`, `console.c`, `menu.c`, `sbar.c` (*host.c's setjmp shell survives minimally until Phase 9).
+**Deletes:** `sv_*.c`, `world.c`, `cl_*.c`, `view.c`, `chase.c`, `host.c`*, `host_cmd.c`, `cmd.c`, `cvar.c`, `keys.c`, `console.c`, `menu.c`, `sbar.c` (*host.c's setjmp shell survives minimally until Phase 9), plus the Phase 5 carry-overs: the remaining C in `net_main.c` (the dispatch funnels + `NET_Init`/`NET_Shutdown`) and `net_dgrm.c`'s orchestration half.
 
 ---
 
@@ -214,6 +215,7 @@ Crates: `quake-tasks`, `quake-render`. The largest phase; sub-slices land behind
 Crates: `quake-host` (becomes the bin), `quake-platform`.
 
 **Scope**
+- **Carried over from Phase 5**: `net_wins.c` (the Windows WINS landrivers, deferred at M7b because Windows CI has no UDP runtime leg — the ADR-017 precedent) and the per-platform driver-table files `net_bsd.c`/`net_win.c`, which are platform glue and so belong with the rest of the platform layer.
 - `main()` moves to Rust: `main_sdl.c` loop (client + dedicated), `Sys_*` layers (`sys_sdl.c`, `sys_sdl_unix.c`, `sys_sdl_win.c` — incl. crash handler policy), `pl_win.c`/`pl_linux.c`/`pl_osx.m` equivalents (window icon, clipboard, error dialogs; the ObjC file's functionality via `objc2` or a tiny kept-C/ObjC stub), input (`in_sdl*.c` with the SDL2/SDL3 feature gate and the scancode table).
 - Error-path completion: last `setjmp`/`longjmp` removed; `HostError` Results end-to-end ([ADR-009](adr/ADR-009-error-handling.md)).
 - `quakedef.h` retired; remaining C compiles as `libquake_c.a` against explicit headers.
@@ -223,7 +225,7 @@ Crates: `quake-host` (becomes the bin), `quake-platform`.
 - Full harness green with Rust `main()` on all three OSes; packaging (AppImage, Windows installer) reproduced.
 - One release-cycle soak with the C-only build still available in CI, then C-only CI retired and the final C-capable commit tagged (`c-reference/final`).
 
-**Deletes:** `main_sdl.c`, `sys_sdl*.c`, `pl_*.{c,m}`, `in_sdl*.c`, `quakedef.h` and the PCH machinery.
+**Deletes:** `main_sdl.c`, `sys_sdl*.c`, `pl_*.{c,m}`, `in_sdl*.c`, `quakedef.h` and the PCH machinery, plus the Phase 5 carry-overs `net_wins.c`, `net_bsd.c` and `net_win.c`.
 
 ---
 

@@ -633,6 +633,11 @@ fn compare(step: usize, cw: &mut CWorld, rw: &mut RWorld) {
 
     let cprints: Vec<_> = cw.prints.drain(..).collect();
     let rprints: Vec<_> = rw.prints.drain(..).collect();
+    // Scope: this pins the rel layer's own diagnostics -- text, count and
+    // relative order. It canNOT see the interleaving against landriver
+    // prints, because the mock NetSys never prints: in the engine the C
+    // path interleaves them and the Rust path defers its own to the end of
+    // the call (accepted divergence, documented in quake-capi::net_dgrm).
     assert_eq!(cprints, rprints, "step {step}: console diagnostics");
 }
 

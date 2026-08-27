@@ -162,6 +162,15 @@ fn net_mirrors_match_engine_headers() {
         "net_landriver_t.listeningSock"
     );
 
+    // the host-name bound the UDP landriver enforces (see abi_probe.c);
+    // the Rust constant is unix-only, like the landriver itself
+    #[cfg(unix)]
+    assert_eq!(
+        quake_net::udp::MAXHOSTNAMELEN,
+        c_abi("const.MAXHOSTNAMELEN"),
+        "MAXHOSTNAMELEN"
+    );
+
     check_size!(HostCache, "hostcache_t");
     check_offset!(HostCache, name, "hostcache_t.name");
     check_offset!(HostCache, map, "hostcache_t.map");

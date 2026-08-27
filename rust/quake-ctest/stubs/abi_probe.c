@@ -693,6 +693,11 @@ static const ctest_abi_entry_t ctest_abi_net_table[] = {
 	OFF ("net_driver_t", net_driver_t, Close),
 	OFF ("net_driver_t", net_driver_t, Shutdown),
 	{"const.NET_NAMELEN", NET_NAMELEN},
+	/* observable, not an implementation detail: UDP4_GetAddrFromName
+	   rejects any host:port whose host part is >= MAXHOSTNAMELEN, so a
+	   drift between <sys/param.h> and the Rust constant would change which
+	   hostnames are connectable (Phase 5 M10 review fix) */
+	{"const.MAXHOSTNAMELEN", MAXHOSTNAMELEN},
 	{"const.NET_MAXMESSAGE", NET_MAXMESSAGE},
 	{"const.MAX_MSGLEN", MAX_MSGLEN},
 	{"const.MAX_DATAGRAM", MAX_DATAGRAM},

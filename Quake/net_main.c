@@ -244,6 +244,20 @@ void NetMain_SetMaxClients (int n)
 {
 	svs.maxclients = n;
 }
+
+/* net_drivers[]/net_landrivers[] are incomplete array types here (sized by
+   their initializers in net_bsd.c/net_win.c), so the Rust side cannot
+   declare a truthful array extern for them. Handing out the base pointer
+   from C instead gives the Rust pointer arithmetic provenance over the real
+   object (ADR-004: the SAFETY obligation is discharged, not asserted). */
+net_driver_t *NetMain_Drivers (void)
+{
+	return net_drivers;
+}
+net_landriver_t *NetMain_LanDrivers (void)
+{
+	return net_landrivers;
+}
 #else
 int NET_QSocketGetSequenceIn (const qsocket_t *s)
 { // returns the last unreliable sequence that was received

@@ -84,8 +84,8 @@ def main():
     if not args.game_data or not os.path.isdir(os.path.join(args.game_data, "id1")):
         sys.exit("error: game data not found; pass --game-data or set QUAKE_GAME_DATA")
 
-    ha, da, na, _ = run_replay(args.vkquake, args.game_data, args.capture,
-                               args.frames, args.record_at)
+    ha, da, na, outa = run_replay(args.vkquake, args.game_data, args.capture,
+                                  args.frames, args.record_at)
     hb, db, nb, outb = run_replay(args.vkquake_b or args.vkquake, args.game_data,
                                   args.capture, args.frames, args.record_at)
 
@@ -119,6 +119,10 @@ def main():
 
     if not da:
         print("FAIL: replay produced no recorded demo")
+        sys.stderr.write(outa[-2000:])  # `da` is build A's demo
+        ok = False
+    elif not db:
+        print("FAIL: comparison build produced no recorded demo")
         sys.stderr.write(outb[-2000:])
         ok = False
     elif da != db:

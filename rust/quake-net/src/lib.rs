@@ -10,6 +10,7 @@
 // syscall boundary; everything else in this crate stays unsafe-free.
 #![deny(unsafe_code)]
 
+pub mod cnum;
 pub mod demo;
 pub mod dgrm;
 pub mod loopback;

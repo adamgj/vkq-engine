@@ -17,6 +17,18 @@
 //! Console diagnostics accumulate Rust-side and drain to
 //! Con_Printf/Con_DPrintf after every C-memory borrow ends (the M3 review
 //! lesson: Con_Printf is not a leaf).
+//!
+//! COMPAT (accepted divergence, console text only -- never wire bytes or
+//! simulation state): deferring the drain also reorders these diagnostics
+//! against the landriver's own. In C, `Datagram_GetMessage`'s prints
+//! interleave with whatever `sfunc.Read`/`sfunc.Write` print from inside
+//! the call (`UDP_Read, recvfrom: ...`, `UDP_Write, sendto: ...`); here the
+//! landriver still prints immediately while the rel-layer prints arrive
+//! after the whole call, so e.g. a read error and "Stray/Forged packet
+//! received" come out in the opposite order. Draining eagerly would
+//! reinstate exactly the re-entrancy the M3 fix removed, so the ordering is
+//! given up deliberately. `net_dgrm_differential`'s console comparison
+//! cannot observe this: its mock NetSys never prints (noted there too).
 
 use core::ffi::{c_int, c_uint, CStr};
 
@@ -27,15 +39,20 @@ use quake_types::net::{NetLanDriver, QSockAddr, QSocket, SizeBuf, SysSocket};
 /// keep in sync with net_dgrm_glue.c (maps to the SZ_GetSpace Host_Error)
 const RUST_DGRM_NET_MESSAGE_OVERFLOW: c_int = -2;
 
-extern "C" {
-    /// net_bsd.c / net_win.c; not bindgen-reachable (ADR-011) -- indexed
-    /// through the first element like C's `net_landrivers[n]`
-    static mut net_landrivers: NetLanDriver;
-}
-
+/// `net_landrivers[idx]`. The array lives in net_bsd.c/net_win.c as an
+/// incomplete array type, so a Rust `static mut net_landrivers: T` extern
+/// could only ever describe its first element and `.add(idx)` would be
+/// arithmetic outside the declared object. `NetMain_LanDrivers()` hands
+/// back the real base pointer instead, giving the offset provenance over
+/// the whole C array (ADR-004).
 fn landriver(idx: c_int) -> *mut NetLanDriver {
-    // SAFETY: idx is a live qsocket's landriver index into the C array
-    unsafe { (&raw mut net_landrivers).add(idx as usize) }
+    // SAFETY: idx is a live qsocket's landriver index, i.e. < the C
+    // net_numlandrivers that sized the array NetMain_LanDrivers returns
+    unsafe {
+        c::NetMain_LanDrivers()
+            .cast::<NetLanDriver>()
+            .add(idx as usize)
+    }
 }
 
 /// `sfunc` + console over the C landriver vtable; prints are deferred

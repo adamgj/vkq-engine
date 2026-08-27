@@ -27,9 +27,11 @@ Usage:
 """
 
 import argparse
+import errno
 import os
 import re
 import shutil
+import socket
 import struct
 import subprocess
 import sys
@@ -81,6 +83,34 @@ def summarize(path):
     return counts
 
 
+def wait_until_bound(host, port, timeout=20.0):
+    """Block until the dedicated server has bound `port`, or time out.
+
+    The engine's stdout is block-buffered when it is not a tty, so a
+    readiness *marker* never appears until the process flushes at exit --
+    polling its log cannot work. The bound socket itself is the signal:
+    UDP4_OpenSocket/UDP6_OpenSocket never set SO_REUSEADDR, so once the
+    server is listening our own bind of the same port fails EADDRINUSE.
+    Returns True if the port was observed bound.
+    """
+    v6 = host.startswith("[")
+    family = socket.AF_INET6 if v6 else socket.AF_INET
+    bind_host = "::1" if v6 else "127.0.0.1"
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        s = socket.socket(family, socket.SOCK_DGRAM)
+        try:
+            s.bind((bind_host, port))
+        except OSError as e:
+            if e.errno in (errno.EADDRINUSE, errno.EACCES):
+                return True
+            raise
+        finally:
+            s.close()
+        time.sleep(0.1)
+    return False
+
+
 def run_cell(server_exe, client_exe, game_data, cell, host, port, frames, map_name):
     sv_dir = stage(game_data)
     cl_dir = stage(game_data)
@@ -91,14 +121,25 @@ def run_cell(server_exe, client_exe, game_data, cell, host, port, frames, map_na
         with open(os.path.join(cl_dir, "harness.cmds"), "w") as f:
             f.write(f"0 connect {host}:{port}\n")
 
-        server = subprocess.Popen(
-            [os.path.abspath(server_exe), "-dedicated", "-basedir", ".",
-             "-port", str(port), "-harnesscmds", "harness.cmds"],
-            cwd=sv_dir, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        # NOT a PIPE: nothing here reads the server's stdout, and a
+        # 600-frame session with a client attached overruns the 64 KB pipe
+        # buffer, wedging the server in write() and failing the gate
+        # spuriously. A file keeps the log for the early-exit diagnostic
+        # below (libc flushes it at exit, which is exactly that case).
+        sv_log = os.path.join(sv_dir, "server.log")
+        with open(sv_log, "w") as logf:
+            server = subprocess.Popen(
+                [os.path.abspath(server_exe), "-dedicated", "-basedir", ".",
+                 "-port", str(port), "-harnesscmds", "harness.cmds"],
+                cwd=sv_dir, stdout=logf, stderr=subprocess.STDOUT, text=True)
         try:
-            time.sleep(3)
+            bound = wait_until_bound(host, port)
             if server.poll() is not None:
-                return None, f"server exited early ({server.returncode})"
+                tail = open(sv_log).read()[-1500:]
+                return None, f"server exited early ({server.returncode}):\n{tail}"
+            if not bound:
+                return None, f"server never bound port {port}"
+            time.sleep(0.5)  # let the frame-0 `map` command finish
             client = subprocess.run(
                 [os.path.abspath(client_exe), "-headless", "-basedir", ".",
                  "-netcapture", "harness.cap",
