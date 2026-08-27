@@ -40,6 +40,14 @@ size_t UTF8_WriteCodePoint (char *dst, size_t maxbytes, uint32_t codepoint);
 #define MAX_DATAGRAM 64000
 #define DATAGRAM_MTU 1400
 
+/* quakedef.h per-level limits the Phase 6 progs oracles need: freelist_t
+ * sizes its circular buffer on MAX_EDICTS, and ED_Alloc's reuse policy is
+ * written in terms of the two age thresholds */
+#define MIN_EDICTS						256
+#define MAX_EDICTS						32000
+#define MIN_EDICT_AGE_FOR_REUSE			2.0
+#define MAX_EDICT_FREETIME_ALWAYS_REUSE 2.0
+
 /* net_msg.c (Phase 5 M2): wire serialization oracle. The renames must sit
  * before the first common.h include so the declarations there rename too.
  * net_message itself lives in net_main.c (not compiled here); the c_ref
@@ -466,13 +474,74 @@ gltexture_t *TexMgr_LoadImage (
 void GLMesh_UploadBuffers (qmodel_t *mod, aliashdr_t *hdr, unsigned short *indexes, byte *vertexes, aliasmesh_t *desc, jointpose_t *joints);
 void GLMesh_DeleteMeshBuffers (aliashdr_t *mainhdr);
 
+/* ---- Phase 6: the progs VM oracles (pr_edict_arena.c, pr_exec.c) ----
+ * pr_edict_arena.c was split verbatim out of pr_edict.c so the differential
+ * suites get a small stub surface. Only symbols those two files *define* are
+ * renamed: an object-like macro for an ambient like `qcvm` would also rewrite
+ * `sv.qcvm`, the struct field PR_Profile_f dereferences. The ambients below
+ * are stub-owned and keep their real names, which is also what the quake-capi
+ * progs shims will import. */
+#define ED_AllocSetHook       c_ref_ED_AllocSetHook
+#define ED_Alloc              c_ref_ED_Alloc
+#define ED_Free               c_ref_ED_Free
+#define ED_RemoveFromFreeList c_ref_ED_RemoveFromFreeList
+#define ED_CheckFreeList      c_ref_ED_CheckFreeList
+#define ED_RebuildFreeList    c_ref_ED_RebuildFreeList
+#define PR_GetString          c_ref_PR_GetString
+#define PR_ClearEngineString  c_ref_PR_ClearEngineString
+#define PR_SetEngineString    c_ref_PR_SetEngineString
+#define PR_AllocString        c_ref_PR_AllocString
+#define PR_ClearEdictStrings  c_ref_PR_ClearEdictStrings
+#define PR_ExecuteProgram     c_ref_PR_ExecuteProgram
+#define PR_RunError           c_ref_PR_RunError
+#define PR_RunWarning         c_ref_PR_RunWarning
+#define PR_Profile_f          c_ref_PR_Profile_f
+#define PR_UglyValueString    c_ref_PR_UglyValueString
+#define ED_Write              c_ref_ED_Write
+#define ED_WriteGlobals       c_ref_ED_WriteGlobals
+#define ED_FieldAtOfs         c_ref_ED_FieldAtOfs
+#define type_size             c_ref_type_size
+#define ED_NewString          c_ref_ED_NewString
+#define ED_ParseEpair         c_ref_ED_ParseEpair
+#define ED_FindField          c_ref_ED_FindField
+#define ED_FindFunction       c_ref_ED_FindFunction
+
+#include "protocol.h" /* entity_state_t, which edict_t embeds */
+#include "progs.h"
+#include "pr_trace.h" /* the PR_TRACE_* hooks; no-ops without -Dtrace=true */
+
+/* stub-owned (stubs.c): the ambient VM, the engine seams pr_edict.c keeps,
+ * and protocol.h's null baseline. The prelude pre-empts protocol.h and
+ * server.h, so these come by hand. */
+extern qcvm_t		 *qcvm;
+extern globalvars_t  *pr_global_struct;
+extern entity_state_t nullentitystate;
+edict_t				 *EDICT_NUM (int n);
+int					  NUM_FOR_EDICT (edict_t *e);
+void				  SV_UnlinkEdict (edict_t *ent);
+void				  ED_Print (edict_t *ed);
+void				  PR_SwitchQCVM (qcvm_t *nvm);
+const char			 *PR_GlobalString (int ofs);
+const char			 *PR_GlobalStringNoContents (int ofs);
+ddef_t				 *ED_FieldAtOfs (int ofs);
+extern const int	  type_size[NUM_TYPE_SIZES];
+ddef_t				 *ED_FindField (const char *name);
+dfunction_t			 *ED_FindFunction (const char *fn_name);
+
 /* server.h slice: model_parse.c reads sv.modelname; snd_mix.c (Phase 4)
  * reads sv.active */
+typedef enum
+{
+	ss_loading,
+	ss_active
+} server_state_t; /* server.h; pr_exec.c's OP_ADDRESS guard reads it */
 typedef struct
 {
-	char	 modelname[64];
-	qboolean active;
-	char	 name[64]; /* Phase 5: net_loop.c's Loop_SearchForHosts */
+	char		   modelname[64];
+	qboolean	   active;
+	char		   name[64];  /* Phase 5: net_loop.c's Loop_SearchForHosts */
+	server_state_t state;	  /* Phase 6 M3: pr_exec.c's OP_ADDRESS guard */
+	qcvm_t		   qcvm;	  /* Phase 6 M3: pr_exec.c's PR_Profile_f */
 } ctest_server_stub_t;
 extern ctest_server_stub_t sv;
 

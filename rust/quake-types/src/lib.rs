@@ -13,6 +13,7 @@ pub mod model_mem;
 pub mod modelgen;
 pub mod net;
 pub mod plane;
+pub mod progs;
 pub mod sound;
 pub mod spritegn;
 pub mod wad;

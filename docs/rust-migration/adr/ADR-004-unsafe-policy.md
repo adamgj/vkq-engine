@@ -36,3 +36,17 @@ loopback — stays unsafe-free and mock-testable. This mirrors the
 otherwise-denying crate. The `extern "C"` driver entry points themselves
 live in `quake-capi` as usual (ADR-011). *(Landed at M7b as
 `quake_net::udp::sys`, unix-only until the net_wins.c flip.)*
+
+## Amended (Phase 6 M1, 2026-08-27)
+
+`quake-progs` follows the same bounded shape: the crate is
+`#![deny(unsafe_code)]` crate-wide with a single `#[allow(unsafe_code)]`
+`arena` module. That module is the crate's whole untyped-memory island: the
+ADR-006 edict buffer (the original motivating case for the "concentrated
+location" list), the progs string table, and — from Phase 6 M3 — `VmRaw`, the
+borrow-free view over the C-owned `qcvm_t`'s lumps, global block and stacks.
+The interpreter in `exec` is safe code on top of it. The loader, interpreter control
+flow, `ED_Write`/`ED_Parse*` and the builtin bodies stay unsafe-free and
+fuzzable; the crate deliberately does not depend on `quake-c-sys`, so nothing
+in it can reach an engine global directly. The `extern "C"` VM entry points
+and the ambient-`qcvm` resolution live in `quake-capi` as usual (ADR-011).

@@ -281,6 +281,76 @@ void Host_Error (const char *error, ...)
 
 /*
 ================
+Host_Guard
+
+ADR-009 rule 3: a longjmp must never unwind a Rust frame. Rust code that has
+to call back into C which can Host_Error (the progs interpreter dispatching a
+C builtin, Phase 6 M3) routes that call through here.
+
+The guard installs its own longjmp targets, so Host_Error/Host_EndGame land
+in this C frame instead of jumping past the Rust frames above it. It does NOT
+re-run Host_Error -- that already did its work (shutting down the server,
+disconnecting, printing) before it jumped, and doing it twice would be
+observable. The caller instead re-issues the *same* jump from a pure C frame
+once Rust has unwound normally, via Host_Reraise.
+
+Nesting works one level at a time: an inner guard restores the outer's
+buffers on the way out, so each re-issued jump is caught by the next guard
+out until the outermost reaches host.c's own setjmp.
+================
+*/
+int Host_Guard (void (*fn) (void *), void *arg)
+{
+	jmp_buf		 saved_abortserver;
+	jmp_buf		 saved_screen_error;
+	volatile int result;
+
+	memcpy (saved_abortserver, host_abortserver, sizeof (jmp_buf));
+	memcpy (saved_screen_error, screen_error, sizeof (jmp_buf));
+
+	if (setjmp (host_abortserver))
+	{
+		result = HOST_GUARD_ABORTSERVER;
+	}
+	else if (setjmp (screen_error))
+	{
+		result = HOST_GUARD_SCREEN_ERROR;
+	}
+	else
+	{
+		result = HOST_GUARD_OK;
+		fn (arg);
+	}
+
+	memcpy (host_abortserver, saved_abortserver, sizeof (jmp_buf));
+	memcpy (screen_error, saved_screen_error, sizeof (jmp_buf));
+	return result;
+}
+
+/*
+================
+Host_Reraise
+
+Re-issues the jump a Host_Guard caught, from a pure C frame. Never returns
+for a real guard result; HOST_GUARD_OK is a no-op so call sites can pass the
+guard's return value through unconditionally.
+================
+*/
+void Host_Reraise (int guard_result)
+{
+	switch (guard_result)
+	{
+	case HOST_GUARD_ABORTSERVER:
+		longjmp (host_abortserver, 1);
+	case HOST_GUARD_SCREEN_ERROR:
+		longjmp (screen_error, 1);
+	default:
+		break;
+	}
+}
+
+/*
+================
 Host_FindMaxClients
 ================
 */

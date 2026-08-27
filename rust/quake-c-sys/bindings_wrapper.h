@@ -22,6 +22,7 @@ void Con_Printf (const char *fmt, ...) FUNC_PRINTF (1, 2);
 void Con_Warning (const char *fmt, ...) FUNC_PRINTF (1, 2);
 void Con_DPrintf (const char *fmt, ...) FUNC_PRINTF (1, 2);
 void Con_DPrintf2 (const char *fmt, ...) FUNC_PRINTF (1, 2);
+void Con_DWarning (const char *fmt, ...) FUNC_PRINTF (1, 2); /* Phase 6 M5: ED_ParseEpair's short-vector warning */
 
 /* cmd.h is not a bindgen-clean root; these must match cmd.h exactly.
  * Cmd_AddCommand is a macro over Cmd_AddCommand2 (cmdname, func,
@@ -159,3 +160,32 @@ void					 Cbuf_AddText (const char *text);
 extern const unsigned char vkquake_pak[];
 extern const int		   vkquake_pak_size;
 extern const int		   vkquake_pak_decompressed_size;
+
+/* Phase 6 M3 progs VM: progs.h is not a bindgen-clean root (it pulls
+ * pr_comp.h, progdefs.h, common.h for link_t and protocol.h for
+ * entity_state_t), so qcvm_t stays opaque here -- the Rust side views it
+ * through the hand-written quake-types::progs mirror (ADR-011). The engine
+ * callbacks below are defined in pr_exec_glue.c. */
+struct qcvm_s;
+extern struct qcvm_s *qcvm;
+void PRExec_Glue_PrintStatement (int pc);
+int	 PRExec_Glue_SvActive (void);
+int	 PRExec_Glue_Strcmp (const char *a, const char *b);
+int	 PRExec_Glue_CallBuiltin (int index);
+int	 PRExec_Glue_TraceEnabled (void);
+void PRExec_Glue_TraceEnter (int fnum);
+void PRExec_Glue_TraceLeave (void);
+void PRExec_Glue_TraceStatement (int pc, int op, int a, int b, int c);
+void PRExec_Glue_TraceGlobalWrite (int ofs, const int *values, int count);
+void PRExec_Glue_TraceFieldWrite (int ofs, const int *values, int count);
+void PRExec_Glue_TraceBuiltin (int ordinal, int argc, const int *parms);
+void PRExec_Glue_TraceBuiltinReturn (const int *ret);
+int PRSave_Glue_FieldAtOfs (int ofs, int *type, int *field_ofs, int *s_name);
+/* Phase 6 M5: the value parser's engine seams (pr_edict_parse_glue.c) */
+double			   PRParse_Glue_Atof (const char *s);
+int				   PRParse_Glue_Atoi (const char *s);
+long long		   PRParse_Glue_Strtoll (const char *s);
+unsigned long long PRParse_Glue_Strtoull (const char *s);
+int				   PRParse_Glue_FindFieldOfs (const char *name);
+int				   PRParse_Glue_FindFunction (const char *name);
+void			   PRParse_Glue_UnlinkEdict (int edict_num);

@@ -27,6 +27,7 @@ quake-formats = { path = "../quake-formats" }
 quake-types = { path = "../quake-types" }
 quake-snd = { path = "../quake-snd" }
 quake-net = { path = "../quake-net" }
+quake-progs = { path = "../quake-progs" }
 quake-c-sys = { path = "../quake-c-sys" }
 quake-platform = { path = "../quake-platform" }
 
@@ -37,7 +38,7 @@ libc = "0.2"
 [features]
 # forwarded to the pure crates; set by the Meson build when the C engine is
 # compiled with -D_DEBUG (see quake-math's engine-debug)
-engine-debug = ["quake-math/engine-debug", "quake-net/engine-debug"]
+engine-debug = ["quake-math/engine-debug", "quake-net/engine-debug", "quake-progs/engine-debug"]
 # installs the #[global_allocator] bound to the engine's vendored mimalloc
 # (ADR-013). Set only by the Meson build: plain cargo test binaries don't
 # link mem.o, so the mi_* symbols don't exist there.
@@ -61,6 +62,11 @@ snd = []
 # by Meson when -Duse_rust_net is enabled, and by quake-ctest for the
 # differential suites
 net = []
+# the Phase 6 progs-VM shims (PR_ExecuteProgram, the edict arena, the loader,
+# ED_Write/ED_Parse, and the Rust builtins registered into the C tables); set
+# by Meson when -Duse_rust_progs is enabled, and by quake-ctest for the
+# differential suites
+progs = []
 # codec-availability flags mirroring the C build's USE_CODEC_* defines; the
 # Rust codec registry (ADR-014) registers exactly the wrappers Meson links
 codec-wave = []

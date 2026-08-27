@@ -27,7 +27,7 @@ def _stage_entry(src, dst):
         shutil.copyfile(src, dst)
 
 
-def run_once(exe, game_data, demo, mapname, exitafter):
+def run_once(exe, game_data, demo, mapname, exitafter, game=None):
     staging = tempfile.mkdtemp(prefix="vkq-t-")
     for entry in sorted(os.listdir(game_data)):
         src = os.path.join(game_data, entry)
@@ -44,6 +44,11 @@ def run_once(exe, game_data, demo, mapname, exitafter):
     cmd = [os.path.abspath(exe), "-headless", "-basedir", ".",
            "-demohash", "harness.hash", "-tracefile", "harness.trace",
            "-harnesscmds", "harness.cmds", "-exitafter", str(exitafter)]
+    if game:
+        # mission packs and mods ship their own progs.dat, which is the point
+        # of tracing them; note -game sets com_modified, so this needs
+        # registered data (COM_CheckRegistered Sys_Errors on shareware)
+        cmd += ["-game", game]
     proc = subprocess.run(cmd, cwd=staging, stdout=subprocess.PIPE,
                           stderr=subprocess.STDOUT, text=True)
     trace = os.path.join(staging, "harness.trace")
@@ -65,6 +70,8 @@ def main():
     p.add_argument("--demo", default=None)
     p.add_argument("--map", dest="mapname", default=None)
     p.add_argument("--exitafter", type=int, default=1000)
+    p.add_argument("--game", default=None,
+                   help="mod/mission-pack dir, so the trace covers its progs.dat")
     p.add_argument("--stability", action="store_true")
     args = p.parse_args()
 
@@ -73,9 +80,11 @@ def main():
     if bool(args.demo) == bool(args.mapname):
         sys.exit("error: pass exactly one of --demo or --map")
 
-    a = run_once(args.vkquake, args.game_data, args.demo, args.mapname, args.exitafter)
+    a = run_once(args.vkquake, args.game_data, args.demo, args.mapname, args.exitafter,
+                 args.game)
     if args.stability:
-        b = run_once(args.vkquake, args.game_data, args.demo, args.mapname, args.exitafter)
+        b = run_once(args.vkquake, args.game_data, args.demo, args.mapname, args.exitafter,
+                     args.game)
         same = open(a, "rb").read() == open(b, "rb").read()
         os.unlink(b)
         if not same:

@@ -211,6 +211,20 @@ long long quake_rs_demo_resume_seek_offset(void);
 /* Phase 5 M5: the Rust loopback driver, installed into net_drivers[0] by
  * net_bsd.c/net_win.c under USE_RUST_NET (Loop_SearchForHosts stays C until
  * M9). Guarded on net_defs.h's own guard for the qsocket_t typedef. */
+/* Phase 6 M3: the progs interpreter body. pr_exec_glue.c owns the C frame --
+ * entry validation, every raise, and the Host_Guard'd builtin dispatch. */
+#ifdef _QUAKE_PROGS_H
+int quake_rs_pr_execute_program(func_t fnum, int *detail);
+/* Phase 6 M4: the savegame writer. pr_edict_save_glue.c owns the FILE *
+ * writes, PR_UglyValueString's static buffer, and the one raise. */
+int quake_rs_pr_ugly_value_string(int type, const int *val, char *out, size_t out_len, int *detail);
+int quake_rs_ed_write(int num, const unsigned char **out, size_t *out_len, int *detail);
+int quake_rs_ed_write_globals(const unsigned char **out, size_t *out_len, int *detail);
+/* Phase 6 M5: the value parser. pr_edict_parse_glue.c owns the platform libc
+ * conversions, the engine lookups still in C, and the one raise. */
+string_t quake_rs_ed_new_string(const char *s);
+int quake_rs_ed_parse_epair(int *base, unsigned short key_type, unsigned short key_ofs, int key_s_name, const char *s, qboolean zoned, int *detail);
+#endif
 #ifdef __NET_DEFS_H
 int rust_loop_Init(void);
 void rust_loop_Shutdown(void);
@@ -301,6 +315,12 @@ parse_deps = false
 
 [export]
 exclude = [
+    "quake_rs_pr_execute_program",
+    "quake_rs_pr_ugly_value_string",
+    "quake_rs_ed_write",
+    "quake_rs_ed_write_globals",
+    "quake_rs_ed_new_string",
+    "quake_rs_ed_parse_epair",
     "BoxOnPlaneSide", "R_ConcatRotations", "R_ConcatTransforms", "vec3_origin",
     "VectorAngles", "VectorMA", "_DotProduct", "_VectorSubtract", "_VectorAdd",
     "_VectorCopy", "VectorCompare", "VectorLength", "CrossProduct",

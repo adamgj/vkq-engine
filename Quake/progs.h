@@ -105,8 +105,10 @@ void   PR_spawnfunc_misc_model (edict_t *self);
 
 // from pr_edict, for pr_ext. reflection is messy.
 qboolean	 ED_ParseEpair (void *base, ddef_t *key, const char *s, qboolean zoned);
+string_t	 ED_NewString (const char *string); /* Phase 6 M5: ED_ParseEdict + PR_MergeEngineFieldDefs still call it */
 const char	*PR_UglyValueString (int type, eval_t *val);
 ddef_t		*ED_FindField (const char *name);
+ddef_t		*ED_FieldAtOfs (int ofs); /* Phase 6 M4: pr_edict_save.c + the Rust writer's SaveSys */
 ddef_t		*ED_FindGlobal (const char *name);
 dfunction_t *ED_FindFunction (const char *fn_name);
 

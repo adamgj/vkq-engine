@@ -46,3 +46,7 @@ cargo-target/
 # Local Claude Code configuration
 CLAUDE.local.md
 .claude/settings.local.json
+
+# trace_diff.py imports run_trace.py as a module
+__pycache__/
+*.pyc

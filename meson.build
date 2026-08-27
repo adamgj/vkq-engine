@@ -260,7 +260,7 @@ srcs = [
     'Quake/palette.c',
     'Quake/pr_cmds.c',
     'Quake/pr_edict.c',
-    'Quake/pr_exec.c',
+    'Quake/pr_edict_arena.c',
     'Quake/pr_ext.c',
     'Quake/r_alias.c',
     'Quake/r_brush.c',
@@ -388,6 +388,14 @@ if get_option('use_rust_net').enabled() and not use_rust
     error('-Duse_rust_net=enabled requires -Duse_rust=enabled (the networking wire layer ships in libquake_rs.a)')
 endif
 use_rust_net = use_rust and not get_option('use_rust_net').disabled()
+# Phase 6: the progs VM; the C pr_*.c originals stay the comparison oracle
+# under -Duse_rust_progs=disabled -- and here that is load-bearing beyond
+# convention: the ADR-019 gate-3 trace differ needs a C build to diff against.
+# Same auto-follows-use_rust rule as above
+if get_option('use_rust_progs').enabled() and not use_rust
+    error('-Duse_rust_progs=enabled requires -Duse_rust=enabled (the progs VM ships in libquake_rs.a)')
+endif
+use_rust_progs = use_rust and not get_option('use_rust_progs').disabled()
 # the Rust filesystem does not implement the DO_USERDIRS lookup branches yet
 # (quake-capi fails this combination with a compile_error!); say so here
 # rather than several minutes into a cargo build
@@ -424,6 +432,9 @@ if use_rust
     endif
     if use_rust_net
         rust_feature_list += 'net'
+    endif
+    if use_rust_progs
+        rust_feature_list += 'progs'
     endif
     # cargo features tracking C defines the fs shims must agree with
     if use_sdl3
@@ -486,6 +497,21 @@ if use_rust_net
     srcs += ['Quake/net_msg_glue.c', 'Quake/net_dgrm_glue.c']
 else
     srcs += ['Quake/net_msg.c', 'Quake/net_dgrm_rel.c']
+endif
+
+# Phase 6: the progs VM. The flip is per-file and lands milestone by milestone
+# (pr_exec.c at M3, then the pr_edict.c splits -- pr_edict_save.c at M4 and
+# pr_edict_parse.c at M5 -- then the builtin tables slot by slot). pr_edict.c
+# itself never flips: the parts that move out are split into their own files
+# first, so what remains is unconditionally C.
+# The C originals stay the -Duse_rust_progs=disabled oracle -- and here that
+# is load-bearing, because the ADR-019 gate-3 trace differ compares against
+# them.
+if use_rust_progs
+    cflags += '-DUSE_RUST_PROGS'
+    srcs += ['Quake/pr_exec_glue.c', 'Quake/pr_edict_save_glue.c', 'Quake/pr_edict_parse_glue.c']
+else
+    srcs += ['Quake/pr_exec.c', 'Quake/pr_edict_save.c', 'Quake/pr_edict_parse.c']
 endif
 
 if use_rust_snd

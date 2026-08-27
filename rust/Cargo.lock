@@ -239,6 +239,7 @@ dependencies = [
  "quake-math",
  "quake-net",
  "quake-platform",
+ "quake-progs",
  "quake-snd",
  "quake-types",
  "quake-util",
@@ -258,6 +259,7 @@ dependencies = [
  "quake-image",
  "quake-math",
  "quake-net",
+ "quake-progs",
  "quake-snd",
  "quake-types",
  "quake-util",
@@ -324,6 +326,10 @@ dependencies = [
 [[package]]
 name = "quake-progs"
 version = "0.1.0"
+dependencies = [
+ "quake-types",
+ "quake-util",
+]
 
 [[package]]
 name = "quake-render"

@@ -17,6 +17,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -2374,4 +2375,402 @@ int ctest_demo_forcetrack_oracle (const char *bytes, int len, int *track, int *c
 		*consumed = (int)ftell (f);
 	fclose (f);
 	return ok;
+}
+
+/* ---------------------------------------------------------------------------
+ * Phase 6 M2: the progs-VM fixture the pr_edict_arena.c oracle runs against.
+ *
+ * `qcvm` (renamed c_ref_qcvm by the prelude) is the ambient VM every function
+ * in that file dereferences, and EDICT_NUM/NUM_FOR_EDICT stay behind in
+ * pr_edict.c, so they are reproduced here verbatim -- including EDICT_NUM's
+ * Host_Error bounds check, which the differential suites exercise through the
+ * ctest_try_host trap.
+ */
+qcvm_t		  *qcvm;
+globalvars_t  *pr_global_struct;
+entity_state_t nullentitystate;
+
+/* pr_edict.c seams the pr_exec.c oracle needs (Phase 6 M3) */
+int ctest_progs_ed_print_count;
+
+void ED_Print (edict_t *ed)
+{
+	(void)ed;
+	ctest_progs_ed_print_count++;
+}
+
+void PR_SwitchQCVM (qcvm_t *nvm)
+{
+	if (nvm && qcvm)
+		Sys_Error ("PR_SwitchQCVM: A qcvm was already active");
+	qcvm = nvm;
+	pr_global_struct = nvm ? (globalvars_t *)nvm->globals : NULL;
+}
+
+const char *PR_GlobalString (int ofs)
+{
+	(void)ofs;
+	return "<global>";
+}
+
+const char *PR_GlobalStringNoContents (int ofs)
+{
+	(void)ofs;
+	return "<global>";
+}
+
+static qcvm_t	   ctest_progs_vm_storage;
+static dprograms_t ctest_progs_header;
+/* SV_UnlinkEdict is world.c (Phase 7); the oracle only needs a call log */
+int ctest_progs_unlink_count;
+int ctest_progs_unlink_last;
+
+void SV_UnlinkEdict (edict_t *ent)
+{
+	ctest_progs_unlink_count++;
+	ctest_progs_unlink_last = NUM_FOR_EDICT (ent);
+}
+
+edict_t *EDICT_NUM (int n)
+{
+	if (n < 0 || n >= qcvm->max_edicts)
+		Host_Error ("EDICT_NUM: bad edict_num %i", n);
+	return EDICT_NUM_NO_CHECK (n);
+}
+
+int NUM_FOR_EDICT (edict_t *e)
+{
+	int b = (byte *)e - (byte *)qcvm->edicts;
+	b = b / qcvm->edict_size;
+
+	if (b < 0 || b >= qcvm->num_edicts)
+		Host_Error ("NUM_FOR_EDICT: bad pointer");
+	return b;
+}
+
+/* common.c's COM_SetupNullState: the null baseline is not all-zero */
+static void ctest_progs_setup_nullstate (void)
+{
+	memset (&nullentitystate, 0, sizeof (nullentitystate));
+	nullentitystate.colormod[0] = 32;
+	nullentitystate.colormod[1] = 32;
+	nullentitystate.colormod[2] = 32;
+	nullentitystate.colormap = 0;
+	nullentitystate.alpha = ENTALPHA_DEFAULT;
+	nullentitystate.scale = ENTSCALE_DEFAULT;
+	nullentitystate.solidsize = ES_SOLID_NOT;
+}
+
+/* Builds a VM whose edict_size is computed exactly as PR_LoadProgs does, so
+ * the Rust arena's stride and the oracle's agree by construction. */
+void *ctest_progs_reset_vm (int max_edicts, int entityfields)
+{
+	qcvm_t *vm = &ctest_progs_vm_storage;
+
+	if (vm->edicts)
+		Mem_Free (vm->edicts);
+	memset (vm, 0, sizeof (*vm));
+	memset (&ctest_progs_header, 0, sizeof (ctest_progs_header));
+	ctest_progs_setup_nullstate ();
+	ctest_progs_unlink_count = 0;
+	ctest_progs_unlink_last = -1;
+
+	ctest_progs_header.entityfields = entityfields;
+	vm->progs = &ctest_progs_header;
+	vm->edict_size = entityfields * 4 + sizeof (edict_t) - sizeof (entvars_t);
+	vm->edict_size += sizeof (void *) - 1;
+	vm->edict_size &= ~(sizeof (void *) - 1);
+	vm->max_edicts = max_edicts;
+	vm->num_edicts = 0;
+	vm->edicts = (edict_t *)Mem_Alloc ((size_t)max_edicts * vm->edict_size);
+
+	qcvm = vm;
+	return vm;
+}
+
+size_t ctest_progs_edict_size (void)
+{
+	return (size_t)ctest_progs_vm_storage.edict_size;
+}
+
+void *ctest_progs_edicts (void)
+{
+	return ctest_progs_vm_storage.edicts;
+}
+
+void ctest_progs_set_time (double t)
+{
+	ctest_progs_vm_storage.time = t;
+}
+
+/* string-table fixture: PR_SetEngineString compares against the strings blob,
+ * so the tests need one with a known size */
+void ctest_progs_set_strings (char *blob, int size, int progsstrings)
+{
+	ctest_progs_vm_storage.strings = blob;
+	ctest_progs_vm_storage.stringssize = size;
+	ctest_progs_vm_storage.progsstrings = progsstrings;
+}
+
+/* ED_RebuildFreeList sorts with qsort() and a comparator that never returns 0
+ * (copysign(1.0, d)), so tie ordering is whatever this platform's qsort does
+ * with an inconsistent comparator. The Rust port therefore does not implement
+ * the sort -- it takes it as a parameter, and the differential suites hand it
+ * this helper: the same libc qsort, the same comparator, over a freetime
+ * table supplied by the caller's arena. */
+static const float *ctest_sort_freetimes;
+
+static int ctest_sort_freetime_cmp (const void *first, const void *second)
+{
+	int firstInt = *(const int *)first;
+	int secondInt = *(const int *)second;
+	return (int)copysign (1.0, ctest_sort_freetimes[firstInt] - ctest_sort_freetimes[secondInt]);
+}
+
+void ctest_progs_sort_by_freetime (int *nums, size_t n, const float *freetimes)
+{
+	ctest_sort_freetimes = freetimes;
+	qsort (nums, n, sizeof (int), ctest_sort_freetime_cmp);
+	ctest_sort_freetimes = NULL;
+}
+
+/* ---------------------------------------------------------------------------
+ * Phase 6 M3: synthetic progs images for the interpreter differential.
+ *
+ * Two identically-initialised VMs are built: A is published as the ambient
+ * `qcvm` for the c_ref_PR_ExecuteProgram oracle, B is handed to the Rust
+ * interpreter through quake_progs::arena::VmRaw. Building both here means the
+ * two agree on edict_size and lump placement by construction, and the
+ * comparison afterwards is between two allocations of identical shape.
+ */
+#define CTEST_PROGS_NVMS 2
+
+static qcvm_t	   ctest_synth_vm[CTEST_PROGS_NVMS];
+static dprograms_t ctest_synth_hdr[CTEST_PROGS_NVMS];
+
+int ctest_progs_builtin_calls;
+int ctest_progs_last_builtin_vm;
+
+/* A builtin both sides invoke. It writes a value derived from the ambient
+ * VM's own state, so a mix-up between the two fixtures would show up. */
+static void PF_Fixme_stub (void)
+{
+	ctest_progs_builtin_calls++;
+}
+
+static void ctest_progs_builtin_marker (void)
+{
+	ctest_progs_builtin_calls++;
+	G_FLOAT (OFS_RETURN) = (float)(qcvm->argc * 100 + qcvm->xstatement);
+	G_FLOAT (OFS_RETURN + 1) = G_FLOAT (OFS_PARM0);
+	G_FLOAT (OFS_RETURN + 2) = 0.0f;
+}
+
+static void ctest_progs_builtin_error (void)
+{
+	ctest_progs_builtin_calls++;
+	Host_Error ("ctest builtin raised");
+}
+
+void *ctest_progs_synth_vm (
+	int which, int max_edicts, int entityfields, int numglobals, const void *stmts, int nstmts, const void *funcs, int nfuncs, const char *strings,
+	int stringssize)
+{
+	qcvm_t	   *vm = &ctest_synth_vm[which];
+	dprograms_t *hdr = &ctest_synth_hdr[which];
+
+	if (vm->edicts)
+		Mem_Free (vm->edicts);
+	if (vm->statements)
+		Mem_Free (vm->statements);
+	if (vm->functions)
+		Mem_Free (vm->functions);
+	if (vm->globals)
+		Mem_Free (vm->globals);
+	if (vm->strings)
+		Mem_Free (vm->strings);
+	memset (vm, 0, sizeof (*vm));
+	memset (hdr, 0, sizeof (*hdr));
+
+	hdr->entityfields = entityfields;
+	hdr->numfunctions = nfuncs;
+	hdr->numstatements = nstmts;
+	hdr->numglobals = numglobals;
+	vm->progs = hdr;
+
+	vm->statements = (dstatement_t *)Mem_Alloc ((size_t)nstmts * sizeof (dstatement_t));
+	memcpy (vm->statements, stmts, (size_t)nstmts * sizeof (dstatement_t));
+	vm->functions = (dfunction_t *)Mem_Alloc ((size_t)nfuncs * sizeof (dfunction_t));
+	memcpy (vm->functions, funcs, (size_t)nfuncs * sizeof (dfunction_t));
+	vm->globals = (float *)Mem_Alloc ((size_t)numglobals * sizeof (float));
+	vm->strings = (char *)Mem_Alloc ((size_t)stringssize);
+	memcpy (vm->strings, strings, (size_t)stringssize);
+	vm->stringssize = stringssize;
+
+	vm->edict_size = entityfields * 4 + sizeof (edict_t) - sizeof (entvars_t);
+	vm->edict_size += sizeof (void *) - 1;
+	vm->edict_size &= ~(sizeof (void *) - 1);
+	vm->max_edicts = max_edicts;
+	vm->num_edicts = max_edicts; /* all live: the tests address them directly */
+	vm->edicts = (edict_t *)Mem_Alloc ((size_t)max_edicts * vm->edict_size);
+
+	vm->builtins[0] = PF_Fixme_stub;
+	vm->builtins[1] = ctest_progs_builtin_marker;
+	vm->builtins[2] = ctest_progs_builtin_error;
+	vm->numbuiltins = 3;
+
+	return vm;
+}
+
+void *ctest_progs_vm (int which)
+{
+	return &ctest_synth_vm[which];
+}
+
+/* publish fixture A as the ambient VM for the oracle */
+void ctest_progs_select_vm (int which)
+{
+	qcvm = &ctest_synth_vm[which];
+	pr_global_struct = (globalvars_t *)qcvm->globals;
+}
+
+void ctest_progs_synth_free (void)
+{
+	int i;
+	for (i = 0; i < CTEST_PROGS_NVMS; i++)
+	{
+		qcvm_t *vm = &ctest_synth_vm[i];
+		SAFE_FREE (vm->edicts);
+		SAFE_FREE (vm->statements);
+		SAFE_FREE (vm->functions);
+		SAFE_FREE (vm->globals);
+		SAFE_FREE (vm->strings);
+		SAFE_FREE (vm->fielddefs);
+		SAFE_FREE (vm->globaldefs);
+	}
+	qcvm = NULL;
+	pr_global_struct = NULL;
+}
+
+/* Invoke a builtin against a chosen fixture, the way the engine's guarded
+ * dispatch does: the ambient VM is the one the builtin reads. */
+void ctest_progs_call_builtin (int which, int index)
+{
+	qcvm_t		 *saved = qcvm;
+	globalvars_t *saved_g = pr_global_struct;
+	qcvm = &ctest_synth_vm[which];
+	pr_global_struct = (globalvars_t *)qcvm->globals;
+	qcvm->builtins[index] ();
+	qcvm = saved;
+	pr_global_struct = saved_g;
+}
+
+void ctest_progs_set_sv_state (int active)
+{
+	sv.state = active ? ss_active : ss_loading;
+}
+
+/* ---------------------------------------------------------------------------
+ * Phase 6 M4: seams the pr_edict_save.c oracle needs. type_size and
+ * ED_FieldAtOfs stay in pr_edict.c; the tests install a fielddef table so
+ * ED_FieldAtOfs has something to search.
+ */
+const int type_size[NUM_TYPE_SIZES] = {1, 1, 1, 3, 1, 1, 1, 1};
+
+ddef_t *ED_FieldAtOfs (int ofs)
+{
+	int i;
+	for (i = 0; i < qcvm->progs->numfielddefs; i++)
+	{
+		ddef_t *def = &qcvm->fielddefs[i];
+		if (def->ofs == ofs)
+			return def;
+	}
+	return NULL;
+}
+
+/* Runs a c_ref writer into a temp file and returns its bytes. */
+int ctest_progs_capture_ed_write (int edict_num, unsigned char *out, int out_max)
+{
+	FILE *f = tmpfile ();
+	long  n;
+	if (!f)
+		return -1;
+	c_ref_ED_Write (f, EDICT_NUM (edict_num));
+	fflush (f);
+	n = ftell (f);
+	rewind (f);
+	if (n > out_max)
+		n = out_max;
+	n = (long)fread (out, 1, (size_t)n, f);
+	fclose (f);
+	return (int)n;
+}
+
+int ctest_progs_capture_ed_write_globals (unsigned char *out, int out_max)
+{
+	FILE *f = tmpfile ();
+	long  n;
+	if (!f)
+		return -1;
+	c_ref_ED_WriteGlobals (f);
+	fflush (f);
+	n = ftell (f);
+	rewind (f);
+	if (n > out_max)
+		n = out_max;
+	n = (long)fread (out, 1, (size_t)n, f);
+	fclose (f);
+	return (int)n;
+}
+
+/* Installs a synthetic def table on a fixture so the writers have something
+ * to iterate. Fielddefs/globaldefs are copied; the caller keeps ownership of
+ * nothing. */
+void ctest_progs_set_defs (int which, const void *fielddefs, int numfielddefs, const void *globaldefs, int numglobaldefs, int extfields_alpha)
+{
+	qcvm_t *vm = (qcvm_t *)ctest_progs_vm (which);
+
+	if (vm->fielddefs)
+		Mem_Free (vm->fielddefs);
+	if (vm->globaldefs)
+		Mem_Free (vm->globaldefs);
+
+	vm->fielddefs = (ddef_t *)Mem_Alloc ((size_t)numfielddefs * sizeof (ddef_t));
+	memcpy (vm->fielddefs, fielddefs, (size_t)numfielddefs * sizeof (ddef_t));
+	vm->progs->numfielddefs = numfielddefs;
+
+	vm->globaldefs = (ddef_t *)Mem_Alloc ((size_t)numglobaldefs * sizeof (ddef_t));
+	memcpy (vm->globaldefs, globaldefs, (size_t)numglobaldefs * sizeof (ddef_t));
+	vm->progs->numglobaldefs = numglobaldefs;
+
+	vm->extfields.alpha = extfields_alpha;
+}
+
+/* ---------------------------------------------------------------------------
+ * Phase 6 M5: the lookups pr_edict_parse.c's oracle needs. The real ones are
+ * hash-map queries in pr_edict.c; over a synthetic fixture a linear search is
+ * equivalent, and the Rust side is driven through the same tables.
+ */
+ddef_t *ED_FindField (const char *name)
+{
+	int i;
+	for (i = 0; i < qcvm->progs->numfielddefs; i++)
+	{
+		ddef_t *def = &qcvm->fielddefs[i];
+		if (!strcmp (PR_GetString (def->s_name), name))
+			return def;
+	}
+	return NULL;
+}
+
+dfunction_t *ED_FindFunction (const char *fn_name)
+{
+	int i;
+	for (i = 0; i < qcvm->progs->numfunctions; i++)
+	{
+		if (!strcmp (PR_GetString (qcvm->functions[i].s_name), fn_name))
+			return &qcvm->functions[i];
+	}
+	return NULL;
 }
