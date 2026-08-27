@@ -46,6 +46,8 @@ pub mod net_udp;
 #[cfg(feature = "progs")]
 pub mod progs_exec; // pr_exec.c
 #[cfg(feature = "progs")]
+pub mod progs_parse; // pr_edict_parse.c
+#[cfg(feature = "progs")]
 pub mod progs_save; // pr_edict_save.c
 #[cfg(feature = "snd")]
 pub mod snd_codec;

@@ -122,15 +122,19 @@ impl RustTable {
             mem,
         } = self;
         (
-            StringTable {
-                strings: *strings,
-                stringssize: *stringssize,
-                knownstrings,
-                knownstringsowned,
-                maxknownstrings,
-                numknownstrings,
-                progsstrings: *progsstrings,
-                freeknownstrings,
+            // SAFETY: every pointer addresses a field of `self`, which
+            // outlives the returned table.
+            unsafe {
+                StringTable::from_parts(
+                    *strings,
+                    *stringssize,
+                    knownstrings,
+                    knownstringsowned,
+                    maxknownstrings,
+                    numknownstrings,
+                    *progsstrings,
+                    freeknownstrings,
+                )
             },
             mem,
         )

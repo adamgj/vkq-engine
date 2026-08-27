@@ -2746,3 +2746,31 @@ void ctest_progs_set_defs (int which, const void *fielddefs, int numfielddefs, c
 
 	vm->extfields.alpha = extfields_alpha;
 }
+
+/* ---------------------------------------------------------------------------
+ * Phase 6 M5: the lookups pr_edict_parse.c's oracle needs. The real ones are
+ * hash-map queries in pr_edict.c; over a synthetic fixture a linear search is
+ * equivalent, and the Rust side is driven through the same tables.
+ */
+ddef_t *ED_FindField (const char *name)
+{
+	int i;
+	for (i = 0; i < qcvm->progs->numfielddefs; i++)
+	{
+		ddef_t *def = &qcvm->fielddefs[i];
+		if (!strcmp (PR_GetString (def->s_name), name))
+			return def;
+	}
+	return NULL;
+}
+
+dfunction_t *ED_FindFunction (const char *fn_name)
+{
+	int i;
+	for (i = 0; i < qcvm->progs->numfunctions; i++)
+	{
+		if (!strcmp (PR_GetString (qcvm->functions[i].s_name), fn_name))
+			return &qcvm->functions[i];
+	}
+	return NULL;
+}

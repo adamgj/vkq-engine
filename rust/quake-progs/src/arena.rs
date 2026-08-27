@@ -336,15 +336,80 @@ pub mod entvars_ofs {
 /// engine strings addressed by negative `string_t` values.
 ///
 /// A view, not an owner — every field lives in the C `qcvm_t`.
+/// The fields are raw pointers rather than `&mut` references so the table can
+/// be built from a live `qcvm_t` without taking a borrow that would alias
+/// [`VmRaw`]'s view of the same object.
 pub struct StringTable<'a> {
     pub strings: *const c_char,
     pub stringssize: c_int,
-    pub knownstrings: &'a mut *mut *const c_char,
-    pub knownstringsowned: &'a mut *mut QBoolean,
-    pub maxknownstrings: &'a mut c_int,
-    pub numknownstrings: &'a mut c_int,
+    pub knownstrings: *mut *mut *const c_char,
+    pub knownstringsowned: *mut *mut QBoolean,
+    pub maxknownstrings: *mut c_int,
+    pub numknownstrings: *mut c_int,
     pub progsstrings: c_int,
-    pub freeknownstrings: &'a mut c_int,
+    pub freeknownstrings: *mut c_int,
+    pub(crate) _marker: core::marker::PhantomData<&'a mut ()>,
+}
+
+impl<'a> StringTable<'a> {
+    /// Build a table from the addresses of the fields it mutates, for callers
+    /// that keep the string table outside a `qcvm_t` — the differential
+    /// suites, which drive it beside the C original.
+    ///
+    /// # Safety
+    ///
+    /// Every pointer must stay valid, and exclusively owned by this table,
+    /// for `'a`.
+    #[allow(clippy::too_many_arguments)]
+    pub unsafe fn from_parts(
+        strings: *const c_char,
+        stringssize: c_int,
+        knownstrings: *mut *mut *const c_char,
+        knownstringsowned: *mut *mut QBoolean,
+        maxknownstrings: *mut c_int,
+        numknownstrings: *mut c_int,
+        progsstrings: c_int,
+        freeknownstrings: *mut c_int,
+    ) -> Self {
+        Self {
+            strings,
+            stringssize,
+            knownstrings,
+            knownstringsowned,
+            maxknownstrings,
+            numknownstrings,
+            progsstrings,
+            freeknownstrings,
+            _marker: core::marker::PhantomData,
+        }
+    }
+}
+
+impl StringTable<'_> {
+    fn known_base(&self) -> *mut *const c_char {
+        // SAFETY: the constructor's contract keeps the field live.
+        unsafe { *self.knownstrings }
+    }
+
+    fn owned_base(&self) -> *mut QBoolean {
+        // SAFETY: as above.
+        unsafe { *self.knownstringsowned }
+    }
+
+    fn num(&self) -> c_int {
+        // SAFETY: as above.
+        unsafe { *self.numknownstrings }
+    }
+
+    fn max(&self) -> c_int {
+        // SAFETY: as above.
+        unsafe { *self.maxknownstrings }
+    }
+
+    fn free_slot(&self) -> c_int {
+        // SAFETY: as above.
+        unsafe { *self.freeknownstrings }
+    }
 }
 
 /// `pr_edict.c`
@@ -387,42 +452,43 @@ unsafe fn resolve_string(
 
 impl StringTable<'_> {
     fn known(&self, i: c_int) -> *const c_char {
-        debug_assert!(i >= 0 && i < *self.numknownstrings);
+        debug_assert!(i >= 0 && i < self.num());
         // SAFETY: callers only pass indices below numknownstrings, and the
         // array is at least maxknownstrings >= numknownstrings entries.
-        unsafe { (*self.knownstrings).add(i as usize).read() }
+        unsafe { self.known_base().add(i as usize).read() }
     }
 
     fn set_known(&mut self, i: c_int, ptr: *const c_char, owned: bool) {
-        debug_assert!(i >= 0 && i < *self.maxknownstrings);
+        debug_assert!(i >= 0 && i < self.max());
         // SAFETY: as above; i < maxknownstrings is the array's true bound.
         unsafe {
-            (*self.knownstrings).add(i as usize).write(ptr);
-            (*self.knownstringsowned).add(i as usize).write(owned);
+            self.known_base().add(i as usize).write(ptr);
+            self.owned_base().add(i as usize).write(owned);
         }
     }
 
     fn is_owned(&self, i: c_int) -> bool {
         // SAFETY: as above.
-        unsafe { (*self.knownstringsowned).add(i as usize).read() }
+        unsafe { self.owned_base().add(i as usize).read() }
     }
 
     fn alloc_slots(&mut self, mem: &mut dyn Mem) {
-        *self.maxknownstrings += PR_STRING_ALLOCSLOTS;
-        mem.note_slot_growth(*self.maxknownstrings);
-        let n = *self.maxknownstrings as usize;
-        *self.knownstrings = mem
-            .realloc(
-                (*self.knownstrings).cast::<u8>(),
-                n * size_of::<*const c_char>(),
-            )
-            .cast();
-        *self.knownstringsowned = mem
-            .realloc(
-                (*self.knownstringsowned).cast::<u8>(),
-                n * size_of::<QBoolean>(),
-            )
-            .cast();
+        // SAFETY: the constructor's contract keeps every field of the table
+        // live for its lifetime; these are the qcvm_t's own counters.
+        unsafe {
+            *self.maxknownstrings += PR_STRING_ALLOCSLOTS;
+            let n = *self.maxknownstrings as usize;
+            mem.note_slot_growth(*self.maxknownstrings);
+            *self.knownstrings = mem
+                .realloc(
+                    self.known_base().cast::<u8>(),
+                    n * size_of::<*const c_char>(),
+                )
+                .cast();
+            *self.knownstringsowned = mem
+                .realloc(self.owned_base().cast::<u8>(), n * size_of::<QBoolean>())
+                .cast();
+        }
     }
 
     /// `PR_GetString`.
@@ -440,8 +506,8 @@ impl StringTable<'_> {
             resolve_string(
                 self.strings,
                 self.stringssize,
-                *self.knownstrings,
-                *self.numknownstrings,
+                self.known_base(),
+                self.num(),
                 num,
             )
         }
@@ -449,7 +515,7 @@ impl StringTable<'_> {
 
     /// `PR_ClearEngineString`.
     pub fn clear_engine_string(&mut self, num: c_int, mem: &mut dyn Mem) {
-        if num < 0 && num >= -*self.numknownstrings {
+        if num < 0 && num >= -self.num() {
             let i = -1 - num;
             if self.is_owned(i) {
                 // C is an unconditional SAFE_FREE; Mem_Free tolerates NULL
@@ -465,8 +531,11 @@ impl StringTable<'_> {
                         .write(core::ptr::null())
                 }
             }
-            if *self.freeknownstrings > i {
-                *self.freeknownstrings = i;
+            // SAFETY: the field is live for the table's lifetime.
+            unsafe {
+                if *self.freeknownstrings > i {
+                    *self.freeknownstrings = i;
+                }
             }
         }
     }
@@ -474,22 +543,24 @@ impl StringTable<'_> {
     /// The `for (i = freeknownstrings;; i++)` slot search shared verbatim by
     /// `PR_SetEngineString` and `PR_AllocString`.
     fn take_slot(&mut self, mem: &mut dyn Mem) -> c_int {
-        let mut i = *self.freeknownstrings;
+        let mut i = self.free_slot();
         loop {
-            if i < *self.numknownstrings {
+            if i < self.num() {
                 if !self.known(i).is_null() {
                     i += 1;
                     continue;
                 }
             } else {
-                if i >= *self.maxknownstrings {
+                if i >= self.max() {
                     self.alloc_slots(mem);
                 }
-                *self.numknownstrings += 1;
+                // SAFETY: the field is live for the table's lifetime.
+                unsafe { *self.numknownstrings += 1 };
             }
             break;
         }
-        *self.freeknownstrings = i + 1;
+        // SAFETY: as above.
+        unsafe { *self.freeknownstrings = i + 1 };
         i
     }
 
@@ -514,7 +585,7 @@ impl StringTable<'_> {
                 return (s as usize - self.strings as usize) as c_int;
             }
         }
-        for i in 0..*self.numknownstrings {
+        for i in 0..self.num() {
             if self.known(i) == s {
                 return -1 - i;
             }
@@ -541,14 +612,15 @@ impl StringTable<'_> {
     /// COMPAT: the `freeknownstrings` reset is `#ifndef _DEBUG` — debug builds
     /// deliberately never reuse a slot, to catch stale references.
     pub fn clear_edict_strings(&mut self, mem: &mut dyn Mem) {
-        for i in self.progsstrings..*self.numknownstrings {
+        for i in self.progsstrings..self.num() {
             if self.is_owned(i) {
                 mem.free(self.known(i).cast_mut().cast::<u8>());
                 self.set_known(i, core::ptr::null(), false);
             }
         }
         if !quake_types::progs::ENGINE_DEBUG {
-            *self.freeknownstrings = self.progsstrings;
+            // SAFETY: the field is live for the table's lifetime.
+            unsafe { *self.freeknownstrings = self.progsstrings };
         }
     }
 }
@@ -874,6 +946,98 @@ impl VmRaw {
         }
     }
 
+    /// `qcvm->time`
+    #[must_use]
+    pub fn time(&self) -> f64 {
+        // SAFETY: a plain field read of the live qcvm_t.
+        unsafe { (*self.vm).time }
+    }
+
+    /// Copy `bytes` into a buffer `PR_AllocString`/`Mem_Alloc` handed back.
+    ///
+    /// A no-op on a null buffer, matching `ED_NewString`'s behaviour when
+    /// `PR_AllocString` returned handle 0 for a zero length.
+    pub fn write_engine_string(&mut self, buf: *mut c_char, bytes: &[u8]) {
+        if buf.is_null() {
+            return;
+        }
+        // SAFETY: `buf` is an allocation of at least `bytes.len()` bytes --
+        // both callers size it from the same string they copy in.
+        unsafe { core::ptr::copy_nonoverlapping(bytes.as_ptr(), buf.cast::<u8>(), bytes.len()) };
+    }
+
+    /// `qcvm->knownzone[id >> 3] & (1u << (id & 7))` — is this engine string
+    /// one `ED_RezoneString`/`PF_strzone` allocated?
+    #[must_use]
+    pub fn knownzone_test(&self, id: usize) -> bool {
+        // SAFETY: guarded by the size check, matching C's own.
+        unsafe {
+            id < (*self.vm).knownzonesize
+                && ((*self.vm).knownzone.add(id >> 3).read() & (1u8 << (id & 7))) != 0
+        }
+    }
+
+    pub fn knownzone_clear(&mut self, id: usize) {
+        // SAFETY: callers test knownzone_test first, which bounds `id`.
+        unsafe {
+            let p = (*self.vm).knownzone.add(id >> 3);
+            p.write(p.read() & !(1u8 << (id & 7)));
+        }
+    }
+
+    pub fn knownzone_set(&mut self, id: usize) {
+        debug_assert!(self.knownzone_capacity() > id);
+        // SAFETY: knownzone_grow_to has made the byte addressable.
+        unsafe {
+            let p = (*self.vm).knownzone.add(id >> 3);
+            p.write(p.read() | (1u8 << (id & 7)));
+        }
+    }
+
+    #[must_use]
+    fn knownzone_capacity(&self) -> usize {
+        // SAFETY: a plain field read of the live qcvm_t.
+        unsafe { (*self.vm).knownzonesize }
+    }
+
+    /// `ED_RezoneString`'s bitmap growth, verbatim: the new size is
+    /// `(id + 32) & ~7` bits, and only the bytes past the old size are zeroed.
+    pub fn knownzone_grow_to(&mut self, id: usize, mem: &mut dyn Mem) {
+        // SAFETY: the fields belong to the live qcvm_t.
+        unsafe {
+            if id >= (*self.vm).knownzonesize {
+                let old_size = ((*self.vm).knownzonesize + 7) >> 3;
+                (*self.vm).knownzonesize = (id + 32) & !7;
+                let new_size = ((*self.vm).knownzonesize + 7) >> 3;
+                (*self.vm).knownzone = mem.realloc((*self.vm).knownzone, new_size);
+                core::ptr::write_bytes((*self.vm).knownzone.add(old_size), 0, new_size - old_size);
+            }
+        }
+    }
+
+    /// The VM's string table, built from the live `qcvm_t`'s own fields.
+    ///
+    /// Takes `&mut self` so it cannot coexist with another mutable view of
+    /// the same VM, but holds only raw pointers, so nothing it returns aliases
+    /// a Rust reference across a builtin dispatch.
+    pub fn string_table(&mut self) -> StringTable<'_> {
+        // SAFETY: every field below belongs to the live qcvm_t the
+        // constructor was given.
+        unsafe {
+            StringTable {
+                strings: (*self.vm).strings,
+                stringssize: (*self.vm).stringssize,
+                knownstrings: core::ptr::addr_of_mut!((*self.vm).knownstrings),
+                knownstringsowned: core::ptr::addr_of_mut!((*self.vm).knownstringsowned),
+                maxknownstrings: core::ptr::addr_of_mut!((*self.vm).maxknownstrings),
+                numknownstrings: core::ptr::addr_of_mut!((*self.vm).numknownstrings),
+                progsstrings: (*self.vm).progsstrings,
+                freeknownstrings: core::ptr::addr_of_mut!((*self.vm).freeknownstrings),
+                _marker: core::marker::PhantomData,
+            }
+        }
+    }
+
     /// `PR_GetString` as bytes up to the NUL, for writers that format it.
     ///
     /// The returned slice borrows the progs string blob or a `knownstrings`
@@ -1180,6 +1344,13 @@ impl VmRaw {
     pub fn edict_size_for_test(&self) -> i32 {
         // SAFETY: a plain field read of the live qcvm_t.
         unsafe { (*self.vm).edict_size }
+    }
+
+    /// `qcvm->edicts` as a byte pointer, for building an [`EdictArena`] over
+    /// the same array this view was constructed from.
+    #[must_use]
+    pub fn edicts_base(&self) -> *mut u8 {
+        self.edicts
     }
 
     /// The whole edict array as bytes — the differential suites compare it.

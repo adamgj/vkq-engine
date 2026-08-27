@@ -506,9 +506,9 @@ endif
 # them.
 if use_rust_progs
     cflags += '-DUSE_RUST_PROGS'
-    srcs += ['Quake/pr_exec_glue.c', 'Quake/pr_edict_save_glue.c']
+    srcs += ['Quake/pr_exec_glue.c', 'Quake/pr_edict_save_glue.c', 'Quake/pr_edict_parse_glue.c']
 else
-    srcs += ['Quake/pr_exec.c', 'Quake/pr_edict_save.c']
+    srcs += ['Quake/pr_exec.c', 'Quake/pr_edict_save.c', 'Quake/pr_edict_parse.c']
 endif
 
 if use_rust_snd

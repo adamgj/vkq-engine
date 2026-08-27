@@ -645,6 +645,9 @@ unsafe extern "C" {
 unsafe extern "C" {
     pub fn Con_DPrintf2(fmt: *const ::std::os::raw::c_char, ...);
 }
+unsafe extern "C" {
+    pub fn Con_DWarning(fmt: *const ::std::os::raw::c_char, ...);
+}
 pub type xcommand_t = ::std::option::Option<unsafe extern "C" fn()>;
 pub const cmd_source_t_src_client: cmd_source_t = 0;
 pub const cmd_source_t_src_command: cmd_source_t = 1;
@@ -1001,4 +1004,25 @@ unsafe extern "C" {
         field_ofs: *mut ::std::os::raw::c_int,
         s_name: *mut ::std::os::raw::c_int,
     ) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn PRParse_Glue_Atof(s: *const ::std::os::raw::c_char) -> f64;
+}
+unsafe extern "C" {
+    pub fn PRParse_Glue_Atoi(s: *const ::std::os::raw::c_char) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn PRParse_Glue_Strtoll(s: *const ::std::os::raw::c_char) -> ::std::os::raw::c_longlong;
+}
+unsafe extern "C" {
+    pub fn PRParse_Glue_Strtoull(s: *const ::std::os::raw::c_char) -> ::std::os::raw::c_ulonglong;
+}
+unsafe extern "C" {
+    pub fn PRParse_Glue_FindFieldOfs(name: *const ::std::os::raw::c_char) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn PRParse_Glue_FindFunction(name: *const ::std::os::raw::c_char) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn PRParse_Glue_UnlinkEdict(edict_num: ::std::os::raw::c_int);
 }

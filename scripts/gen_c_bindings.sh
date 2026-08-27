@@ -57,7 +57,7 @@ bindgen rust/quake-c-sys/bindings_wrapper.h \
     --allowlist-function 'Mem_Alloc|Mem_AllocNonZero|Mem_Realloc|Mem_Free' \
     --allowlist-function 'COM_LoadFile|COM_FOpenFile|COM_FOpenPrefFile|COM_CheckParm|COM_FileBase|COM_AddExtension' \
     --allowlist-function 'FS_fgets|FS_rewind|FS_fclose|FS_fread|FS_fseek|FS_feof|FS_ferror|Sys_ftell|Sys_filelength' \
-    --allowlist-function 'Cvar_Set|Con_Printf|Con_Warning|Con_DPrintf|Con_DPrintf2|Sys_Error' \
+    --allowlist-function 'Cvar_Set|Con_Printf|Con_Warning|Con_DWarning|Con_DPrintf|Con_DPrintf2|Sys_Error' \
     --allowlist-function 'COM_SeedRand|COM_Rand|COM_ThreadFileSize|COM_ThreadFileFromPak' \
     --allowlist-function 'COM_SetThreadFileSize|COM_SetThreadFileFromPak|COM_ThreadToken|COM_CheckParmNext' \
     --allowlist-function 'COM_HostBasedir|COM_HostUserdir|COM_SetHostUserdir|COM_Game_f|COM_CheckRegistered|COM_Parse' \
@@ -94,7 +94,7 @@ bindgen rust/quake-c-sys/bindings_wrapper.h \
     --allowlist-var 'net_activeSockets|net_freeSockets|net_activeconnections|DEFAULTnet_hostport|listening|hostCacheCount' \
     --allowlist-function 'NetMain_SVActive|NetMain_MaxClients|NetMain_MaxClientsLimit|NetMain_SetMaxClients|NetMain_Drivers|NetMain_LanDrivers|Cbuf_AddText|Cvar_Set' \
     --allowlist-var 'qcvm' \
-    --allowlist-function 'PRExec_Glue_.*|PRSave_Glue_.*' \
+    --allowlist-function 'PRExec_Glue_.*|PRSave_Glue_.*|PRParse_Glue_.*' \
     -o rust/quake-c-sys/src/generated.rs \
     -- -IQuake
 

@@ -501,6 +501,10 @@ void GLMesh_DeleteMeshBuffers (aliashdr_t *mainhdr);
 #define ED_WriteGlobals       c_ref_ED_WriteGlobals
 #define ED_FieldAtOfs         c_ref_ED_FieldAtOfs
 #define type_size             c_ref_type_size
+#define ED_NewString          c_ref_ED_NewString
+#define ED_ParseEpair         c_ref_ED_ParseEpair
+#define ED_FindField          c_ref_ED_FindField
+#define ED_FindFunction       c_ref_ED_FindFunction
 
 #include "protocol.h" /* entity_state_t, which edict_t embeds */
 #include "progs.h"
@@ -521,6 +525,8 @@ const char			 *PR_GlobalString (int ofs);
 const char			 *PR_GlobalStringNoContents (int ofs);
 ddef_t				 *ED_FieldAtOfs (int ofs);
 extern const int	  type_size[NUM_TYPE_SIZES];
+ddef_t				 *ED_FindField (const char *name);
+dfunction_t			 *ED_FindFunction (const char *fn_name);
 
 /* server.h slice: model_parse.c reads sv.modelname; snd_mix.c (Phase 4)
  * reads sv.active */

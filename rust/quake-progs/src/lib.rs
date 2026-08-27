@@ -27,4 +27,5 @@
 pub mod alloc;
 pub mod arena;
 pub mod exec;
+pub mod parse;
 pub mod save;

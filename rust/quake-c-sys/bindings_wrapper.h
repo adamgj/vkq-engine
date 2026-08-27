@@ -22,6 +22,7 @@ void Con_Printf (const char *fmt, ...) FUNC_PRINTF (1, 2);
 void Con_Warning (const char *fmt, ...) FUNC_PRINTF (1, 2);
 void Con_DPrintf (const char *fmt, ...) FUNC_PRINTF (1, 2);
 void Con_DPrintf2 (const char *fmt, ...) FUNC_PRINTF (1, 2);
+void Con_DWarning (const char *fmt, ...) FUNC_PRINTF (1, 2); /* Phase 6 M5: ED_ParseEpair's short-vector warning */
 
 /* cmd.h is not a bindgen-clean root; these must match cmd.h exactly.
  * Cmd_AddCommand is a macro over Cmd_AddCommand2 (cmdname, func,
@@ -180,3 +181,11 @@ void PRExec_Glue_TraceFieldWrite (int ofs, const int *values, int count);
 void PRExec_Glue_TraceBuiltin (int ordinal, int argc, const int *parms);
 void PRExec_Glue_TraceBuiltinReturn (const int *ret);
 int PRSave_Glue_FieldAtOfs (int ofs, int *type, int *field_ofs, int *s_name);
+/* Phase 6 M5: the value parser's engine seams (pr_edict_parse_glue.c) */
+double			   PRParse_Glue_Atof (const char *s);
+int				   PRParse_Glue_Atoi (const char *s);
+long long		   PRParse_Glue_Strtoll (const char *s);
+unsigned long long PRParse_Glue_Strtoull (const char *s);
+int				   PRParse_Glue_FindFieldOfs (const char *name);
+int				   PRParse_Glue_FindFunction (const char *name);
+void			   PRParse_Glue_UnlinkEdict (int edict_num);

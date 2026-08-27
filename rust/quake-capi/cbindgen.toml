@@ -220,6 +220,10 @@ int quake_rs_pr_execute_program(func_t fnum, int *detail);
 int quake_rs_pr_ugly_value_string(int type, const int *val, char *out, size_t out_len, int *detail);
 int quake_rs_ed_write(int num, const unsigned char **out, size_t *out_len, int *detail);
 int quake_rs_ed_write_globals(const unsigned char **out, size_t *out_len, int *detail);
+/* Phase 6 M5: the value parser. pr_edict_parse_glue.c owns the platform libc
+ * conversions, the engine lookups still in C, and the one raise. */
+string_t quake_rs_ed_new_string(const char *s);
+int quake_rs_ed_parse_epair(int *base, unsigned short key_type, unsigned short key_ofs, int key_s_name, const char *s, qboolean zoned, int *detail);
 #endif
 #ifdef __NET_DEFS_H
 int rust_loop_Init(void);
@@ -315,6 +319,8 @@ exclude = [
     "quake_rs_pr_ugly_value_string",
     "quake_rs_ed_write",
     "quake_rs_ed_write_globals",
+    "quake_rs_ed_new_string",
+    "quake_rs_ed_parse_epair",
     "BoxOnPlaneSide", "R_ConcatRotations", "R_ConcatTransforms", "vec3_origin",
     "VectorAngles", "VectorMA", "_DotProduct", "_VectorSubtract", "_VectorAdd",
     "_VectorCopy", "VectorCompare", "VectorLength", "CrossProduct",
