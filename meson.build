@@ -260,6 +260,7 @@ srcs = [
     'Quake/palette.c',
     'Quake/pr_cmds.c',
     'Quake/pr_edict.c',
+    'Quake/pr_edict_arena.c',
     'Quake/pr_exec.c',
     'Quake/pr_ext.c',
     'Quake/r_alias.c',

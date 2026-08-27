@@ -23,3 +23,6 @@
 //! interpreter re-derives its base pointers per step instead.
 
 #![deny(unsafe_code)]
+
+pub mod alloc;
+pub mod arena;

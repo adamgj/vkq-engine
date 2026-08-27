@@ -17,6 +17,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -2374,4 +2375,131 @@ int ctest_demo_forcetrack_oracle (const char *bytes, int len, int *track, int *c
 		*consumed = (int)ftell (f);
 	fclose (f);
 	return ok;
+}
+
+/* ---------------------------------------------------------------------------
+ * Phase 6 M2: the progs-VM fixture the pr_edict_arena.c oracle runs against.
+ *
+ * `qcvm` (renamed c_ref_qcvm by the prelude) is the ambient VM every function
+ * in that file dereferences, and EDICT_NUM/NUM_FOR_EDICT stay behind in
+ * pr_edict.c, so they are reproduced here verbatim -- including EDICT_NUM's
+ * Host_Error bounds check, which the differential suites exercise through the
+ * ctest_try_host trap.
+ */
+qcvm_t		  *qcvm;
+entity_state_t nullentitystate;
+
+static qcvm_t	   ctest_progs_vm_storage;
+static dprograms_t ctest_progs_header;
+/* SV_UnlinkEdict is world.c (Phase 7); the oracle only needs a call log */
+int ctest_progs_unlink_count;
+int ctest_progs_unlink_last;
+
+void SV_UnlinkEdict (edict_t *ent)
+{
+	ctest_progs_unlink_count++;
+	ctest_progs_unlink_last = NUM_FOR_EDICT (ent);
+}
+
+edict_t *EDICT_NUM (int n)
+{
+	if (n < 0 || n >= qcvm->max_edicts)
+		Host_Error ("EDICT_NUM: bad edict_num %i", n);
+	return EDICT_NUM_NO_CHECK (n);
+}
+
+int NUM_FOR_EDICT (edict_t *e)
+{
+	int b = (byte *)e - (byte *)qcvm->edicts;
+	b = b / qcvm->edict_size;
+
+	if (b < 0 || b >= qcvm->num_edicts)
+		Host_Error ("NUM_FOR_EDICT: bad pointer");
+	return b;
+}
+
+/* common.c's COM_SetupNullState: the null baseline is not all-zero */
+static void ctest_progs_setup_nullstate (void)
+{
+	memset (&nullentitystate, 0, sizeof (nullentitystate));
+	nullentitystate.colormod[0] = 32;
+	nullentitystate.colormod[1] = 32;
+	nullentitystate.colormod[2] = 32;
+	nullentitystate.colormap = 0;
+	nullentitystate.alpha = ENTALPHA_DEFAULT;
+	nullentitystate.scale = ENTSCALE_DEFAULT;
+	nullentitystate.solidsize = ES_SOLID_NOT;
+}
+
+/* Builds a VM whose edict_size is computed exactly as PR_LoadProgs does, so
+ * the Rust arena's stride and the oracle's agree by construction. */
+void *ctest_progs_reset_vm (int max_edicts, int entityfields)
+{
+	qcvm_t *vm = &ctest_progs_vm_storage;
+
+	if (vm->edicts)
+		Mem_Free (vm->edicts);
+	memset (vm, 0, sizeof (*vm));
+	memset (&ctest_progs_header, 0, sizeof (ctest_progs_header));
+	ctest_progs_setup_nullstate ();
+	ctest_progs_unlink_count = 0;
+	ctest_progs_unlink_last = -1;
+
+	ctest_progs_header.entityfields = entityfields;
+	vm->progs = &ctest_progs_header;
+	vm->edict_size = entityfields * 4 + sizeof (edict_t) - sizeof (entvars_t);
+	vm->edict_size += sizeof (void *) - 1;
+	vm->edict_size &= ~(sizeof (void *) - 1);
+	vm->max_edicts = max_edicts;
+	vm->num_edicts = 0;
+	vm->edicts = (edict_t *)Mem_Alloc ((size_t)max_edicts * vm->edict_size);
+
+	qcvm = vm;
+	return vm;
+}
+
+size_t ctest_progs_edict_size (void)
+{
+	return (size_t)ctest_progs_vm_storage.edict_size;
+}
+
+void *ctest_progs_edicts (void)
+{
+	return ctest_progs_vm_storage.edicts;
+}
+
+void ctest_progs_set_time (double t)
+{
+	ctest_progs_vm_storage.time = t;
+}
+
+/* string-table fixture: PR_SetEngineString compares against the strings blob,
+ * so the tests need one with a known size */
+void ctest_progs_set_strings (char *blob, int size, int progsstrings)
+{
+	ctest_progs_vm_storage.strings = blob;
+	ctest_progs_vm_storage.stringssize = size;
+	ctest_progs_vm_storage.progsstrings = progsstrings;
+}
+
+/* ED_RebuildFreeList sorts with qsort() and a comparator that never returns 0
+ * (copysign(1.0, d)), so tie ordering is whatever this platform's qsort does
+ * with an inconsistent comparator. The Rust port therefore does not implement
+ * the sort -- it takes it as a parameter, and the differential suites hand it
+ * this helper: the same libc qsort, the same comparator, over a freetime
+ * table supplied by the caller's arena. */
+static const float *ctest_sort_freetimes;
+
+static int ctest_sort_freetime_cmp (const void *first, const void *second)
+{
+	int firstInt = *(const int *)first;
+	int secondInt = *(const int *)second;
+	return (int)copysign (1.0, ctest_sort_freetimes[firstInt] - ctest_sort_freetimes[secondInt]);
+}
+
+void ctest_progs_sort_by_freetime (int *nums, size_t n, const float *freetimes)
+{
+	ctest_sort_freetimes = freetimes;
+	qsort (nums, n, sizeof (int), ctest_sort_freetime_cmp);
+	ctest_sort_freetimes = NULL;
 }

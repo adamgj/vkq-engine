@@ -19,6 +19,7 @@ const C_SOURCES: &[&str] = &[
     "Quake/net_dgrm_rel.c",
     "Quake/net_loop.c",
     "Quake/net_msg.c",
+    "Quake/pr_edict_arena.c",
     "Quake/snd_mem.c",
     "Quake/snd_codec.c",
     "Quake/snd_dma.c",

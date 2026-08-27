@@ -708,4 +708,34 @@ int						Cmd_Argc (void);
 const char			   *Cmd_Argv (int arg);
 void					Con_SafePrintf (const char *fmt, ...);
 
+/* ---- Phase 6 M2: the edict arena + progs string table oracle ----
+ * pr_edict_arena.c was split verbatim out of pr_edict.c so the differential
+ * suites get a small stub surface. It needs progs.h (which pulls pr_comp.h and
+ * progdefs.h), protocol.h for nullentitystate/ENTALPHA_DEFAULT, and
+ * SV_UnlinkEdict; EDICT_NUM/NUM_FOR_EDICT stay in pr_edict.c and are supplied
+ * by stubs.c. `qcvm` itself is stub-owned so tests can point it at a fixture. */
+#define ED_AllocSetHook        c_ref_ED_AllocSetHook
+#define ED_Alloc               c_ref_ED_Alloc
+#define ED_Free                c_ref_ED_Free
+#define ED_RemoveFromFreeList  c_ref_ED_RemoveFromFreeList
+#define ED_CheckFreeList       c_ref_ED_CheckFreeList
+#define ED_RebuildFreeList     c_ref_ED_RebuildFreeList
+#define PR_GetString           c_ref_PR_GetString
+#define PR_ClearEngineString   c_ref_PR_ClearEngineString
+#define PR_SetEngineString     c_ref_PR_SetEngineString
+#define PR_AllocString         c_ref_PR_AllocString
+#define PR_ClearEdictStrings   c_ref_PR_ClearEdictStrings
+/* stub-owned so the oracle and the Rust port drive the same VM fixture */
+#define qcvm                   c_ref_qcvm
+#define EDICT_NUM              c_ref_EDICT_NUM
+#define NUM_FOR_EDICT          c_ref_NUM_FOR_EDICT
+#define nullentitystate        c_ref_nullentitystate
+#define SV_UnlinkEdict         c_ref_SV_UnlinkEdict
+
+#include "progs.h"
+/* the prelude pre-empts protocol.h and server.h, so these two come by hand;
+ * both are stub-owned (stubs.c) and the names expand through the renames */
+extern entity_state_t nullentitystate;
+void SV_UnlinkEdict (edict_t *ent);
+
 #endif /* C_REF_PRELUDE_H */

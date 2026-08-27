@@ -13,6 +13,9 @@ quake-math = { path = "../quake-math" }
 quake-types = { path = "../quake-types" }
 quake-snd = { path = "../quake-snd" }
 quake-net = { path = "../quake-net" }
+# Phase 6 M2: the arena/string-table differentials drive quake-progs directly
+# (it is deliberately quake-c-sys-free, so there are no capi shims yet)
+quake-progs = { path = "../quake-progs" }
 quake-c-sys = { path = "../quake-c-sys" }
 # Phase 2: the differential suites compare the fs shims against the c_ref_*
 # build of common_fs.c/steam.c, so the fs feature must be on
