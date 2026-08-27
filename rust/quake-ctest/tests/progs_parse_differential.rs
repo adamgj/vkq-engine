@@ -157,13 +157,7 @@ fn vm_b() -> VmRaw {
 fn arena_b() -> EdictArena {
     let vm = vm_b();
     // SAFETY: the fixture allocated max_edicts * edict_size bytes.
-    unsafe {
-        EdictArena::borrowed(
-            vm.edicts_base(),
-            vm.edict_size_for_test() as usize,
-            MAXE as usize,
-        )
-    }
+    unsafe { EdictArena::borrowed(vm.edicts_base(), vm.edict_stride() as usize, MAXE as usize) }
 }
 
 /// Both fixtures get the same defs and the same strings blob.

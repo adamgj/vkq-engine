@@ -74,13 +74,17 @@ pub trait SaveSys {
     fn field_at_ofs(&mut self, ofs: c_int) -> Option<DDef>;
 }
 
-/// The one error the writer can hit: a string handle whose slot was cleared.
+/// The errors the writer can hit.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SaveError {
+    /// A string handle whose slot was cleared.
     NonExistentString(c_int),
+    /// `PR_UglyValueString`'s `ev_entity` arm reached `NUM_FOR_EDICT` with a
+    /// prog offset outside `[0, num_edicts)`.
+    BadEdictPointer,
 }
 
-fn resolve<'a>(vm: &'a VmRaw, handle: c_int) -> Result<&'a [u8], SaveError> {
+fn resolve(vm: &VmRaw, handle: c_int) -> Result<&[u8], SaveError> {
     vm.get_string_bytes(handle)
         .map_err(|StringError::NonExistent(n)| SaveError::NonExistentString(n))
 }
@@ -113,8 +117,15 @@ pub fn ugly_value_string(
     let out = match ty {
         etype::EV_STRING => format(b"%s", &[Arg::Str(resolve(vm, w0)?)]),
         etype::EV_ENTITY => {
-            // NUM_FOR_EDICT (PROG_TO_EDICT (val->edict))
-            let num = w0 / vm.edict_size_for_test().max(1);
+            // NUM_FOR_EDICT (PROG_TO_EDICT (val->edict)). C's NUM_FOR_EDICT
+            // raises `Host_Error ("NUM_FOR_EDICT: bad pointer")` in *release*
+            // builds when the resulting index falls outside
+            // `[0, num_edicts)`, so the range test is part of the writer's
+            // observable behaviour, not a debug-only assertion.
+            let num = w0 / vm.edict_stride().max(1);
+            if num < 0 || num >= vm.num_edicts() {
+                return Err(SaveError::BadEdictPointer);
+            }
             format(b"%i", &[Arg::I32(num)])
         }
         etype::EV_FUNCTION => {
@@ -210,6 +221,14 @@ pub fn ed_write(
         }
 
         let count = type_size(ty) as usize;
+        // COMPAT (accepted divergence): C computes
+        // `(eval_t *)((char *)&ed->v + d->ofs * 4)` and reads it with no
+        // bounds check, so a fielddef whose offset runs past `entityfields`
+        // reads adjacent memory and writes whatever it finds. The port cannot
+        // reproduce an out-of-bounds read, and inventing a raise C does not
+        // have would abort saves C completes, so the field is omitted. Both
+        // behaviours are unreachable from a well-formed progs, where
+        // `entityfields` covers every fielddef offset by construction.
         let Some(words) = vm.edict_field_words(num, c_int::from(d.ofs), count) else {
             continue;
         };

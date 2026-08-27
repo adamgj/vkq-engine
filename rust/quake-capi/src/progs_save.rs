@@ -14,6 +14,7 @@ use quake_types::progs::{DDef, QcVm};
 /// Status codes shared with `Quake/pr_edict_save_glue.c` (keep in sync).
 const PRSAVE_OK: c_int = 0;
 const PRSAVE_ERR_NO_STRING: c_int = 1;
+const PRSAVE_ERR_BAD_EDICT: c_int = 2;
 
 /// Reused output buffers. Progs writing is single-threaded main-thread work
 /// (savegames are written from `host_cmd.c`), and each buffer is consumed by
@@ -41,6 +42,10 @@ fn encode(err: SaveError, detail: &mut c_int) -> c_int {
         SaveError::NonExistentString(n) => {
             *detail = n;
             PRSAVE_ERR_NO_STRING
+        }
+        SaveError::BadEdictPointer => {
+            *detail = 0;
+            PRSAVE_ERR_BAD_EDICT
         }
     }
 }

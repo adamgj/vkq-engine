@@ -7,7 +7,7 @@
 use core::ffi::{c_char, c_int, CStr};
 
 use quake_c_sys as c;
-use quake_progs::alloc::AllocError;
+use quake_progs::alloc::{AllocError, FreeListOverflow};
 use quake_progs::arena::{EdictArena, EdictId, Mem, VmRaw};
 use quake_progs::parse::{self, ParseError, ParseSys};
 use quake_progs::save::value_words;
@@ -19,6 +19,7 @@ const PRPARSE_FALSE: c_int = 1;
 const PRPARSE_ERR_ENTITY_RANGE: c_int = 2;
 const PRPARSE_ERR_BAD_EDICT_NUM: c_int = 3;
 const PRPARSE_ERR_FREELIST_FULL: c_int = 4;
+const PRPARSE_ERR_FREELIST_OVER_MAX: c_int = 5;
 
 /// Concatenate the pieces of a console message. Kept as raw bytes, not
 /// `String`: Quake strings carry high-bit bytes (the coloured-text charset)
@@ -177,7 +178,7 @@ unsafe fn ambient_vm() -> VmRaw {
 /// The ambient `qcvm` must be loaded, i.e. past the point in `PR_LoadProgs`
 /// where `edict_size` is computed and `edicts` allocated.
 unsafe fn ambient_arena(vm: &VmRaw) -> EdictArena {
-    let stride = vm.edict_size_for_test() as usize;
+    let stride = vm.edict_stride() as usize;
     let count = vm.max_edicts().max(0) as usize;
     // SAFETY: the edict array is `max_edicts * edict_size` bytes, allocated
     // by PR_LoadProgs and live for the VM's lifetime.
@@ -238,6 +239,17 @@ pub unsafe extern "C" fn quake_rs_ed_parse_epair(
 
     // SAFETY: see ambient_vm()/ambient_arena(); ED_ParseEpair only runs from
     // ED_ParseEdict/ED_ParseGlobals, i.e. after the VM is fully loaded.
+    //
+    // `dest` and `arena` cover the same allocation when the caller is
+    // ED_ParseEdict, whose `base` is `&ed->v`. They cannot overlap, and the
+    // invariant that guarantees it lives in the callers rather than here:
+    // both `ED_LoadFromFile` (host_cmd.c, via SV_SpawnServer) and the
+    // savegame loader raise `qcvm->num_edicts` above the edict they are about
+    // to parse *before* calling ED_ParseEdict. The only arena writes this
+    // function performs are in the `ev_entity` arm, which touches edicts in
+    // `num_edicts .. loaded_ent_num` and `loaded_ent_num` itself -- all at
+    // indices >= num_edicts, hence strictly above the parsed edict. See the
+    // aliasing note on `EdictArena::borrowed`.
     let mut vm = unsafe { ambient_vm() };
     let mut arena = unsafe { ambient_arena(&vm) };
     // SAFETY: the free list lives inside the same qcvm_t; no other Rust
@@ -272,10 +284,16 @@ pub unsafe extern "C" fn quake_rs_ed_parse_epair(
             *detail = n;
             PRPARSE_ERR_BAD_EDICT_NUM
         }
-        Err(ParseError::FreeListFull { max_edicts }) => {
-            *detail = max_edicts;
-            PRPARSE_ERR_FREELIST_FULL
-        }
+        Err(ParseError::FreeListFull { kind, max_edicts }) => match kind {
+            FreeListOverflow::Full => {
+                *detail = 0;
+                PRPARSE_ERR_FREELIST_FULL
+            }
+            FreeListOverflow::OverMaxEdicts => {
+                *detail = max_edicts;
+                PRPARSE_ERR_FREELIST_OVER_MAX
+            }
+        },
         Err(ParseError::Alloc(AllocError::NoFreeEdicts { max_edicts })) => {
             *detail = max_edicts;
             PRPARSE_ERR_ENTITY_RANGE

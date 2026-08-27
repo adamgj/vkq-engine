@@ -63,7 +63,10 @@ pub enum ParseError {
     EntityTooLarge { num: c_int, max_edicts: c_int },
     /// `ED_AddToFreeList : has more than max_edicts >= %i` — a `DEBUG`/
     /// `_DEBUG`-only check in C.
-    FreeListFull { max_edicts: c_int },
+    FreeListFull {
+        kind: alloc::FreeListOverflow,
+        max_edicts: c_int,
+    },
     /// `EDICT_NUM: bad edict_num %i`.
     ///
     /// C only range-checks the *upper* bound in `ED_ParseEpair` itself, but
@@ -252,16 +255,23 @@ pub fn ed_parse_epair(
 
             for j in previous..loaded {
                 let id = EdictId(j as u32);
+                // COMPAT (accepted divergence): C calls `EDICT_NUM (j)` here,
+                // before the memset. Its release-build range test cannot fire
+                // -- `j < loaded < max_edicts` and `j >= 0` both hold by
+                // construction -- but under DEBUG/_DEBUG it also re-validates
+                // the header fields this loop is about to overwrite, and that
+                // consistency raise is not reproduced. Same shape as the
+                // `EDICT_NUM (loaded_ent_num)` below.
                 arena.clear_edict(id);
                 arena.set_debug_header(id, vm.as_ptr().cast(), u64::from(id.0));
                 debug_assert!(!arena.free(id));
                 // C's ED_AddToFreeList raises here under DEBUG/_DEBUG; report
                 // it so the raise happens in the C frame (ADR-009) instead of
                 // silently wrapping the circular buffer.
-                if quake_types::progs::ENGINE_DEBUG
-                    && alloc::free_list_would_overflow(free_list, max_edicts)
-                {
-                    return Err(ParseError::FreeListFull { max_edicts });
+                if quake_types::progs::ENGINE_DEBUG {
+                    if let Some(kind) = alloc::free_list_would_overflow(free_list, max_edicts) {
+                        return Err(ParseError::FreeListFull { kind, max_edicts });
+                    }
                 }
                 alloc::ed_free(free_list, arena, id, vm.time(), &mut |e| {
                     sys.unlink_edict(e);

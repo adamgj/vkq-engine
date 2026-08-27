@@ -325,7 +325,7 @@ fn opcodes_unreached_by_gameplay_match() {
         ]);
         let mut b = setup(&p);
         // edict 2, field word 3
-        let prog_ofs = 2 * b.edict_size_for_test();
+        let prog_ofs = 2 * b.edict_stride();
         set_globals_i32(&mut b, &[(A, prog_ofs), (B, field_word), (A + 1, 0x5A5A)]);
         run_both(&mut b, 1, "OP_LOAD_FLD / OP_STOREP_FLD");
         teardown();

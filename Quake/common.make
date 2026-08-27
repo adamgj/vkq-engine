@@ -261,6 +261,9 @@ OBJS := strlcat.o \
 	pr_cmds.o \
 	pr_ext.o \
 	pr_edict.o \
+	pr_edict_arena.o \
+	pr_edict_save.o \
+	pr_edict_parse.o \
 	pr_exec.o \
 	sv_main.o \
 	sv_move.o \

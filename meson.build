@@ -500,7 +500,10 @@ else
 endif
 
 # Phase 6: the progs VM. The flip is per-file and lands milestone by milestone
-# (pr_exec.c at M3, then pr_edict.c, then the builtin tables slot by slot).
+# (pr_exec.c at M3, then the pr_edict.c splits -- pr_edict_save.c at M4 and
+# pr_edict_parse.c at M5 -- then the builtin tables slot by slot). pr_edict.c
+# itself never flips: the parts that move out are split into their own files
+# first, so what remains is unconditionally C.
 # The C originals stay the -Duse_rust_progs=disabled oracle -- and here that
 # is load-bearing, because the ADR-019 gate-3 trace differ compares against
 # them.

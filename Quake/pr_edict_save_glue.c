@@ -30,6 +30,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 /* status codes shared with rust/quake-capi/src/progs_save.rs (keep in sync) */
 #define PRSAVE_OK			 0
 #define PRSAVE_ERR_NO_STRING 1
+#define PRSAVE_ERR_BAD_EDICT 2
 
 /* ED_FieldAtOfs returns a ddef_t *, which is not a bindgen-clean type; hand
    the Rust side the three fields it needs instead. */
@@ -48,6 +49,8 @@ static void PRSave_Raise (int status, int detail)
 {
 	if (status == PRSAVE_ERR_NO_STRING)
 		Host_Error ("PR_GetString: attempt to get a non-existant string %d\n", detail);
+	if (status == PRSAVE_ERR_BAD_EDICT)
+		Host_Error ("NUM_FOR_EDICT: bad pointer");
 	Host_Error ("progs savegame writer: unknown status %i", status);
 }
 
@@ -66,7 +69,7 @@ void ED_Write (FILE *f, edict_t *ed)
 	const unsigned char *bytes = NULL;
 	size_t				 len = 0;
 	int					 detail = 0;
-	int					 status = quake_rs_ed_write (NUM_FOR_EDICT (ed), &bytes, &len, &detail);
+	int					 status = quake_rs_ed_write (NUM_FOR_EDICT_NO_CHECK (ed), &bytes, &len, &detail);
 	if (status != PRSAVE_OK)
 		PRSave_Raise (status, detail);
 	if (len)

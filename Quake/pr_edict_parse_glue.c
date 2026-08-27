@@ -27,11 +27,12 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include "quake_rs.h"
 
 /* status codes shared with rust/quake-capi/src/progs_parse.rs (keep in sync) */
-#define PRPARSE_OK				  0
-#define PRPARSE_FALSE			  1 /* C's `return false`, not an error */
-#define PRPARSE_ERR_ENTITY_RANGE  2
-#define PRPARSE_ERR_BAD_EDICT_NUM 3
-#define PRPARSE_ERR_FREELIST_FULL 4
+#define PRPARSE_OK					  0
+#define PRPARSE_FALSE				  1 /* C's `return false`, not an error */
+#define PRPARSE_ERR_ENTITY_RANGE	  2
+#define PRPARSE_ERR_BAD_EDICT_NUM	  3
+#define PRPARSE_ERR_FREELIST_FULL	  4
+#define PRPARSE_ERR_FREELIST_OVER_MAX 5
 
 /* ---- the platform conversions (ADR-010: their rounding is the contract) ---- */
 
@@ -105,6 +106,8 @@ qboolean ED_ParseEpair (void *base, ddef_t *key, const char *s, qboolean zoned)
 	case PRPARSE_ERR_BAD_EDICT_NUM:
 		Host_Error ("EDICT_NUM: bad edict_num %i", detail);
 	case PRPARSE_ERR_FREELIST_FULL:
+		Host_Error ("ED_AddToFreeList : is full (qcvm 0x%p)", qcvm);
+	case PRPARSE_ERR_FREELIST_OVER_MAX:
 		Host_Error ("ED_AddToFreeList : has more than max_edicts >= %i (qcvm 0x%p)", detail, qcvm);
 	default:
 		Host_Error ("ED_ParseEpair: unknown status %i", status);

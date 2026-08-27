@@ -28,6 +28,8 @@ extern "C" {
         stringssize: c_int,
     ) -> *mut c_void;
     fn ctest_progs_select_vm(which: c_int);
+    fn ctest_try_host(f: unsafe extern "C" fn(*mut c_void), arg: *mut c_void) -> c_int;
+    fn ctest_host_error_message() -> *const i8;
     fn ctest_progs_vm(which: c_int) -> *mut c_void;
     fn ctest_progs_synth_free();
     fn ctest_progs_set_defs(
@@ -163,7 +165,7 @@ fn ugly_value_string_matches_every_arm() {
         f32::NEG_INFINITY,
         f32::NAN,
         16777216.0,
-        123456.789,
+        123_456.79,
         -0.000123,
     ];
     for &f in floats {
@@ -248,12 +250,71 @@ fn save_global_bit_is_masked_before_the_type_switch() {
     teardown();
 }
 
+/// Runs `f` with the C `Host_Error` trap armed, returning the message if it
+/// fired. `f` must wrap exactly one C seam call: C frames only under the
+/// longjmp.
+fn c_host_try(f: &mut dyn FnMut()) -> Option<String> {
+    unsafe extern "C" fn trampoline(arg: *mut c_void) {
+        // SAFETY: arg is the &mut &mut dyn FnMut passed below, alive for the
+        // whole call.
+        let f = unsafe { &mut *arg.cast::<&mut dyn FnMut()>() };
+        f();
+    }
+    let mut f = f;
+    let arg = (&raw mut f).cast::<c_void>();
+    // SAFETY: the trampoline receives the pointer to `f` built just above.
+    let hit = unsafe { ctest_try_host(trampoline, arg) };
+    if hit == 0 {
+        return None;
+    }
+    // SAFETY: the stub's message buffer is static and NUL-terminated.
+    let msg = unsafe { std::ffi::CStr::from_ptr(ctest_host_error_message()) };
+    Some(msg.to_string_lossy().into_owned())
+}
+
+/// `PR_UglyValueString`'s `ev_entity` arm goes through `NUM_FOR_EDICT`, whose
+/// `b < 0 || b >= qcvm->num_edicts` test raises in *release* builds too. Both
+/// sides must refuse the same prog offsets rather than emitting a number.
+#[test]
+fn entity_values_out_of_range_raise_on_both_sides() {
+    let _g = lock();
+    setup(&[def(etype::EV_FLOAT, 0, 1)], &[], -1);
+    let stride = vm_b().edict_stride();
+    let num_edicts = vm_b().num_edicts();
+    assert!(num_edicts > 0, "fixture must have live edicts");
+
+    for &n in &[-1, num_edicts, num_edicts + 7] {
+        let w = [n * stride];
+
+        let mut c_msg = None;
+        c_host_try(&mut || {
+            c_msg = Some(c_ugly(etype::EV_ENTITY, &w));
+        });
+        // Armed traps report through the message buffer, not the return value.
+        let c_raised = c_msg.is_none();
+
+        let vm = vm_b();
+        let mut sys = EngineSave;
+        let mut buf = [0i32; 4];
+        buf[0] = w[0];
+        let rust = save::ugly_value_string(&vm, &mut sys, etype::EV_ENTITY, &buf);
+
+        assert!(c_raised, "C should raise for prog offset {n} edicts");
+        assert_eq!(
+            rust,
+            Err(save::SaveError::BadEdictPointer),
+            "Rust should raise for prog offset {n} edicts"
+        );
+    }
+    teardown();
+}
+
 /// `ev_entity` writes the edict *number*, derived from the byte offset.
 #[test]
 fn entity_values_write_the_edict_number() {
     let _g = lock();
     setup(&[def(etype::EV_FLOAT, 0, 1)], &[], -1);
-    let stride = vm_b().edict_size_for_test();
+    let stride = vm_b().edict_stride();
     for n in 0..6 {
         let w = [n * stride];
         assert_eq!(
@@ -300,7 +361,7 @@ fn ed_write_matches_including_every_skip_rule() {
 
     // seed field words on both fixtures identically
     for mut vm in [vm_a(), vm_b()] {
-        let stride = vm.edict_size_for_test();
+        let stride = vm.edict_stride();
         let base = 3 * stride;
         vm.set_ed_i32(vm.field_byte_offset(base, 1), 1.25f32.to_bits() as i32);
         vm.set_ed_i32(vm.field_byte_offset(base, 2), 9.0f32.to_bits() as i32);
@@ -337,7 +398,7 @@ fn ed_write_of_a_free_edict_is_an_empty_record() {
         -1,
     );
     for mut vm in [vm_a(), vm_b()] {
-        let stride = vm.edict_size_for_test();
+        let stride = vm.edict_stride();
         vm.set_ed_i32(vm.field_byte_offset(2 * stride, 1), 3.0f32.to_bits() as i32);
     }
     // mark edict 2 free on both sides through the arena
@@ -346,7 +407,7 @@ fn ed_write_of_a_free_edict_is_an_empty_record() {
         let mut arena = unsafe {
             quake_progs::arena::EdictArena::borrowed(
                 (*ctest_progs_vm(which).cast::<QcVm>()).edicts.cast::<u8>(),
-                vm_b().edict_size_for_test() as usize,
+                vm_b().edict_stride() as usize,
                 8,
             )
         };
@@ -372,7 +433,7 @@ fn manual_alpha_fallback_matches() {
                 let mut arena = unsafe {
                     quake_progs::arena::EdictArena::borrowed(
                         (*ctest_progs_vm(which).cast::<QcVm>()).edicts.cast::<u8>(),
-                        vm_b().edict_size_for_test() as usize,
+                        vm_b().edict_stride() as usize,
                         8,
                     )
                 };
@@ -409,7 +470,7 @@ fn ed_write_globals_matches_including_the_type_filter() {
     for mut vm in [vm_a(), vm_b()] {
         vm.set_g_i32(31, (-0.5f32).to_bits() as i32);
         vm.set_g_i32(32, 7);
-        vm.set_g_i32(33, 2 * vm.edict_size_for_test());
+        vm.set_g_i32(33, 2 * vm.edict_stride());
         vm.set_g_i32(38, -42);
         vm.set_g_i32(39, -1);
         vm.set_g_i32(40, 0);
@@ -477,7 +538,7 @@ fn long_string_values_are_truncated_at_cs_buffer() {
 
     // a strings blob holding one very long value, addressed by handle 1
     let mut blob: Vec<u8> = vec![0];
-    let long: Vec<u8> = std::iter::repeat(b'A').take(4000).collect();
+    let long: Vec<u8> = std::iter::repeat_n(b'A', 4000).collect();
     blob.extend_from_slice(&long);
     blob.push(0);
 
@@ -511,7 +572,7 @@ fn long_string_values_are_truncated_at_cs_buffer() {
 
     // and so does the record ED_Write produces
     for mut vm in [vm_a(), vm_b()] {
-        let stride = vm.edict_size_for_test();
+        let stride = vm.edict_stride();
         vm.set_ed_i32(vm.field_byte_offset(stride, 1), 1);
     }
     assert_eq!(

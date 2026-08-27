@@ -52,11 +52,32 @@ pub fn add_to_free_list(free_list: &mut FreeList, id: EdictId) {
     free_list.size += 1;
 }
 
+/// Which of `ED_AddToFreeList`'s two debug-only preconditions a free list
+/// violates. C raises a *distinct* `Host_Error` for each, so they are reported
+/// separately rather than collapsed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FreeListOverflow {
+    /// `qcvm->free_list.size >= MAX_EDICTS`
+    Full,
+    /// `qcvm->free_list.size >= qcvm->max_edicts`
+    OverMaxEdicts,
+}
+
 /// Debug-only precondition of `ED_AddToFreeList`, reported rather than raised
-/// so the `Host_Error` happens in a C frame (ADR-009).
+/// so the `Host_Error` happens in a C frame (ADR-009). C tests `MAX_EDICTS`
+/// first, so that arm wins when both hold.
 #[must_use]
-pub fn free_list_would_overflow(free_list: &FreeList, max_edicts: c_int) -> bool {
-    free_list.size >= MAX_EDICTS || free_list.size >= max_edicts.max(0) as usize
+pub fn free_list_would_overflow(
+    free_list: &FreeList,
+    max_edicts: c_int,
+) -> Option<FreeListOverflow> {
+    if free_list.size >= MAX_EDICTS {
+        Some(FreeListOverflow::Full)
+    } else if free_list.size >= max_edicts.max(0) as usize {
+        Some(FreeListOverflow::OverMaxEdicts)
+    } else {
+        None
+    }
 }
 
 /// `ED_Alloc`. Returns the edict; the caller invokes `ED_ALLOC_HOOK`, which

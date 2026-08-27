@@ -31,7 +31,7 @@ use core::ffi::{c_char, c_int, c_void};
 use core::mem::{offset_of, size_of};
 
 use quake_types::progs::{
-    BuiltinT, DDef, DFunction, DStatement, Edict, EntityState, PrStack, QBoolean, QcVm,
+    DDef, DFunction, DStatement, Edict, EntityState, PrStack, QBoolean, QcVm,
 };
 
 /// Index of an edict within the arena. Replaces the raw `edict_t *` that C
@@ -77,10 +77,17 @@ impl EdictArena {
     /// # Safety
     ///
     /// `base` must point at `count * stride` writable, initialised bytes that
-    /// stay valid and unaliased for the lifetime of the returned arena, and
-    /// `stride` must be the `qcvm->edict_size` those edicts were laid out
-    /// with. Callers additionally guarantee the host-frame exclusivity
-    /// argument of ADR-007/ADR-008.
+    /// stay valid for the lifetime of the returned arena, and `stride` must be
+    /// the `qcvm->edict_size` those edicts were laid out with. Callers
+    /// additionally guarantee the host-frame exclusivity argument of
+    /// ADR-007/ADR-008.
+    ///
+    /// The arena keeps a raw base pointer and re-derives every access from it,
+    /// so another live reference *into* the same array is permitted provided
+    /// it does not overlap an edict the arena writes. `quake_rs_ed_parse_epair`
+    /// relies on exactly that: its `dest` slice points into the edict being
+    /// parsed, while the arena only ever touches edicts at higher indices (see
+    /// the invariant recorded at that shim).
     pub unsafe fn borrowed(base: *mut u8, stride: usize, count: usize) -> Self {
         assert!(
             stride >= EDICT_V_OFFSET,
@@ -499,7 +506,6 @@ impl StringTable<'_> {
     /// that is preserved.
     ///
     /// The one *live* error is a negative handle whose slot is null.
-    #[must_use]
     pub fn get(&self, num: c_int) -> Result<*const c_char, StringError> {
         // SAFETY: the array holds maxknownstrings >= numknownstrings entries.
         unsafe {
@@ -918,7 +924,7 @@ impl VmRaw {
     /// `(int *)((char *)&ed->v + ofs * 4)`.
     #[must_use]
     pub fn edict_field_words(&self, num: c_int, word_ofs: c_int, count: usize) -> Option<Vec<i32>> {
-        let byteofs = self.field_byte_offset(num * self.edict_size_for_test(), word_ofs);
+        let byteofs = self.field_byte_offset(num * self.edict_stride(), word_ofs);
         (0..count)
             .map(|i| self.ed_i32(byteofs + (i as i32) * 4))
             .collect()
@@ -927,7 +933,7 @@ impl VmRaw {
     /// `ed->alpha`, the engine-side byte `ED_Write` falls back to.
     #[must_use]
     pub fn edict_alpha(&self, num: c_int) -> u8 {
-        let stride = self.edict_size_for_test() as usize;
+        let stride = self.edict_stride() as usize;
         // SAFETY: num < max_edicts, and `alpha` sits in the fixed header.
         unsafe {
             core::ptr::addr_of!((*self.edicts.add(num as usize * stride).cast::<Edict>()).alpha)
@@ -938,7 +944,7 @@ impl VmRaw {
     /// `ed->free`
     #[must_use]
     pub fn edict_free(&self, num: c_int) -> bool {
-        let stride = self.edict_size_for_test() as usize;
+        let stride = self.edict_stride() as usize;
         // SAFETY: as above.
         unsafe {
             core::ptr::addr_of!((*self.edicts.add(num as usize * stride).cast::<Edict>()).free)
@@ -1172,12 +1178,13 @@ impl VmRaw {
 
     /// Byte offset within the edict array is in range.
     ///
-    /// COMPAT (accepted divergence, ADR-006): C's `OP_STOREP_*`/`OP_LOAD_*`
-    /// do no bounds check at all — a progs with an out-of-range field offset
-    /// silently reads or corrupts whatever follows the edict array. The port
-    /// range-tests instead and raises, because the alternative is an
-    /// arbitrary-write primitive reachable from mod data. No progs in the
-    /// corpus reaches it, so trace parity is unaffected.
+    /// COMPAT (accepted divergence, ADR-006): C's `OP_STOREP_*`, `OP_LOAD_*`
+    /// and `OP_STATE`'s `ed->v.frame`/`nextthink`/`think` writes do no bounds
+    /// check at all — a progs with an out-of-range field offset silently reads
+    /// or corrupts whatever follows the edict array. The port range-tests
+    /// instead and raises, because the alternative is an arbitrary-write
+    /// primitive reachable from mod data. No progs in the corpus reaches it,
+    /// so trace parity is unaffected.
     fn edict_byte_ok(&self, byteofs: i32, width: usize) -> bool {
         byteofs >= 0 && (byteofs as usize).saturating_add(width) <= self.edicts_bytes
     }
@@ -1325,23 +1332,10 @@ impl VmRaw {
         }
     }
 
-    /// `qcvm->builtins[i]` — only used to check the slot is populated; the
-    /// call itself goes through the guarded dispatch in `quake-capi`.
+    /// `qcvm->edict_size` — the stride between edicts in the arena, used to
+    /// convert between prog offsets and edict numbers.
     #[must_use]
-    pub fn builtin_is_null(&self, index: c_int) -> bool {
-        // SAFETY: the caller clamped index into 0..numbuiltins <= 1024.
-        unsafe {
-            core::ptr::addr_of!((*self.vm).builtins)
-                .cast::<BuiltinT>()
-                .add(index as usize)
-                .read()
-                .is_none()
-        }
-    }
-
-    /// `qcvm->edict_size`, for tests that need to address an edict by number.
-    #[must_use]
-    pub fn edict_size_for_test(&self) -> i32 {
+    pub fn edict_stride(&self) -> i32 {
         // SAFETY: a plain field read of the live qcvm_t.
         unsafe { (*self.vm).edict_size }
     }

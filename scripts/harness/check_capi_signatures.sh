@@ -80,11 +80,24 @@ static inline int FindLastBitNonZero (const uint32_t mask)
  * entity_state_t (edict_t embeds it), progdefs.h for entvars_t, and
  * quakedef.h's per-level limits for freelist_t. */
 #include "protocol.h"
-#define MIN_EDICTS 256
-#define MAX_EDICTS 32000
+@PER_LEVEL_LIMITS@
 #include "progs.h"
 #include "quake_rs.h"
 EOF
+
+# ...substituted from quakedef.h rather than duplicated, so freelist_t is
+# always sized with the engine's own MAX_EDICTS.
+per_level_limits="$(grep -E '^#define[[:space:]]+(MIN|MAX)_EDICTS[[:space:]]' Quake/quakedef.h |
+	awk '{ print "#define " $2 " " $3 }')"
+if [ "$(printf '%s\n' "$per_level_limits" | grep -c .)" -ne 2 ]; then
+	echo "FAIL: could not extract MIN_EDICTS/MAX_EDICTS from Quake/quakedef.h" >&2
+	exit 1
+fi
+printf '%s\n' "$per_level_limits" > "$tmpdir/per_level_limits.h"
+awk 'FNR == NR { lim = lim $0 "\n"; next }
+     $0 == "@PER_LEVEL_LIMITS@" { printf "%s", lim; next }
+     { print }' "$tmpdir/per_level_limits.h" "$tmpdir/capi_sig_check.c" > "$tmpdir/capi_sig_check.c.tmp"
+mv "$tmpdir/capi_sig_check.c.tmp" "$tmpdir/capi_sig_check.c"
 
 "$CC" -fsyntax-only -Werror -IQuake -I"$header_dir" "$tmpdir/capi_sig_check.c"
 
