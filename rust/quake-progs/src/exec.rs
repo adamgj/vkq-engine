@@ -532,11 +532,12 @@ pub fn c_cast_i32(v: f32) -> i32 {
     #[cfg(target_arch = "x86_64")]
     {
         // cvttss2si yields INT_MIN ("integer indefinite") for anything it
-        // cannot represent, NaN included.
-        if v.is_nan() || v >= 2147483648.0 || v < -2147483648.0 {
-            i32::MIN
-        } else {
+        // cannot represent. NaN lands in the same arm: `contains` is false
+        // for it, because every comparison against NaN is.
+        if (-2147483648.0..2147483648.0).contains(&v) {
             v as i32
+        } else {
+            i32::MIN
         }
     }
     #[cfg(not(target_arch = "x86_64"))]
