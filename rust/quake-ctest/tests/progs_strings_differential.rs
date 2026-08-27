@@ -30,7 +30,7 @@ extern "C" {
     fn c_ref_PR_ClearEngineString(num: c_int);
     fn c_ref_PR_ClearEdictStrings();
 
-    static c_ref_qcvm: *mut c_void;
+    static qcvm: *mut c_void;
 
     fn Mem_Alloc(size: usize) -> *mut c_void;
     fn Mem_Realloc(ptr: *mut c_void, size: usize) -> *mut c_void;
@@ -46,7 +46,7 @@ fn lock() -> std::sync::MutexGuard<'static, ()> {
 fn c_vm() -> *mut QcVm {
     // SAFETY: the fixture published a real qcvm_t here and progs_abi.rs proves
     // the mirror matches.
-    unsafe { c_ref_qcvm.cast() }
+    unsafe { qcvm.cast() }
 }
 
 /// The engine allocator, exactly as the shipped shims will use it (ADR-013).

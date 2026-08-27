@@ -159,3 +159,23 @@ void					 Cbuf_AddText (const char *text);
 extern const unsigned char vkquake_pak[];
 extern const int		   vkquake_pak_size;
 extern const int		   vkquake_pak_decompressed_size;
+
+/* Phase 6 M3 progs VM: progs.h is not a bindgen-clean root (it pulls
+ * pr_comp.h, progdefs.h, common.h for link_t and protocol.h for
+ * entity_state_t), so qcvm_t stays opaque here -- the Rust side views it
+ * through the hand-written quake-types::progs mirror (ADR-011). The engine
+ * callbacks below are defined in pr_exec_glue.c. */
+struct qcvm_s;
+extern struct qcvm_s *qcvm;
+void PRExec_Glue_PrintStatement (int pc);
+int	 PRExec_Glue_SvActive (void);
+int	 PRExec_Glue_Strcmp (const char *a, const char *b);
+int	 PRExec_Glue_CallBuiltin (int index);
+int	 PRExec_Glue_TraceEnabled (void);
+void PRExec_Glue_TraceEnter (int fnum);
+void PRExec_Glue_TraceLeave (void);
+void PRExec_Glue_TraceStatement (int pc, int op, int a, int b, int c);
+void PRExec_Glue_TraceGlobalWrite (int ofs, const int *values, int count);
+void PRExec_Glue_TraceFieldWrite (int ofs, const int *values, int count);
+void PRExec_Glue_TraceBuiltin (int ordinal, int argc, const int *parms);
+void PRExec_Glue_TraceBuiltinReturn (const int *ret);

@@ -1,4 +1,5 @@
-//! The untyped edict arena and the progs string table (ADR-006).
+//! The untyped edict arena, the progs string table, and the raw `qcvm_t`
+//! view (ADR-006).
 //!
 //! This is the crate's single `#[allow(unsafe_code)]` island (ADR-004).
 //! Everything in it exists because two pieces of progs state cannot be Rust
@@ -11,6 +12,8 @@
 //! * **The string table.** `knownstrings` is a C `const char **` of borrowed
 //!   and owned pointers, indexed by the negative half of a `string_t`, and
 //!   `PR_SetEngineString` decides identity by raw pointer comparison.
+//! * **The `qcvm_t` itself.** It is C storage embedded in `sv`/`cl`, and its
+//!   progs lumps, global block and stacks are untyped word arrays.
 //!
 //! Both are C-owned during Phase 6 (`qcvm_t` lives inside `sv`/`cl`), so the
 //! arena has two constructors: [`EdictArena::borrowed`] over engine memory and
@@ -27,7 +30,9 @@
 use core::ffi::{c_char, c_int, c_void};
 use core::mem::{offset_of, size_of};
 
-use quake_types::progs::{Edict, EntityState, QBoolean};
+use quake_types::progs::{
+    BuiltinT, DFunction, DStatement, Edict, EntityState, PrStack, QBoolean, QcVm,
+};
 
 /// Index of an edict within the arena. Replaces the raw `edict_t *` that C
 /// passes around; `EDICT_TO_PROG` is `id * edict_size` (ADR-006).
@@ -345,6 +350,41 @@ pub struct StringTable<'a> {
 /// `pr_edict.c`
 const PR_STRING_ALLOCSLOTS: c_int = 256;
 
+/// `PR_GetString`'s lookup, over plain values so the owning [`StringTable`]
+/// view and the borrow-free [`VmRaw`] path cannot drift apart.
+///
+/// COMPAT: the invalid-offset arm returns `qcvm->strings` — the empty string
+/// at the head of the blob — and the `Host_Error` after it in `pr_edict.c`
+/// sits behind a `return` and is dead code. Out-of-range handles therefore
+/// fail silently, and that is preserved. The one live error is a negative
+/// handle whose slot has been cleared.
+///
+/// # Safety
+///
+/// `knownstrings` must have at least `numknownstrings` readable entries when
+/// `numknownstrings > 0`.
+unsafe fn resolve_string(
+    strings: *const c_char,
+    stringssize: c_int,
+    knownstrings: *mut *const c_char,
+    numknownstrings: c_int,
+    num: c_int,
+) -> Result<*const c_char, StringError> {
+    if num >= 0 && num < stringssize {
+        // SAFETY: 0 <= num < stringssize, inside the blob.
+        return Ok(unsafe { strings.add(num as usize) });
+    }
+    if num < 0 && num >= -numknownstrings {
+        // SAFETY: -1 - num is in 0..numknownstrings by the test above.
+        let p = unsafe { knownstrings.add((-1 - num) as usize).read() };
+        if p.is_null() {
+            return Err(StringError::NonExistent(num));
+        }
+        return Ok(p);
+    }
+    Ok(strings)
+}
+
 impl StringTable<'_> {
     fn known(&self, i: c_int) -> *const c_char {
         debug_assert!(i >= 0 && i < *self.numknownstrings);
@@ -395,19 +435,16 @@ impl StringTable<'_> {
     /// The one *live* error is a negative handle whose slot is null.
     #[must_use]
     pub fn get(&self, num: c_int) -> Result<*const c_char, StringError> {
-        if num >= 0 && num < self.stringssize {
-            // SAFETY: 0 <= num < stringssize, inside the blob.
-            return Ok(unsafe { self.strings.add(num as usize) });
+        // SAFETY: the array holds maxknownstrings >= numknownstrings entries.
+        unsafe {
+            resolve_string(
+                self.strings,
+                self.stringssize,
+                *self.knownstrings,
+                *self.numknownstrings,
+                num,
+            )
         }
-        if num < 0 && num >= -*self.numknownstrings {
-            let slot = -1 - num;
-            let p = self.known(slot);
-            if p.is_null() {
-                return Err(StringError::NonExistent(num));
-            }
-            return Ok(p);
-        }
-        Ok(self.strings)
     }
 
     /// `PR_ClearEngineString`.
@@ -593,5 +630,450 @@ mod tests {
             arena.base() as usize % core::mem::align_of::<*mut c_void>(),
             0
         );
+    }
+}
+
+/// A function in the loaded functions lump.
+///
+/// A newtype rather than a bare `*mut DFunction` so callers outside this
+/// module cannot fabricate one: every value comes from
+/// [`VmRaw::function_ptr`] or [`VmRaw::stack_slot`], both of which derive it
+/// from the VM's own lump.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FuncRef(*mut DFunction);
+
+impl FuncRef {
+    /// The null `xfunction` the outermost stack frame carries.
+    #[must_use]
+    pub fn is_null(self) -> bool {
+        self.0.is_null()
+    }
+}
+
+/// A raw view over the C-owned `qcvm_t`: the progs image lumps, the global
+/// block, and the call/local stacks.
+///
+/// Like [`EdictArena`] this holds no Rust reference into any of it — every
+/// accessor re-derives a pointer from `vm`, because the interpreter dispatches
+/// C builtins that re-enter the VM and mutate the same state (ADR-006 Phase 6
+/// amendment).
+pub struct VmRaw {
+    vm: *mut QcVm,
+    /// `qcvm->edicts` as bytes, with the total size the arena was built with,
+    /// so `OP_STOREP_*`'s unchecked byte offsets can be range-tested.
+    edicts: *mut u8,
+    edicts_bytes: usize,
+}
+
+impl VmRaw {
+    /// # Safety
+    ///
+    /// `vm` must point at a live `qcvm_t` whose `progs`, `statements`,
+    /// `functions` and `globals` lumps are loaded, and whose `edicts` array is
+    /// `edicts_bytes` long. It must stay valid and unaliased-by-Rust for the
+    /// lifetime of the view; the host frame's `PR_SwitchQCVM` discipline is
+    /// the exclusivity argument (ADR-007, ADR-008).
+    pub unsafe fn new(vm: *mut QcVm) -> Self {
+        assert!(!vm.is_null());
+        // SAFETY: the caller guarantees `vm` is a live qcvm_t.
+        let (edicts, bytes) = unsafe {
+            let stride = (*vm).edict_size.max(0) as usize;
+            let count = (*vm).max_edicts.max(0) as usize;
+            ((*vm).edicts.cast::<u8>(), stride * count)
+        };
+        Self {
+            vm,
+            edicts,
+            edicts_bytes: bytes,
+        }
+    }
+
+    fn vm(&self) -> *mut QcVm {
+        self.vm
+    }
+
+    /// `qcvm->progs->numfunctions`
+    #[must_use]
+    pub fn numfunctions(&self) -> c_int {
+        // SAFETY: `progs` is loaded by the constructor's contract.
+        unsafe { (*(*self.vm).progs).numfunctions }
+    }
+
+    #[must_use]
+    pub fn numbuiltins(&self) -> c_int {
+        // SAFETY: a plain field read of the live qcvm_t.
+        unsafe { (*self.vm).numbuiltins }
+    }
+
+    /// `qcvm->trace` — the `Con_Printf` single-step flag a builtin can set.
+    #[must_use]
+    pub fn trace_flag(&self) -> bool {
+        // SAFETY: as above.
+        unsafe { (*self.vm).trace }
+    }
+
+    pub fn set_trace_flag(&mut self, on: bool) {
+        // SAFETY: as above.
+        unsafe { (*self.vm).trace = on }
+    }
+
+    #[must_use]
+    pub fn depth(&self) -> c_int {
+        // SAFETY: as above.
+        unsafe { (*self.vm).depth }
+    }
+
+    pub fn set_depth(&mut self, d: c_int) {
+        // SAFETY: as above.
+        unsafe { (*self.vm).depth = d }
+    }
+
+    #[must_use]
+    pub fn argc(&self) -> c_int {
+        // SAFETY: as above.
+        unsafe { (*self.vm).argc }
+    }
+
+    pub fn set_argc(&mut self, n: c_int) {
+        // SAFETY: as above.
+        unsafe { (*self.vm).argc = n }
+    }
+
+    #[must_use]
+    pub fn xstatement(&self) -> c_int {
+        // SAFETY: as above.
+        unsafe { (*self.vm).xstatement }
+    }
+
+    pub fn set_xstatement(&mut self, pc: c_int) {
+        // SAFETY: as above.
+        unsafe { (*self.vm).xstatement = pc }
+    }
+
+    /// `PR_GetString` without taking any borrow of the VM, so the interpreter
+    /// can resolve a string across a builtin dispatch.
+    pub fn get_string(&self, num: c_int) -> Result<*const c_char, StringError> {
+        // SAFETY: `knownstrings` holds at least `numknownstrings` entries;
+        // both are read from the live qcvm_t.
+        unsafe {
+            resolve_string(
+                (*self.vm).strings,
+                (*self.vm).stringssize,
+                (*self.vm).knownstrings,
+                (*self.vm).numknownstrings,
+                num,
+            )
+        }
+    }
+
+    /// `!*PR_GetString (handle)` — whether a progs string is empty, which is
+    /// the only dereference `OP_NOT_S` performs.
+    pub fn string_is_empty(&self, num: c_int) -> Result<bool, StringError> {
+        let p = self.get_string(num)?;
+        // SAFETY: resolve_string returns either a pointer into the progs
+        // string blob or a live knownstrings entry; both are NUL-terminated,
+        // so the first byte is readable.
+        Ok(unsafe { p.read() } == 0)
+    }
+
+    /// `pr_global_struct->self` — `qcvm->globals` viewed as `globalvars_t`.
+    #[must_use]
+    pub fn global_self(&self) -> i32 {
+        self.g_i32(offset_of!(quake_types::progs::GlobalVars, self_) / 4)
+    }
+
+    /// `pr_global_struct->time`
+    #[must_use]
+    pub fn global_time(&self) -> f32 {
+        self.g_f32(offset_of!(quake_types::progs::GlobalVars, time) / 4)
+    }
+
+    #[must_use]
+    pub fn xfunction(&self) -> FuncRef {
+        // SAFETY: as above.
+        FuncRef(unsafe { (*self.vm).xfunction })
+    }
+
+    pub fn set_xfunction(&mut self, f: FuncRef) {
+        // SAFETY: as above.
+        unsafe { (*self.vm).xfunction = f.0 }
+    }
+
+    /// `&qcvm->functions[i]`, as the raw pointer C stores in `xfunction` and
+    /// on the call stack.
+    #[must_use]
+    pub fn function_ptr(&self, index: c_int) -> FuncRef {
+        // SAFETY: callers check `index` against numfunctions first.
+        FuncRef(unsafe { (*self.vm).functions.add(index as usize) })
+    }
+
+    /// Index of a function pointer, i.e. C's `f - qcvm->functions`.
+    #[must_use]
+    pub fn function_index(&self, f: FuncRef) -> c_int {
+        // SAFETY: `f` came from `function_ptr`, so it is inside the array.
+        let base = unsafe { (*self.vm).functions };
+        (((f.0 as usize) - (base as usize)) / size_of::<DFunction>()) as c_int
+    }
+
+    #[must_use]
+    pub fn function(&self, f: FuncRef) -> DFunction {
+        // SAFETY: a FuncRef only ever points into the loaded functions lump.
+        unsafe { f.0.read() }
+    }
+
+    /// `qcvm->xfunction->profile += delta`
+    pub fn add_profile(&mut self, f: FuncRef, delta: c_int) {
+        // SAFETY: as above.
+        unsafe {
+            let p = core::ptr::addr_of_mut!((*f.0).profile);
+            p.write(p.read().wrapping_add(delta));
+        }
+    }
+
+    #[must_use]
+    pub fn statement(&self, pc: c_int) -> DStatement {
+        // SAFETY: `pc` is produced by the interpreter's own control flow over
+        // a lump the loader validated; a progs whose jumps leave the lump is
+        // out-of-domain for C too (it has no check either).
+        unsafe { (*self.vm).statements.add(pc as usize).read() }
+    }
+
+    // ---- global block -----------------------------------------------------
+
+    fn globals(&self) -> *mut f32 {
+        // SAFETY: `globals` is loaded by the constructor's contract.
+        unsafe { (*self.vm).globals }
+    }
+
+    #[must_use]
+    pub fn g_f32(&self, ofs: usize) -> f32 {
+        // SAFETY: offsets come from `(unsigned short)st->a`-style operands,
+        // bounded by the globals lump the loader sized.
+        unsafe { self.globals().add(ofs).read() }
+    }
+
+    pub fn set_g_f32(&mut self, ofs: usize, v: f32) {
+        // SAFETY: as above.
+        unsafe { self.globals().add(ofs).write(v) }
+    }
+
+    #[must_use]
+    pub fn g_i32(&self, ofs: usize) -> i32 {
+        // SAFETY: as above; the global block is an untyped word array.
+        unsafe { self.globals().add(ofs).cast::<i32>().read() }
+    }
+
+    pub fn set_g_i32(&mut self, ofs: usize, v: i32) {
+        // SAFETY: as above.
+        unsafe { self.globals().add(ofs).cast::<i32>().write(v) }
+    }
+
+    #[must_use]
+    pub fn g_vec3(&self, ofs: usize) -> [f32; 3] {
+        [self.g_f32(ofs), self.g_f32(ofs + 1), self.g_f32(ofs + 2)]
+    }
+
+    pub fn set_g_vec3(&mut self, ofs: usize, v: [f32; 3]) {
+        self.set_g_f32(ofs, v[0]);
+        self.set_g_f32(ofs + 1, v[1]);
+        self.set_g_f32(ofs + 2, v[2]);
+    }
+
+    /// Raw words of the global block, for the trace's `B` and `R` records.
+    #[must_use]
+    pub fn g_words(&self, ofs: usize, count: usize) -> Vec<i32> {
+        (0..count).map(|i| self.g_i32(ofs + i)).collect()
+    }
+
+    // ---- edict field access ----------------------------------------------
+
+    /// Byte offset within the edict array is in range.
+    ///
+    /// COMPAT (accepted divergence, ADR-006): C's `OP_STOREP_*`/`OP_LOAD_*`
+    /// do no bounds check at all — a progs with an out-of-range field offset
+    /// silently reads or corrupts whatever follows the edict array. The port
+    /// range-tests instead and raises, because the alternative is an
+    /// arbitrary-write primitive reachable from mod data. No progs in the
+    /// corpus reaches it, so trace parity is unaffected.
+    fn edict_byte_ok(&self, byteofs: i32, width: usize) -> bool {
+        byteofs >= 0 && (byteofs as usize).saturating_add(width) <= self.edicts_bytes
+    }
+
+    #[must_use]
+    pub fn ed_i32(&self, byteofs: i32) -> Option<i32> {
+        if !self.edict_byte_ok(byteofs, 4) {
+            return None;
+        }
+        // SAFETY: range-checked immediately above.
+        Some(unsafe {
+            self.edicts
+                .add(byteofs as usize)
+                .cast::<i32>()
+                .read_unaligned()
+        })
+    }
+
+    pub fn set_ed_i32(&mut self, byteofs: i32, v: i32) -> Option<()> {
+        if !self.edict_byte_ok(byteofs, 4) {
+            return None;
+        }
+        // SAFETY: range-checked immediately above.
+        unsafe {
+            self.edicts
+                .add(byteofs as usize)
+                .cast::<i32>()
+                .write_unaligned(v)
+        };
+        Some(())
+    }
+
+    /// The three raw words at `byteofs`, for the trace's `P` records.
+    #[must_use]
+    pub fn ed_words3(&self, byteofs: i32) -> Option<[i32; 3]> {
+        if !self.edict_byte_ok(byteofs, 12) {
+            return None;
+        }
+        // SAFETY: range-checked immediately above.
+        Some(unsafe {
+            self.edicts
+                .add(byteofs as usize)
+                .cast::<[i32; 3]>()
+                .read_unaligned()
+        })
+    }
+
+    #[must_use]
+    pub fn ed_vec3(&self, byteofs: i32) -> Option<[f32; 3]> {
+        if !self.edict_byte_ok(byteofs, 12) {
+            return None;
+        }
+        // SAFETY: range-checked immediately above.
+        Some(unsafe {
+            self.edicts
+                .add(byteofs as usize)
+                .cast::<[f32; 3]>()
+                .read_unaligned()
+        })
+    }
+
+    pub fn set_ed_vec3(&mut self, byteofs: i32, v: [f32; 3]) -> Option<()> {
+        if !self.edict_byte_ok(byteofs, 12) {
+            return None;
+        }
+        // SAFETY: range-checked immediately above.
+        unsafe {
+            self.edicts
+                .add(byteofs as usize)
+                .cast::<[f32; 3]>()
+                .write_unaligned(v);
+        }
+        Some(())
+    }
+
+    /// `PROG_TO_EDICT (p) == qcvm->edicts`, i.e. the world entity.
+    #[must_use]
+    pub fn is_world(&self, prog: i32) -> bool {
+        prog == 0
+    }
+
+    /// `(byte *)((int *)&ed->v + ofs) - (byte *)qcvm->edicts` for `OP_ADDRESS`,
+    /// and the base for the `OP_LOAD_*` family. `prog` is an `EDICT_TO_PROG`
+    /// byte offset; `ofs` is a **word** offset into the field block.
+    #[must_use]
+    pub fn field_byte_offset(&self, prog: i32, word_ofs: i32) -> i32 {
+        prog.wrapping_add(EDICT_V_OFFSET as i32)
+            .wrapping_add(word_ofs.wrapping_mul(4))
+    }
+
+    // ---- call and local stacks -------------------------------------------
+
+    pub fn push_stack(&mut self, depth: c_int, s: c_int, f: FuncRef) {
+        // SAFETY: the caller checked 0 <= depth < MAX_STACK_DEPTH.
+        unsafe {
+            let slot = core::ptr::addr_of_mut!((*self.vm).stack)
+                .cast::<PrStack>()
+                .add(depth as usize);
+            slot.write(PrStack { s, f: f.0 });
+        }
+    }
+
+    /// `(qcvm->stack[depth].s, qcvm->stack[depth].f)`
+    #[must_use]
+    pub fn stack_slot(&self, depth: c_int) -> (c_int, FuncRef) {
+        // SAFETY: the caller checked 0 <= depth < MAX_STACK_DEPTH.
+        let slot = unsafe {
+            core::ptr::addr_of!((*self.vm).stack)
+                .cast::<PrStack>()
+                .add(depth as usize)
+                .read()
+        };
+        (slot.s, FuncRef(slot.f))
+    }
+
+    #[must_use]
+    pub fn localstack_used(&self) -> c_int {
+        // SAFETY: a plain field read of the live qcvm_t.
+        unsafe { (*self.vm).localstack_used }
+    }
+
+    pub fn set_localstack_used(&mut self, n: c_int) {
+        // SAFETY: as above.
+        unsafe { (*self.vm).localstack_used = n }
+    }
+
+    pub fn localstack_write(&mut self, index: c_int, v: c_int) {
+        // SAFETY: the caller checked index < LOCALSTACK_SIZE.
+        unsafe {
+            core::ptr::addr_of_mut!((*self.vm).localstack)
+                .cast::<c_int>()
+                .add(index as usize)
+                .write(v);
+        }
+    }
+
+    #[must_use]
+    pub fn localstack_read(&self, index: c_int) -> c_int {
+        // SAFETY: the caller checked index < LOCALSTACK_SIZE.
+        unsafe {
+            core::ptr::addr_of!((*self.vm).localstack)
+                .cast::<c_int>()
+                .add(index as usize)
+                .read()
+        }
+    }
+
+    /// `qcvm->builtins[i]` — only used to check the slot is populated; the
+    /// call itself goes through the guarded dispatch in `quake-capi`.
+    #[must_use]
+    pub fn builtin_is_null(&self, index: c_int) -> bool {
+        // SAFETY: the caller clamped index into 0..numbuiltins <= 1024.
+        unsafe {
+            core::ptr::addr_of!((*self.vm).builtins)
+                .cast::<BuiltinT>()
+                .add(index as usize)
+                .read()
+                .is_none()
+        }
+    }
+
+    /// `qcvm->edict_size`, for tests that need to address an edict by number.
+    #[must_use]
+    pub fn edict_size_for_test(&self) -> i32 {
+        // SAFETY: a plain field read of the live qcvm_t.
+        unsafe { (*self.vm).edict_size }
+    }
+
+    /// The whole edict array as bytes — the differential suites compare it.
+    #[must_use]
+    pub fn edicts_bytes(&self) -> &[u8] {
+        // SAFETY: the constructor recorded the array's true byte length, and
+        // `&self` bounds the borrow.
+        unsafe { core::slice::from_raw_parts(self.edicts, self.edicts_bytes) }
+    }
+
+    /// The raw `qcvm_t` pointer, for shims that must hand it back to C.
+    #[must_use]
+    pub fn as_ptr(&self) -> *mut QcVm {
+        self.vm()
     }
 }

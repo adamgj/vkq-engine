@@ -32,3 +32,32 @@ propagated by `Result` to the host frame loop, which performs today's longjmp-ta
 - Soundness across the boundary is guaranteed by two mechanical patterns (status shims, trampolines) rather than per-call-site vigilance.
 - Transition cost: some double bookkeeping (C raises → trampoline → Rust `Err` → shim status → C re-raise) on error paths; error paths are cold, so the cost is code, not speed.
 - The final `Result`-based architecture is idiomatic and makes error provenance explicit — a net improvement over longjmp once the transition ends.
+
+## Amended (Phase 6 M3, 2026-08-27)
+
+`Host_Guard` now exists (`Quake/host.c`, declared in `quakedef.h`). Rule 3
+said the trampoline "`setjmp`s locally and returns an error code instead of
+jumping past Rust"; implementing it surfaced a detail worth writing down.
+
+`Host_Error` does most of its work — `PR_SwitchQCVM (NULL)`, the stack-trace
+print, `Host_ShutdownServer`, `CL_Disconnect` — *before* it jumps. A guard that
+caught the jump and then called `Host_Error` again to re-raise would run all
+of that twice, which is observable. So the trampoline is a **pair**:
+
+- `Host_Guard (fn, arg)` installs its own `host_abortserver` *and*
+  `screen_error` buffers (the CSQC-drawing path jumps to the latter), runs
+  `fn`, restores both, and returns which jump it caught;
+- `Host_Reraise (result)` re-issues that same jump from a pure C frame once
+  the Rust frames above have returned normally.
+
+Nesting is one level at a time: an inner guard restores the outer's buffers on
+the way out, so each re-issued jump is caught by the next guard out until the
+outermost reaches `host.c`'s own `setjmp`. `Quake/pr_exec_glue.c` is the first
+consumer, wrapping every `qcvm->builtins[i]()` dispatch.
+
+The ADR's "error paths are cold, so the cost is code, not speed" holds here
+only because the guard is cheap relative to how often it runs: the e1m1
+gameplay trace shows ~13 builtin calls per frame, so two `jmp_buf` copies and
+a `setjmp` per call are not measurable against a 13.9 ms frame. If a later
+milestone puts a guard somewhere genuinely hot, that measurement has to be
+redone rather than assumed.

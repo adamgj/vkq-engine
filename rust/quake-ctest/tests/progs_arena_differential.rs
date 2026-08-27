@@ -30,8 +30,8 @@ extern "C" {
     fn c_ref_ED_RemoveFromFreeList(ed: *mut c_void);
     fn c_ref_ED_RebuildFreeList(force_free_reuse: bool);
 
-    static c_ref_qcvm: *mut c_void;
-    static c_ref_nullentitystate: EntityState;
+    static qcvm: *mut c_void;
+    static nullentitystate: EntityState;
 }
 
 /// The oracle's ambient `qcvm` is one process-wide instance.
@@ -44,7 +44,7 @@ fn lock() -> std::sync::MutexGuard<'static, ()> {
 fn c_vm() -> *mut QcVm {
     // SAFETY: ctest_progs_reset_vm published a real qcvm_t here, and
     // tests/progs_abi.rs proves the mirror matches the C layout.
-    unsafe { c_ref_qcvm.cast() }
+    unsafe { qcvm.cast() }
 }
 
 fn c_free_list() -> &'static FreeList {
@@ -112,7 +112,7 @@ fn new_fixture(max_edicts: c_int, entityfields: c_int) -> Fixture {
     // SAFETY: a plain read of a fixture scalar just published above.
     let stride = unsafe { ctest_progs_edict_size() };
     // SAFETY: the fixture initialises it via COM_SetupNullState's values.
-    let null_state = unsafe { c_ref_nullentitystate };
+    let null_state = unsafe { nullentitystate };
 
     Fixture {
         arena: EdictArena::owned(stride, max_edicts as usize),

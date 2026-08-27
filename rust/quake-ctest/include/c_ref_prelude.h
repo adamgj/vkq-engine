@@ -474,13 +474,61 @@ gltexture_t *TexMgr_LoadImage (
 void GLMesh_UploadBuffers (qmodel_t *mod, aliashdr_t *hdr, unsigned short *indexes, byte *vertexes, aliasmesh_t *desc, jointpose_t *joints);
 void GLMesh_DeleteMeshBuffers (aliashdr_t *mainhdr);
 
+/* ---- Phase 6: the progs VM oracles (pr_edict_arena.c, pr_exec.c) ----
+ * pr_edict_arena.c was split verbatim out of pr_edict.c so the differential
+ * suites get a small stub surface. Only symbols those two files *define* are
+ * renamed: an object-like macro for an ambient like `qcvm` would also rewrite
+ * `sv.qcvm`, the struct field PR_Profile_f dereferences. The ambients below
+ * are stub-owned and keep their real names, which is also what the quake-capi
+ * progs shims will import. */
+#define ED_AllocSetHook       c_ref_ED_AllocSetHook
+#define ED_Alloc              c_ref_ED_Alloc
+#define ED_Free               c_ref_ED_Free
+#define ED_RemoveFromFreeList c_ref_ED_RemoveFromFreeList
+#define ED_CheckFreeList      c_ref_ED_CheckFreeList
+#define ED_RebuildFreeList    c_ref_ED_RebuildFreeList
+#define PR_GetString          c_ref_PR_GetString
+#define PR_ClearEngineString  c_ref_PR_ClearEngineString
+#define PR_SetEngineString    c_ref_PR_SetEngineString
+#define PR_AllocString        c_ref_PR_AllocString
+#define PR_ClearEdictStrings  c_ref_PR_ClearEdictStrings
+#define PR_ExecuteProgram     c_ref_PR_ExecuteProgram
+#define PR_RunError           c_ref_PR_RunError
+#define PR_RunWarning         c_ref_PR_RunWarning
+#define PR_Profile_f          c_ref_PR_Profile_f
+
+#include "protocol.h" /* entity_state_t, which edict_t embeds */
+#include "progs.h"
+#include "pr_trace.h" /* the PR_TRACE_* hooks; no-ops without -Dtrace=true */
+
+/* stub-owned (stubs.c): the ambient VM, the engine seams pr_edict.c keeps,
+ * and protocol.h's null baseline. The prelude pre-empts protocol.h and
+ * server.h, so these come by hand. */
+extern qcvm_t		 *qcvm;
+extern globalvars_t  *pr_global_struct;
+extern entity_state_t nullentitystate;
+edict_t				 *EDICT_NUM (int n);
+int					  NUM_FOR_EDICT (edict_t *e);
+void				  SV_UnlinkEdict (edict_t *ent);
+void				  ED_Print (edict_t *ed);
+void				  PR_SwitchQCVM (qcvm_t *nvm);
+const char			 *PR_GlobalString (int ofs);
+const char			 *PR_GlobalStringNoContents (int ofs);
+
 /* server.h slice: model_parse.c reads sv.modelname; snd_mix.c (Phase 4)
  * reads sv.active */
+typedef enum
+{
+	ss_loading,
+	ss_active
+} server_state_t; /* server.h; pr_exec.c's OP_ADDRESS guard reads it */
 typedef struct
 {
-	char	 modelname[64];
-	qboolean active;
-	char	 name[64]; /* Phase 5: net_loop.c's Loop_SearchForHosts */
+	char		   modelname[64];
+	qboolean	   active;
+	char		   name[64];  /* Phase 5: net_loop.c's Loop_SearchForHosts */
+	server_state_t state;	  /* Phase 6 M3: pr_exec.c's OP_ADDRESS guard */
+	qcvm_t		   qcvm;	  /* Phase 6 M3: pr_exec.c's PR_Profile_f */
 } ctest_server_stub_t;
 extern ctest_server_stub_t sv;
 
@@ -707,35 +755,5 @@ void					S_CodecShutdown (void);
 int						Cmd_Argc (void);
 const char			   *Cmd_Argv (int arg);
 void					Con_SafePrintf (const char *fmt, ...);
-
-/* ---- Phase 6 M2: the edict arena + progs string table oracle ----
- * pr_edict_arena.c was split verbatim out of pr_edict.c so the differential
- * suites get a small stub surface. It needs progs.h (which pulls pr_comp.h and
- * progdefs.h), protocol.h for nullentitystate/ENTALPHA_DEFAULT, and
- * SV_UnlinkEdict; EDICT_NUM/NUM_FOR_EDICT stay in pr_edict.c and are supplied
- * by stubs.c. `qcvm` itself is stub-owned so tests can point it at a fixture. */
-#define ED_AllocSetHook        c_ref_ED_AllocSetHook
-#define ED_Alloc               c_ref_ED_Alloc
-#define ED_Free                c_ref_ED_Free
-#define ED_RemoveFromFreeList  c_ref_ED_RemoveFromFreeList
-#define ED_CheckFreeList       c_ref_ED_CheckFreeList
-#define ED_RebuildFreeList     c_ref_ED_RebuildFreeList
-#define PR_GetString           c_ref_PR_GetString
-#define PR_ClearEngineString   c_ref_PR_ClearEngineString
-#define PR_SetEngineString     c_ref_PR_SetEngineString
-#define PR_AllocString         c_ref_PR_AllocString
-#define PR_ClearEdictStrings   c_ref_PR_ClearEdictStrings
-/* stub-owned so the oracle and the Rust port drive the same VM fixture */
-#define qcvm                   c_ref_qcvm
-#define EDICT_NUM              c_ref_EDICT_NUM
-#define NUM_FOR_EDICT          c_ref_NUM_FOR_EDICT
-#define nullentitystate        c_ref_nullentitystate
-#define SV_UnlinkEdict         c_ref_SV_UnlinkEdict
-
-#include "progs.h"
-/* the prelude pre-empts protocol.h and server.h, so these two come by hand;
- * both are stub-owned (stubs.c) and the names expand through the renames */
-extern entity_state_t nullentitystate;
-void SV_UnlinkEdict (edict_t *ent);
 
 #endif /* C_REF_PRELUDE_H */

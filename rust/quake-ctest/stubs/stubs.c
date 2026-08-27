@@ -2387,7 +2387,37 @@ int ctest_demo_forcetrack_oracle (const char *bytes, int len, int *track, int *c
  * ctest_try_host trap.
  */
 qcvm_t		  *qcvm;
+globalvars_t  *pr_global_struct;
 entity_state_t nullentitystate;
+
+/* pr_edict.c seams the pr_exec.c oracle needs (Phase 6 M3) */
+int ctest_progs_ed_print_count;
+
+void ED_Print (edict_t *ed)
+{
+	(void)ed;
+	ctest_progs_ed_print_count++;
+}
+
+void PR_SwitchQCVM (qcvm_t *nvm)
+{
+	if (nvm && qcvm)
+		Sys_Error ("PR_SwitchQCVM: A qcvm was already active");
+	qcvm = nvm;
+	pr_global_struct = nvm ? (globalvars_t *)nvm->globals : NULL;
+}
+
+const char *PR_GlobalString (int ofs)
+{
+	(void)ofs;
+	return "<global>";
+}
+
+const char *PR_GlobalStringNoContents (int ofs)
+{
+	(void)ofs;
+	return "<global>";
+}
 
 static qcvm_t	   ctest_progs_vm_storage;
 static dprograms_t ctest_progs_header;
@@ -2502,4 +2532,138 @@ void ctest_progs_sort_by_freetime (int *nums, size_t n, const float *freetimes)
 	ctest_sort_freetimes = freetimes;
 	qsort (nums, n, sizeof (int), ctest_sort_freetime_cmp);
 	ctest_sort_freetimes = NULL;
+}
+
+/* ---------------------------------------------------------------------------
+ * Phase 6 M3: synthetic progs images for the interpreter differential.
+ *
+ * Two identically-initialised VMs are built: A is published as the ambient
+ * `qcvm` for the c_ref_PR_ExecuteProgram oracle, B is handed to the Rust
+ * interpreter through quake_progs::arena::VmRaw. Building both here means the
+ * two agree on edict_size and lump placement by construction, and the
+ * comparison afterwards is between two allocations of identical shape.
+ */
+#define CTEST_PROGS_NVMS 2
+
+static qcvm_t	   ctest_synth_vm[CTEST_PROGS_NVMS];
+static dprograms_t ctest_synth_hdr[CTEST_PROGS_NVMS];
+
+int ctest_progs_builtin_calls;
+int ctest_progs_last_builtin_vm;
+
+/* A builtin both sides invoke. It writes a value derived from the ambient
+ * VM's own state, so a mix-up between the two fixtures would show up. */
+static void PF_Fixme_stub (void)
+{
+	ctest_progs_builtin_calls++;
+}
+
+static void ctest_progs_builtin_marker (void)
+{
+	ctest_progs_builtin_calls++;
+	G_FLOAT (OFS_RETURN) = (float)(qcvm->argc * 100 + qcvm->xstatement);
+	G_FLOAT (OFS_RETURN + 1) = G_FLOAT (OFS_PARM0);
+	G_FLOAT (OFS_RETURN + 2) = 0.0f;
+}
+
+static void ctest_progs_builtin_error (void)
+{
+	ctest_progs_builtin_calls++;
+	Host_Error ("ctest builtin raised");
+}
+
+void *ctest_progs_synth_vm (
+	int which, int max_edicts, int entityfields, int numglobals, const void *stmts, int nstmts, const void *funcs, int nfuncs, const char *strings,
+	int stringssize)
+{
+	qcvm_t	   *vm = &ctest_synth_vm[which];
+	dprograms_t *hdr = &ctest_synth_hdr[which];
+
+	if (vm->edicts)
+		Mem_Free (vm->edicts);
+	if (vm->statements)
+		Mem_Free (vm->statements);
+	if (vm->functions)
+		Mem_Free (vm->functions);
+	if (vm->globals)
+		Mem_Free (vm->globals);
+	if (vm->strings)
+		Mem_Free (vm->strings);
+	memset (vm, 0, sizeof (*vm));
+	memset (hdr, 0, sizeof (*hdr));
+
+	hdr->entityfields = entityfields;
+	hdr->numfunctions = nfuncs;
+	hdr->numstatements = nstmts;
+	hdr->numglobals = numglobals;
+	vm->progs = hdr;
+
+	vm->statements = (dstatement_t *)Mem_Alloc ((size_t)nstmts * sizeof (dstatement_t));
+	memcpy (vm->statements, stmts, (size_t)nstmts * sizeof (dstatement_t));
+	vm->functions = (dfunction_t *)Mem_Alloc ((size_t)nfuncs * sizeof (dfunction_t));
+	memcpy (vm->functions, funcs, (size_t)nfuncs * sizeof (dfunction_t));
+	vm->globals = (float *)Mem_Alloc ((size_t)numglobals * sizeof (float));
+	vm->strings = (char *)Mem_Alloc ((size_t)stringssize);
+	memcpy (vm->strings, strings, (size_t)stringssize);
+	vm->stringssize = stringssize;
+
+	vm->edict_size = entityfields * 4 + sizeof (edict_t) - sizeof (entvars_t);
+	vm->edict_size += sizeof (void *) - 1;
+	vm->edict_size &= ~(sizeof (void *) - 1);
+	vm->max_edicts = max_edicts;
+	vm->num_edicts = max_edicts; /* all live: the tests address them directly */
+	vm->edicts = (edict_t *)Mem_Alloc ((size_t)max_edicts * vm->edict_size);
+
+	vm->builtins[0] = PF_Fixme_stub;
+	vm->builtins[1] = ctest_progs_builtin_marker;
+	vm->builtins[2] = ctest_progs_builtin_error;
+	vm->numbuiltins = 3;
+
+	return vm;
+}
+
+void *ctest_progs_vm (int which)
+{
+	return &ctest_synth_vm[which];
+}
+
+/* publish fixture A as the ambient VM for the oracle */
+void ctest_progs_select_vm (int which)
+{
+	qcvm = &ctest_synth_vm[which];
+	pr_global_struct = (globalvars_t *)qcvm->globals;
+}
+
+void ctest_progs_synth_free (void)
+{
+	int i;
+	for (i = 0; i < CTEST_PROGS_NVMS; i++)
+	{
+		qcvm_t *vm = &ctest_synth_vm[i];
+		SAFE_FREE (vm->edicts);
+		SAFE_FREE (vm->statements);
+		SAFE_FREE (vm->functions);
+		SAFE_FREE (vm->globals);
+		SAFE_FREE (vm->strings);
+	}
+	qcvm = NULL;
+	pr_global_struct = NULL;
+}
+
+/* Invoke a builtin against a chosen fixture, the way the engine's guarded
+ * dispatch does: the ambient VM is the one the builtin reads. */
+void ctest_progs_call_builtin (int which, int index)
+{
+	qcvm_t		 *saved = qcvm;
+	globalvars_t *saved_g = pr_global_struct;
+	qcvm = &ctest_synth_vm[which];
+	pr_global_struct = (globalvars_t *)qcvm->globals;
+	qcvm->builtins[index] ();
+	qcvm = saved;
+	pr_global_struct = saved_g;
+}
+
+void ctest_progs_set_sv_state (int active)
+{
+	sv.state = active ? ss_active : ss_loading;
 }

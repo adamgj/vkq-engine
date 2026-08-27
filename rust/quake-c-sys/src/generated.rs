@@ -929,3 +929,68 @@ unsafe extern "C" {
 unsafe extern "C" {
     pub static vkquake_pak_decompressed_size: ::std::os::raw::c_int;
 }
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct qcvm_s {
+    _unused: [u8; 0],
+}
+unsafe extern "C" {
+    pub static mut qcvm: *mut qcvm_s;
+}
+unsafe extern "C" {
+    pub fn PRExec_Glue_PrintStatement(pc: ::std::os::raw::c_int);
+}
+unsafe extern "C" {
+    pub fn PRExec_Glue_SvActive() -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn PRExec_Glue_Strcmp(
+        a: *const ::std::os::raw::c_char,
+        b: *const ::std::os::raw::c_char,
+    ) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn PRExec_Glue_CallBuiltin(index: ::std::os::raw::c_int) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn PRExec_Glue_TraceEnabled() -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn PRExec_Glue_TraceEnter(fnum: ::std::os::raw::c_int);
+}
+unsafe extern "C" {
+    pub fn PRExec_Glue_TraceLeave();
+}
+unsafe extern "C" {
+    pub fn PRExec_Glue_TraceStatement(
+        pc: ::std::os::raw::c_int,
+        op: ::std::os::raw::c_int,
+        a: ::std::os::raw::c_int,
+        b: ::std::os::raw::c_int,
+        c: ::std::os::raw::c_int,
+    );
+}
+unsafe extern "C" {
+    pub fn PRExec_Glue_TraceGlobalWrite(
+        ofs: ::std::os::raw::c_int,
+        values: *const ::std::os::raw::c_int,
+        count: ::std::os::raw::c_int,
+    );
+}
+unsafe extern "C" {
+    pub fn PRExec_Glue_TraceFieldWrite(
+        ofs: ::std::os::raw::c_int,
+        values: *const ::std::os::raw::c_int,
+        count: ::std::os::raw::c_int,
+    );
+}
+unsafe extern "C" {
+    pub fn PRExec_Glue_TraceBuiltin(
+        ordinal: ::std::os::raw::c_int,
+        argc: ::std::os::raw::c_int,
+        parms: *const ::std::os::raw::c_int,
+    );
+}
+unsafe extern "C" {
+    pub fn PRExec_Glue_TraceBuiltinReturn(ret: *const ::std::os::raw::c_int);
+}

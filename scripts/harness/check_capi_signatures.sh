@@ -76,6 +76,13 @@ static inline int FindLastBitNonZero (const uint32_t mask)
 #include "snd_codec.h"
 #include "snd_codeci.h"
 #include "bgmusic.h"
+/* Phase 6 M3: the progs interpreter shim. progs.h needs protocol.h for
+ * entity_state_t (edict_t embeds it), progdefs.h for entvars_t, and
+ * quakedef.h's per-level limits for freelist_t. */
+#include "protocol.h"
+#define MIN_EDICTS 256
+#define MAX_EDICTS 32000
+#include "progs.h"
 #include "quake_rs.h"
 EOF
 

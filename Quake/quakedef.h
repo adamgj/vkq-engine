@@ -467,6 +467,16 @@ void			   Host_Init (void);
 void			   Host_Shutdown (void);
 void			   Host_Callback_Notify (cvar_t *var); /* callback function for CVAR_NOTIFY */
 FUNC_NORETURN void Host_Error (const char *error, ...) FUNC_PRINTF (1, 2);
+
+/* ADR-009 rule 3: run a C callback that may Host_Error/Host_EndGame with the
+ * longjmp targets redirected here, so no jump crosses a Rust frame. Returns
+ * HOST_GUARD_OK, or which jump was caught; the caller re-issues it with
+ * Host_Reraise once the Rust frames above it have returned normally. */
+#define HOST_GUARD_OK			0
+#define HOST_GUARD_ABORTSERVER	1
+#define HOST_GUARD_SCREEN_ERROR 2
+int				   Host_Guard (void (*fn) (void *), void *arg);
+void			   Host_Reraise (int guard_result);
 FUNC_NORETURN void Host_EndGame (const char *message, ...) FUNC_PRINTF (1, 2);
 void			   Host_Frame (double time);
 void			   Host_Quit_f (void);

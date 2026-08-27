@@ -211,6 +211,11 @@ long long quake_rs_demo_resume_seek_offset(void);
 /* Phase 5 M5: the Rust loopback driver, installed into net_drivers[0] by
  * net_bsd.c/net_win.c under USE_RUST_NET (Loop_SearchForHosts stays C until
  * M9). Guarded on net_defs.h's own guard for the qsocket_t typedef. */
+/* Phase 6 M3: the progs interpreter body. pr_exec_glue.c owns the C frame --
+ * entry validation, every raise, and the Host_Guard'd builtin dispatch. */
+#ifdef _QUAKE_PROGS_H
+int quake_rs_pr_execute_program(func_t fnum, int *detail);
+#endif
 #ifdef __NET_DEFS_H
 int rust_loop_Init(void);
 void rust_loop_Shutdown(void);
@@ -301,6 +306,7 @@ parse_deps = false
 
 [export]
 exclude = [
+    "quake_rs_pr_execute_program",
     "BoxOnPlaneSide", "R_ConcatRotations", "R_ConcatTransforms", "vec3_origin",
     "VectorAngles", "VectorMA", "_DotProduct", "_VectorSubtract", "_VectorAdd",
     "_VectorCopy", "VectorCompare", "VectorLength", "CrossProduct",

@@ -135,9 +135,9 @@ jobs:
         meson setup build-rs-csnd -Duse_sdl3=disabled -Duse_rust=enabled -Duse_rust_snd=disabled && ninja -C build-rs-csnd
         meson setup build-rs-cnet -Duse_sdl3=disabled -Duse_rust=enabled -Duse_rust_net=disabled && ninja -C build-rs-cnet
         meson setup build-rs-cprogs -Duse_sdl3=disabled -Duse_rust=enabled -Duse_rust_progs=disabled && ninja -C build-rs-cprogs
-        # ADR-019 gate 3 needs a -Dtrace=true pair; the Rust half joins at
-        # Phase 6 M3, when the interpreter first executes progs code
+        # ADR-019 gate 3: the -Dtrace=true pair the progs differ compares
         meson setup build-c-trace -Duse_sdl3=disabled -Duse_rust=disabled -Dtrace=true && ninja -C build-c-trace
+        meson setup build-rs-trace -Duse_sdl3=disabled -Duse_rust=enabled -Dtrace=true && ninja -C build-rs-trace
     - name: FFI signature parity (quake_rs.h vs engine headers)
       run: |
         ./scripts/harness/check_capi_signatures.sh build-rs/quake_rs.h
@@ -174,15 +174,22 @@ jobs:
       run: |
         export QUAKE_GAME_DATA="$PWD/shareware-data"
         python3 scripts/harness/run_corpus.py --vkquake build-c/vkqr-engine --compare build-rs-cprogs/vkqr-engine --tier shareware
-    # Phase 6 (ADR-019 gate 3): the progs-VM instruction trace. Demo playback
-    # never starts a server and so emits zero records -- the oracle scenarios
-    # are maps, and trace_diff.py's record floor enforces that. Until M3 flips
-    # the interpreter this is a producer-stability gate (same build twice).
+    # Phase 6 (ADR-019 gate 3): instruction-level trace parity, the gate the
+    # progs VM port is verified against. Demo playback never starts a server
+    # and so emits zero records -- the oracle scenarios are maps, and
+    # trace_diff.py's record floor enforces that.
     - name: Progs trace stability (C-only, run-twice)
       run: |
         export QUAKE_GAME_DATA="$PWD/shareware-data"
         python3 scripts/harness/trace_diff.py --vkquake build-c-trace/vkqr-engine \
           --vkquake-b build-c-trace/vkqr-engine --map e1m1 --exitafter 300
+    - name: Progs trace parity (Rust VM vs C)
+      run: |
+        export QUAKE_GAME_DATA="$PWD/shareware-data"
+        for m in e1m1 e1m2 e1m3; do
+          python3 scripts/harness/trace_diff.py --vkquake build-c-trace/vkqr-engine \
+            --vkquake-b build-rs-trace/vkqr-engine --map "$m" --exitafter 400
+        done
     # Phase 4 (ADR-019 sound PCM-hash): the mixer runs on the deterministic
     # harness DMA clock under -sndhash; the per-frame paintbuffer+DMA chain
     # must be bit-identical between the Rust sound engine and the C original

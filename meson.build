@@ -261,7 +261,6 @@ srcs = [
     'Quake/pr_cmds.c',
     'Quake/pr_edict.c',
     'Quake/pr_edict_arena.c',
-    'Quake/pr_exec.c',
     'Quake/pr_ext.c',
     'Quake/r_alias.c',
     'Quake/r_brush.c',
@@ -501,11 +500,15 @@ else
 endif
 
 # Phase 6: the progs VM. The flip is per-file and lands milestone by milestone
-# (pr_exec.c first, then pr_edict.c, then the builtin tables slot by slot); M1
-# only wires the switch so -Duse_rust_progs=disabled exists as an oracle
-# configuration from the start of the phase.
+# (pr_exec.c at M3, then pr_edict.c, then the builtin tables slot by slot).
+# The C originals stay the -Duse_rust_progs=disabled oracle -- and here that
+# is load-bearing, because the ADR-019 gate-3 trace differ compares against
+# them.
 if use_rust_progs
     cflags += '-DUSE_RUST_PROGS'
+    srcs += ['Quake/pr_exec_glue.c']
+else
+    srcs += ['Quake/pr_exec.c']
 endif
 
 if use_rust_snd
