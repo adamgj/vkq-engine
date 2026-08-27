@@ -1039,6 +1039,7 @@ void PR_Init (void)
 	Cmd_AddCommand ("edictcount", ED_Count);
 	Cmd_AddCommand ("profile", PR_Profile_f);
 	Cmd_AddCommand ("pr_dumpplatform", PR_DumpPlatform_f);
+	Cmd_AddCommand ("pr_dumpbuiltins", PR_DumpBuiltinTable_f);
 	Cvar_RegisterVariable (&nomonsters);
 	Cvar_SetCallback (&nomonsters, ED_Nomonsters_f);
 	Cvar_RegisterVariable (&gamecfg);

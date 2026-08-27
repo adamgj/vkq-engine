@@ -34,6 +34,7 @@ Harness runs are hermetic: per-user files (`vkQuake.cfg`, `basedirs.txt`, consol
 - `interop_matrix.py` — 4-way C/Rust client x server localhost matrix across the negotiable protocol cells (`Base-/FTE+` 15/666/999; optional `--ipv6` leg)
 - `run_trace.py` — progs trace collection on a `-Dtrace=true` build (`--game <dir>` to trace a mission pack's or mod's own progs.dat, which needs registered data)
 - `trace_diff.py` — the ADR-019 gate-3 consumer: same headless scenario on two `-Dtrace=true` builds, every VM record compared in order, with a minimum-record floor (demo playback starts no server and so emits **zero** progs records — the oracle scenarios are maps)
+- `builtin_diff.py` — the resolved QuakeC builtin table (`pr_dumpbuiltins`) compared across two builds: `name declared-number bound-ordinal` per `extensionbuiltins[]` entry plus the re-release `first_statement` patches. Builtin *numbering* is set by `PR_InitExtensions`/`PR_EnableExtensions`/`PR_PatchRereleaseBuiltins` and is invisible to a trace unless a mod calls the affected builtin. Carries a minimum-entry floor
 - `fetch_shareware.py` — pull the redistributable 1.06 shareware data for CI
 - `check_headers.sh` — core headers compile standalone + bindgen smoke
 

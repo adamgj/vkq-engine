@@ -6316,6 +6316,93 @@ void PR_EnableExtensions (ddef_t *pr_globaldefs)
 	nearsurface_cache_valid = false;
 }
 
+/*
+===============
+PR_DumpBuiltinTable_f
+
+Console command `pr_dumpbuiltins`: writes the *resolved* builtin table for the
+active VM as `name declared-number bound-ordinal`, one line per
+extensionbuiltins[] entry, plus the three re-release patch results.
+
+This is the ADR-019 gate for builtin numbering (ROADMAP Phase 6 exit criterion
+"builtin-table dump diff clean for every progs.dat in the corpus"). Numbering
+is decided by three mechanisms that interact -- PR_InitExtensions assigning
+undocumented builtins downwards from 1024 in table order and mutating a static
+table, PR_EnableExtensions binding by documented number but refusing to clobber
+a slot the progs left as PF_Fixme, and PR_PatchRereleaseBuiltins rewriting
+first_statement afterwards -- and none of them shows up in an instruction trace
+unless a mod happens to call the affected builtin.
+scripts/harness/builtin_diff.py compares the dump across two builds.
+
+The bound ordinal is found by scanning qcvm->builtins for the entry's own
+function pointer, so it is meaningful within one build; what is compared across
+builds is the name/number/ordinal triple, never the pointer.
+===============
+*/
+void PR_DumpBuiltinTable_f (void)
+{
+	/* the three names PR_PatchRereleaseBuiltins rewrites (pr_edict_load.c);
+	   duplicated here rather than exported, because the table itself is
+	   internal to the loader and this is a diagnostic. */
+	static const char *const rereleasepatched[] = {"centerprint", "bprint", "sprint"};
+	size_t					 i;
+	unsigned int			 j;
+	const dfunction_t		*f;
+	qboolean				 selected = false;
+
+	/* Console commands run outside the server frame, so no VM is selected;
+	   pick the server's the way host_cmd.c's `edicts` does. */
+	if (!qcvm)
+	{
+		if (!sv.active)
+		{
+			Con_Printf ("PRBUILTINS: no active qcvm\n");
+			return;
+		}
+		PR_SwitchQCVM (&sv.qcvm);
+		selected = true;
+	}
+	if (!qcvm->progs)
+	{
+		Con_Printf ("PRBUILTINS: no progs loaded\n");
+		if (selected)
+			PR_SwitchQCVM (NULL);
+		return;
+	}
+
+	Con_Printf ("PRBUILTINS-BEGIN %u\n", (unsigned)qcvm->progshash);
+	for (i = 0; i < countof (extensionbuiltins); i++)
+	{
+		builtin_t want = (qcvm == &cl.qcvm) ? extensionbuiltins[i].csqcfunc : extensionbuiltins[i].ssqcfunc;
+		int		  bound = -1;
+		/* an entry whose function *is* PF_Fixme would otherwise "bind" to
+		   slot 0, which is PF_Fixme's own; that is not a binding. */
+		if (want && want != PF_Fixme)
+		{
+			for (j = 0; j < (unsigned int)qcvm->numbuiltins; j++)
+			{
+				if (qcvm->builtins[j] == want)
+				{
+					bound = (int)j;
+					break;
+				}
+			}
+		}
+		Con_Printf ("PRBUILTIN %s %i %i\n", extensionbuiltins[i].name, extensionbuiltins[i].number, bound);
+	}
+
+	/* PR_PatchRereleaseBuiltins runs after PR_EnableExtensions and can undo an
+	   extension binding, so its results are part of the same picture. */
+	for (i = 0; i < countof (rereleasepatched); i++)
+	{
+		f = ED_FindFunction (rereleasepatched[i]);
+		Con_Printf ("PRPATCH %s %i\n", rereleasepatched[i], f ? f->first_statement : 0);
+	}
+	Con_Printf ("PRBUILTINS-END\n");
+	if (selected)
+		PR_SwitchQCVM (NULL);
+}
+
 void PR_DumpPlatform_f (void)
 {
 	char		 name[MAX_OSPATH];

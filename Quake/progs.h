@@ -97,6 +97,9 @@ void   PR_AutoCvarChanged (cvar_t *var);			// updates the autocvar_ globals when
 void   PR_ShutdownExtensions (void);				// nooooes!
 func_t PR_FindExtFunction (const char *entryname);
 void   PR_DumpPlatform_f (void); // console command: writes out a qsextensions.qc file
+/* console command: writes the resolved builtin table (ADR-019 gate; see
+   scripts/harness/builtin_diff.py) */
+void   PR_DumpBuiltinTable_f (void);
 // special hacks...
 int	   PF_SV_ForceParticlePrecache (const char *s);
 int	   SV_Precache_Model (const char *s);

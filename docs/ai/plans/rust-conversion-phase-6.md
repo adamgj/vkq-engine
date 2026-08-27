@@ -563,3 +563,76 @@ strtoupper strtolower`.
    over six map/game combinations; 49 ctest suites green
    (`progs_builtins_synthetic` now 54 tests); the three static checks, bindgen
    regen-diff, `cargo fmt --check` and both clippy passes clean.
+
+### 2026-08-27 M10 — the extension machinery: assessed, carved out, and gated
+
+The plan's M10 was "port `PR_InitExtensions`/`PR_EnableExtensions`/
+`PR_ShutdownExtensions`, resolve `PF_Fixme`'s lazy self-patching, and add the
+builtin-table dump diff gate". **The gate landed; the port did not, and that is
+a decision rather than a shortfall.** The assessment, so it is reviewable:
+
+1. **`PR_InitExtensions` has no compatibility content to move.** Its body is
+   `number = documentednumber ? documentednumber : --g`, counting down from
+   1024 in table order. What is delicate is that it mutates the **static**
+   `extensionbuiltins[]` table and must run exactly once — and that table's
+   entries are C function pointers, most of them still-C builtins. Porting it
+   would mean sharing that table's storage across the boundary to move three
+   lines of arithmetic.
+2. **`PR_EnableExtensions` is 200 lines of X-macro expansion**
+   (`QCEXTFUNCS_*`, `QCEXTGLOBALS_*`) resolving names against the loaded progs
+   into `qcvm->extfuncs`/`extglobals`, plus the `#0` function remapping and
+   autocvar registration. The macro lists *are* the ABI; the port would be a
+   transliteration of three lists with no branch to get subtly wrong, and the
+   thing that could go wrong — which ordinal ends up bound to what — is exactly
+   what the new gate now compares directly.
+3. **`PF_Fixme` is the ADR-009 hazard in its worst form.** It decodes the
+   callee from `qcvm->statements[qcvm->xstatement]`, **writes**
+   `qcvm->builtins[binum]`, and then *calls* it — mutating the dispatch table
+   from inside a dispatch and then invoking an arbitrary builtin, most of which
+   are still C and can `Host_Error`. Porting it would put a Rust frame between
+   the interpreter's `Host_Guard` and every unported builtin, rather than
+   between it and the bounded seam list M8 guarded. That is the wrong order:
+   it should follow the builtins, not lead them.
+4. **`PR_ShutdownExtensions` wipes the process-globals** (`qctoken`,
+   `qcfiles`, `strbuflist[64]`, `checkpvs`, `nearsurface_cache_valid`) at map
+   end for whichever VM tears down — landmine 16. Every one of those belongs to
+   a builtin that is still C, so moving the teardown ahead of them would split
+   ownership.
+5. **The CSQC load chain is Phase 7's.** `csprogsvers/%x.dat` → `csprogs.dat` →
+   `progs.dat` is driven from `cl_parse.c`, which this phase does not touch.
+
+**What landed instead: the builtin-table dump diff gate** — the ROADMAP's own
+Phase 6 exit criterion, and the thing that actually covers items 1–3.
+
+- `pr_dumpbuiltins` (`pr_ext.c`, unconditional C — it is a diagnostic, not a
+  port target) writes `name declared-number bound-ordinal` for every
+  `extensionbuiltins[]` entry plus the three `PR_PatchRereleaseBuiltins`
+  `first_statement` results. It selects `sv.qcvm` itself, because console
+  commands run outside the server frame where no VM is ambient.
+- `scripts/harness/builtin_diff.py` runs it on two builds and compares, with a
+  minimum-entry floor so a build that printed nothing fails loudly instead of
+  comparing equal (the Phase 5 delivered-record lesson again).
+- **Verified non-vacuous by mutation**: perturbing one entry's number under
+  `USE_RUST_PROGS` and rebuilding produced
+  `line 4: A: PRBUILTIN sqrt 62 -1 / B: PRBUILTIN sqrt 63 -1` and a non-zero
+  exit; reverting restored `identical`.
+- Green C-vs-mixed over id1 `e1m1` and `start` and over hipnotic, rogue and
+  re-release `start` — 235 entries each. Added to `build-linux.yml` on the two
+  shareware maps, and to `Misc/harness/README.md`.
+- Honest limit of the gate: for id1 only 20 of the 235 entries actually *bind*
+  (`PR_EnableExtensions` refuses to clobber a slot the progs left as
+  `PF_Fixme`, and vanilla progs declare 90 builtins). The declared numbers and
+  the patch results are compared for all of them; the bound column carries
+  signal only for mods that use the extensions — the same corpus gap M9
+  recorded.
+- One refinement while building it: an entry whose function *is* `PF_Fixme`
+  would otherwise report "bound to ordinal 0", which is `PF_Fixme`'s own slot.
+  Suppressed, so the column means what it says.
+
+**A self-inflicted incident worth recording.** During the mutation test I
+reverted the probe with `git checkout -- Quake/pr_ext.c`, which also discarded
+the *uncommitted* dump command in the same file; the next build failed with an
+undefined `PR_DumpBuiltinTable_f`. Recovered by re-applying it. The lesson is
+the obvious one — a whole-file checkout is not a targeted revert when the file
+carries uncommitted work — and it is recorded because the same gesture would
+have silently lost a subtler change instead of breaking the build.
