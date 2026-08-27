@@ -257,3 +257,94 @@ The PR's own review found two red CI checks and seven substantive items. Assessm
 **Not changed, with reasons:** nothing in the review was rejected outright. Item 2 was resolved by documentation rather than by the raise the wording leaned toward, because a raise would be behaviour C does not have — recorded above so the choice is reviewable rather than silent.
 
 **Second CI iteration — an arch-gated clippy error local runs structurally cannot see.** The push fixing the above left `fmt + clippy + deny` red on a *different* error: `manual_range_contains` at `exec.rs:536`, inside `c_cast_i32`'s `#[cfg(target_arch = "x86_64")]` arm. That arm does not compile on this Apple Silicon host, so no amount of local `cargo clippy` would ever have linted it — the aarch64 arm compiles instead. **The check that closes this gap is `cargo clippy -p quake-progs --all-targets --locked --target x86_64-apple-darwin -- -D warnings`**: `quake-progs` has no `quake-c-sys` dependency (deliberately, so it stays fuzzable), so it cross-checks with nothing to link. Verified non-vacuous by mutation — restoring the old expression reproduces CI's exact error. The rewrite to `(-2147483648.0..2147483648.0).contains(&v)` is a De Morgan transformation of the original and was checked to be bit-identical over NaN, both infinities, both boundaries and 2000 pseudo-random bit patterns before being applied, because this function is the per-arch float→int UB emulation and its behaviour is the contract. `exec.rs` is the only `target_arch` gate in the Phase 6 crates; the other platform gates in the workspace are Phase 2/5 code that Linux CI already lints.
+
+### 2026-08-27 M6 — the progs loader
+
+Landed: `PR_LoadProgs`, `PR_MergeEngineFieldDefs`, `PR_ClearProgs`,
+`PR_HasGlobal`/`PR_FindSupportedEffects` and `PR_PatchRereleaseBuiltins` are
+Rust and **flipped**. `PR_SwitchQCVM` and the `qcvm`/`pr_global_struct`
+storage stay C in the glue, per the flip-mechanism map.
+
+1. **Fourth behaviour-neutral C split**: `Quake/pr_edict_load.c`, moved
+   verbatim (lines 1019–1399 of `pr_edict.c`), swapped for
+   `pr_edict_load_glue.c` under the switch. Neutrality verified before the
+   flip: corpus `--check` 11/11 against the darwin-arm64 goldens with the
+   split alone. `Quake/common.make` was updated in the same commit — the M5
+   PR-review root cause was that the Makefile fallback's hand-maintained
+   object list is independent of Meson and nothing cross-checks it.
+2. **Second unsafe island (ADR-004 amendment): `quake_progs::image`.** The
+   progs image is untyped C memory whose interior layout comes from the file
+   header at runtime, the same shape of problem as the edict arena, so
+   `ProgsImage`, `DefTable` and `VmLoad` hold the raw access and
+   `quake_progs::load` stays `deny(unsafe_code)`. Every lump read is
+   `read_unaligned`: C dereferences `(dstatement_t *)((byte *)progs + ofs)`
+   directly, and the port must not add alignment UB on top of the bounds
+   checks it adds.
+3. **`VmLoad` is separate from `VmRaw` on purpose.** `VmRaw::new` asserts the
+   lumps are loaded, which is precisely what is not yet true mid-load, and
+   keeping the loader's setters off the execution path means nothing in
+   `exec` can reach a setter that only makes sense during `PR_LoadProgs`.
+4. **COMPAT, bug preserved deliberately: the `colormod_x/_y/_z` map keys are
+   `va` pointers.** `PR_MergeEngineFieldDefs` inserts the three vector
+   components into `fielddefs_map` keyed on `va ("%s_%c", ...)`, i.e. into one
+   of `va`'s eight rotating THREAD_LOCAL buffers. `hash_map_t` stores the key
+   *pointer* and dereferences it on lookup, so once eight more `va` calls have
+   gone by, `ED_FindField ("colormod_x")` compares against whatever now
+   occupies that buffer and misses. The port therefore calls the engine's own
+   `va` through `LoadSys::va_component_name` rather than using a stable Rust
+   string: the divergence is not in *what* is inserted but in *which storage*
+   the key points at, and a stable key would make three fields findable that
+   are not findable in C. Logged as a post-parity fix candidate.
+5. **Accepted divergence: an out-of-range lump is refused.** C computes every
+   lump base as `(byte *)progs + ofs` and walks `count` entries with no
+   validation at all, so a malformed `progs.dat` — mod data — is an
+   out-of-bounds read *and* an in-place byteswap write past the buffer. The
+   port returns `LoadError::LumpOutOfRange`, which the glue raises as
+   `"%s has a lump that runs past the end of the file"`. C's own
+   strings-past-end check is evaluated **before** the added bounds pass so a
+   truncated `progs.dat` still reports the message C reports.
+6. **COMPAT: the non-fatal arms leak the file buffer, and that is preserved.**
+   C sets `qcvm->progs = NULL` and returns without freeing what `COM_LoadFile`
+   allocated. Freeing it would be the only behaviour a sanitizer run over the
+   mixed build could see differ from the C oracle, so the leak stands.
+7. **The hash maps are created through `LoadSys`, not `quake_util::hash_map`.**
+   `ED_FindField`/`ED_FindGlobal`/`ED_FindFunction` stay in `pr_edict.c` and
+   look these maps up from C, so the object C dereferences has to be the one
+   C's `HashMap_Lookup` was written against. Same call-through argument as the
+   injected `qsort` in M2 and the libc conversions in M5.
+8. **Deviation from the milestone plan: there is no `progs_load_differential`
+   C oracle.** `PR_LoadProgs` reaches `COM_LoadFile` (renamed to
+   `c_ref_COM_LoadFile` by the differential prelude, so an oracle would need a
+   staged gamedir per case) and `PR_EnableExtensions`/`PR_ShutdownExtensions`
+   (in `pr_ext.c`, not an oracle file, so both sides would have to call a
+   stub). What replaces it: `progs_load_synthetic.rs`, 16 Rust-side tests over
+   synthetic images with a recording `LoadSys` mock — reverse map build order
+   and first-match resolution, the reserve margin, the merge offsets and
+   `edict_size`, the already-defined-field case, the `va`-keyed components,
+   both version arms, all nine foreign-CRC arms, `DEF_SAVEGLOBAL`,
+   strings-past-end, five out-of-range lumps, the re-release patch's
+   exact-match rule, the effects mask in all four states, and both
+   `PR_ClearProgs` ownership states — plus `fuzz_progs_load`. The reason this
+   is proportionate rather than a gap: **trace parity is what compares the
+   loader against C**, and it is byte-identical over id1 e1m1/e2m1/e3m1 and
+   hipnotic/rogue/rerelease `start` (223k–489k records each), which cannot
+   hold unless the globals block, both lumps and all three maps came out
+   identical; `save_diff` covers `edict_size` and the merge. What the
+   synthetic suite adds is the arms real data never reaches.
+9. **`fuzz_ed_parse` landed too** — the gap the M1–M5 review named, where
+   findings 1 and 3 of that review sat. Both new targets are in the CI fuzz
+   loop with committed seeds (7 and 12).
+10. **New CI gate: `cargo clippy -p quake-capi --features progs`.** The
+    `progs` feature is off by default, so the workspace clippy pass had never
+    type-checked `quake-capi::progs_*` at all. Verified non-vacuous the hard
+    way: it immediately found four pre-existing lints in the M3–M5 shims (two
+    no-op `drop()`s of types that do not implement `Drop`, an undocumented
+    `unsafe` block, and an `unnecessary_lazy_evaluations`), all fixed. The two
+    `drop()`s were standing in for "the raw views end before `Con_Printf`
+    runs"; that is now a real scope block rather than a no-op call.
+11. **Gates**: all five meson configs build; corpus `--check` 11/11 on
+    `build-c`, `build-rs` and `build-rs-cprogs` plus `--compare` C-vs-mixed;
+    `save_diff` byte-identical (91,562 / 91,547); trace parity byte-identical
+    over six map/game combinations; 48 ctest suites green; `check_headers`,
+    `check_capi_signatures`, `check_ctest_symbols` clean; bindgen regen-diff
+    clean; `cargo fmt --check` and both clippy passes clean.

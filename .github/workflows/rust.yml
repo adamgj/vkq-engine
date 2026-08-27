@@ -44,6 +44,14 @@ jobs:
     - name: cargo clippy
       working-directory: rust
       run: cargo clippy --workspace --all-targets --locked -- -D warnings
+    # the progs cargo feature is off by default (quake-capi gates the Phase 6
+    # shims on it), so the workspace pass above never type-checks
+    # quake-capi::progs_* at all -- an unused import sat there undetected
+    # until the M6 build. The engine builds do compile it, so errors surface,
+    # but only this pass lints it.
+    - name: cargo clippy (progs feature)
+      working-directory: rust
+      run: cargo clippy -p quake-capi --features progs --all-targets --locked -- -D warnings
     - name: cargo deny
       uses: EmbarkStudios/cargo-deny-action@v2
       with:
@@ -116,7 +124,8 @@ jobs:
       run: |
         for t in fuzz_pak fuzz_wad fuzz_kpf fuzz_loc fuzz_vdf \
                  fuzz_pcx fuzz_lmp fuzz_bsp fuzz_mdl fuzz_spr fuzz_md3 fuzz_md5 \
-                 fuzz_tga fuzz_image_stb fuzz_wav fuzz_mp3tag fuzz_net_msg fuzz_net_demo fuzz_net_dgrm fuzz_net_ccreq; do
+                 fuzz_tga fuzz_image_stb fuzz_wav fuzz_mp3tag fuzz_net_msg fuzz_net_demo fuzz_net_dgrm fuzz_net_ccreq \
+                 fuzz_progs_load fuzz_ed_parse; do
           mkdir -p "fuzz/corpus/$t"
           cargo +nightly fuzz run "$t" "fuzz/corpus/$t" "fuzz/corpus-seed/$t" -- \
             -max_total_time="$MAX_TOTAL_TIME" -rss_limit_mb=4096

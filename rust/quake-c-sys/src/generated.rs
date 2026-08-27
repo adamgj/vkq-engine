@@ -1026,3 +1026,61 @@ unsafe extern "C" {
 unsafe extern "C" {
     pub fn PRParse_Glue_UnlinkEdict(edict_num: ::std::os::raw::c_int);
 }
+unsafe extern "C" {
+    pub fn PRLoad_Glue_MapCreate() -> *mut ::std::os::raw::c_void;
+}
+unsafe extern "C" {
+    pub fn PRLoad_Glue_MapReserve(
+        map: *mut ::std::os::raw::c_void,
+        capacity: ::std::os::raw::c_int,
+    );
+}
+unsafe extern "C" {
+    pub fn PRLoad_Glue_MapInsert(
+        map: *mut ::std::os::raw::c_void,
+        key: *const ::std::os::raw::c_char,
+        value: *const ::std::os::raw::c_void,
+    );
+}
+unsafe extern "C" {
+    pub fn PRLoad_Glue_MapDestroy(map: *mut ::std::os::raw::c_void);
+}
+unsafe extern "C" {
+    pub fn PRLoad_Glue_SwitchQCVM(nvm: *mut qcvm_s);
+}
+unsafe extern "C" {
+    pub fn PRLoad_Glue_DeselectQCVM();
+}
+unsafe extern "C" {
+    pub fn PRLoad_Glue_SetPrGlobalStruct(globals: *mut f32);
+}
+unsafe extern "C" {
+    pub fn PRLoad_Glue_SetEmptyEngineString();
+}
+unsafe extern "C" {
+    pub fn PRLoad_Glue_FindFieldOfs(name: *const ::std::os::raw::c_char) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn PRLoad_Glue_GlobalFloat(name: *const ::std::os::raw::c_char, out: *mut f32) -> qboolean;
+}
+unsafe extern "C" {
+    pub fn PRLoad_Glue_FindFunction(name: *const ::std::os::raw::c_char) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn PRLoad_Glue_VaComponent(
+        name: *const ::std::os::raw::c_char,
+        component: ::std::os::raw::c_int,
+    ) -> *const ::std::os::raw::c_char;
+}
+unsafe extern "C" {
+    pub fn PRLoad_Glue_ShutdownExtensions();
+}
+unsafe extern "C" {
+    pub fn PRLoad_Glue_EnableExtensions(globaldefs: *mut ::std::os::raw::c_void);
+}
+unsafe extern "C" {
+    pub fn PRLoad_Glue_IsServerVM(vm: *mut qcvm_s) -> qboolean;
+}
+unsafe extern "C" {
+    pub fn PRLoad_Glue_SetEffectsMask(mask: ::std::os::raw::c_int);
+}

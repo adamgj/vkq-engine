@@ -11,8 +11,10 @@
 //! # Unsafe posture (ADR-004)
 //!
 //! Edicts cannot be Rust structs — their layout is a runtime ABI fixed when
-//! `progs.dat` loads (ADR-006) — so the arena indexes an untyped buffer.
-//! Unsafe is confined to that one module; the rest of the crate is
+//! `progs.dat` loads (ADR-006) — so the arena indexes an untyped buffer. The
+//! progs image itself is the same shape of problem: its interior layout comes
+//! from the file header at runtime, so [`image`] is a second island. Unsafe is
+//! confined to those two modules; the rest of the crate is
 //! `deny(unsafe_code)`.
 //!
 //! # Re-entrancy (ADR-006 Phase 6 amendment, ADR-008)
@@ -27,5 +29,7 @@
 pub mod alloc;
 pub mod arena;
 pub mod exec;
+pub mod image;
+pub mod load;
 pub mod parse;
 pub mod save;

@@ -189,3 +189,23 @@ unsigned long long PRParse_Glue_Strtoull (const char *s);
 int				   PRParse_Glue_FindFieldOfs (const char *name);
 int				   PRParse_Glue_FindFunction (const char *name);
 void			   PRParse_Glue_UnlinkEdict (int edict_num);
+
+/* Phase 6 M6: the progs loader's engine seams (pr_edict_load_glue.c).
+ * hash_map_t stays opaque -- the loader only passes the handle through. */
+struct hash_map_s;
+void			  *PRLoad_Glue_MapCreate (void);
+void			   PRLoad_Glue_MapReserve (void *map, int capacity);
+void			   PRLoad_Glue_MapInsert (void *map, const char *key, const void *value);
+void			   PRLoad_Glue_MapDestroy (void *map);
+void			   PRLoad_Glue_SwitchQCVM (struct qcvm_s *nvm);
+void			   PRLoad_Glue_DeselectQCVM (void);
+void			   PRLoad_Glue_SetPrGlobalStruct (float *globals);
+void			   PRLoad_Glue_SetEmptyEngineString (void);
+int				   PRLoad_Glue_FindFieldOfs (const char *name);
+qboolean		   PRLoad_Glue_GlobalFloat (const char *name, float *out);
+int				   PRLoad_Glue_FindFunction (const char *name);
+const char		  *PRLoad_Glue_VaComponent (const char *name, int component);
+void			   PRLoad_Glue_ShutdownExtensions (void);
+void			   PRLoad_Glue_EnableExtensions (void *globaldefs);
+qboolean		   PRLoad_Glue_IsServerVM (struct qcvm_s *vm);
+void			   PRLoad_Glue_SetEffectsMask (int mask);
