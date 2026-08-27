@@ -76,6 +76,79 @@ impl BuiltinSys for MockSys {
         v.abs()
     }
 
+    fn sin(&mut self, v: f64) -> f64 {
+        v.sin()
+    }
+    fn cos(&mut self, v: f64) -> f64 {
+        v.cos()
+    }
+    fn tan(&mut self, v: f64) -> f64 {
+        v.tan()
+    }
+    fn asin(&mut self, v: f64) -> f64 {
+        v.asin()
+    }
+    fn acos(&mut self, v: f64) -> f64 {
+        v.acos()
+    }
+    fn atan(&mut self, v: f64) -> f64 {
+        v.atan()
+    }
+    fn pow(&mut self, a: f64, b: f64) -> f64 {
+        a.powf(b)
+    }
+    fn log(&mut self, v: f64) -> f64 {
+        v.ln()
+    }
+
+    fn atof(&mut self, s: &[u8]) -> f64 {
+        core::str::from_utf8(s)
+            .ok()
+            .and_then(|t| t.trim().parse().ok())
+            .unwrap_or(0.0)
+    }
+    fn atoi(&mut self, s: &[u8]) -> c_int {
+        core::str::from_utf8(s)
+            .ok()
+            .and_then(|t| t.trim().parse().ok())
+            .unwrap_or(0)
+    }
+    fn strtoul_hex(&mut self, s: &[u8]) -> u32 {
+        let t = core::str::from_utf8(s).unwrap_or("");
+        let t = t
+            .trim_start()
+            .trim_start_matches("0x")
+            .trim_start_matches("0X");
+        let end = t.find(|c: char| !c.is_ascii_hexdigit()).unwrap_or(t.len());
+        u32::from_str_radix(&t[..end], 16).unwrap_or(0)
+    }
+    fn strcmp(&mut self, a: &[u8], b: &[u8], fold_case: bool) -> c_int {
+        let (a, b) = (fold(a, fold_case), fold(b, fold_case));
+        sign(a.cmp(&b))
+    }
+    fn strncmp(&mut self, a: &[u8], b: &[u8], len: c_int, fold_case: bool) -> c_int {
+        let n = len.max(0) as usize;
+        let (a, b) = (fold(a, fold_case), fold(b, fold_case));
+        let a = &a[..a.len().min(n)];
+        let b = &b[..b.len().min(n)];
+        sign(a.cmp(b))
+    }
+
+    fn vector_vectors(&mut self, forward: [f32; 3]) {
+        self.angle_vectors.push(forward);
+    }
+    fn vector_angles(&mut self, forward: [f32; 3], up: Option<[f32; 3]>) -> [f32; 3] {
+        self.angle_vectors.push(forward);
+        up.unwrap_or([1.0, 2.0, 3.0])
+    }
+
+    fn warn(&mut self, msg: &[u8]) {
+        self.printed.push(msg.to_vec());
+    }
+    fn dwarn(&mut self, msg: &[u8]) {
+        self.dprinted.push(msg.to_vec());
+    }
+
     fn com_rand(&mut self) -> c_int {
         if self.rand.is_empty() {
             0
@@ -164,6 +237,25 @@ impl BuiltinSys for MockSys {
 
     fn dprint(&mut self, msg: &[u8]) {
         self.dprinted.push(msg.to_vec());
+    }
+}
+
+/// Lowercase-fold for the mock's compare seams.
+fn fold(s: &[u8], on: bool) -> Vec<u8> {
+    if on {
+        s.iter().map(|b| b.to_ascii_lowercase()).collect()
+    } else {
+        s.to_vec()
+    }
+}
+
+/// The *sign* of a comparison; the mock deliberately does not try to imitate
+/// the platform's magnitude, which is why the tests below only assert signs.
+fn sign(o: core::cmp::Ordering) -> c_int {
+    match o {
+        core::cmp::Ordering::Less => -1,
+        core::cmp::Ordering::Equal => 0,
+        core::cmp::Ordering::Greater => 1,
     }
 }
 
@@ -1083,6 +1175,517 @@ fn writestring_raises_on_a_cleared_handle_and_writeentity_range_checks() {
         builtins::pf_sv_write(&mut f.raw(), &mut sys, MsgKind::Entity),
         Err(BuiltinError::BadEdictPointer)
     );
+}
+
+// ---------------------------------------------------------------------------
+// M9: pr_ext.c batch 1
+//
+// Almost nothing here is exercised by id1, hipnotic, rogue or the re-release
+// -- these are DarkPlaces/FTE extension builtins that only modern mods call,
+// and the corpus's four mod entries are all skipped for want of the mod dirs.
+// Trace parity therefore says very little about this batch, and these tests
+// are the coverage rather than a supplement to it. Each one pins a quirk that
+// a clean-room reimplementation would get wrong.
+
+use quake_progs::ext;
+
+fn ext_fixture(strings: &[u8]) -> Fixture {
+    Fixture::new(strings)
+}
+
+#[test]
+fn min_and_max_fold_from_the_first_argument_and_ignore_nan_after_it() {
+    let mut f = ext_fixture(b"\0");
+    f.vm.argc = 3;
+    f.set_f32(OFS_PARM0, 5.0);
+    f.set_f32(OFS_PARM1, f32::NAN);
+    f.set_f32(OFS_PARM2, 2.0);
+    ext::pf_min(&mut f.raw());
+    assert_eq!(f.get_f32(OFS_RETURN), 2.0, "NaN never wins a `>` test");
+    ext::pf_max(&mut f.raw());
+    assert_eq!(f.get_f32(OFS_RETURN), 5.0, "nor a `<` one");
+
+    // a NaN *first* argument is never replaced, because both comparisons
+    // against it are false
+    f.set_f32(OFS_PARM0, f32::NAN);
+    f.set_f32(OFS_PARM1, 1.0);
+    f.set_f32(OFS_PARM2, 2.0);
+    ext::pf_min(&mut f.raw());
+    assert!(f.get_f32(OFS_RETURN).is_nan());
+}
+
+#[test]
+fn bound_clamps_to_the_maximum_first() {
+    // bound (10, x, 5) returns 10, not 5: the max clamp runs before the min
+    let mut f = ext_fixture(b"\0");
+    for (lo, v, hi, expect) in [
+        (0.0f32, 5.0f32, 10.0f32, 5.0f32),
+        (0.0, -5.0, 10.0, 0.0),
+        (0.0, 50.0, 10.0, 10.0),
+        (10.0, 7.0, 5.0, 10.0),
+    ] {
+        f.set_f32(OFS_PARM0, lo);
+        f.set_f32(OFS_PARM1, v);
+        f.set_f32(OFS_PARM2, hi);
+        ext::pf_bound(&mut f.raw());
+        assert_eq!(f.get_f32(OFS_RETURN), expect, "bound({lo}, {v}, {hi})");
+    }
+}
+
+#[test]
+fn ext_anglemod_is_the_subtract_loop_not_the_mathlib_quantisation() {
+    let mut f = ext_fixture(b"\0");
+    for (input, expect) in [
+        (0.0f32, 0.0f32),
+        (359.5, 359.5),
+        (360.0, 0.0),
+        (720.25, 0.25),
+        (-1.0, 359.0),
+        (-360.0, 0.0),
+    ] {
+        f.set_f32(OFS_PARM0, input);
+        ext::pf_anglemod(&mut f.raw());
+        assert_eq!(f.get_f32(OFS_RETURN), expect, "anglemod({input})");
+    }
+    // and it is exact where mathlib's quantises to 1/65536 of a turn
+    f.set_f32(OFS_PARM0, 359.5);
+    ext::pf_anglemod(&mut f.raw());
+    assert_ne!(f.get_f32(OFS_RETURN), builtins::anglemod(359.5));
+}
+
+#[test]
+fn bitshift_converts_both_arguments_through_the_c_cast() {
+    let mut f = ext_fixture(b"\0");
+    for (mask, shift, expect) in [
+        (1.0f32, 4.0f32, 16i32),
+        (256.0, -4.0, 16),
+        (-1.0, 1.0, -2),
+        (-16.0, -2.0, -4), // arithmetic shift: the sign is kept
+        (3.9, 1.9, 6),     // both truncate before the shift
+    ] {
+        f.set_f32(OFS_PARM0, mask);
+        f.set_f32(OFS_PARM1, shift);
+        ext::pf_bitshift(&mut f.raw());
+        assert_eq!(
+            f.get_f32(OFS_RETURN),
+            expect as f32,
+            "bitshift({mask}, {shift})"
+        );
+    }
+}
+
+#[test]
+fn mod_uses_a_truncated_quotient_and_warns_on_zero() {
+    let mut f = ext_fixture(b"\0");
+    for (a, n, expect) in [
+        (7.0f32, 3.0f32, 1.0f32),
+        (-7.0, 3.0, -1.0), // truncation toward zero, not floor
+        (7.0, -3.0, 1.0),
+        (7.5, 2.0, 1.5), // "inherantly floaty": the remainder keeps a fraction
+    ] {
+        f.set_f32(OFS_PARM0, a);
+        f.set_f32(OFS_PARM1, n);
+        let mut sys = core::mem::take(&mut f.sys);
+        ext::pf_mod(&mut f.raw(), &mut sys);
+        assert_eq!(f.get_f32(OFS_RETURN), expect, "mod({a}, {n})");
+        f.sys = sys;
+    }
+
+    f.set_f32(OFS_PARM1, 0.0);
+    let mut sys = core::mem::take(&mut f.sys);
+    ext::pf_mod(&mut f.raw(), &mut sys);
+    assert_eq!(f.get_f32(OFS_RETURN), 0.0, "mod by zero is 0, not NaN");
+    assert_eq!(sys.dprinted, vec![b"PF_mod: mod by zero\n".to_vec()]);
+}
+
+#[test]
+fn crossproduct_matches_the_mathlib_expansion() {
+    let mut f = ext_fixture(b"\0");
+    f.set_vec3(OFS_PARM0, [1.0, 0.0, 0.0]);
+    f.set_vec3(OFS_PARM1, [0.0, 1.0, 0.0]);
+    ext::pf_crossproduct(&mut f.raw());
+    assert_eq!(
+        [
+            f.get_f32(OFS_RETURN),
+            f.get_f32(OFS_RETURN + 1),
+            f.get_f32(OFS_RETURN + 2)
+        ],
+        [0.0, 0.0, 1.0]
+    );
+}
+
+#[test]
+fn vectoangles2_negates_the_pitch() {
+    let mut f = ext_fixture(b"\0");
+    f.vm.argc = 2;
+    f.set_vec3(OFS_PARM0, [1.0, 0.0, 0.0]);
+    f.set_vec3(OFS_PARM1, [7.0, 8.0, 9.0]);
+    let mut sys = core::mem::take(&mut f.sys);
+    ext::pf_ext_vectoangles(&mut f.raw(), &mut sys);
+    // the mock's VectorAngles returns `up` verbatim, so the negation is what
+    // is being observed here, not the mathlib result
+    assert_eq!(f.get_f32(OFS_RETURN), -7.0);
+    assert_eq!(f.get_f32(OFS_RETURN + 1), 8.0);
+    assert_eq!(f.get_f32(OFS_RETURN + 2), 9.0);
+}
+
+#[test]
+fn itos_and_htos_match_the_platform_snprintf() {
+    let mut f = ext_fixture(b"\0");
+    for v in [0i32, 1, -1, i32::MIN, i32::MAX, 255, -255] {
+        f.set_i32(OFS_PARM0, v);
+        let mut sys = core::mem::take(&mut f.sys);
+        ext::pf_itos(&mut f.raw(), &mut sys);
+        assert_eq!(
+            String::from_utf8_lossy(&sys.temp_strings[0]),
+            c_snprintf_i32("%i", v),
+            "itos({v})"
+        );
+
+        let mut sys2 = MockSys::default();
+        ext::pf_htos(&mut f.raw(), &mut sys2);
+        assert_eq!(
+            String::from_utf8_lossy(&sys2.temp_strings[0]),
+            quake_ctest::c_snprintf_u32("%x", v as u32),
+            "htos({v})"
+        );
+    }
+}
+
+#[test]
+fn ftoe_range_checks_against_max_edicts_not_num_edicts() {
+    // EDICT_NUM's test is `n < 0 || n >= qcvm->max_edicts`, and it raises in
+    // release builds. num_edicts is deliberately lower here.
+    let mut f = ext_fixture(b"\0");
+    f.vm.num_edicts = 3;
+    let stride = f.vm.edict_size;
+
+    f.set_f32(OFS_PARM0, 10.0);
+    assert_eq!(ext::pf_edict_for_num(&mut f.raw()), Ok(()));
+    assert_eq!(f.get_i32(OFS_RETURN), stride * 10, "10 < max_edicts");
+
+    for bad in [-1.0f32, MAX_EDICTS as f32, 1e9] {
+        f.set_f32(OFS_PARM0, bad);
+        assert!(matches!(
+            ext::pf_edict_for_num(&mut f.raw()),
+            Err(BuiltinError::BadEdictNum(_))
+        ));
+    }
+}
+
+#[test]
+fn str2chr_never_rejects_index_zero_and_reads_the_terminator() {
+    // COMPAT: the test is `ofs && (ofs < 0 || ofs > strlen)`, so index 0
+    // bypasses it entirely and an index equal to the length reads the NUL.
+    let mut blob = vec![0u8];
+    blob.extend_from_slice(b"abc\0");
+    let mut f = ext_fixture(&blob);
+    f.vm.argc = 2;
+    f.set_i32(OFS_PARM0, 1);
+
+    for (idx, expect) in [
+        (0.0f32, f32::from(b'a')),
+        (1.0, f32::from(b'b')),
+        (2.0, f32::from(b'c')),
+        (3.0, 0.0), // exactly the length: the NUL, not the error arm
+        (4.0, 0.0), // past it: the error arm, same value
+        (-1.0, f32::from(b'c')),
+        (-3.0, f32::from(b'a')),
+    ] {
+        f.set_f32(OFS_PARM1, idx);
+        ext::pf_str2chr(&mut f.raw()).unwrap();
+        assert_eq!(f.get_f32(OFS_RETURN), expect, "str2chr(\"abc\", {idx})");
+    }
+
+    // and on an empty string index 0 reads the terminator rather than failing
+    let mut f = ext_fixture(b"\0");
+    f.vm.argc = 1;
+    f.set_i32(OFS_PARM0, 0);
+    ext::pf_str2chr(&mut f.raw()).unwrap();
+    assert_eq!(f.get_f32(OFS_RETURN), 0.0);
+}
+
+#[test]
+fn substring_handles_negative_start_and_length_the_way_c_does() {
+    let mut blob = vec![0u8];
+    blob.extend_from_slice(b"abcdef\0");
+    let mut f = ext_fixture(&blob);
+    f.set_i32(OFS_PARM0, 1);
+
+    for (start, length, expect) in [
+        (0.0f32, 3.0f32, &b"abc"[..]),
+        (2.0, 3.0, b"cde"),
+        (2.0, 100.0, b"cdef"),
+        (-2.0, 2.0, b"ef"),
+        (-100.0, 3.0, b"abc"),  // start re-clamped to 0 after the adjustment
+        (0.0, -1.0, b"abcdef"), // negative length: to the end
+        (0.0, -3.0, b"abcd"),
+        (10.0, 3.0, b""),   // start past the end
+        (0.0, 0.0, b""),    // zero length
+        (0.0, -100.0, b""), // length goes negative
+    ] {
+        f.set_f32(OFS_PARM1, start);
+        f.set_f32(OFS_PARM2, length);
+        let mut sys = core::mem::take(&mut f.sys);
+        ext::pf_substring(&mut f.raw(), &mut sys).unwrap();
+        assert_eq!(
+            sys.temp_strings[0],
+            expect.to_vec(),
+            "substring(\"abcdef\", {start}, {length})"
+        );
+    }
+}
+
+#[test]
+fn strncmp_offsets_only_the_first_string() {
+    // COMPAT (bug preserved): C computes and clamps `bofs` and then never uses
+    // it -- `strncmp (a + aofs, b, len)`.
+    let mut blob = vec![0u8];
+    blob.extend_from_slice(b"xxabc\0");
+    let a_at = 1;
+    blob.extend_from_slice(b"yyabc\0");
+    let b_at = 7;
+    let mut f = ext_fixture(&blob);
+    f.set_i32(OFS_PARM0, a_at);
+    f.set_i32(OFS_PARM1, b_at);
+    f.vm.argc = 5;
+    f.set_f32(OFS_PARM2, 3.0); // len
+    f.set_f32(OFS_PARM0 + 9, 2.0); // aofs -> "abc"
+    f.set_f32(OFS_PARM0 + 12, 2.0); // bofs -> would be "abc" if it were used
+
+    let mut sys = core::mem::take(&mut f.sys);
+    ext::pf_strncmp(&mut f.raw(), &mut sys).unwrap();
+    assert_ne!(
+        f.get_f32(OFS_RETURN),
+        0.0,
+        "if bofs were honoured this would compare abc to abc and be 0"
+    );
+
+    // with bofs 0 the comparison is "abc" vs "yya", still non-zero, and with
+    // aofs 0 it is "xxa" vs "yya"
+    f.set_f32(OFS_PARM0 + 9, 0.0);
+    ext::pf_strncmp(&mut f.raw(), &mut sys).unwrap();
+    assert_ne!(f.get_f32(OFS_RETURN), 0.0);
+
+    // two-argument form falls through to a whole-string compare
+    f.vm.argc = 2;
+    f.set_i32(OFS_PARM1, a_at);
+    ext::pf_strncmp(&mut f.raw(), &mut sys).unwrap();
+    assert_eq!(f.get_f32(OFS_RETURN), 0.0);
+}
+
+#[test]
+fn strncasecmp_folds_case_and_shares_the_offset_clamp() {
+    let mut blob = vec![0u8];
+    blob.extend_from_slice(b"ABC\0");
+    blob.extend_from_slice(b"abc\0");
+    let mut f = ext_fixture(&blob);
+    f.set_i32(OFS_PARM0, 1);
+    f.set_i32(OFS_PARM1, 5);
+    f.vm.argc = 2;
+    let mut sys = core::mem::take(&mut f.sys);
+    ext::pf_strncasecmp(&mut f.raw(), &mut sys).unwrap();
+    assert_eq!(f.get_f32(OFS_RETURN), 0.0);
+
+    // the case-sensitive one does not fold
+    ext::pf_strncmp(&mut f.raw(), &mut sys).unwrap();
+    assert_ne!(f.get_f32(OFS_RETURN), 0.0);
+}
+
+#[test]
+fn strstrofs_returns_a_byte_offset_or_minus_one() {
+    let mut blob = vec![0u8];
+    blob.extend_from_slice(b"hello world\0");
+    blob.extend_from_slice(b"o w\0");
+    blob.extend_from_slice(b"zzz\0");
+    let mut f = ext_fixture(&blob);
+    f.set_i32(OFS_PARM0, 1);
+
+    f.set_i32(OFS_PARM1, 13);
+    ext::pf_strstrofs(&mut f.raw()).unwrap();
+    assert_eq!(f.get_f32(OFS_RETURN), 4.0);
+
+    f.set_i32(OFS_PARM1, 17);
+    ext::pf_strstrofs(&mut f.raw()).unwrap();
+    assert_eq!(f.get_f32(OFS_RETURN), -1.0);
+
+    // a start past the end reports -1; a start of exactly the length does not
+    f.vm.argc = 3;
+    f.set_i32(OFS_PARM1, 13);
+    f.set_f32(OFS_PARM2, 100.0);
+    ext::pf_strstrofs(&mut f.raw()).unwrap();
+    assert_eq!(f.get_f32(OFS_RETURN), -1.0);
+    f.set_f32(OFS_PARM2, 5.0);
+    ext::pf_strstrofs(&mut f.raw()).unwrap();
+    assert_eq!(f.get_f32(OFS_RETURN), -1.0, "the match is before the start");
+}
+
+#[test]
+fn strtrim_strips_only_the_four_c_whitespace_bytes() {
+    let mut blob = vec![0u8];
+    blob.extend_from_slice(b" \t\r\nabc \t\r\n\0");
+    blob.extend_from_slice(b"\x0b\x0cabc\x0b\x0c\0");
+    let mut f = ext_fixture(&blob);
+
+    f.set_i32(OFS_PARM0, 1);
+    let mut sys = core::mem::take(&mut f.sys);
+    ext::pf_strtrim(&mut f.raw(), &mut sys).unwrap();
+    assert_eq!(sys.temp_strings[0], b"abc".to_vec());
+
+    // vertical tab and form feed are q_isspace but are NOT in C's list here
+    f.set_i32(OFS_PARM0, 13);
+    let mut sys = MockSys::default();
+    ext::pf_strtrim(&mut f.raw(), &mut sys).unwrap();
+    assert_eq!(sys.temp_strings[0], b"\x0b\x0cabc\x0b\x0c".to_vec());
+}
+
+#[test]
+fn strreplace_works_and_strireplace_is_crippled_by_the_sizeof_bug() {
+    // COMPAT: pr_ext.c's strireplace bounds its loop with
+    // `sizeof (resultbuf)` where resultbuf is a `char *`, so the capacity is
+    // 8 bytes, not STRINGTEMP_LENGTH. strreplace next door uses the constant.
+    let mut blob = vec![0u8];
+    blob.extend_from_slice(b"a\0"); // search, at 1
+    blob.extend_from_slice(b"X\0"); // replace, at 3
+    blob.extend_from_slice(b"aaaaaaaaaaaaaaaa\0"); // subject, at 5
+    let mut f = ext_fixture(&blob);
+    f.set_i32(OFS_PARM0, 1);
+    f.set_i32(OFS_PARM1, 3);
+    f.set_i32(OFS_PARM2, 5);
+
+    let mut sys = core::mem::take(&mut f.sys);
+    ext::pf_strreplace(&mut f.raw(), &mut sys).unwrap();
+    assert_eq!(sys.temp_strings[0], b"XXXXXXXXXXXXXXXX".to_vec());
+
+    let mut sys = MockSys::default();
+    ext::pf_strireplace(&mut f.raw(), &mut sys).unwrap();
+    assert_eq!(
+        sys.temp_strings[0],
+        b"XXXXX".to_vec(),
+        "8 - replacelen(1) - 2 = 5 bytes, and no more"
+    );
+
+    // with a six-byte replacement the case-insensitive variant produces
+    // nothing at all
+    blob.extend_from_slice(b"ABCDEF\0");
+    let mut f = ext_fixture(&blob);
+    f.set_i32(OFS_PARM0, 1);
+    f.set_i32(OFS_PARM1, 22);
+    f.set_i32(OFS_PARM2, 5);
+    let mut sys = core::mem::take(&mut f.sys);
+    ext::pf_strireplace(&mut f.raw(), &mut sys).unwrap();
+    assert!(sys.temp_strings[0].is_empty());
+}
+
+#[test]
+fn replace_with_an_empty_search_returns_the_subjects_own_handle() {
+    // C hands PR_SetEngineString the subject pointer, which resolves back to
+    // the same handle -- not a fresh temp string.
+    let mut blob = vec![0u8];
+    blob.extend_from_slice(b"\0"); // empty search at 1
+    blob.extend_from_slice(b"X\0");
+    blob.extend_from_slice(b"subject\0");
+    let subject_at = 4;
+    let mut f = ext_fixture(&blob);
+    f.set_i32(OFS_PARM0, 1);
+    f.set_i32(OFS_PARM1, 2);
+    f.set_i32(OFS_PARM2, subject_at);
+
+    let mut sys = core::mem::take(&mut f.sys);
+    ext::pf_strreplace(&mut f.raw(), &mut sys).unwrap();
+    assert_eq!(f.get_i32(OFS_RETURN), subject_at);
+    assert!(sys.temp_strings.is_empty(), "no temp string is consumed");
+}
+
+#[test]
+fn case_conversion_is_ascii_only_so_the_quake_charset_survives() {
+    let mut blob = vec![0u8];
+    blob.extend_from_slice(b"aBc\xe1\xc1\0");
+    let mut f = ext_fixture(&blob);
+    f.set_i32(OFS_PARM0, 1);
+
+    let mut sys = core::mem::take(&mut f.sys);
+    ext::pf_strtoupper(&mut f.raw(), &mut sys).unwrap();
+    assert_eq!(sys.temp_strings[0], b"ABC\xe1\xc1".to_vec());
+
+    let mut sys = MockSys::default();
+    ext::pf_strtolower(&mut f.raw(), &mut sys).unwrap();
+    assert_eq!(sys.temp_strings[0], b"abc\xe1\xc1".to_vec());
+}
+
+#[test]
+fn chr2str_stops_six_bytes_short_of_the_buffer() {
+    let mut f = ext_fixture(b"\0");
+    f.vm.argc = 4;
+    for (i, v) in [f32::from(b'a'), 0xe041 as f32, 0x20ac as f32, 200.0]
+        .into_iter()
+        .enumerate()
+    {
+        f.set_f32(OFS_PARM0 + i * 3, v);
+    }
+    let mut sys = core::mem::take(&mut f.sys);
+    ext::pf_chr2str(&mut f.raw(), &mut sys);
+    assert_eq!(
+        sys.temp_strings[0],
+        b"aA?\xc8".to_vec(),
+        "0xe041 is the Quake charset; U+20AC is over 255 so it becomes '?'; \
+         200 passes because pr_ext's qc_isascii is `u < 256`, not q_isascii"
+    );
+}
+
+#[test]
+fn strcat_truncates_and_warns_rather_than_dropping_everything() {
+    let long = vec![b'x'; 600];
+    let mut blob = vec![0u8];
+    blob.extend_from_slice(&long);
+    blob.push(0);
+    let mut f = ext_fixture(&blob);
+    f.vm.argc = 3;
+    f.set_i32(OFS_PARM0, 1);
+    f.set_i32(OFS_PARM0 + 3, 1);
+    f.set_i32(OFS_PARM0 + 6, 1);
+
+    let mut sys = core::mem::take(&mut f.sys);
+    ext::pf_strcat(&mut f.raw(), &mut sys).unwrap();
+    assert_eq!(
+        sys.temp_strings[0].len(),
+        builtins::STRINGTEMP_LENGTH - 1,
+        "the first overflowing append still fills the buffer"
+    );
+    assert_eq!(
+        sys.printed,
+        vec![b"PF_strcat: overflow (string truncated)\n".to_vec()]
+    );
+}
+
+#[test]
+fn strpad_pads_left_for_a_negative_width_and_never_truncates_the_source() {
+    let mut blob = vec![0u8];
+    blob.extend_from_slice(b"ab\0");
+    let mut f = ext_fixture(&blob);
+    f.sys.var_string = b"ab".to_vec();
+
+    f.set_f32(OFS_PARM0, 5.0);
+    let mut sys = core::mem::take(&mut f.sys);
+    ext::pf_strpad(&mut f.raw(), &mut sys);
+    assert_eq!(sys.temp_strings[0], b"ab   ".to_vec());
+
+    f.set_f32(OFS_PARM0, -5.0);
+    let mut sys2 = MockSys {
+        var_string: b"ab".to_vec(),
+        ..MockSys::default()
+    };
+    ext::pf_strpad(&mut f.raw(), &mut sys2);
+    assert_eq!(sys2.temp_strings[0], b"   ab".to_vec());
+
+    // a source longer than the field simply gets no padding
+    f.set_f32(OFS_PARM0, 2.0);
+    let mut sys3 = MockSys {
+        var_string: b"abcdef".to_vec(),
+        ..MockSys::default()
+    };
+    ext::pf_strpad(&mut f.raw(), &mut sys3);
+    assert_eq!(sys3.temp_strings[0], b"abcdef".to_vec());
 }
 
 /// Keeps the fixture's backing buffers alive for the whole test, which is what

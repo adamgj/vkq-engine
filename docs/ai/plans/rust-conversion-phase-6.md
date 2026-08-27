@@ -490,3 +490,76 @@ unblocks plus the message writers.
    byte-identical over six map/game combinations; 49 ctest suites green
    (`progs_builtins_synthetic` now 33 tests); the three static checks, bindgen
    regen-diff, `cargo fmt --check` and both clippy passes clean.
+
+### 2026-08-27 M9 — `pr_ext.c` batch 1: maths, conversions and strings
+
+43 extension builtins flipped through the same per-slot mechanism `pr_cmds.c`
+uses: `extensionbuiltins[]`'s SSQC and CSQC columns name `PF_RS (x)`.
+
+Ported: `sin cos tan asin acos atan atan2 sqrt pow log mod min max bound
+anglemod bitshift crossproduct vectorvectors vectoangles2`; `stof stoi stoh
+itos htos etos etof ftoe ftoi itof`; `strlen strcat substring str2chr chr2str
+strpad strncmp strcasecmp strncasecmp strstrofs strtrim strreplace strireplace
+strtoupper strtolower`.
+
+1. **The honest coverage statement, up front.** Trace parity says almost
+   nothing about this batch: these are DarkPlaces/FTE extension builtins, and
+   none of id1, hipnotic, rogue or the re-release calls them. The corpus's four
+   mod entries (`ad`, `copper`, `alkaline`, `quoth`) — the ones that *would*
+   exercise them — are all skipped for want of the mod directories, here and
+   in CI. **The Rust-side suite is the coverage for this milestone, not a
+   supplement to it**, which is why it is 22 tests pinning one documented quirk
+   each rather than a smoke test. `PF_itos`/`PF_htos` do get a real C oracle
+   through the ADR-005 `snprintf` seam. Landing one of those mods in the
+   corpus is the single highest-value thing a future milestone could do for
+   this phase's confidence, and it is recorded as such.
+2. **The suite immediately earned itself.** `PF_chr2str` calls `pr_ext.c`'s own
+   `qc_isascii`, which is `u < 256` — **not** `q_ctype.h`'s `q_isascii`, which
+   is `(c & ~0x7f) == 0`. The first draft used the `q_ctype.h` one, which would
+   have turned every high-bit byte — the entire coloured-text charset — into
+   `?`. Caught by the test that pins the three arms, not by review.
+3. **Three preserved bugs, each with a test.**
+   - `PF_strireplace` bounds its output loop with `sizeof (resultbuf)` where
+     `resultbuf` is a `char *`, so its capacity is **8 bytes**, not
+     `STRINGTEMP_LENGTH`. It produces at most `8 - replacelen - 2` bytes and
+     nothing at all once the replacement is six bytes or longer.
+     `PF_strreplace` next door uses the constant and is fine.
+   - `PF_strncmp`/`PF_strncasecmp` compute and clamp `bofs` and then never use
+     it: `strncmp (a + aofs, b, len)`.
+   - `PF_str2chr`'s range test is `ofs && (ofs < 0 || ofs > strlen)`, so index
+     0 is never rejected and an index equal to the length reads the
+     terminator.
+4. **`PF_anglemod` is not `mathlib.c`'s `anglemod`.** The builtin is a
+   subtract-loop and is exact; `PF_changeyaw` uses the mathlib one, which
+   quantises to 1/65536 of a turn. Both are now in the tree and the test
+   asserts they differ, so a future tidy-up cannot merge them.
+5. **The compare builtins call through, the search builtins do not.**
+   `strncmp`/`strcasecmp` store `strcmp`'s **raw** return value into a float
+   slot where QuakeC can read the magnitude, so they go to the platform
+   (ADR-010) — the same argument as `OP_NE_S`. `PF_Find` and `PF_strstrofs`
+   only ever test for equality/position, so they compare bytes in Rust.
+6. **`replace` with an empty search returns the subject's own handle.** C hands
+   `PR_SetEngineString` the subject pointer, which resolves back to the
+   caller's handle rather than allocating. A temp string would have given
+   QuakeC a different handle for the same bytes, which `strunzone` and handle
+   comparisons can see.
+7. **`Con_Warning`'s prefix is left to the engine.** The deferred console queue
+   grew `WARN`/`DWARN` levels that call `Con_Warning`/`Con_DWarning` rather
+   than reconstructing the `\x02Warning: ` prefix and the `Con_SafePrintf`
+   routing in Rust.
+8. **Carved out of `pr_ext.c`, recorded per the per-batch stop rule**:
+   `PF_strzone`/`PF_strunzone` and the `knownzone` bitmap (they belong with the
+   arena flip, not with the string builtins); `PF_sprintf_internal` and
+   `PF_sprintf` (470 lines, and its own formatter — a milestone of its own);
+   the tokenizer (`PF_Tokenize`/`PF_ArgC`/`PF_ArgV`/`PF_tokenizebyseparator`,
+   which own the process-global `qctoken`); `PF_strconv` and its three
+   `chrconv_*` tables; `PF_infoadd`/`PF_infoget`; `PF_strftime` (wall clock);
+   `PF_stov` (`COM_Parse` over the ambient `com_token`); FRIK_FILE and the
+   strbufs (`qcfiles`/`strbuflist`, process-global); the temp-entity and
+   particle blocks and `PF_getsurface*` → Phase 7/8 as the ROADMAP already
+   says; and the CSQC 2D drawing block → Phase 8.
+9. **Gates**: five meson configs; corpus `--check` 11/11 on all three engine
+   configs plus `--compare`; `save_diff` identical; trace parity byte-identical
+   over six map/game combinations; 49 ctest suites green
+   (`progs_builtins_synthetic` now 54 tests); the three static checks, bindgen
+   regen-diff, `cargo fmt --check` and both clippy passes clean.

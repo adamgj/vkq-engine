@@ -59,6 +59,37 @@ pub trait BuiltinSys {
     fn floor(&mut self, v: f64) -> f64;
     fn ceil(&mut self, v: f64) -> f64;
     fn fabs(&mut self, v: f64) -> f64;
+    fn sin(&mut self, v: f64) -> f64;
+    fn cos(&mut self, v: f64) -> f64;
+    fn tan(&mut self, v: f64) -> f64;
+    fn asin(&mut self, v: f64) -> f64;
+    fn acos(&mut self, v: f64) -> f64;
+    fn atan(&mut self, v: f64) -> f64;
+    fn pow(&mut self, a: f64, b: f64) -> f64;
+    fn log(&mut self, v: f64) -> f64;
+
+    // ---- the platform string/number conversions (ADR-010) ----
+
+    /// `atof`, i.e. `strtod`.
+    fn atof(&mut self, s: &[u8]) -> f64;
+    /// `atoi`.
+    fn atoi(&mut self, s: &[u8]) -> c_int;
+    /// `strtoul (s, NULL, 16)`.
+    fn strtoul_hex(&mut self, s: &[u8]) -> u32;
+    /// `strcmp` / `q_strcasecmp`. The **raw** return value: QuakeC stores it
+    /// into a float slot, so the platform's magnitude is observable.
+    fn strcmp(&mut self, a: &[u8], b: &[u8], fold_case: bool) -> c_int;
+    /// `strncmp` / `q_strncasecmp`, likewise raw.
+    fn strncmp(&mut self, a: &[u8], b: &[u8], len: c_int, fold_case: bool) -> c_int;
+
+    // ---- vector helpers that write engine globals ----
+
+    /// `PF_vectorvectors`' whole body: it derives `v_right`/`v_up` from a
+    /// forward vector and writes all three `pr_global_struct` vectors, so the
+    /// normalisation and the destinations stay one seam.
+    fn vector_vectors(&mut self, forward: [f32; 3]);
+    /// `VectorAngles (fwd, up, out)` from `mathlib.c`.
+    fn vector_angles(&mut self, forward: [f32; 3], up: Option<[f32; 3]>) -> [f32; 3];
 
     /// `COM_Rand` — the engine's own generator, so demo determinism holds
     /// (ADR-010).
@@ -128,6 +159,10 @@ pub trait BuiltinSys {
     fn print(&mut self, msg: &[u8]);
     /// `Con_DPrintf`, deferred.
     fn dprint(&mut self, msg: &[u8]);
+    /// `Con_Warning`, deferred.
+    fn warn(&mut self, msg: &[u8]);
+    /// `Con_DWarning`, deferred.
+    fn dwarn(&mut self, msg: &[u8]);
 }
 
 /// The raises a ported builtin can produce, reported so the jump happens in a
@@ -146,6 +181,9 @@ pub enum BuiltinError {
     /// `NUM_FOR_EDICT`'s `Host_Error ("NUM_FOR_EDICT: bad pointer")`, reached
     /// from `G_EDICTNUM`. Not a debug-only check.
     BadEdictPointer,
+    /// `EDICT_NUM`'s `Host_Error ("EDICT_NUM: bad edict_num %i")`, reached
+    /// from `PF_edict_for_num`. Also not debug-only.
+    BadEdictNum(c_int),
     /// `PF_Find`'s `PR_RunError ("PF_Find: bad search string")`.
     ///
     /// COMPAT: unreachable in practice. C tests `if (!s)` after
@@ -602,7 +640,7 @@ fn error_banner(vm: &VmRaw, banner: &[u8], message: &[u8]) -> Vec<u8> {
 /// `NUM_FOR_EDICT (PROG_TO_EDICT (prog))` including the range test, which is
 /// **not** debug-only: `b < 0 || b >= qcvm->num_edicts` raises in release
 /// builds too.
-fn num_for_edict(vm: &VmRaw, prog: i32) -> Result<c_int, BuiltinError> {
+pub(crate) fn num_for_edict(vm: &VmRaw, prog: i32) -> Result<c_int, BuiltinError> {
     let num = vm.from_prog_num(prog);
     if num < 0 || num >= vm.num_edicts() {
         return Err(BuiltinError::BadEdictPointer);
@@ -714,7 +752,7 @@ pub fn pf_sv_write(
 ///
 /// A cleared engine handle is an error rather than an empty string: C's
 /// `G_STRING` goes through `PR_GetString`, which `Host_Error`s on one.
-fn string_arg(vm: &VmRaw, handle: c_int) -> Result<Vec<u8>, BuiltinError> {
+pub(crate) fn string_arg(vm: &VmRaw, handle: c_int) -> Result<Vec<u8>, BuiltinError> {
     vm.get_string_bytes(handle)
         .map(<[u8]>::to_vec)
         .map_err(|crate::arena::StringError::NonExistent(n)| BuiltinError::NonExistentString(n))

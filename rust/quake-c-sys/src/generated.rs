@@ -1133,3 +1133,33 @@ unsafe extern "C" {
         bytes: *const ::std::os::raw::c_char,
     );
 }
+unsafe extern "C" {
+    pub fn PRBI_Glue_Tan(v: f64) -> f64;
+}
+unsafe extern "C" {
+    pub fn PRBI_Glue_Asin(v: f64) -> f64;
+}
+unsafe extern "C" {
+    pub fn PRBI_Glue_Atan(v: f64) -> f64;
+}
+unsafe extern "C" {
+    pub fn PRBI_Glue_Pow(a: f64, b: f64) -> f64;
+}
+unsafe extern "C" {
+    pub fn PRBI_Glue_StrtoulHex(s: *const ::std::os::raw::c_char) -> ::std::os::raw::c_uint;
+}
+unsafe extern "C" {
+    pub fn PRBI_Glue_StrCmp(
+        a: *const ::std::os::raw::c_char,
+        b: *const ::std::os::raw::c_char,
+        len: ::std::os::raw::c_int,
+        fold_case: qboolean,
+        use_len: qboolean,
+    ) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn PRBI_Glue_VectorVectors(forward: *const f32);
+}
+unsafe extern "C" {
+    pub fn PRBI_Glue_VectorAngles(forward: *const f32, up: *const f32, out: *mut f32);
+}

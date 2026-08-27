@@ -243,6 +243,61 @@ int PR_Markup_Parse (struct markup_s *mu)
 
 #define D(typestr, desc) typestr, desc
 
+/* Phase 6 M9: the per-slot builtin flip, as in pr_cmds.c. A table entry
+   written PF_RS (name) resolves to the Rust port's C wrapper in
+   pr_cmds_glue.c under -Duse_rust_progs, and to the C original otherwise.
+   Every entry still written PF_name is deliberately still C; the reasons are
+   recorded on quake_progs::ext. Both sets of bodies stay compiled in both
+   configs -- the C ones are the -Duse_rust_progs=disabled oracle. */
+#ifdef USE_RUST_PROGS
+#define PF_RS(name) rust_pf_##name
+void rust_pf_Sin (void);
+void rust_pf_Cos (void);
+void rust_pf_tan (void);
+void rust_pf_asin (void);
+void rust_pf_acos (void);
+void rust_pf_atan (void);
+void rust_pf_Sqrt (void);
+void rust_pf_atan2 (void);
+void rust_pf_pow (void);
+void rust_pf_Logarithm (void);
+void rust_pf_mod (void);
+void rust_pf_vectorvectors (void);
+void rust_pf_ext_vectoangles (void);
+void rust_pf_itos (void);
+void rust_pf_htos (void);
+void rust_pf_chr2str (void);
+void rust_pf_strpad (void);
+void rust_pf_min (void);
+void rust_pf_max (void);
+void rust_pf_bound (void);
+void rust_pf_anglemod (void);
+void rust_pf_bitshift (void);
+void rust_pf_crossproduct (void);
+void rust_pf_ftoi (void);
+void rust_pf_itof (void);
+void rust_pf_stof (void);
+void rust_pf_stoi (void);
+void rust_pf_stoh (void);
+void rust_pf_etos (void);
+void rust_pf_strcat (void);
+void rust_pf_substring (void);
+void rust_pf_strncmp (void);
+void rust_pf_strncasecmp (void);
+void rust_pf_strtrim (void);
+void rust_pf_strreplace (void);
+void rust_pf_strireplace (void);
+void rust_pf_strtoupper (void);
+void rust_pf_strtolower (void);
+void rust_pf_num_for_edict (void);
+void rust_pf_edict_for_num (void);
+void rust_pf_strlen (void);
+void rust_pf_str2chr (void);
+void rust_pf_strstrofs (void);
+#else
+#define PF_RS(name) PF_##name
+#endif
+
 // #define fixme
 
 // maths stuff
@@ -5535,73 +5590,73 @@ static struct
 #define PF_NoSSQC NULL
 #define PF_NoCSQC NULL
 {
-	{"vectoangles2",				PF_ext_vectoangles,				PF_ext_vectoangles,				51,	    D("vector(vector fwd, optional vector up)", "Returns the angles (+x=UP) required to orient an entity to look in the given direction. The 'up' argument is required if you wish to set a roll angle, otherwise it will be limited to just monster-style turning.")},
-	{"sin",							PF_Sin,							PF_Sin,							60,		"float(float angle)"},	//60
-	{"cos",							PF_Cos,							PF_Cos,							61,		"float(float angle)"},	//61
-	{"sqrt",						PF_Sqrt,						PF_Sqrt,						62,		"float(float value)"},	//62
+	{"vectoangles2",				PF_RS (ext_vectoangles),				PF_RS (ext_vectoangles),				51,	    D("vector(vector fwd, optional vector up)", "Returns the angles (+x=UP) required to orient an entity to look in the given direction. The 'up' argument is required if you wish to set a roll angle, otherwise it will be limited to just monster-style turning.")},
+	{"sin",							PF_RS (Sin),							PF_RS (Sin),							60,		"float(float angle)"},	//60
+	{"cos",							PF_RS (Cos),							PF_RS (Cos),							61,		"float(float angle)"},	//61
+	{"sqrt",						PF_RS (Sqrt),						PF_RS (Sqrt),						62,		"float(float value)"},	//62
 	{"tracetoss",					PF_TraceToss,					PF_TraceToss,					64,		"void(entity ent, entity ignore)"},
-	{"etos",						PF_etos,						PF_etos,						65,		"string(entity ent)"},
-	{"etof",						PF_num_for_edict,				PF_num_for_edict,				0, 		"float(entity ent)"},
-	{"ftoe",						PF_edict_for_num,				PF_edict_for_num,				0, 		"entity(float ent)"},
+	{"etos",						PF_RS (etos),						PF_RS (etos),						65,		"string(entity ent)"},
+	{"etof",						PF_RS (num_for_edict),				PF_RS (num_for_edict),				0, 		"float(entity ent)"},
+	{"ftoe",						PF_RS (edict_for_num),				PF_RS (edict_for_num),				0, 		"entity(float ent)"},
 	{"infokey",						PF_infokey_s,					PF_NoCSQC,						80,		D("string(entity e, string key)", "If e is world, returns the field 'key' from either the serverinfo or the localinfo. If e is a player, returns the value of 'key' from the player's userinfo string. There are a few special exceptions, like 'ip' which is not technically part of the userinfo.")},	//80
 	{"infokeyf",					PF_infokey_f,					PF_NoCSQC,						0,		D("float(entity e, string key)", "Identical to regular infokey, but returns it as a float instead of creating new tempstrings.")},	//80
-	{"stof",						PF_stof,						PF_stof,						81,		"float(string)"},	//81
+	{"stof",						PF_RS (stof),						PF_RS (stof),						81,		"float(string)"},	//81
 	{"multicast",					PF_multicast,					PF_NoCSQC,						82,		D("#define unicast(pl,reli) do{msg_entity = pl; multicast('0 0 0', reli?MULITCAST_ONE_R:MULTICAST_ONE);}while(0)\n"
 																											"void(vector where, float set)", "Once the MSG_MULTICAST network message buffer has been filled with data, this builtin is used to dispatch it to the given target, filtering by pvs for reduced network bandwidth.")},	//82
 	{"tracebox",					PF_tracebox,					PF_tracebox,					90,		D("void(vector start, vector mins, vector maxs, vector end, float nomonsters, entity ent)", "Exactly like traceline, but a box instead of a uselessly thin point. Acceptable sizes are limited by bsp format, q1bsp has strict acceptable size values.")},
 	{"randomvec",					PF_randomvector,				PF_randomvector,				91,		D("vector()", "Returns a vector with random values. Each axis is independantly a value between -1 and 1 inclusive.")},
 	{"getlight",					PF_sv_getlight,					PF_cl_getlight,					92,		"vector(vector org)"},// (DP_QC_GETLIGHT),
 	{"registercvar",				PF_registercvar,				PF_registercvar,				93,		D("float(string cvarname, string defaultvalue)", "Creates a new cvar on the fly. If it does not already exist, it will be given the specified value. If it does exist, this is a no-op.\nThis builtin has the limitation that it does not apply to configs or commandlines. Such configs will need to use the set or seta command causing this builtin to be a noop.\nIn engines that support it, you will generally find the autocvar feature easier and more efficient to use.")},
-	{"min",							PF_min,							PF_min,							94,		D("float(float a, float b, ...)", "Returns the lowest value of its arguments.")},// (DP_QC_MINMAXBOUND)
-	{"max",							PF_max,							PF_max,							95,		D("float(float a, float b, ...)", "Returns the highest value of its arguments.")},// (DP_QC_MINMAXBOUND)
-	{"bound",						PF_bound,						PF_bound,						96,		D("float(float minimum, float val, float maximum)", "Returns val, unless minimum is higher, or maximum is less.")},// (DP_QC_MINMAXBOUND)
-	{"pow",							PF_pow,							PF_pow,							97,		"float(float value, float exp)"},
+	{"min",							PF_RS (min),							PF_RS (min),							94,		D("float(float a, float b, ...)", "Returns the lowest value of its arguments.")},// (DP_QC_MINMAXBOUND)
+	{"max",							PF_RS (max),							PF_RS (max),							95,		D("float(float a, float b, ...)", "Returns the highest value of its arguments.")},// (DP_QC_MINMAXBOUND)
+	{"bound",						PF_RS (bound),						PF_RS (bound),						96,		D("float(float minimum, float val, float maximum)", "Returns val, unless minimum is higher, or maximum is less.")},// (DP_QC_MINMAXBOUND)
+	{"pow",							PF_RS (pow),							PF_RS (pow),							97,		"float(float value, float exp)"},
 	{"findfloat",					PF_findfloat,					PF_findfloat,					98,		D("#define findentity findfloat\nentity(entity start, .__variant fld, __variant match)", "Equivelent to the find builtin, but instead of comparing strings contents, this builtin compares the raw values. This builtin requires multiple calls in order to scan all entities - set start to the previous call's return value.\nworld is returned when there are no more entities.")},	// #98 (DP_QC_FINDFLOAT)
 	{"checkextension",				PF_checkextension,				PF_checkextension,				99,		D("float(string extname)", "Checks for an extension by its name (eg: checkextension(\"FRIK_FILE\") says that its okay to go ahead and use strcat).\nUse cvar(\"pr_checkextension\") to see if this builtin exists.")},	// #99	//darkplaces system - query a string to see if the mod supports X Y and Z.
 	{"checkbuiltin",				PF_checkbuiltin,				PF_checkbuiltin,				0,		D("float(__variant funcref)", "Checks to see if the specified builtin is supported/mapped. This is intended as a way to check for #0 functions, allowing for simple single-builtin functions.")},
 	{"builtin_find",				PF_builtinsupported,			PF_builtinsupported,			100,	D("float(string builtinname)", "Looks to see if the named builtin is valid, and returns the builtin number it exists at.")},	// #100	//per builtin system.
-	{"anglemod",					PF_anglemod,					PF_anglemod,					102,	"float(float value)"},	//telejano
+	{"anglemod",					PF_RS (anglemod),					PF_RS (anglemod),					102,	"float(float value)"},	//telejano
 	{"fopen",						PF_fopen,						PF_fopen,						110,	D("filestream(string filename, float mode, optional float mmapminsize)", "Opens a file, typically prefixed with \"data/\", for either read or write access.")},	// (FRIK_FILE)
 	{"fclose",						PF_fclose,						PF_fclose,						111,	"void(filestream fhandle)"},	// (FRIK_FILE)
 	{"fgets",						PF_fgets,						PF_fgets,						112,	D("string(filestream fhandle)", "Reads a single line out of the file. The new line character is not returned as part of the string. Returns the null string on EOF (use if not(string) to easily test for this, which distinguishes it from the empty string which is returned if the line being read is blank")},	// (FRIK_FILE)
 	{"fputs",						PF_fputs,						PF_fputs,						113,	D("void(filestream fhandle, string s, optional string s2, optional string s3, optional string s4, optional string s5, optional string s6, optional string s7)", "Writes the given string(s) into the file. For compatibility with fgets, you should ensure that the string is terminated with a \\n - this will not otherwise be done for you. It is up to the engine whether dos or unix line endings are actually written.")},	// (FRIK_FILE)
 	{"fseek",						PF_fseek,						PF_fseek,						0,		D("#define ftell fseek //c-compat\nint(filestream fhandle, optional int newoffset)", "Changes the current position of the file, if specified. Returns prior position, in bytes.")},
-	{"strlen",						PF_strlen,						PF_strlen,						114,	"float(string s)"},	// (FRIK_FILE)
-	{"strcat",						PF_strcat,						PF_strcat,						115,	"string(string s1, optional string s2, optional string s3, optional string s4, optional string s5, optional string s6, optional string s7, optional string s8)"},	// (FRIK_FILE)
-	{"substring",					PF_substring,					PF_substring,					116,	"string(string s, float start, float length)"},	// (FRIK_FILE)
+	{"strlen",						PF_RS (strlen),						PF_RS (strlen),						114,	"float(string s)"},	// (FRIK_FILE)
+	{"strcat",						PF_RS (strcat),						PF_RS (strcat),						115,	"string(string s1, optional string s2, optional string s3, optional string s4, optional string s5, optional string s6, optional string s7, optional string s8)"},	// (FRIK_FILE)
+	{"substring",					PF_RS (substring),					PF_RS (substring),					116,	"string(string s, float start, float length)"},	// (FRIK_FILE)
 	{"stov",						PF_stov,						PF_stov,						117,	"vector(string s)"},	// (FRIK_FILE)
 	{"strzone",						PF_strzone,						PF_strzone,						118,	D("string(string s, ...)", "Create a semi-permanent copy of a string that only becomes invalid once strunzone is called on the string (instead of when the engine assumes your string has left scope).")},	// (FRIK_FILE)
 	{"strunzone",					PF_strunzone,					PF_strunzone,					119,	D("void(string s)", "Destroys a string that was allocated by strunzone. Further references to the string MAY crash the game.")},	// (FRIK_FILE)
 	{"tokenize_menuqc",				PF_Tokenize,					PF_Tokenize,					0,		"float(string s)"},
 	{"localsound",					PF_NoSSQC,						PF_cl_localsound,				177,	D("void(string soundname, optional float channel, optional float volume)", "Plays a sound... locally... probably best not to call this from ssqc. Also disables reverb.")},//	#177
 	{"forceinfokey",	            PF_sv_forceinfokey,	            PF_NoCSQC,			            213,	D("void(entity player, string key, string value)", "Directly changes a user's info without pinging off the client. Also allows explicitly setting * keys, including *spectator. Does not affect the user's config or other servers.")}, // #213
-	{"bitshift",					PF_bitshift,					PF_bitshift,					218,	"float(float number, float quantity)"},
+	{"bitshift",					PF_RS (bitshift),					PF_RS (bitshift),					218,	"float(float number, float quantity)"},
 	{"te_lightningblood",			PF_sv_te_lightningblood,		NULL,							219,	"void(vector org)"},
-	{"strstrofs",					PF_strstrofs,					PF_strstrofs,					221,	D("float(string s1, string sub, optional float startidx)", "Returns the 0-based offset of sub within the s1 string, or -1 if sub is not in s1.\nIf startidx is set, this builtin will ignore matches before that 0-based offset.")},
-	{"str2chr",						PF_str2chr,						PF_str2chr,						222,	D("float(string str, float index)", "Retrieves the character value at offset 'index'.")},
-	{"chr2str",						PF_chr2str,						PF_chr2str,						223,	D("string(float chr, ...)", "The input floats are considered character values, and are concatenated.")},
+	{"strstrofs",					PF_RS (strstrofs),					PF_RS (strstrofs),					221,	D("float(string s1, string sub, optional float startidx)", "Returns the 0-based offset of sub within the s1 string, or -1 if sub is not in s1.\nIf startidx is set, this builtin will ignore matches before that 0-based offset.")},
+	{"str2chr",						PF_RS (str2chr),						PF_RS (str2chr),						222,	D("float(string str, float index)", "Retrieves the character value at offset 'index'.")},
+	{"chr2str",						PF_RS (chr2str),						PF_RS (chr2str),						223,	D("string(float chr, ...)", "The input floats are considered character values, and are concatenated.")},
 	{"strconv",						PF_strconv,						PF_strconv,						224,	D("string(float ccase, float redalpha, float redchars, string str, ...)", "Converts quake chars in the input string amongst different representations.\nccase specifies the new case for letters.\n 0: not changed.\n 1: forced to lower case.\n 2: forced to upper case.\nredalpha and redchars switch between colour ranges.\n 0: no change.\n 1: Forced white.\n 2: Forced red.\n 3: Forced gold(low) (numbers only).\n 4: Forced gold (high) (numbers only).\n 5+6: Forced to white and red alternately.\nYou should not use this builtin in combination with UTF-8.")},
-	{"strpad",						PF_strpad,						PF_strpad,						225,	D("string(float pad, string str1, ...)", "Pads the string with spaces, to ensure its a specific length (so long as a fixed-width font is used, anyway). If pad is negative, the spaces are added on the left. If positive the padding is on the right.")},	//will be moved
+	{"strpad",						PF_RS (strpad),						PF_RS (strpad),						225,	D("string(float pad, string str1, ...)", "Pads the string with spaces, to ensure its a specific length (so long as a fixed-width font is used, anyway). If pad is negative, the spaces are added on the left. If positive the padding is on the right.")},	//will be moved
 	{"infoadd",						PF_infoadd,						PF_infoadd,						226,	D("string(infostring old, string key, string value)", "Returns a new tempstring infostring with the named value changed (or added if it was previously unspecified). Key and value may not contain the \\ character.")},
 	{"infoget",						PF_infoget,						PF_infoget,						227,	D("string(infostring info, string key)", "Reads a named value from an infostring. The returned value is a tempstring")},
-	{"strncmp",						PF_strncmp,						PF_strncmp,						228,	D("#define strcmp strncmp\nfloat(string s1, string s2, optional float len, optional float s1ofs, optional float s2ofs)", "Compares up to 'len' chars in the two strings. s1ofs allows you to treat s2 as a substring to compare against, or should be 0.\nReturns 0 if the two strings are equal, a negative value if s1 appears numerically lower, and positive if s1 appears numerically higher.")},
-	{"strcasecmp",					PF_strncasecmp,					PF_strncasecmp,					229,	D("float(string s1, string s2)",  "Compares the two strings without case sensitivity.\nReturns 0 if they are equal. The sign of the return value may be significant, but should not be depended upon.")},
-	{"strncasecmp",					PF_strncasecmp,					PF_strncasecmp,					230,	D("float(string s1, string s2, float len, optional float s1ofs, optional float s2ofs)", "Compares up to 'len' chars in the two strings without case sensitivity. s1ofs allows you to treat s2 as a substring to compare against, or should be 0.\nReturns 0 if they are equal. The sign of the return value may be significant, but should not be depended upon.")},
-	{"strtrim",						PF_strtrim,						PF_strtrim,						0,		D("string(string s)", "Trims the whitespace from the start+end of the string.")},
+	{"strncmp",						PF_RS (strncmp),						PF_RS (strncmp),						228,	D("#define strcmp strncmp\nfloat(string s1, string s2, optional float len, optional float s1ofs, optional float s2ofs)", "Compares up to 'len' chars in the two strings. s1ofs allows you to treat s2 as a substring to compare against, or should be 0.\nReturns 0 if the two strings are equal, a negative value if s1 appears numerically lower, and positive if s1 appears numerically higher.")},
+	{"strcasecmp",					PF_RS (strncasecmp),					PF_RS (strncasecmp),					229,	D("float(string s1, string s2)",  "Compares the two strings without case sensitivity.\nReturns 0 if they are equal. The sign of the return value may be significant, but should not be depended upon.")},
+	{"strncasecmp",					PF_RS (strncasecmp),					PF_RS (strncasecmp),					230,	D("float(string s1, string s2, float len, optional float s1ofs, optional float s2ofs)", "Compares up to 'len' chars in the two strings without case sensitivity. s1ofs allows you to treat s2 as a substring to compare against, or should be 0.\nReturns 0 if they are equal. The sign of the return value may be significant, but should not be depended upon.")},
+	{"strtrim",						PF_RS (strtrim),						PF_RS (strtrim),						0,		D("string(string s)", "Trims the whitespace from the start+end of the string.")},
 	{"clientstat",					PF_clientstat,					PF_NoCSQC,						232,	D("void(float num, float type, .__variant fld)", "Specifies what data to use in order to send various stats, in a client-specific way.\n'num' should be a value between 32 and 127, other values are reserved.\n'type' must be set to one of the EV_* constants, one of EV_FLOAT, EV_STRING, EV_INTEGER, EV_ENTITY.\nfld must be a reference to the field used, each player will be sent only their own copy of these fields.")},	//EXT_CSQC
 	{"globalstat",					PF_globalstat,					PF_NoCSQC,						233,	D("void(float num, float type, string name)", "Specifies what data to use in order to send various stats, in a non-client-specific way. num and type are as in clientstat, name however, is the name of the global to read in the form of a string (pass \"foo\").")},	//EXT_CSQC_1 actually
 	{"pointerstat",					PF_pointerstat,					PF_NoCSQC,						0,		D("void(float num, float type, __variant *address)", "Specifies what data to use in order to send various stats, in a non-client-specific way. num and type are as in clientstat, address however, is the address of the variable you would like to use (pass &foo).")},
 	{"isbackbuffered",				PF_isbackbuffered,				PF_NoCSQC,						234,	D("float(entity player)", "Returns if the given player's network buffer will take multiple network frames in order to clear. If this builtin returns non-zero, you should delay or reduce the amount of reliable (and also unreliable) data that you are sending to that client.")},
 	{"te_bloodqw",					PF_sv_te_bloodqw,				NULL,							239,	"void(vector org, float count)"},
 	{"checkpvs",					PF_checkpvs,					PF_checkpvs,					240,	"float(vector viewpos, entity entity)"},
-	{"mod",							PF_mod,							PF_mod,							245,	"float(float a, float n)"},
-	{"stoi",						PF_stoi,						PF_stoi,						259,	D("int(string)", "Converts the given string into a true integer. Base 8, 10, or 16 is determined based upon the format of the string.")},
-	{"itos",						PF_itos,						PF_itos,						260,	D("string(int)", "Converts the passed true integer into a base10 string.")},
-	{"stoh",						PF_stoh,						PF_stoh,						261,	D("int(string)", "Reads a base-16 string (with or without 0x prefix) as an integer. Bugs out if given a base 8 or base 10 string. :P")},
-	{"htos",						PF_htos,						PF_htos,						262,	D("string(int)", "Formats an integer as a base16 string, with leading 0s and no prefix. Always returns 8 characters.")},
-	{"ftoi",						PF_ftoi,						PF_ftoi,						0,		D("int(float)", "Converts the given float into a true integer without depending on extended qcvm instructions.")},
-	{"itof",						PF_itof,						PF_itof,						0,		D("float(int)", "Converts the given true integer into a float without depending on extended qcvm instructions.")},
-	{"crossproduct",				PF_crossproduct,				PF_crossproduct,				0,		D("#ifndef dotproduct\n#define dotproduct(v1,v2) ((vector)(v1)*(vector)(v2))\n#endif\nvector(vector v1, vector v2)", "Small helper function to calculate the crossproduct of two vectors.")},
+	{"mod",							PF_RS (mod),							PF_RS (mod),							245,	"float(float a, float n)"},
+	{"stoi",						PF_RS (stoi),						PF_RS (stoi),						259,	D("int(string)", "Converts the given string into a true integer. Base 8, 10, or 16 is determined based upon the format of the string.")},
+	{"itos",						PF_RS (itos),						PF_RS (itos),						260,	D("string(int)", "Converts the passed true integer into a base10 string.")},
+	{"stoh",						PF_RS (stoh),						PF_RS (stoh),						261,	D("int(string)", "Reads a base-16 string (with or without 0x prefix) as an integer. Bugs out if given a base 8 or base 10 string. :P")},
+	{"htos",						PF_RS (htos),						PF_RS (htos),						262,	D("string(int)", "Formats an integer as a base16 string, with leading 0s and no prefix. Always returns 8 characters.")},
+	{"ftoi",						PF_RS (ftoi),						PF_RS (ftoi),						0,		D("int(float)", "Converts the given float into a true integer without depending on extended qcvm instructions.")},
+	{"itof",						PF_RS (itof),						PF_RS (itof),						0,		D("float(int)", "Converts the given true integer into a float without depending on extended qcvm instructions.")},
+	{"crossproduct",				PF_RS (crossproduct),				PF_RS (crossproduct),				0,		D("#ifndef dotproduct\n#define dotproduct(v1,v2) ((vector)(v1)*(vector)(v2))\n#endif\nvector(vector v1, vector v2)", "Small helper function to calculate the crossproduct of two vectors.")},
 	{"frameforname",				PF_frameforname,				PF_frameforname,				276,	D("float(float modidx, string framename)", "Looks up a framegroup from a model by name, avoiding the need for hardcoding. Returns -1 on error.")},// (FTE_CSQC_SKELETONOBJECTS)
 	{"frameduration",				PF_frameduration,				PF_frameduration,				277,	D("float(float modidx, float framenum)", "Retrieves the duration (in seconds) of the specified framegroup.")},// (FTE_CSQC_SKELETONOBJECTS)
 	{"touchtriggers",				PF_touchtriggers,				PF_touchtriggers,				279,	D("void(optional entity ent, optional vector neworigin)", "Triggers a touch events between self and every SOLID_TRIGGER entity that it is in contact with. This should typically just be the triggers touch functions. Also optionally updates the origin of the moved entity.")},//
@@ -5674,7 +5729,7 @@ static struct
 	{"te_lightning2",				PF_sv_te_lightning2,			PF_cl_te_lightning2,			429,	"void(entity own, vector start, vector end)"},// #429 te_lightning2
 	{"te_lightning3",				PF_sv_te_lightning3,			PF_cl_te_lightning3,			430,	"void(entity own, vector start, vector end)"},// #430 te_lightning3
 	{"te_beam",						PF_sv_te_beam,					PF_cl_te_beam,					431,	"void(entity own, vector start, vector end)"},// #431 te_beam
-	{"vectorvectors",				PF_vectorvectors,				PF_vectorvectors,				432,	"void(vector dir)"},// (DP_QC_VECTORVECTORS)
+	{"vectorvectors",				PF_RS (vectorvectors),				PF_RS (vectorvectors),				432,	"void(vector dir)"},// (DP_QC_VECTORVECTORS)
 	{"getsurfacenumpoints",			PF_getsurfacenumpoints,			PF_getsurfacenumpoints,			434,	"float(entity e, float s)"},// (DP_QC_GETSURFACE)
 	{"getsurfacepoint",				PF_getsurfacepoint,				PF_getsurfacepoint,				435,	"vector(entity e, float s, float n)"},// (DP_QC_GETSURFACE)
 	{"getsurfacenormal",			PF_getsurfacenormal,			PF_getsurfacenormal,			436,	"vector(entity e, float s)"},// (DP_QC_GETSURFACE)
@@ -5693,7 +5748,7 @@ static struct
 	{"spawnclient",					PF_spawnclient,					PF_NoCSQC,						454,	"entity()", "Spawns a dummy player entity.\nNote that such dummy players will be carried from one map to the next.\nWarning: DP_SV_CLIENTCOLORS DP_SV_CLIENTNAME are not implemented in quakespasm, so use KRIMZON_SV_PARSECLIENTCOMMAND's clientcommand builtin to change the bot's name/colours/skin/team/etc, in the same way that clients would ask."},//DP_SV_BOTCLIENT
 	{"clienttype",					PF_clienttype,					PF_NoCSQC,						455,	"float(entity client)"},//botclient
 	{"WriteUnterminatedString",		PF_WriteString2,				PF_NoCSQC,						456,	"void(float target, string str)"},	//writestring but without the null terminator. makes things a little nicer.
-	{"edict_num",					PF_edict_for_num,				PF_edict_for_num,				459,	"entity(float entnum)"},//DP_QC_EDICT_NUM
+	{"edict_num",					PF_RS (edict_for_num),				PF_RS (edict_for_num),				459,	"entity(float entnum)"},//DP_QC_EDICT_NUM
 	{"buf_create",					PF_buf_create,					PF_buf_create,					460,	"strbuf()"},//DP_QC_STRINGBUFFERS
 	{"buf_del",						PF_buf_del,						PF_buf_del,						461,	"void(strbuf bufhandle)"},//DP_QC_STRINGBUFFERS
 	{"buf_getsize",					PF_buf_getsize,					PF_buf_getsize,					462,	"float(strbuf bufhandle)"},//DP_QC_STRINGBUFFERS
@@ -5704,21 +5759,21 @@ static struct
 	{"bufstr_set",					PF_bufstr_set,					PF_bufstr_set,					467,	"void(strbuf bufhandle, float string_index, string str)"},//DP_QC_STRINGBUFFERS
 	{"bufstr_add",					PF_bufstr_add,					PF_bufstr_add,					468,	"float(strbuf bufhandle, string str, float order)"},//DP_QC_STRINGBUFFERS
 	{"bufstr_free",					PF_bufstr_free,					PF_bufstr_free,					469,	"void(strbuf bufhandle, float string_index)"},//DP_QC_STRINGBUFFERS
-	{"asin",						PF_asin,						PF_asin,						471,	"float(float s)"},//DP_QC_ASINACOSATANATAN2TAN
-	{"acos",						PF_acos,						PF_acos,						472,	"float(float c)"},//DP_QC_ASINACOSATANATAN2TAN
-	{"atan",						PF_atan,						PF_atan,						473,	"float(float t)"},//DP_QC_ASINACOSATANATAN2TAN
-	{"atan2",						PF_atan2,						PF_atan2,						474,	"float(float c, float s)"},//DP_QC_ASINACOSATANATAN2TAN
-	{"tan",							PF_tan,							PF_tan,							475,	"float(float a)"},//DP_QC_ASINACOSATANATAN2TAN
+	{"asin",						PF_RS (asin),						PF_RS (asin),						471,	"float(float s)"},//DP_QC_ASINACOSATANATAN2TAN
+	{"acos",						PF_RS (acos),						PF_RS (acos),						472,	"float(float c)"},//DP_QC_ASINACOSATANATAN2TAN
+	{"atan",						PF_RS (atan),						PF_RS (atan),						473,	"float(float t)"},//DP_QC_ASINACOSATANATAN2TAN
+	{"atan2",						PF_RS (atan2),						PF_RS (atan2),						474,	"float(float c, float s)"},//DP_QC_ASINACOSATANATAN2TAN
+	{"tan",							PF_RS (tan),							PF_RS (tan),							475,	"float(float a)"},//DP_QC_ASINACOSATANATAN2TAN
 	{"strlennocol",					PF_strlennocol,					PF_strlennocol,					476,	D("float(string s)", "Returns the number of characters in the string after any colour codes or other markup has been parsed.")},//DP_QC_STRINGCOLORFUNCTIONS
 	{"strdecolorize",				PF_strdecolorize,				PF_strdecolorize,				477,	D("string(string s)", "Flattens any markup/colours, removing them from the string.")},//DP_QC_STRINGCOLORFUNCTIONS
 	{"strftime",					PF_strftime,					PF_strftime,					478,	"string(float uselocaltime, string format, ...)"},	//DP_QC_STRFTIME
 	{"tokenizebyseparator",			PF_tokenizebyseparator,			PF_tokenizebyseparator,			479,	"float(string s, string separator1, ...)"},	//DP_QC_TOKENIZEBYSEPARATOR
-	{"strtolower",					PF_strtolower,					PF_strtolower,					480,	"string(string s)"},	//DP_QC_STRING_CASE_FUNCTIONS
-	{"strtoupper",					PF_strtoupper,					PF_strtoupper,					481,	"string(string s)"},	//DP_QC_STRING_CASE_FUNCTIONS
+	{"strtolower",					PF_RS (strtolower),					PF_RS (strtolower),					480,	"string(string s)"},	//DP_QC_STRING_CASE_FUNCTIONS
+	{"strtoupper",					PF_RS (strtoupper),					PF_RS (strtoupper),					481,	"string(string s)"},	//DP_QC_STRING_CASE_FUNCTIONS
 	{"cvar_defstring",				PF_cvar_defstring,				PF_cvar_defstring,				482,	"string(string s)"},	//DP_QC_CVAR_DEFSTRING
 	{"pointsound",					PF_sv_pointsound,				PF_cl_pointsound,				483,	"void(vector origin, string sample, float volume, float attenuation)"},//DP_SV_POINTSOUND
-	{"strreplace",					PF_strreplace,					PF_strreplace,					484,	"string(string search, string replace, string subject)"},//DP_QC_STRREPLACE
-	{"strireplace",					PF_strireplace,					PF_strireplace,					485,	"string(string search, string replace, string subject)"},//DP_QC_STRREPLACE
+	{"strreplace",					PF_RS (strreplace),					PF_RS (strreplace),					484,	"string(string search, string replace, string subject)"},//DP_QC_STRREPLACE
+	{"strireplace",					PF_RS (strireplace),					PF_RS (strireplace),					485,	"string(string search, string replace, string subject)"},//DP_QC_STRREPLACE
 	{"getsurfacepointattribute",	PF_getsurfacepointattribute,	PF_getsurfacepointattribute,	486,	"vector(entity e, float s, float n, float a)"},//DP_QC_GETSURFACEPOINTATTRIBUTE
 	{"crc16",						PF_crc16,						PF_crc16,						494,	"float(float caseinsensitive, string s, ...)"},//DP_QC_CRC16
 	{"cvar_type",					PF_cvar_type,					PF_cvar_type,					495,	"float(string name)"},//DP_QC_CVAR_TYPE
@@ -5733,7 +5788,7 @@ static struct
 	{"getentity",					PF_NoSSQC,						PF_cl_getrenderentity,			504,	D("__variant(float entnum, float fieldnum)", "Looks up fields from non-csqc-visible entities. The entity will need to be within the player's pvs. fieldnum should be one of the GE_ constants.")},//DP_CSQC_QUERYRENDERENTITY
 	{"uri_escape",					PF_uri_escape,					PF_uri_escape,					510,	"string(string in)"},//DP_QC_URI_ESCAPE
 	{"uri_unescape",				PF_uri_unescape,				PF_uri_unescape,				511,	"string(string in)"},//DP_QC_URI_ESCAPE
-	{"num_for_edict",				PF_num_for_edict,				PF_num_for_edict,				512,	"float(entity ent)"},//DP_QC_NUM_FOR_EDICT
+	{"num_for_edict",				PF_RS (num_for_edict),				PF_RS (num_for_edict),				512,	"float(entity ent)"},//DP_QC_NUM_FOR_EDICT
 	{"uri_get",						PF_uri_get,						PF_uri_get,						513,	"float(string uril, float id, optional string postmimetype, optional string postdata)", "stub."},//DP_QC_URI_GET
 	{"tokenize_console",			PF_tokenize_console,			PF_tokenize_console,			514,	D("float(string str)", "Tokenize a string exactly as the console's tokenizer would do so. The regular tokenize builtin became bastardized for convienient string parsing, which resulted in a large disparity that can be exploited to bypass checks implemented in a naive SV_ParseClientCommand function, therefore you can use this builtin to make sure it exactly matches.")},
 	{"argv_start_index",			PF_argv_start_index,			PF_argv_start_index,			515,	D("float(float idx)", "Returns the character index that the tokenized arg started at.")},
@@ -5741,7 +5796,7 @@ static struct
 	{"buf_cvarlist",				PF_buf_cvarlist,				PF_buf_cvarlist,				517,	D("void(strbuf strbuf, string pattern, string antipattern)", "Populates the strbuf with a list of known cvar names.")},
 	{"cvar_description",			PF_cvar_description,			PF_cvar_description,			518,	D("string(string cvarname)", "Retrieves the description of a cvar, which might be useful for tooltips or help files. This may still not be useful.")},
 	{"gettime",						PF_gettime,						PF_gettime,						519,	"float(optional float timetype)"},
-	{"log",							PF_Logarithm,					PF_Logarithm,					532,	D("float(float v, optional float base)", "Determines the logarithm of the input value according to the specified base. This can be used to calculate how much something was shifted by.")},
+	{"log",							PF_RS (Logarithm),					PF_RS (Logarithm),					532,	D("float(float v, optional float base)", "Determines the logarithm of the input value according to the specified base. This can be used to calculate how much something was shifted by.")},
 	{"soundlength",					PF_NoSSQC,						PF_cl_soundlength,				534,	D("float(string sample)", "Provides a way to query the duration of a sound sample, allowing you to set up a timer to chain samples.")},
 	{"callfunction",				PF_callfunction,				PF_callfunction,				605,	D("void(.../*, string funcname*/)", "Invokes the named function. The function name is always passed as the last parameter and must always be present. The others are passed to the named function as-is")},
 	{"isfunction",					PF_isfunction,					PF_isfunction,					607,	D("float(string s)", "Returns true if the named function exists and can be called with the callfunction builtin.")},

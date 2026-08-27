@@ -30,6 +30,7 @@ pub mod alloc;
 pub mod arena;
 pub mod builtins;
 pub mod exec;
+pub mod ext;
 pub mod image;
 pub mod load;
 pub mod parse;

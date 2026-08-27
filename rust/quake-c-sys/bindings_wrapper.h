@@ -229,3 +229,13 @@ int	 PRBI_Glue_EdPrintWithBanner (const char *banner, int num);
 int	 PRBI_Glue_EdPrintNum (int num);
 int	 PRBI_Glue_MaxClients (void);
 void PRBI_Glue_MsgWrite (int dest, int entnum, int kind, int i, float f, const char *bytes);
+
+/* Phase 6 M9: the pr_ext.c batch-1 seams. */
+double		 PRBI_Glue_Tan (double v);
+double		 PRBI_Glue_Asin (double v);
+double		 PRBI_Glue_Atan (double v);
+double		 PRBI_Glue_Pow (double a, double b);
+unsigned int PRBI_Glue_StrtoulHex (const char *s);
+int			 PRBI_Glue_StrCmp (const char *a, const char *b, int len, qboolean fold_case, qboolean use_len);
+void		 PRBI_Glue_VectorVectors (const float *forward);
+void		 PRBI_Glue_VectorAngles (const float *forward, const float *up, float *out);

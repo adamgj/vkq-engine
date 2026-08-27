@@ -42,6 +42,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #define PRBI_ERR_WRITEDEST_NOT_CLIENT 5
 #define PRBI_ERR_WRITEDEST_BAD_DEST	  6
 #define PRBI_ERR_BAD_EDICT_POINTER	  7
+#define PRBI_ERR_BAD_EDICT_NUM		  8
 
 /* ---- engine seams. Every one of these is a leaf, or reaches only
    Sys_Error/Con_* -- none can Host_Error, which is the rule that decides
@@ -51,6 +52,69 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 double PRBI_Glue_Ceil (double v)
 {
 	return ceil (v);
+}
+
+/* the pr_ext.c maths builtins' libm calls that no other ported code needs */
+double PRBI_Glue_Tan (double v)
+{
+	return tan (v);
+}
+
+double PRBI_Glue_Asin (double v)
+{
+	return asin (v);
+}
+
+double PRBI_Glue_Atan (double v)
+{
+	return atan (v);
+}
+
+double PRBI_Glue_Pow (double a, double b)
+{
+	return pow (a, b);
+}
+
+unsigned int PRBI_Glue_StrtoulHex (const char *s)
+{
+	return (unsigned int)strtoul (s, NULL, 16);
+}
+
+/* strcmp/strncmp and their q_ case-folding variants. The raw return value is
+   what QuakeC stores into a float, so the platform's magnitude is the
+   contract (ADR-010) -- this is deliberately not a Rust byte comparison. */
+int PRBI_Glue_StrCmp (const char *a, const char *b, int len, qboolean fold_case, qboolean use_len)
+{
+	if (use_len)
+		return fold_case ? q_strncasecmp (a, b, len) : strncmp (a, b, len);
+	return fold_case ? q_strcasecmp (a, b) : strcmp (a, b);
+}
+
+void PRBI_Glue_VectorVectors (const float *forward)
+{
+	VectorCopy (forward, pr_global_struct->v_forward);
+	VectorNormalize (pr_global_struct->v_forward);
+	if (!pr_global_struct->v_forward[0] && !pr_global_struct->v_forward[1])
+	{
+		if (pr_global_struct->v_forward[2])
+			pr_global_struct->v_right[1] = -1;
+		else
+			pr_global_struct->v_right[1] = 0;
+		pr_global_struct->v_right[0] = pr_global_struct->v_right[2] = 0;
+	}
+	else
+	{
+		pr_global_struct->v_right[0] = pr_global_struct->v_forward[1];
+		pr_global_struct->v_right[1] = -pr_global_struct->v_forward[0];
+		pr_global_struct->v_right[2] = 0;
+		VectorNormalize (pr_global_struct->v_right);
+	}
+	CrossProduct (pr_global_struct->v_right, pr_global_struct->v_forward, pr_global_struct->v_up);
+}
+
+void PRBI_Glue_VectorAngles (const float *forward, const float *up, float *out)
+{
+	VectorAngles ((float *)forward, (float *)up, out);
 }
 
 void PRBI_Glue_AngleVectors (const float *angles)
@@ -258,6 +322,8 @@ FUNC_NORETURN static void PRBI_Raise (int status, int detail, const char *name)
 		PR_RunError ("WriteDest: bad destination");
 	case PRBI_ERR_BAD_EDICT_POINTER:
 		Host_Error ("NUM_FOR_EDICT: bad pointer");
+	case PRBI_ERR_BAD_EDICT_NUM:
+		Host_Error ("EDICT_NUM: bad edict_num %i", detail);
 	default:
 		PR_RunError ("PF_%s: unknown status %i", name, status);
 	}
@@ -307,3 +373,48 @@ RUST_PF (sv_WriteAngle)
 RUST_PF (sv_WriteCoord)
 RUST_PF (sv_WriteString)
 RUST_PF (sv_WriteEntity)
+
+/* pr_ext.c batch 1 (Phase 6 M9) */
+RUST_PF (Sin)
+RUST_PF (Cos)
+RUST_PF (tan)
+RUST_PF (asin)
+RUST_PF (acos)
+RUST_PF (atan)
+RUST_PF (Sqrt)
+RUST_PF (atan2)
+RUST_PF (pow)
+RUST_PF (Logarithm)
+RUST_PF (mod)
+RUST_PF (vectorvectors)
+RUST_PF (ext_vectoangles)
+RUST_PF (itos)
+RUST_PF (htos)
+RUST_PF (chr2str)
+RUST_PF (strpad)
+RUST_PF (min)
+RUST_PF (max)
+RUST_PF (bound)
+RUST_PF (anglemod)
+RUST_PF (bitshift)
+RUST_PF (crossproduct)
+RUST_PF (ftoi)
+RUST_PF (itof)
+RUST_PF (stof)
+RUST_PF (stoi)
+RUST_PF (stoh)
+RUST_PF (etos)
+RUST_PF (strcat)
+RUST_PF (substring)
+RUST_PF (strncmp)
+RUST_PF (strncasecmp)
+RUST_PF (strtrim)
+RUST_PF (strreplace)
+RUST_PF (strireplace)
+RUST_PF (strtoupper)
+RUST_PF (strtolower)
+RUST_PF (num_for_edict)
+RUST_PF (edict_for_num)
+RUST_PF (strlen)
+RUST_PF (str2chr)
+RUST_PF (strstrofs)
