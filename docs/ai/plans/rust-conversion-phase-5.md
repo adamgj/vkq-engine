@@ -538,3 +538,11 @@ M5 exit (session end): full corpus incl. registered-tier local entries, record_d
       bounds, and it is held in range by another translation unit. The
       invariant is stated on `send_fragment`. 3.3M runs clean.
   Also removed: two ctest Rust array stand-ins made dead by fix 2.
+  **CI follow-up**: the windows-latest leg failed on fix 6 -- not on the
+  code but on the unit test, which hard-coded LP64 expectations. On LLP64
+  `strtol` saturates at LONG_MAX *before* the `(int)` cast, so
+  `atoi("4294967296")` is INT_MAX on Windows and 0 on unix. The
+  `net_cnum_differential` against the real MSVC `atoi` PASSED on that leg,
+  confirming the implementation; the unit test now derives its expectations
+  from `size_of::<c_long>()` and states the reasoning. Exactly the split
+  the differential was added to pin.

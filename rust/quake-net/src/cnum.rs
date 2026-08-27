@@ -65,14 +65,30 @@ pub fn c_atoi(s: &[u8]) -> i32 {
 
 #[cfg(test)]
 mod tests {
-    use super::c_atoi;
+    use super::{c_atoi, c_long};
 
     #[test]
-    fn truncates_rather_than_saturating() {
-        // the cases the pre-review saturating implementation got wrong
-        assert_eq!(c_atoi(b"4294967296"), 0); // 2^32
-        assert_eq!(c_atoi(b"4294967300"), 4);
-        assert_eq!(c_atoi(b"2147483648"), i32::MIN);
+    fn out_of_int_range_follows_the_platform_long_width() {
+        // The cases the pre-review saturating implementation got wrong --
+        // and the ones whose answer legitimately depends on sizeof(long),
+        // which is exactly what this function exists to model. `strtol`
+        // saturates at LONG_MAX first, and only then does the `(int)` cast
+        // truncate, so a 64-bit long truncates where a 32-bit long has
+        // already saturated. `net_cnum_differential` pins both against the
+        // platform's real `atoi`; this test states the reasoning.
+        if core::mem::size_of::<c_long>() == 8 {
+            assert_eq!(c_atoi(b"4294967296"), 0); // 2^32 truncates to 0
+            assert_eq!(c_atoi(b"4294967300"), 4);
+            assert_eq!(c_atoi(b"2147483648"), i32::MIN);
+        } else {
+            // LLP64 (Windows): everything past INT_MAX saturates there
+            assert_eq!(c_atoi(b"4294967296"), i32::MAX);
+            assert_eq!(c_atoi(b"4294967300"), i32::MAX);
+            assert_eq!(c_atoi(b"2147483648"), i32::MAX);
+        }
+        // width-independent either way
+        assert_eq!(c_atoi(b"2147483647"), i32::MAX);
+        assert_eq!(c_atoi(b"-2147483648"), i32::MIN);
     }
 
     #[test]
