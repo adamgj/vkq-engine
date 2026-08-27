@@ -10,6 +10,14 @@ publish.workspace = true
 [dependencies]
 quake-types = { path = "../quake-types" }
 
+# ADR-003 (Phase 5 M1 amendment, adopted M7): the UDP landriver's socket
+# layer ("MIT OR Apache-2.0" -> MIT) and the unix resolution/ioctl calls
+# socket2 does not expose. Unix-only until the net_wins.c flip lands with a
+# Windows UDP runtime CI leg.
+[target.'cfg(unix)'.dependencies]
+socket2 = "0.6"
+libc = "0.2"
+
 [features]
 # mirrors the C build's DEBUG/_DEBUG (Meson sets it for debug buildtypes):
 # the MSG_Write{Char,Byte,Short} range Host_Errors exist only there

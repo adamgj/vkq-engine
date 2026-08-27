@@ -108,6 +108,39 @@ pub struct QSockAddr {
     pub qsa_data: [u8; 62],
 }
 
+impl QSockAddr {
+    /// an all-zero blob (C `memset (&addr, 0, sizeof (addr))`)
+    pub const fn zeroed() -> Self {
+        QSockAddr {
+            #[cfg(any(
+                target_os = "macos",
+                target_os = "freebsd",
+                target_os = "netbsd",
+                target_os = "openbsd",
+                target_os = "dragonfly"
+            ))]
+            qsa_len: 0,
+            #[cfg(any(
+                target_os = "macos",
+                target_os = "freebsd",
+                target_os = "netbsd",
+                target_os = "openbsd",
+                target_os = "dragonfly"
+            ))]
+            qsa_family: 0,
+            #[cfg(not(any(
+                target_os = "macos",
+                target_os = "freebsd",
+                target_os = "netbsd",
+                target_os = "openbsd",
+                target_os = "dragonfly"
+            )))]
+            qsa_family: 0,
+            qsa_data: [0; 62],
+        }
+    }
+}
+
 /// `qsocket_t` (net_defs.h)
 #[repr(C)]
 pub struct QSocket {
@@ -204,6 +237,37 @@ pub struct NetLanDriver {
     pub listening_sock: SysSocket,
 }
 
+/// `hostcache_t` (net_defs.h)
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct HostCache {
+    pub name: [c_char; 64],
+    pub map: [c_char; 16],
+    pub gamedir: [c_char; 16],
+    pub cname: [c_char; NET_NAMELEN],
+    pub users: c_int,
+    pub maxusers: c_int,
+    pub driver: c_int,
+    pub ldriver: c_int,
+    pub addr: QSockAddr,
+}
+
+/// `PollProcedure` (net_defs.h).
+///
+/// No Rust consumer yet: M9's ADR-009 audit left `NET_Poll` /
+/// `SchedulePollProcedure` as C frames until Phase 7. The mirror and its
+/// `abi_probe` entries are kept anyway so the layout is already pinned on
+/// all three CI platforms when that port lands -- the pin costs nothing at
+/// runtime and turns any intervening header drift into a CI failure rather
+/// than a Phase 7 surprise.
+#[repr(C)]
+pub struct PollProcedure {
+    pub next: *mut PollProcedure,
+    pub next_time: f64,
+    pub procedure: Option<unsafe extern "C" fn(arg: *mut c_void)>,
+    pub arg: *mut c_void,
+}
+
 /// `net_driver_t` (net_defs.h). Field order is ABI (see `NetLanDriver`).
 /// Loop driver must always be registered first (`IS_LOOP_DRIVER(0)`).
 #[repr(C)]
@@ -234,6 +298,8 @@ const _: () = {
     assert!(core::mem::size_of::<QSockAddr>() == 64);
     assert!(core::mem::offset_of!(QSockAddr, qsa_data) == 2);
     assert!(NET_MAXMESSAGE & (NETFLAG_LENGTH_MASK as usize) == NET_MAXMESSAGE);
+    assert!(core::mem::size_of::<HostCache>() == 64 + 16 + 16 + 64 + 16 + 64);
+    assert!(core::mem::offset_of!(HostCache, addr) == 176);
 };
 
 // Layout pins for the 64-bit targets (the whole current CI matrix). These are

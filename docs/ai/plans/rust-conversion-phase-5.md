@@ -278,3 +278,271 @@ M5 exit (session end): full corpus incl. registered-tier local entries, record_d
      NOTE: the crate still does not compile 32-bit — 8 pre-existing asserts
      in `json.rs` (Phase 1) and `sound.rs` (Phase 4) fail there. Out of
      Phase 5 scope; worth a separate issue if 32-bit is wanted.
+
+- **2026-08-26 M6 (dgrm reliable layer, ctest-first)**: net_dgrm.c was split
+  like net_msg.c at M2: the reliable/unreliable wire layer (SendMessage /
+  SendMessageNext / ReSendMessage / CanSend* / SendUnreliableMessage /
+  ProcessPacket / GetMessage, the `packetBuffer` scratch and the six stat
+  counters) moved **verbatim** to `Quake/net_dgrm_rel.c`, with the shared
+  statics de-static'd through the new internal header `net_dgrm_int.h`
+  (net_dgrm.c's GetAnyMessage and NET_Stats_f keep using them). The
+  orchestration (connect handshake, `_Datagram_ServerControlPacket`,
+  hostcache/slist, heartbeats, rcon, Test/Test2) stays in net_dgrm.c -- it
+  is engine-entangled (svs/menus/cvars/SV_ConnectClient) and its
+  byte-serialization already flows through the Rust MSG/SZ layer under
+  `-Duse_rust_net`; its Rust port is M9 territory.
+  Port decisions (quake-net::dgrm, pure, `NetSys` trait for
+  sfunc.Read/Write/AddrCompare/AddrToString + Con prints):
+  - BOTH RX paths transliterated separately as planned; their asymmetries
+    are load-bearing (ProcessPacket ACKs to sock->addr and pre-checks the
+    unreliable maxsize; GetMessage ACKs to readaddr and has NO unreliable
+    maxsize pre-check -- that C path Host_Errors inside SZ_GetSpace, so the
+    port returns `GET_MESSAGE_NET_MESSAGE_OVERFLOW` for the M7 glue to
+    re-raise (ADR-009 M3 shape), honoring the M5 DO-NOT-CARRY note).
+  - The C `packetBuffer` static is shared TX/RX scratch and its stale bytes
+    are observable (a wire header claiming more bytes than were received
+    copies stale scratch into net_message); every port function takes the
+    same persistent scratch slice, and the differential compares the full
+    64008-byte scratch after every op. COMPAT divergences (documented in
+    dgrm.rs): reads beyond the scratch end (C UB) zero-fill; the
+    release-mode oversize-send memcpy overflow (C UB) is a hard error.
+  - Counters stay C-owned globals in the engine (NET_Stats_f untouched);
+    the port mutates a `DgrmCounters` view the M7 shim will marshal.
+  - `net_dgrm_rel.c` compiles as the c_ref oracle (the prelude gained the
+    dgrm renames; stubs gained BigLong=LongSwap and the ambient net
+    globals + a 3-slot `net_landrivers` whose Read/Write/AddrCompare/
+    AddrToString slots the test aims at Rust trampolines sharing one mock
+    core per side). `net_dgrm_differential.rs`: 12 suites -- ack cycles,
+    fragmentation, resend timing, dup/stale/gap sequencing, junk (CTL,
+    unknown flags, short, stray addr, read error), all oversize paths
+    incl. the Host_Error mapping, stale-scratch reproduction, and a
+    60-round randomized op sweep; compares returns, all qsocket sequencing
+    fields, buffers, net_message, scratch, counters, emitted wire packets
+    (bytes+addr), and the con-log diagnostics.
+  - `fuzz_net_dgrm` (op-stream over the two RX + send paths, invariant
+    asserts) and `fuzz_net_ccreq` (the exact CCREQ/CCREP/slist/
+    getserversResponse read sequences over the Rust MSG reader) live with
+    seeds and are in the CI fuzz list. Engine flip of the rel layer is M7
+    (whole-file exclusion of net_dgrm_rel.c + glue, alongside the UDP
+    landriver).
+- **2026-08-26 M7a (dgrm engine flip)**: `net_dgrm_rel.c` swaps whole-file
+  for `net_dgrm_glue.c` under `-Duse_rust_net` (the Phase 4 idiom): the glue
+  keeps the `Datagram_*`/`SendMessageNext`/`ReSendMessage`/
+  `Datagram_ProcessPacket` names so the net_bsd.c/net_win.c vtables and
+  net_dgrm.c's orchestration half are untouched, owns the shared statics
+  (packetBuffer + counters, bindgen-bound for the shims), pre-validates the
+  send paths in its C frames (DEBUG Sys_Errors + the release oversize guard
+  where C memcpy'd blindly), and re-raises rust_dgrm_GetMessage's -2 status
+  as the exact SZ_GetSpace Host_Error (ADR-009). quake-capi::net_dgrm
+  marshals counters/net_message/scratch per call, reaches
+  `net_landrivers[]` through the ADR-011 mirror, and defers Con prints
+  until every C-memory borrow ends (M3 lesson). Verified on darwin-arm64:
+  3 configs build; calibrated live-capture gate PASS with the Rust dgrm
+  layer on both ends (recv reliable prefix identical over the 4708-byte
+  calibrated window); record_diff .dem byte-identical (20239 bytes);
+  save_diff identical; corpus --compare green; capi signature gate,
+  check_headers, clippy -D warnings, fmt, cargo deny licenses clean.
+- **2026-08-26 M7b (UDP landriver via socket2)**: `quake-net` adopts
+  `socket2` + `libc` per the ADR-003 M1 amendment (`cargo deny check
+  licenses` green over the resolved tree). The landriver splits three ways:
+  `quake_net::udp` (pure address logic: AddrToString, StringToAddr,
+  AddrCompare, PartialIPAddress, port helpers -- sockaddr byte offsets are
+  identical across supported unixes), `quake_net::udp::sys` (the ADR-004
+  unsafe island: socket2 for creation/options/v6only/multicast/broadcast,
+  raw libc for recvfrom/sendto/ioctl-FIONREAD and the *same* legacy
+  resolver calls the C driver made -- gethostbyname/gethostbyaddr/
+  getaddrinfo -- so their behavior is inherited, not reimplemented), and
+  `quake-capi::net_udp` (engine globals net_hostport/my_ipv*_address/
+  ipv*Available via bindgen, the file statics as Rust module state per
+  ADR-007, Con_SafePrintf at the exact C print points).
+  **Scope decision (plan amendment)**: the flip lands in net_bsd.c only
+  (both UDP/UDP6 rows, designated initializers). net_wins.c keeps its C
+  driver: Windows CI has no UDP runtime leg (its harness legs are
+  loopback-only), and flipping a runtime-unverified network personality is
+  exactly what the ADR-017 SDL2-audio precedent defers. Recorded for M8/M10:
+  either add a Windows capture/interop leg and flip WINS, or record the
+  deferral in the phase-exit checklist.
+  COMPAT notes (documented in the sources): recvfrom's out-address is
+  zero-filled past the kernel-written length (C left stale stack bytes;
+  only _Datagram_AddPossibleHost's whole-struct memcmp could ever observe
+  it); sscanf/atoi out-of-domain behavior (UB in C) is pinned; the linux
+  iflist 1s cache is keyed per family.
+  Verified on darwin-arm64: 3 configs build; the calibrated live-capture
+  gate PASS with Rust sockets + Rust dgrm on both ends; record_diff
+  byte-identical; save_diff identical; corpus --compare green;
+  net_udp_differential (5 suites: AddrToString v4/v6/scope sweep 500+
+  randomized, StringToAddr full-match domain, AddrCompare/port matrix,
+  PartialIPAddress corner grammar, the MAXHOSTNAMELEN guard) green vs the
+  c_ref oracle; capi signature gate, check_headers, clippy -D warnings,
+  fmt, cargo deny clean; ctest 41 suites green.
+- **2026-08-26 M8 (netreplay + interop matrix)**: two instruments close the
+  phase's remaining gate-4 surface.
+  1. `-netreplay <capture>` (harness.c + guarded funnel hooks in
+     net_main.c, identical C in every configuration): NET_Connect hands out
+     a pseudo-socket, one captured recv record is delivered into
+     net_message per host frame, sends are absorbed; forces the fixed
+     timestep. `netreplay_diff.py` replays one capture on two builds and
+     byte-compares the -demohash state-hash chains plus a demo recorded
+     mid-replay -- the timing-noise-free "captured-session replay"
+     criterion (live sessions keep the calibrated structural gate).
+  2. `interop_matrix.py`: 4-way C/Rust client x server localhost sessions
+     across every protocol cell this server can negotiate (Base-/FTE+
+     x 15/666/999; FTE+999 = PRFL_FLOATCOORD|SHORTANGLE, Base-999 =
+     PRFL_INT32COORD|SHORTANGLE -- PRFL_24BITCOORD is not reachable from
+     this engine's server, covered at the MSG layer by ctest instead).
+     Checks per cell: expected negotiated protocol string, signon health,
+     exact reliable-count match across the four combos, unreliable counts
+     within the live noise floor, and the msgbadread profile normalized as
+     (badread - messages received) -- the raw counter scales with message
+     count, so +-1-message timing noise shifts it (observed 117 vs 116
+     tracking 117 vs 116 messages exactly).
+  Calibration findings recorded: a Base-15 idle session legitimately emits
+  almost no unreliables (C/C baseline: 2 in 600 frames), so per-cell health
+  is judged against the C/C baseline rather than an absolute floor.
+  CI: build-linux.yml gains the replay byte gate (C self + C-vs-Rust) and
+  the IPv4 matrix; the IPv6 [::1] leg is local-only as planned.
+- **2026-08-26 M9 (net_main.c core port; audit-driven scope amendment)**:
+  the ADR-009 audit reshaped M9 away from the planned whole-file exclusion
+  + net_glue.c sketch. Finding: the dispatch funnels -- NET_Connect,
+  NET_GetMessage, NET_GetServerMessage, NET_SendMessage/Unreliable,
+  NET_CanSendMessage, NET_SendToAll, NET_Poll/SchedulePollProcedure, and
+  NET_Init/Shutdown -- all have `Host_Error`-capable code beneath them
+  (the dgrm glue's SZ_GetSpace re-raise, `_Datagram_ServerControlPacket`
+  -> SV_ConnectClient, the MSG-writer glue under SearchForHosts/connect
+  handshakes), and a longjmp must never unwind a Rust frame. Those
+  functions ARE the C boundary frames ADR-009 requires until Phase 7
+  statusizes the strata beneath, so they stay verbatim C in net_main.c;
+  whole-file exclusion would only have shuffled them into a glue file.
+  Ported instead (quake-capi::net_main, Phase-3 in-file #ifdef idiom with
+  trampolines/#defines in net_main.c): SetNetTime, the qsocket pool
+  (NET_NewQSocket/FreeQSocket over the C-owned pool + new NetMain_*
+  svs/sv accessor funnels), all eight NET_QSocket* accessors, the
+  listen/maxplayers/port command handlers, the slist UI (sort +
+  byte-exact %-W.Ws print helpers + the two static-buffer print
+  functions; `slistLastShown` moves to Rust), and the leaf driver loops
+  NET_Close / NET_CheckNewConnections / NET_ListAddresses (only
+  Sys_Error-exit paths beneath them). hostcache_t and PollProcedure
+  gained ADR-011 mirrors pinned by abi_probe/net_abi.
+  Deletion note for M10: net_main.c is now part-ported; its funnel
+  remainder (and net_dgrm.c's orchestration half) transfer to the Phase 7
+  deletion list.
+  Verified on darwin-arm64: 3 configs build; corpus --check (both) and
+  --compare (mixed + cnet oracle) green; save/record byte-identical;
+  calibrated capture PASS; netreplay_diff PASS; interop subset PASS; a
+  listen-server slist/maxplayers/port/listen console smoke is
+  byte-identical C-vs-Rust (exercises the Rust pool via loopback connect
+  too); capi signature, check_headers, net_abi, clippy -D warnings, fmt
+  clean; ctest 40 suites green.
+- **2026-08-26 M10 (phase exit)**: exit evidence and the fresh-context
+  review round.
+  - Fuzz soak: 150s per net target, no findings -- fuzz_net_msg 12.2M,
+    fuzz_net_demo 84.5M, fuzz_net_dgrm 4.9M, fuzz_net_ccreq 92.5M execs.
+  - Fresh-context compatibility review (M6-M9, e6e683ae..M9): verdict
+    "findings require fixes" -- two should-fix + notes, all addressed:
+    (5) rust_udp_GetNameFromAddr's AddrToString fallback now clamps to
+    NET_NAMELEN-1 (was safe only by arithmetic: worst-case formatted
+    address is 59 bytes); (9) the netreplay gate gained an inert-replay
+    guard -- the engine reports "Harness: netreplay=<n>" delivered records
+    and netreplay_diff.py fails below a floor (default 50) or on a count
+    mismatch (the same hole class capture_diff's --min-window closed);
+    (2) COMPAT notes at all four dgrm oversize pre-checks recording that
+    C's 32-bit `receiveMessageLength + length` sum WRAPS for hostile
+    sub-header wire lengths (C then memcpy's a negative length, UB/crash)
+    while the port's usize sum takes the oversize path -- the differential
+    deliberately avoids the C-crash domain; (3) split_host_port now
+    mirrors strtoul's whitespace/sign/ULONG_MAX semantics (port ":-1" ->
+    65535 like C); (4) getaddrinfo_pick6 returns Err/Ok(None)/Ok(Some) so
+    the UDP6 no-port retry fires only on resolver errors like C, not on
+    successful IPv4-only lookups; (6)/(8) COMPAT notes for the
+    uninitialized-fromlen absorb and the zero-filled out-structs;
+    (10) interop_matrix fails loudly when the msgbadread counter line is
+    missing. Review confirmations recorded: no ADR-009 violation in the
+    newly-Rust frames (all raise-capable callees verified beneath C
+    funnels), transliteration fidelity of both dgrm RX paths, ABI mirrors
+    pinned on all three OSes, ADR-003 licensing clean.
+  - The ROADMAP Phase 5 exit-criteria checklist is filled in with the
+    per-criterion evidence, the netreplay gate's precise coverage stratum
+    (it bypasses the drivers; the flipped drivers are gated by ctest +
+    record_diff + calibrated capture + interop), and the carried-to-later
+    -phases record (net_wins.c per ADR-017; the Host_Error funnels and
+    dgrm orchestration per the M9 audit). Deletions deferred as in
+    Phases 1-4.
+  - Known unexercised surfaces, recorded honestly: rust_udp6_* runtime
+    coverage is local-only (the [::1] interop leg); Windows compiles
+    net_dgrm_rel.c as a ctest oracle for the first time on CI;
+    the Windows UDP runtime leg remains the condition for the net_wins.c
+    flip.
+- **2026-08-26 M10 peer review (PR #22)**: adversarial review of M6-M10;
+  all 12 findings assessed, all accepted and fixed.
+  1. **Reachable divergence**: the slist printers used `{:2}` where C uses
+     `%2u` on an `int`. `hostcache.users/maxusers` take `MSG_ReadByte()`
+     (-1 on a truncated CCREP_SERVER_INFO) and `atoi()` of a dpmaster
+     `clients` key, so `users == -1` printed `4294967295` in C and `-1`
+     here. Both printers now cast through `u32`.
+  2. **Provenance**: `net_drivers`/`net_landrivers` were declared as a
+     single element and indexed with `.add(idx)` -- arithmetic outside the
+     declared object. Fixed *not* by fabricating an array size (the
+     reviewer suggested `MAX_NET_DRIVERS`, which is a dead constant no C
+     code enforces, and both arrays are incomplete types sized by their
+     initializers) but by adding `NetMain_Drivers`/`NetMain_LanDrivers` in
+     net_main.c: the base pointer comes from C, so the offset has
+     provenance over the real object. `hostcache` IS a complete array type,
+     so it gets a truthful `[HostCache; HOSTCACHESIZE]` extern.
+  3. `sys::host_by_name` now checks `h_addr_list`/`h_addr_list[0]` for NULL
+     and `h_length >= 4` before the copy -- the ADR-004 island makes the
+     boundary sound rather than inheriting C's unchecked deref.
+  4. `interop_matrix.py` ran the dedicated server on an unread `PIPE`,
+     which wedges once its console output fills the 64 KB buffer. Server
+     stdout now goes to a file (kept for the early-exit diagnostic).
+     Readiness: the reviewer suggested polling the server log, but probing
+     showed the engine's stdout is block-buffered when not a tty, so no
+     marker appears until exit -- polling cannot work. Replaced the blind
+     3s sleep with a **bind probe** instead (UDP4/6_OpenSocket never set
+     SO_REUSEADDR, so our bind of the same port fails EADDRINUSE exactly
+     once the server is listening): buffering-independent, and a cell now
+     costs ~5s instead of 3s of guesswork.
+  5. Deferred Con_Printf drain reorders rel-layer diagnostics against the
+     landriver's. Eager draining would reinstate the M3 re-entrancy, so the
+     divergence is accepted and documented (console text only), including a
+     note at the differential's console assertion recording that its mock
+     NetSys never prints and so cannot observe the interleaving.
+  6. `c_atoi` saturated where C truncates. NB the review's example is
+     miscomputed -- `atoi("99999999999")` is 1215752191 on LP64, not -1;
+     LONG_MAX saturation needs >9.2e18 -- but the finding is real at other
+     inputs (`"4294967300"` is 4 in C, `INT_MAX` when saturating, turning
+     `maxplayers 4294967300` from 4 players into the server maximum). Now
+     one shared `quake_net::cnum::c_atoi` implementing `(int) strtol` with
+     the accumulator in `c_long` (so the saturation point moves with the
+     platform: LP64 vs LLP64), used by both net_main and udp, and pinned by
+     a new `net_cnum_differential` against the real libc `atoi` on every CI
+     OS (fixed vectors + 20k randomized).
+  7. `MAXHOSTNAMELEN` moved to `quake_net::udp` and pinned in abi_probe /
+     net_abi (it is observable: it decides which hostnames are
+     connectable); socket2's implicit `SOCK_CLOEXEC` documented; the
+     `UDP6_GetAddrFromName` failure path now mirrors C's `sa_family = 0`
+     clobber on the resolved-but-no-AF_INET6 case, with the tail-fill
+     divergence documented.
+  8. `PollProcedure` mirror documented as a deliberate pre-pin for Phase 7.
+  9. ROADMAP: Phase 5 returned to `[~]` to match Phases 1-4 (same
+     deferred-deletion posture; the marker means "not closed out", not "not
+     done"), and every carve-out is now listed in the receiving phase's own
+     Scope and Deletes -- the funnels + dgrm orchestration in Phase 7,
+     net_wins.c + net_bsd.c/net_win.c in Phase 9.
+  10. `netreplay_diff.py` dumped build B's log when build A produced no
+      demo; fixed, and a partial (nonzero but short) record header in
+      `Harness_NetReplayGetMessage` is now fatal instead of masquerading as
+      EOF, as is a failed seek.
+  11. `fuzz_net_dgrm` now derives `max_datagram` from the input across the
+      whole legal range -- it is the one value that can drive
+      `send_fragment`'s slice and the ACK `copy_within` window out of
+      bounds, and it is held in range by another translation unit. The
+      invariant is stated on `send_fragment`. 3.3M runs clean.
+  Also removed: two ctest Rust array stand-ins made dead by fix 2.
+  **CI follow-up**: the windows-latest leg failed on fix 6 -- not on the
+  code but on the unit test, which hard-coded LP64 expectations. On LLP64
+  `strtol` saturates at LONG_MAX *before* the `(int)` cast, so
+  `atoi("4294967296")` is INT_MAX on Windows and 0 on unix. The
+  `net_cnum_differential` against the real MSVC `atoi` PASSED on that leg,
+  confirming the implementation; the unit test now derives its expectations
+  from `size_of::<c_long>()` and states the reasoning. Exactly the split
+  the differential was added to pin.

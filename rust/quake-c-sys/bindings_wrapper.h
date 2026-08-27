@@ -107,6 +107,54 @@ struct qsocket_s *NET_NewQSocket (void);
 void			  NET_FreeQSocket (struct qsocket_s *sock);
 double			  SetNetTime (void);
 
+/* Phase 5 M7: the dgrm shared statics (net_dgrm_glue.c under USE_RUST_NET,
+ * net_dgrm_rel.c otherwise) and the net_main message counters the reliable
+ * layer increments; must match net_dgrm_int.h / net_defs.h exactly */
+typedef struct
+{
+	unsigned int  length;
+	unsigned int  sequence;
+	unsigned char data[64000]; /* MAX_DATAGRAM */
+} dgrm_packet_t;
+extern dgrm_packet_t packetBuffer;
+extern int			 packetsSent;
+extern int			 packetsReSent;
+extern int			 packetsReceived;
+extern int			 receivedDuplicateCount;
+extern int			 shortPacketCount;
+extern int			 droppedDatagrams;
+extern int			 messagesReceived;
+extern int			 unreliableMessagesReceived;
+
+/* Phase 5 M7b: the UDP landriver shims' engine globals (net.h) */
+extern int		net_hostport;
+extern char		my_ipv4_address[64]; /* NET_NAMELEN */
+extern char		my_ipv6_address[64];
+extern qboolean ipv4Available;
+extern qboolean ipv6Available;
+double			Sys_DoubleTime (void);
+
+/* Phase 5 M9: the net_main.c core the Rust port reads/writes (net.h /
+ * net_defs.h; qsocket_t stays opaque -- ADR-011 mirror) plus the
+ * svs/sv accessor funnels net_main.c defines under USE_RUST_NET */
+extern struct qsocket_s *net_activeSockets;
+extern struct qsocket_s *net_freeSockets;
+extern int				 net_activeconnections;
+extern int				 DEFAULTnet_hostport;
+extern qboolean			 listening;
+extern size_t			 hostCacheCount;
+qboolean				 NetMain_SVActive (void);
+int						 NetMain_MaxClients (void);
+int						 NetMain_MaxClientsLimit (void);
+void					 NetMain_SetMaxClients (int n);
+struct net_driver_s;
+struct net_landriver_s;
+/* base pointers of the C driver vtable arrays (incomplete types here; the
+   Rust side views the elements through the ADR-011 mirrors) */
+void *NetMain_Drivers (void);
+void *NetMain_LanDrivers (void);
+void					 Cbuf_AddText (const char *text);
+
 /* embedded pak (generated embedded_pak.c) */
 extern const unsigned char vkquake_pak[];
 extern const int		   vkquake_pak_size;

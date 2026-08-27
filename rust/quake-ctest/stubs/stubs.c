@@ -2267,6 +2267,89 @@ void ctest_qsocket_reset_c (void)
 	memset (ctest_qsocket_pool, 0, sizeof (ctest_qsocket_pool));
 }
 
+/*
+ * Phase 5 M6 (net_dgrm_rel.c): byte-order dispatch plus the ambient net
+ * globals the reliable layer references (all names expand through the
+ * c_ref renames). Every CI host is little-endian, so BigLong swaps --
+ * matching COM_Init's runtime dispatch in the engine.
+ */
+static int ctest_LongSwap (int l)
+{
+	byte b1 = l & 255, b2 = (l >> 8) & 255, b3 = (l >> 16) & 255, b4 = (l >> 24) & 255;
+	return ((int)b1 << 24) + ((int)b2 << 16) + ((int)b3 << 8) + b4;
+}
+int (*BigLong) (int l) = ctest_LongSwap;
+double			net_time;
+int				messagesReceived;
+int				unreliableMessagesReceived;
+net_landriver_t net_landrivers[3];
+
+/* Phase 5 M7b (net_udp.c oracle + the Rust UDP shims): ambient globals and
+ * a fixed clock (expand through the c_ref renames where renamed) */
+int		 net_hostport = 26000;
+char	 my_ipv4_address[64];
+char	 my_ipv6_address[64];
+qboolean ipv4Available;
+qboolean ipv6Available;
+double	 Sys_DoubleTime (void)
+{
+	return 0.0;
+}
+
+/* Phase 5 M9: the net_main.c accessor funnels + Cbuf the Rust core
+ * references (linux links every rlib object; never invoked by tests) */
+qboolean NetMain_SVActive (void)
+{
+	return false;
+}
+int NetMain_MaxClients (void)
+{
+	return 4; /* matches the test qsocket pools */
+}
+int NetMain_MaxClientsLimit (void)
+{
+	return 4;
+}
+void NetMain_SetMaxClients (int n)
+{
+	(void)n;
+}
+void Cbuf_AddText (const char *text)
+{
+	Con_Printf ("ctest Cbuf_AddText %s", text);
+}
+
+/* Phase 5 M10: base pointers of the driver vtable arrays. The engine
+ * defines these in net_main.c; here they hand back the stub arrays so the
+ * capi shims link on platforms whose linker resolves every rlib object
+ * (Linux) rather than only the reachable ones (macOS). */
+net_driver_t *NetMain_Drivers (void)
+{
+	static net_driver_t ctest_net_drivers[2];
+	return ctest_net_drivers;
+}
+net_landriver_t *NetMain_LanDrivers (void)
+{
+	return net_landrivers;
+}
+
+/* Phase 5 M10: the platform libc's own atoi, so quake_net::cnum::c_atoi is
+ * pinned against it rather than against a reading of the standard (the
+ * (int)strtol truncation point moves with sizeof(long): LP64 vs LLP64) */
+int ctest_atoi (const char *s)
+{
+	return atoi (s);
+}
+
+void ctest_dgrm_reset_c (void)
+{
+	memset (&packetBuffer, 0, sizeof (packetBuffer));
+	packetsSent = packetsReSent = packetsReceived = 0;
+	receivedDuplicateCount = shortPacketCount = droppedDatagrams = 0;
+	net_time = 0;
+	messagesReceived = unreliableMessagesReceived = 0;
+}
+
 /* ---------------------------------------------------------------------------
  * Phase 5 M4 (review follow-up): fscanf oracle for the demo forcetrack
  * header parse. This is the exact C idiom CL_PlayDemo_f used --

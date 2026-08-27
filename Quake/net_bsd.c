@@ -67,6 +67,55 @@ const int net_numdrivers = countof (net_drivers);
 #include "net_udp.h"
 
 net_landriver_t net_landrivers[] = {
+#ifdef USE_RUST_NET
+	/* Rust migration Phase 5 M7b: both UDP landrivers point at the Rust
+	   implementation (quake-capi net_udp over quake-net::udp). Designated
+	   initializers so same-signature slots cannot swap silently. */
+	{.name = "UDP",
+	 .initialized = false,
+	 .controlSock = 0,
+	 .Init = rust_udp4_Init,
+	 .Shutdown = rust_udp4_Shutdown,
+	 .Listen = rust_udp4_Listen,
+	 .QueryAddresses = rust_udp4_GetAddresses,
+	 .Open_Socket = rust_udp4_OpenSocket,
+	 .Close_Socket = rust_udp_CloseSocket,
+	 .Connect = rust_udp_Connect,
+	 .CheckNewConnections = rust_udp4_CheckNewConnections,
+	 .Read = rust_udp_Read,
+	 .Write = rust_udp_Write,
+	 .Broadcast = rust_udp4_Broadcast,
+	 .AddrToString = rust_udp_AddrToString,
+	 .StringToAddr = rust_udp4_StringToAddr,
+	 .GetSocketAddr = rust_udp_GetSocketAddr,
+	 .GetNameFromAddr = rust_udp_GetNameFromAddr,
+	 .GetAddrFromName = rust_udp4_GetAddrFromName,
+	 .AddrCompare = rust_udp_AddrCompare,
+	 .GetSocketPort = rust_udp_GetSocketPort,
+	 .SetSocketPort = rust_udp_SetSocketPort},
+	{.name = "UDP6",
+	 .initialized = false,
+	 .controlSock = 0,
+	 .Init = rust_udp6_Init,
+	 .Shutdown = rust_udp6_Shutdown,
+	 .Listen = rust_udp6_Listen,
+	 .QueryAddresses = rust_udp6_GetAddresses,
+	 .Open_Socket = rust_udp6_OpenSocket,
+	 .Close_Socket = rust_udp_CloseSocket,
+	 .Connect = rust_udp_Connect,
+	 .CheckNewConnections = rust_udp6_CheckNewConnections,
+	 .Read = rust_udp_Read,
+	 .Write = rust_udp_Write,
+	 .Broadcast = rust_udp6_Broadcast,
+	 .AddrToString = rust_udp_AddrToString,
+	 .StringToAddr = rust_udp6_StringToAddr,
+	 .GetSocketAddr = rust_udp_GetSocketAddr,
+	 .GetNameFromAddr = rust_udp_GetNameFromAddr,
+	 .GetAddrFromName = rust_udp6_GetAddrFromName,
+	 .AddrCompare = rust_udp_AddrCompare,
+	 .GetSocketPort = rust_udp_GetSocketPort,
+	 .SetSocketPort = rust_udp_SetSocketPort}};
+#else
 	{"UDP",
 	 false,
 	 0,
@@ -111,5 +160,6 @@ net_landriver_t net_landrivers[] = {
 	 UDP_AddrCompare,
 	 UDP_GetSocketPort,
 	 UDP_SetSocketPort}};
+#endif
 
 const int net_numlandrivers = (sizeof (net_landrivers) / sizeof (net_landrivers[0]));

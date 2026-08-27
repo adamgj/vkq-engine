@@ -13,6 +13,7 @@ All compiled into every build (runtime-gated); see [harness.h](../../Quake/harne
 | `-exitafter <n>` | hard frame cap, exit code 2 (runaway guard) |
 | `-harnesscmds <file>` | inject console commands at fixed frames (`<frame> <command>` per line) — also how demos/maps are started, since the `cmdline` cvar is deliberately empty in shareware installs |
 | `-netcapture <file>` | framed capture of all traffic at the `NET_*` funnels |
+| `-netreplay <file>` | deterministic client-side replay of a `-netcapture` recv stream (one record per frame; sends absorbed); forces the fixed timestep, so with `-demohash` the replayed session byte-compares across builds |
 | `-tracefile <file>` | per-instruction progs VM trace (needs a `-Dtrace=true` build) |
 
 The state hash covers: per-edict `free`/`freetime`/`alpha`/`baseline`/lerp fields/`num_leafs`+populated `leafnums` + the full progs-visible field block, progs globals, VM time, client sim variables, client entity states, and the RNG state. It deliberately excludes pointers, area links, the debug-only edict header, and `leafnums` entries past `num_leafs` (stale leftovers no observer can see), so debug and release builds hash the same *state* (though FP differences mean goldens are release-only).
@@ -27,6 +28,10 @@ Harness runs are hermetic: per-user files (`vkQuake.cfg`, `basedirs.txt`, consol
 - `run_corpus.py` — drive [corpus.json](corpus.json): `--generate` / `--check` goldens, `--stability` (run-twice), or `--compare <other-build>` (the mixed-vs-C-only gate, which needs no goldens and so works on platforms that have none yet)
 - `save_diff.py` — scripted map+save scenario byte-compared between two builds
 - `capture_session.py` — dedicated server + headless client localhost protocol capture
+- `capture_diff.py` — structural capture differ (reliable-stream prefix under a calibrated window + per-kind counts)
+- `record_diff.py` — deterministic loopback `record` session byte-compared between two builds
+- `netreplay_diff.py` — replay one capture on two builds; state-hash chains + a demo recorded mid-replay must be byte-identical (the timing-noise-free net gate)
+- `interop_matrix.py` — 4-way C/Rust client x server localhost matrix across the negotiable protocol cells (`Base-/FTE+` 15/666/999; optional `--ipv6` leg)
 - `run_trace.py` — progs trace collection on a `-Dtrace=true` build
 - `fetch_shareware.py` — pull the redistributable 1.06 shareware data for CI
 - `check_headers.sh` — core headers compile standalone + bindgen smoke

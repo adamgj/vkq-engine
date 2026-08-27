@@ -16,6 +16,7 @@ const C_SOURCES: &[&str] = &[
     "Quake/mathlib.c",
     "Quake/mdfour.c",
     "Quake/model_parse.c",
+    "Quake/net_dgrm_rel.c",
     "Quake/net_loop.c",
     "Quake/net_msg.c",
     "Quake/snd_mem.c",
@@ -110,6 +111,13 @@ fn main() {
 
     for src in C_SOURCES {
         let path = repo_root.join(src);
+        println!("cargo:rerun-if-changed={}", path.display());
+        build.file(path);
+    }
+    // Phase 5 M7b: the unix UDP landriver oracle (net_wins.c stays C-only
+    // and untested here; see the task plan's ADR-017 deferral note)
+    if std::env::var_os("CARGO_CFG_UNIX").is_some() {
+        let path = repo_root.join("Quake/net_udp.c");
         println!("cargo:rerun-if-changed={}", path.display());
         build.file(path);
     }

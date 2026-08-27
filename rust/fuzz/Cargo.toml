@@ -163,3 +163,17 @@ name = "fuzz_net_demo"
 path = "fuzz_targets/fuzz_net_demo.rs"
 test = false
 doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_net_dgrm"
+path = "fuzz_targets/fuzz_net_dgrm.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_net_ccreq"
+path = "fuzz_targets/fuzz_net_ccreq.rs"
+test = false
+doc = false

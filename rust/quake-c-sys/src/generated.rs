@@ -182,6 +182,9 @@ unsafe extern "C" {
 unsafe extern "C" {
     pub fn Sys_Printf(fmt: *const ::std::os::raw::c_char, ...);
 }
+unsafe extern "C" {
+    pub fn Sys_DoubleTime() -> f64;
+}
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct sizebuf_s {
@@ -604,6 +607,11 @@ unsafe extern "C" {
 unsafe extern "C" {
     pub static mut harness_sndhash: qboolean;
 }
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct qsocket_s {
+    _unused: [u8; 0],
+}
 unsafe extern "C" {
     pub static mut harness_badread_count: ::std::os::raw::c_uint;
 }
@@ -815,11 +823,6 @@ unsafe extern "C" {
 unsafe extern "C" {
     pub static mut net_driverlevel: ::std::os::raw::c_int;
 }
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct qsocket_s {
-    _unused: [u8; 0],
-}
 unsafe extern "C" {
     pub fn NET_NewQSocket() -> *mut qsocket_s;
 }
@@ -828,6 +831,94 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn SetNetTime() -> f64;
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct dgrm_packet_t {
+    pub length: ::std::os::raw::c_uint,
+    pub sequence: ::std::os::raw::c_uint,
+    pub data: [::std::os::raw::c_uchar; 64000usize],
+}
+unsafe extern "C" {
+    pub static mut packetBuffer: dgrm_packet_t;
+}
+unsafe extern "C" {
+    pub static mut packetsSent: ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub static mut packetsReSent: ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub static mut packetsReceived: ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub static mut receivedDuplicateCount: ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub static mut shortPacketCount: ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub static mut droppedDatagrams: ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub static mut messagesReceived: ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub static mut unreliableMessagesReceived: ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub static mut net_hostport: ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub static mut my_ipv4_address: [::std::os::raw::c_char; 64usize];
+}
+unsafe extern "C" {
+    pub static mut my_ipv6_address: [::std::os::raw::c_char; 64usize];
+}
+unsafe extern "C" {
+    pub static mut ipv4Available: qboolean;
+}
+unsafe extern "C" {
+    pub static mut ipv6Available: qboolean;
+}
+unsafe extern "C" {
+    pub static mut net_activeSockets: *mut qsocket_s;
+}
+unsafe extern "C" {
+    pub static mut net_freeSockets: *mut qsocket_s;
+}
+unsafe extern "C" {
+    pub static mut net_activeconnections: ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub static mut DEFAULTnet_hostport: ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub static mut listening: qboolean;
+}
+unsafe extern "C" {
+    pub static mut hostCacheCount: usize;
+}
+unsafe extern "C" {
+    pub fn NetMain_SVActive() -> qboolean;
+}
+unsafe extern "C" {
+    pub fn NetMain_MaxClients() -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn NetMain_MaxClientsLimit() -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn NetMain_SetMaxClients(n: ::std::os::raw::c_int);
+}
+unsafe extern "C" {
+    pub fn NetMain_Drivers() -> *mut ::std::os::raw::c_void;
+}
+unsafe extern "C" {
+    pub fn NetMain_LanDrivers() -> *mut ::std::os::raw::c_void;
+}
+unsafe extern "C" {
+    pub fn Cbuf_AddText(text: *const ::std::os::raw::c_char);
 }
 unsafe extern "C" {
     pub static vkquake_pak: [::std::os::raw::c_uchar; 0usize];

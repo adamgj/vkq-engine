@@ -32,6 +32,65 @@ pub static mut harness_badread_count: core::ffi::c_uint = 0;
 #[no_mangle]
 pub static mut net_driverlevel: c_int = 0;
 
+// Phase 5 M7: the dgrm/udp shims' ambient C globals (net_dgrm_glue.c /
+// net_main.c / net_bsd.c in the engine). The linux linker resolves every
+// rlib object, so these must exist even in tests that never call the shims.
+#[no_mangle]
+pub static mut net_time: f64 = 0.0;
+#[no_mangle]
+pub static mut net_hostport: c_int = 26000;
+#[repr(C)]
+pub struct StubPacketBuffer(pub [u8; 64008]);
+#[no_mangle]
+pub static mut packetBuffer: StubPacketBuffer = StubPacketBuffer([0; 64008]);
+#[no_mangle]
+pub static mut packetsSent: c_int = 0;
+#[no_mangle]
+pub static mut packetsReSent: c_int = 0;
+#[no_mangle]
+pub static mut packetsReceived: c_int = 0;
+#[no_mangle]
+pub static mut receivedDuplicateCount: c_int = 0;
+#[no_mangle]
+pub static mut shortPacketCount: c_int = 0;
+#[no_mangle]
+pub static mut droppedDatagrams: c_int = 0;
+#[no_mangle]
+pub static mut messagesReceived: c_int = 0;
+#[no_mangle]
+pub static mut unreliableMessagesReceived: c_int = 0;
+
+// Phase 5 M9: the net_main.c core's ambient globals
+#[no_mangle]
+pub static mut net_activeSockets: *mut qsocket_s = ptr::null_mut();
+#[no_mangle]
+pub static mut net_freeSockets: *mut qsocket_s = ptr::null_mut();
+#[no_mangle]
+pub static mut net_activeconnections: c_int = 0;
+#[no_mangle]
+pub static mut DEFAULTnet_hostport: c_int = 26000;
+#[no_mangle]
+pub static mut listening: bool = false;
+#[no_mangle]
+pub static mut hostCacheCount: usize = 0;
+
+const EMPTY_HOSTCACHE: quake_types::net::HostCache = quake_types::net::HostCache {
+    name: [0; 64],
+    map: [0; 16],
+    gamedir: [0; 16],
+    cname: [0; 64],
+    users: 0,
+    maxusers: 0,
+    driver: 0,
+    ldriver: 0,
+    addr: quake_types::net::QSockAddr::zeroed(),
+};
+#[no_mangle]
+pub static mut hostcache: [quake_types::net::HostCache; 128] = [EMPTY_HOSTCACHE; 128];
+
+#[no_mangle]
+pub static net_numdrivers: c_int = 2;
+
 const POOL: usize = 4;
 static mut QSOCKET_POOL: [core::mem::MaybeUninit<QSocket>; POOL] =
     [const { core::mem::MaybeUninit::uninit() }; POOL];

@@ -25,6 +25,23 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include "net_sys.h"
 #include "net_defs.h"
 
+#ifdef USE_RUST_NET
+/* Rust migration Phase 5 M9: the ADR-009-safe core of this file lives in
+   quake-capi (rust_net_*); the dispatch funnels (NET_Connect/GetMessage/
+   GetServerMessage / Send / SendToAll / Poll) and NET_Init/Shutdown stay C
+   frames here -- Host_Error-capable code runs beneath them and a longjmp
+   must never unwind a Rust frame. See the task plan's M9 audit note. */
+#include "steam.h" // quake_rs.h declares the Phase 2 Steam shims in terms of steamgame_t
+#include "quake_rs.h"
+
+#define PrintSlistHeader  rust_net_PrintSlistHeader
+#define PrintSlist		  rust_net_PrintSlist
+#define PrintSlistTrailer rust_net_PrintSlistTrailer
+#define NET_Listen_f	  rust_net_Listen_f
+#define MaxPlayers_f	  rust_net_MaxPlayers_f
+#define NET_Port_f		  rust_net_Port_f
+#endif
+
 qsocket_t *net_activeSockets = NULL;
 qsocket_t *net_freeSockets = NULL;
 int		   net_numsockets = 0;
@@ -45,7 +62,9 @@ qboolean		  slist_silent = false;
 enum slistScope_e slist_scope = SLIST_LOOP;
 static double	  slistStartTime;
 static double	  slistActiveTime;
-static int		  slistLastShown;
+#ifndef USE_RUST_NET
+static int slistLastShown; /* Phase 5 M9: Rust-owned under USE_RUST_NET */
+#endif
 
 static void			 Slist_Send (void *);
 static void			 Slist_Poll (void *);
@@ -72,11 +91,18 @@ int net_driverlevel;
 
 double net_time;
 
+#ifdef USE_RUST_NET
+double SetNetTime (void)
+{
+	return rust_net_SetNetTime ();
+}
+#else
 double SetNetTime (void)
 {
 	net_time = Sys_DoubleTime ();
 	return net_time;
 }
+#endif
 
 /*
 ===================
@@ -86,6 +112,12 @@ Called by drivers when a new communications endpoint is required
 The sequence and buffer fields will be filled in properly
 ===================
 */
+#ifdef USE_RUST_NET
+qsocket_t *NET_NewQSocket (void)
+{
+	return rust_net_NewQSocket ();
+}
+#else
 qsocket_t *NET_NewQSocket (void)
 {
 	qsocket_t *sock;
@@ -127,7 +159,14 @@ qsocket_t *NET_NewQSocket (void)
 
 	return sock;
 }
+#endif
 
+#ifdef USE_RUST_NET
+void NET_FreeQSocket (qsocket_t *sock)
+{
+	rust_net_FreeQSocket (sock);
+}
+#else
 void NET_FreeQSocket (qsocket_t *sock)
 {
 	qsocket_t *s;
@@ -155,7 +194,71 @@ void NET_FreeQSocket (qsocket_t *sock)
 	net_freeSockets = sock;
 	sock->disconnected = true;
 }
+#endif
 
+#ifdef USE_RUST_NET
+int NET_QSocketGetSequenceIn (const qsocket_t *s)
+{
+	return rust_net_QSocketGetSequenceIn (s);
+}
+int NET_QSocketGetSequenceOut (const qsocket_t *s)
+{
+	return rust_net_QSocketGetSequenceOut (s);
+}
+double NET_QSocketGetTime (const qsocket_t *s)
+{
+	return rust_net_QSocketGetTime (s);
+}
+const char *NET_QSocketGetTrueAddressString (const qsocket_t *s)
+{
+	return rust_net_QSocketGetTrueAddressString (s);
+}
+const char *NET_QSocketGetMaskedAddressString (const qsocket_t *s)
+{
+	return rust_net_QSocketGetMaskedAddressString (s);
+}
+qboolean NET_QSocketGetProQuakeAngleHack (const qsocket_t *s)
+{
+	return rust_net_QSocketGetProQuakeAngleHack (s);
+}
+void NET_QSocketSetMSS (qsocket_t *s, int mss)
+{
+	rust_net_QSocketSetMSS (s, mss);
+}
+
+/* svs/sv accessor funnels for the Rust side (server.h is not
+   bindgen-clean) */
+qboolean NetMain_SVActive (void)
+{
+	return sv.active;
+}
+int NetMain_MaxClients (void)
+{
+	return svs.maxclients;
+}
+int NetMain_MaxClientsLimit (void)
+{
+	return svs.maxclientslimit;
+}
+void NetMain_SetMaxClients (int n)
+{
+	svs.maxclients = n;
+}
+
+/* net_drivers[]/net_landrivers[] are incomplete array types here (sized by
+   their initializers in net_bsd.c/net_win.c), so the Rust side cannot
+   declare a truthful array extern for them. Handing out the base pointer
+   from C instead gives the Rust pointer arithmetic provenance over the real
+   object (ADR-004: the SAFETY obligation is discharged, not asserted). */
+net_driver_t *NetMain_Drivers (void)
+{
+	return net_drivers;
+}
+net_landriver_t *NetMain_LanDrivers (void)
+{
+	return net_landrivers;
+}
+#else
 int NET_QSocketGetSequenceIn (const qsocket_t *s)
 { // returns the last unreliable sequence that was received
 	return s->unreliableReceiveSequence - 1;
@@ -188,7 +291,9 @@ void NET_QSocketSetMSS (qsocket_t *s, int mss)
 {
 	s->pending_max_datagram = mss;
 }
+#endif
 
+#ifndef USE_RUST_NET
 static void NET_Listen_f (void)
 {
 	if (Cmd_Argc () != 2)
@@ -272,7 +377,9 @@ static void NET_Port_f (void)
 		Cbuf_AddText ("listen 1\n");
 	}
 }
+#endif
 
+#ifndef USE_RUST_NET
 static void PrintSlistHeader (void)
 {
 	Con_Printf ("Server          Map             Users\n");
@@ -301,6 +408,7 @@ static void PrintSlistTrailer (void)
 	else
 		Con_Printf ("No Quake servers found.\n\n");
 }
+#endif
 
 void NET_Slist_f (void)
 {
@@ -322,6 +430,20 @@ void NET_Slist_f (void)
 	hostCacheCount = 0;
 }
 
+#ifdef USE_RUST_NET
+void NET_SlistSort (void)
+{
+	rust_net_SlistSort ();
+}
+const char *NET_SlistPrintServer (size_t idx)
+{
+	return rust_net_SlistPrintServer (idx);
+}
+const char *NET_SlistPrintServerName (size_t idx)
+{
+	return rust_net_SlistPrintServerName (idx);
+}
+#else
 void NET_SlistSort (void)
 {
 	if (hostCacheCount > 1)
@@ -369,6 +491,7 @@ const char *NET_SlistPrintServerName (size_t idx)
 		return "";
 	return hostcache[idx].cname;
 }
+#endif
 
 static void Slist_Send (void *unused)
 {
@@ -427,6 +550,9 @@ qsocket_t *NET_Connect (const char *host)
 	qsocket_t *ret;
 	size_t	   n;
 	int		   numdrivers = net_numdrivers;
+
+	if (harness_netreplay)
+		return Harness_NetReplayConnect (); /* Phase 5 M8: replayed session */
 
 	SetNetTime ();
 
@@ -506,6 +632,12 @@ JustDoIt:
 NET_CheckNewConnections
 ===================
 */
+#ifdef USE_RUST_NET
+qsocket_t *NET_CheckNewConnections (void)
+{
+	return rust_net_CheckNewConnections ();
+}
+#else
 qsocket_t *NET_CheckNewConnections (void)
 {
 	qsocket_t *ret;
@@ -527,12 +659,19 @@ qsocket_t *NET_CheckNewConnections (void)
 
 	return NULL;
 }
+#endif
 
 /*
 ===================
 NET_Close
 ===================
 */
+#ifdef USE_RUST_NET
+void NET_Close (qsocket_t *sock)
+{
+	rust_net_Close (sock);
+}
+#else
 void NET_Close (qsocket_t *sock)
 {
 	if (!sock)
@@ -548,6 +687,7 @@ void NET_Close (qsocket_t *sock)
 
 	NET_FreeQSocket (sock);
 }
+#endif
 
 /*
 =================
@@ -572,6 +712,9 @@ int NET_GetMessage (qsocket_t *sock)
 		Con_Printf ("NET_GetMessage: disconnected socket\n");
 		return -1;
 	}
+
+	if (harness_netreplay && Harness_NetReplayOwns (sock))
+		return Harness_NetReplayGetMessage ();
 
 	SetNetTime ();
 
@@ -637,6 +780,12 @@ qsocket_t *NET_GetServerMessage (void)
 Spike: This function is for the menus+status command
 Just queries each driver's public addresses (which often requires system-specific calls)
 */
+#ifdef USE_RUST_NET
+int NET_ListAddresses (qhostaddr_t *addresses, int maxaddresses)
+{
+	return rust_net_ListAddresses (addresses, maxaddresses);
+}
+#else
 int NET_ListAddresses (qhostaddr_t *addresses, int maxaddresses)
 {
 	int result = 0;
@@ -649,6 +798,7 @@ int NET_ListAddresses (qhostaddr_t *addresses, int maxaddresses)
 	}
 	return result;
 }
+#endif
 
 /*
 ==================
@@ -674,6 +824,9 @@ int NET_SendMessage (qsocket_t *sock, sizebuf_t *data)
 		return -1;
 	}
 
+	if (harness_netreplay && Harness_NetReplayOwns (sock))
+		return 1; /* Phase 5 M8: the replay absorbs client output */
+
 	SetNetTime ();
 	r = sfunc.QSendMessage (sock, data);
 	if (r == 1)
@@ -696,6 +849,9 @@ int NET_SendUnreliableMessage (qsocket_t *sock, sizebuf_t *data)
 		Con_Printf ("NET_SendMessage: disconnected socket\n");
 		return -1;
 	}
+
+	if (harness_netreplay && Harness_NetReplayOwns (sock))
+		return 1;
 
 	SetNetTime ();
 	r = sfunc.SendUnreliableMessage (sock, data);
@@ -722,6 +878,9 @@ qboolean NET_CanSendMessage (qsocket_t *sock)
 
 	if (sock->disconnected)
 		return false;
+
+	if (harness_netreplay && Harness_NetReplayOwns (sock))
+		return true;
 
 	SetNetTime ();
 
