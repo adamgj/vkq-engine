@@ -496,6 +496,11 @@ void GLMesh_DeleteMeshBuffers (aliashdr_t *mainhdr);
 #define PR_RunError           c_ref_PR_RunError
 #define PR_RunWarning         c_ref_PR_RunWarning
 #define PR_Profile_f          c_ref_PR_Profile_f
+#define PR_UglyValueString    c_ref_PR_UglyValueString
+#define ED_Write              c_ref_ED_Write
+#define ED_WriteGlobals       c_ref_ED_WriteGlobals
+#define ED_FieldAtOfs         c_ref_ED_FieldAtOfs
+#define type_size             c_ref_type_size
 
 #include "protocol.h" /* entity_state_t, which edict_t embeds */
 #include "progs.h"
@@ -514,6 +519,8 @@ void				  ED_Print (edict_t *ed);
 void				  PR_SwitchQCVM (qcvm_t *nvm);
 const char			 *PR_GlobalString (int ofs);
 const char			 *PR_GlobalStringNoContents (int ofs);
+ddef_t				 *ED_FieldAtOfs (int ofs);
+extern const int	  type_size[NUM_TYPE_SIZES];
 
 /* server.h slice: model_parse.c reads sv.modelname; snd_mix.c (Phase 4)
  * reads sv.active */

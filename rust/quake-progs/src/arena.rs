@@ -31,7 +31,7 @@ use core::ffi::{c_char, c_int, c_void};
 use core::mem::{offset_of, size_of};
 
 use quake_types::progs::{
-    BuiltinT, DFunction, DStatement, Edict, EntityState, PrStack, QBoolean, QcVm,
+    BuiltinT, DDef, DFunction, DStatement, Edict, EntityState, PrStack, QBoolean, QcVm,
 };
 
 /// Index of an edict within the arena. Replaces the raw `edict_t *` that C
@@ -764,6 +764,125 @@ impl VmRaw {
                 num,
             )
         }
+    }
+
+    // ---- def tables ------------------------------------------------------
+
+    /// `qcvm->progs->numfielddefs`
+    #[must_use]
+    pub fn numfielddefs(&self) -> c_int {
+        // SAFETY: `progs` is loaded by the constructor's contract.
+        unsafe { (*(*self.vm).progs).numfielddefs }
+    }
+
+    /// `qcvm->progs->numglobaldefs`
+    #[must_use]
+    pub fn numglobaldefs(&self) -> c_int {
+        // SAFETY: as above.
+        unsafe { (*(*self.vm).progs).numglobaldefs }
+    }
+
+    /// `qcvm->progs->entityfields`
+    #[must_use]
+    pub fn entityfields(&self) -> c_int {
+        // SAFETY: as above.
+        unsafe { (*(*self.vm).progs).entityfields }
+    }
+
+    /// `qcvm->fielddefs[i]`
+    #[must_use]
+    pub fn fielddef(&self, i: c_int) -> DDef {
+        debug_assert!(i >= 0 && i < self.numfielddefs());
+        // SAFETY: the caller stays within numfielddefs, and the table is at
+        // least that long (PR_MergeEngineFieldDefs only grows it).
+        unsafe { (*self.vm).fielddefs.add(i as usize).read() }
+    }
+
+    /// `qcvm->globaldefs[i]`
+    #[must_use]
+    pub fn globaldef(&self, i: c_int) -> DDef {
+        debug_assert!(i >= 0 && i < self.numglobaldefs());
+        // SAFETY: as above.
+        unsafe { (*self.vm).globaldefs.add(i as usize).read() }
+    }
+
+    /// `qcvm->functions[i].s_name`, for `PR_UglyValueString`'s `ev_function`.
+    #[must_use]
+    pub fn function_name_handle(&self, i: c_int) -> Option<c_int> {
+        if i < 0 || i >= self.numfunctions() {
+            return None;
+        }
+        // SAFETY: bounds-checked immediately above.
+        Some(unsafe { (*self.vm).functions.add(i as usize).read() }.s_name)
+    }
+
+    /// `qcvm->max_edicts`
+    #[must_use]
+    pub fn max_edicts(&self) -> c_int {
+        // SAFETY: a plain field read of the live qcvm_t.
+        unsafe { (*self.vm).max_edicts }
+    }
+
+    /// `qcvm->num_edicts`
+    #[must_use]
+    pub fn num_edicts(&self) -> c_int {
+        // SAFETY: as above.
+        unsafe { (*self.vm).num_edicts }
+    }
+
+    pub fn set_num_edicts(&mut self, n: c_int) {
+        // SAFETY: as above.
+        unsafe { (*self.vm).num_edicts = n }
+    }
+
+    /// `qcvm->extfields.alpha` — `ED_Write`'s manual-alpha fallback.
+    #[must_use]
+    pub fn extfield_alpha(&self) -> c_int {
+        // SAFETY: as above.
+        unsafe { (*self.vm).extfields.alpha }
+    }
+
+    /// The progs-visible field words of one edict, addressed as C does:
+    /// `(int *)((char *)&ed->v + ofs * 4)`.
+    #[must_use]
+    pub fn edict_field_words(&self, num: c_int, word_ofs: c_int, count: usize) -> Option<Vec<i32>> {
+        let byteofs = self.field_byte_offset(num * self.edict_size_for_test(), word_ofs);
+        (0..count)
+            .map(|i| self.ed_i32(byteofs + (i as i32) * 4))
+            .collect()
+    }
+
+    /// `ed->alpha`, the engine-side byte `ED_Write` falls back to.
+    #[must_use]
+    pub fn edict_alpha(&self, num: c_int) -> u8 {
+        let stride = self.edict_size_for_test() as usize;
+        // SAFETY: num < max_edicts, and `alpha` sits in the fixed header.
+        unsafe {
+            core::ptr::addr_of!((*self.edicts.add(num as usize * stride).cast::<Edict>()).alpha)
+                .read()
+        }
+    }
+
+    /// `ed->free`
+    #[must_use]
+    pub fn edict_free(&self, num: c_int) -> bool {
+        let stride = self.edict_size_for_test() as usize;
+        // SAFETY: as above.
+        unsafe {
+            core::ptr::addr_of!((*self.edicts.add(num as usize * stride).cast::<Edict>()).free)
+                .read()
+        }
+    }
+
+    /// `PR_GetString` as bytes up to the NUL, for writers that format it.
+    ///
+    /// The returned slice borrows the progs string blob or a `knownstrings`
+    /// entry, both of which outlive any single VM step.
+    pub fn get_string_bytes(&self, num: c_int) -> Result<&[u8], StringError> {
+        let p = self.get_string(num)?;
+        // SAFETY: resolve_string only ever returns a pointer into the progs
+        // string blob or a live knownstrings entry; both are NUL-terminated.
+        Ok(unsafe { core::ffi::CStr::from_ptr(p) }.to_bytes())
     }
 
     /// `!*PR_GetString (handle)` — whether a progs string is empty, which is

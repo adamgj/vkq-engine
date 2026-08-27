@@ -179,3 +179,4 @@ void PRExec_Glue_TraceGlobalWrite (int ofs, const int *values, int count);
 void PRExec_Glue_TraceFieldWrite (int ofs, const int *values, int count);
 void PRExec_Glue_TraceBuiltin (int ordinal, int argc, const int *parms);
 void PRExec_Glue_TraceBuiltinReturn (const int *ret);
+int PRSave_Glue_FieldAtOfs (int ofs, int *type, int *field_ofs, int *s_name);

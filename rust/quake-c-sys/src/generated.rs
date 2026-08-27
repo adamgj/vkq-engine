@@ -994,3 +994,11 @@ unsafe extern "C" {
 unsafe extern "C" {
     pub fn PRExec_Glue_TraceBuiltinReturn(ret: *const ::std::os::raw::c_int);
 }
+unsafe extern "C" {
+    pub fn PRSave_Glue_FieldAtOfs(
+        ofs: ::std::os::raw::c_int,
+        type_: *mut ::std::os::raw::c_int,
+        field_ofs: *mut ::std::os::raw::c_int,
+        s_name: *mut ::std::os::raw::c_int,
+    ) -> ::std::os::raw::c_int;
+}

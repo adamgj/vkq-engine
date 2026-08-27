@@ -215,6 +215,11 @@ long long quake_rs_demo_resume_seek_offset(void);
  * entry validation, every raise, and the Host_Guard'd builtin dispatch. */
 #ifdef _QUAKE_PROGS_H
 int quake_rs_pr_execute_program(func_t fnum, int *detail);
+/* Phase 6 M4: the savegame writer. pr_edict_save_glue.c owns the FILE *
+ * writes, PR_UglyValueString's static buffer, and the one raise. */
+int quake_rs_pr_ugly_value_string(int type, const int *val, char *out, size_t out_len, int *detail);
+int quake_rs_ed_write(int num, const unsigned char **out, size_t *out_len, int *detail);
+int quake_rs_ed_write_globals(const unsigned char **out, size_t *out_len, int *detail);
 #endif
 #ifdef __NET_DEFS_H
 int rust_loop_Init(void);
@@ -307,6 +312,9 @@ parse_deps = false
 [export]
 exclude = [
     "quake_rs_pr_execute_program",
+    "quake_rs_pr_ugly_value_string",
+    "quake_rs_ed_write",
+    "quake_rs_ed_write_globals",
     "BoxOnPlaneSide", "R_ConcatRotations", "R_ConcatTransforms", "vec3_origin",
     "VectorAngles", "VectorMA", "_DotProduct", "_VectorSubtract", "_VectorAdd",
     "_VectorCopy", "VectorCompare", "VectorLength", "CrossProduct",

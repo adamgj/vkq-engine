@@ -2645,6 +2645,8 @@ void ctest_progs_synth_free (void)
 		SAFE_FREE (vm->functions);
 		SAFE_FREE (vm->globals);
 		SAFE_FREE (vm->strings);
+		SAFE_FREE (vm->fielddefs);
+		SAFE_FREE (vm->globaldefs);
 	}
 	qcvm = NULL;
 	pr_global_struct = NULL;
@@ -2666,4 +2668,81 @@ void ctest_progs_call_builtin (int which, int index)
 void ctest_progs_set_sv_state (int active)
 {
 	sv.state = active ? ss_active : ss_loading;
+}
+
+/* ---------------------------------------------------------------------------
+ * Phase 6 M4: seams the pr_edict_save.c oracle needs. type_size and
+ * ED_FieldAtOfs stay in pr_edict.c; the tests install a fielddef table so
+ * ED_FieldAtOfs has something to search.
+ */
+const int type_size[NUM_TYPE_SIZES] = {1, 1, 1, 3, 1, 1, 1, 1};
+
+ddef_t *ED_FieldAtOfs (int ofs)
+{
+	int i;
+	for (i = 0; i < qcvm->progs->numfielddefs; i++)
+	{
+		ddef_t *def = &qcvm->fielddefs[i];
+		if (def->ofs == ofs)
+			return def;
+	}
+	return NULL;
+}
+
+/* Runs a c_ref writer into a temp file and returns its bytes. */
+int ctest_progs_capture_ed_write (int edict_num, unsigned char *out, int out_max)
+{
+	FILE *f = tmpfile ();
+	long  n;
+	if (!f)
+		return -1;
+	c_ref_ED_Write (f, EDICT_NUM (edict_num));
+	fflush (f);
+	n = ftell (f);
+	rewind (f);
+	if (n > out_max)
+		n = out_max;
+	n = (long)fread (out, 1, (size_t)n, f);
+	fclose (f);
+	return (int)n;
+}
+
+int ctest_progs_capture_ed_write_globals (unsigned char *out, int out_max)
+{
+	FILE *f = tmpfile ();
+	long  n;
+	if (!f)
+		return -1;
+	c_ref_ED_WriteGlobals (f);
+	fflush (f);
+	n = ftell (f);
+	rewind (f);
+	if (n > out_max)
+		n = out_max;
+	n = (long)fread (out, 1, (size_t)n, f);
+	fclose (f);
+	return (int)n;
+}
+
+/* Installs a synthetic def table on a fixture so the writers have something
+ * to iterate. Fielddefs/globaldefs are copied; the caller keeps ownership of
+ * nothing. */
+void ctest_progs_set_defs (int which, const void *fielddefs, int numfielddefs, const void *globaldefs, int numglobaldefs, int extfields_alpha)
+{
+	qcvm_t *vm = (qcvm_t *)ctest_progs_vm (which);
+
+	if (vm->fielddefs)
+		Mem_Free (vm->fielddefs);
+	if (vm->globaldefs)
+		Mem_Free (vm->globaldefs);
+
+	vm->fielddefs = (ddef_t *)Mem_Alloc ((size_t)numfielddefs * sizeof (ddef_t));
+	memcpy (vm->fielddefs, fielddefs, (size_t)numfielddefs * sizeof (ddef_t));
+	vm->progs->numfielddefs = numfielddefs;
+
+	vm->globaldefs = (ddef_t *)Mem_Alloc ((size_t)numglobaldefs * sizeof (ddef_t));
+	memcpy (vm->globaldefs, globaldefs, (size_t)numglobaldefs * sizeof (ddef_t));
+	vm->progs->numglobaldefs = numglobaldefs;
+
+	vm->extfields.alpha = extfields_alpha;
 }
