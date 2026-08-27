@@ -8,7 +8,7 @@ use core::ffi::{c_char, c_int};
 
 use quake_c_sys as c;
 use quake_progs::arena::VmRaw;
-use quake_progs::save::{self, SaveError, SaveSys};
+use quake_progs::save::{self, value_words, SaveError, SaveSys};
 use quake_types::progs::{DDef, QcVm};
 
 /// Status codes shared with `Quake/pr_edict_save_glue.c` (keep in sync).
@@ -74,9 +74,15 @@ pub unsafe extern "C" fn quake_rs_pr_ugly_value_string(
     let detail = unsafe { &mut *detail };
     *detail = 0;
 
-    // SAFETY: the widest type PR_UglyValueString reads is a vector (3 words);
-    // the 64-bit types read 2. Four is a safe upper bound for every arm.
-    let words = unsafe { core::slice::from_raw_parts(val, 4) };
+    // Exactly the words this type occupies. C reads 1-3 words depending on
+    // the arm, and the callers (pr_edict.c's ED_Print, pr_ext.c's
+    // putentityfieldstring/pr_dumpplatform) pass pointers into the globals
+    // block or an edict's field block -- so a fixed 4-word slice would run
+    // past the allocation for a def at either tail, which
+    // `slice::from_raw_parts` forbids even without a read.
+    // SAFETY: `val` addresses at least `value_words(ty)` words, which is what
+    // the type occupies and all C reads.
+    let words = unsafe { core::slice::from_raw_parts(val, value_words(ty)) };
 
     // SAFETY: see ambient_vm.
     let vm = unsafe { ambient_vm() };

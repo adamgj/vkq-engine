@@ -366,9 +366,6 @@ fn manual_alpha_fallback_matches() {
         for alpha in [0u8, 1, 2, 128, 255] {
             let _g = lock();
             setup(&[def(etype::EV_VOID, 0, 0)], &[], extfields_alpha);
-            for mut vm in [vm_a(), vm_b()] {
-                let _ = &mut vm;
-            }
             // set ed->alpha on both fixtures
             for which in 0..2 {
                 // SAFETY: the caller holds VM_LOCK; the fixture has 8 edicts.
@@ -461,6 +458,66 @@ fn out_of_range_string_handles_write_empty_on_both_sides() {
     assert_eq!(
         save::ugly_value_string(&vm, &mut sys, etype::EV_STRING, &[-1, 0, 0, 0]),
         Ok(Vec::new())
+    );
+    teardown();
+}
+
+/// COMPAT: `PR_UglyValueString` formats into a `static char line[1024]` with
+/// `q_snprintf`, so a value longer than 1023 bytes is **truncated** — and
+/// `ED_Write` writes whatever survives. A mod storing a long `strzone`d string
+/// in an entity field reaches this; id1 never does, which is why the
+/// end-to-end `save_diff.py` gate is blind to it.
+///
+/// Caught by the M5 compatibility review: the port formatted into an unbounded
+/// `Vec`, so the Rust build wrote the full string where C wrote 1023 bytes —
+/// a savegame byte divergence and a cross-load divergence.
+#[test]
+fn long_string_values_are_truncated_at_cs_buffer() {
+    let _g = lock();
+
+    // a strings blob holding one very long value, addressed by handle 1
+    let mut blob: Vec<u8> = vec![0];
+    let long: Vec<u8> = std::iter::repeat(b'A').take(4000).collect();
+    blob.extend_from_slice(&long);
+    blob.push(0);
+
+    for which in 0..2 {
+        // SAFETY: the caller holds VM_LOCK; the slices outlive the copy.
+        unsafe {
+            ctest_progs_synth_vm(
+                which,
+                8,
+                64,
+                128,
+                core::ptr::null(),
+                0,
+                core::ptr::null(),
+                0,
+                blob.as_ptr().cast::<i8>(),
+                blob.len() as c_int,
+            );
+            let fielddefs = [def(etype::EV_VOID, 0, 0), def(etype::EV_STRING, 1, 1)];
+            ctest_progs_set_defs(which, fielddefs.as_ptr(), 2, core::ptr::null(), 0, -1);
+        }
+    }
+    // SAFETY: fixture A becomes the ambient VM the oracle dereferences.
+    unsafe { ctest_progs_select_vm(0) };
+
+    // the value formatter itself truncates
+    let r = rust_ugly(etype::EV_STRING, &[1]);
+    let c = c_ugly(etype::EV_STRING, &[1]);
+    assert_eq!(r.len(), 1023, "C's line[1024] cap, minus the NUL");
+    assert_eq!(r, c, "PR_UglyValueString over a 4000-byte string");
+
+    // and so does the record ED_Write produces
+    for mut vm in [vm_a(), vm_b()] {
+        let stride = vm.edict_size_for_test();
+        vm.set_ed_i32(vm.field_byte_offset(stride, 1), 1);
+    }
+    assert_eq!(
+        String::from_utf8_lossy(&rust_ed_write(1)),
+        String::from_utf8_lossy(&c_ed_write(1)),
+        "ED_Write over a long string field"
     );
     teardown();
 }

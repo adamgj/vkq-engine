@@ -32,6 +32,10 @@ mod status {
     pub const GUARD_SCREEN_ERROR: c_int = 13;
 }
 
+/// Not a shared constant: any value the glue's switch does not recognise
+/// lands in its `default:` "unknown status" arm.
+const UNKNOWN_GUARD: c_int = 99;
+
 /// The engine services, each a call straight back into `pr_exec_glue.c`.
 struct EngineSys;
 
@@ -135,9 +139,15 @@ fn encode(err: ExecError, detail: &mut c_int) -> c_int {
             status::ERR_NO_STRING
         }
         ExecError::Host(HostError::StackUnderflow) => status::ERR_STACK_UNDERFLOW,
-        // HOST_GUARD_ABORTSERVER / HOST_GUARD_SCREEN_ERROR (quakedef.h)
+        // HOST_GUARD_ABORTSERVER / HOST_GUARD_SCREEN_ERROR (quakedef.h).
+        // Anything else falls through to a status pr_exec_glue.c's `default:`
+        // arm reports, rather than being silently re-raised as the wrong jump.
         ExecError::GuardCaught(1) => status::GUARD_ABORTSERVER,
-        ExecError::GuardCaught(_) => status::GUARD_SCREEN_ERROR,
+        ExecError::GuardCaught(2) => status::GUARD_SCREEN_ERROR,
+        ExecError::GuardCaught(other) => {
+            *detail = other;
+            UNKNOWN_GUARD
+        }
     }
 }
 

@@ -90,26 +90,180 @@ fn progs_file_format_mirrors_match_engine_headers() {
     check_offset!(DPrograms, version, "dprograms_t.version");
     check_offset!(DPrograms, crc, "dprograms_t.crc");
     check_offset!(DPrograms, ofs_statements, "dprograms_t.ofs_statements");
+    check_offset!(DPrograms, numstatements, "dprograms_t.numstatements");
+    check_offset!(DPrograms, ofs_globaldefs, "dprograms_t.ofs_globaldefs");
+    check_offset!(DPrograms, numglobaldefs, "dprograms_t.numglobaldefs");
+    check_offset!(DPrograms, ofs_fielddefs, "dprograms_t.ofs_fielddefs");
+    check_offset!(DPrograms, numfielddefs, "dprograms_t.numfielddefs");
+    check_offset!(DPrograms, ofs_functions, "dprograms_t.ofs_functions");
+    check_offset!(DPrograms, numfunctions, "dprograms_t.numfunctions");
+    check_offset!(DPrograms, ofs_strings, "dprograms_t.ofs_strings");
+    check_offset!(DPrograms, numstrings, "dprograms_t.numstrings");
     check_offset!(DPrograms, ofs_globals, "dprograms_t.ofs_globals");
+    check_offset!(DPrograms, numglobals, "dprograms_t.numglobals");
     check_offset!(DPrograms, entityfields, "dprograms_t.entityfields");
 }
 
+/// Every field, not a spot check: `globalvars_t` and `entvars_t` are almost
+/// entirely same-typed words, so a transposition of two neighbours would leave
+/// the struct size unchanged and slip past a size-only assertion — while
+/// silently rewiring which QuakeC variable the engine reads.
 #[test]
 fn progdefs_mirrors_match_engine_headers() {
     check_size!(GlobalVars, "globalvars_t");
+    check_offset!(GlobalVars, pad, "globalvars_t.pad");
     check_offset!(GlobalVars, self_, "globalvars_t.self");
+    check_offset!(GlobalVars, other, "globalvars_t.other");
+    check_offset!(GlobalVars, world, "globalvars_t.world");
     check_offset!(GlobalVars, time, "globalvars_t.time");
+    check_offset!(GlobalVars, frametime, "globalvars_t.frametime");
+    check_offset!(GlobalVars, force_retouch, "globalvars_t.force_retouch");
+    check_offset!(GlobalVars, mapname, "globalvars_t.mapname");
+    check_offset!(GlobalVars, deathmatch, "globalvars_t.deathmatch");
+    check_offset!(GlobalVars, coop, "globalvars_t.coop");
+    check_offset!(GlobalVars, teamplay, "globalvars_t.teamplay");
+    check_offset!(GlobalVars, serverflags, "globalvars_t.serverflags");
+    check_offset!(GlobalVars, total_secrets, "globalvars_t.total_secrets");
+    check_offset!(GlobalVars, total_monsters, "globalvars_t.total_monsters");
+    check_offset!(GlobalVars, found_secrets, "globalvars_t.found_secrets");
+    check_offset!(GlobalVars, killed_monsters, "globalvars_t.killed_monsters");
+    check_offset!(GlobalVars, parm1, "globalvars_t.parm1");
+    check_offset!(GlobalVars, parm2, "globalvars_t.parm2");
+    check_offset!(GlobalVars, parm3, "globalvars_t.parm3");
+    check_offset!(GlobalVars, parm4, "globalvars_t.parm4");
+    check_offset!(GlobalVars, parm5, "globalvars_t.parm5");
+    check_offset!(GlobalVars, parm6, "globalvars_t.parm6");
+    check_offset!(GlobalVars, parm7, "globalvars_t.parm7");
+    check_offset!(GlobalVars, parm8, "globalvars_t.parm8");
+    check_offset!(GlobalVars, parm9, "globalvars_t.parm9");
+    check_offset!(GlobalVars, parm10, "globalvars_t.parm10");
+    check_offset!(GlobalVars, parm11, "globalvars_t.parm11");
+    check_offset!(GlobalVars, parm12, "globalvars_t.parm12");
+    check_offset!(GlobalVars, parm13, "globalvars_t.parm13");
+    check_offset!(GlobalVars, parm14, "globalvars_t.parm14");
+    check_offset!(GlobalVars, parm15, "globalvars_t.parm15");
+    check_offset!(GlobalVars, parm16, "globalvars_t.parm16");
     check_offset!(GlobalVars, v_forward, "globalvars_t.v_forward");
+    check_offset!(GlobalVars, v_up, "globalvars_t.v_up");
+    check_offset!(GlobalVars, v_right, "globalvars_t.v_right");
+    check_offset!(GlobalVars, trace_allsolid, "globalvars_t.trace_allsolid");
+    check_offset!(
+        GlobalVars,
+        trace_startsolid,
+        "globalvars_t.trace_startsolid"
+    );
+    check_offset!(GlobalVars, trace_fraction, "globalvars_t.trace_fraction");
     check_offset!(GlobalVars, trace_endpos, "globalvars_t.trace_endpos");
+    check_offset!(
+        GlobalVars,
+        trace_plane_normal,
+        "globalvars_t.trace_plane_normal"
+    );
+    check_offset!(
+        GlobalVars,
+        trace_plane_dist,
+        "globalvars_t.trace_plane_dist"
+    );
+    check_offset!(GlobalVars, trace_ent, "globalvars_t.trace_ent");
+    check_offset!(GlobalVars, trace_inopen, "globalvars_t.trace_inopen");
+    check_offset!(GlobalVars, trace_inwater, "globalvars_t.trace_inwater");
+    check_offset!(GlobalVars, msg_entity, "globalvars_t.msg_entity");
     check_offset!(GlobalVars, main, "globalvars_t.main");
+    check_offset!(GlobalVars, StartFrame, "globalvars_t.StartFrame");
+    check_offset!(GlobalVars, PlayerPreThink, "globalvars_t.PlayerPreThink");
+    check_offset!(GlobalVars, PlayerPostThink, "globalvars_t.PlayerPostThink");
+    check_offset!(GlobalVars, ClientKill, "globalvars_t.ClientKill");
+    check_offset!(GlobalVars, ClientConnect, "globalvars_t.ClientConnect");
+    check_offset!(
+        GlobalVars,
+        PutClientInServer,
+        "globalvars_t.PutClientInServer"
+    );
+    check_offset!(
+        GlobalVars,
+        ClientDisconnect,
+        "globalvars_t.ClientDisconnect"
+    );
+    check_offset!(GlobalVars, SetNewParms, "globalvars_t.SetNewParms");
     check_offset!(GlobalVars, SetChangeParms, "globalvars_t.SetChangeParms");
 
     check_size!(EntVars, "entvars_t");
     check_offset!(EntVars, modelindex, "entvars_t.modelindex");
+    check_offset!(EntVars, absmin, "entvars_t.absmin");
+    check_offset!(EntVars, absmax, "entvars_t.absmax");
+    check_offset!(EntVars, ltime, "entvars_t.ltime");
+    check_offset!(EntVars, movetype, "entvars_t.movetype");
+    check_offset!(EntVars, solid, "entvars_t.solid");
     check_offset!(EntVars, origin, "entvars_t.origin");
+    check_offset!(EntVars, oldorigin, "entvars_t.oldorigin");
+    check_offset!(EntVars, velocity, "entvars_t.velocity");
+    check_offset!(EntVars, angles, "entvars_t.angles");
+    check_offset!(EntVars, avelocity, "entvars_t.avelocity");
+    check_offset!(EntVars, punchangle, "entvars_t.punchangle");
     check_offset!(EntVars, classname, "entvars_t.classname");
+    check_offset!(EntVars, model, "entvars_t.model");
+    check_offset!(EntVars, frame, "entvars_t.frame");
+    check_offset!(EntVars, skin, "entvars_t.skin");
+    check_offset!(EntVars, effects, "entvars_t.effects");
+    check_offset!(EntVars, mins, "entvars_t.mins");
+    check_offset!(EntVars, maxs, "entvars_t.maxs");
+    check_offset!(EntVars, size, "entvars_t.size");
+    check_offset!(EntVars, touch, "entvars_t.touch");
+    check_offset!(EntVars, r#use, "entvars_t.use");
+    check_offset!(EntVars, think, "entvars_t.think");
+    check_offset!(EntVars, blocked, "entvars_t.blocked");
     check_offset!(EntVars, nextthink, "entvars_t.nextthink");
+    check_offset!(EntVars, groundentity, "entvars_t.groundentity");
+    check_offset!(EntVars, health, "entvars_t.health");
+    check_offset!(EntVars, frags, "entvars_t.frags");
+    check_offset!(EntVars, weapon, "entvars_t.weapon");
+    check_offset!(EntVars, weaponmodel, "entvars_t.weaponmodel");
+    check_offset!(EntVars, weaponframe, "entvars_t.weaponframe");
+    check_offset!(EntVars, currentammo, "entvars_t.currentammo");
+    check_offset!(EntVars, ammo_shells, "entvars_t.ammo_shells");
+    check_offset!(EntVars, ammo_nails, "entvars_t.ammo_nails");
+    check_offset!(EntVars, ammo_rockets, "entvars_t.ammo_rockets");
+    check_offset!(EntVars, ammo_cells, "entvars_t.ammo_cells");
+    check_offset!(EntVars, items, "entvars_t.items");
+    check_offset!(EntVars, takedamage, "entvars_t.takedamage");
+    check_offset!(EntVars, chain, "entvars_t.chain");
+    check_offset!(EntVars, deadflag, "entvars_t.deadflag");
+    check_offset!(EntVars, view_ofs, "entvars_t.view_ofs");
+    check_offset!(EntVars, button0, "entvars_t.button0");
+    check_offset!(EntVars, button1, "entvars_t.button1");
+    check_offset!(EntVars, button2, "entvars_t.button2");
+    check_offset!(EntVars, impulse, "entvars_t.impulse");
+    check_offset!(EntVars, fixangle, "entvars_t.fixangle");
+    check_offset!(EntVars, v_angle, "entvars_t.v_angle");
+    check_offset!(EntVars, idealpitch, "entvars_t.idealpitch");
     check_offset!(EntVars, netname, "entvars_t.netname");
+    check_offset!(EntVars, enemy, "entvars_t.enemy");
+    check_offset!(EntVars, flags, "entvars_t.flags");
+    check_offset!(EntVars, colormap, "entvars_t.colormap");
+    check_offset!(EntVars, team, "entvars_t.team");
+    check_offset!(EntVars, max_health, "entvars_t.max_health");
+    check_offset!(EntVars, teleport_time, "entvars_t.teleport_time");
+    check_offset!(EntVars, armortype, "entvars_t.armortype");
+    check_offset!(EntVars, armorvalue, "entvars_t.armorvalue");
+    check_offset!(EntVars, waterlevel, "entvars_t.waterlevel");
+    check_offset!(EntVars, watertype, "entvars_t.watertype");
+    check_offset!(EntVars, ideal_yaw, "entvars_t.ideal_yaw");
+    check_offset!(EntVars, yaw_speed, "entvars_t.yaw_speed");
+    check_offset!(EntVars, aiment, "entvars_t.aiment");
+    check_offset!(EntVars, goalentity, "entvars_t.goalentity");
+    check_offset!(EntVars, spawnflags, "entvars_t.spawnflags");
+    check_offset!(EntVars, target, "entvars_t.target");
+    check_offset!(EntVars, targetname, "entvars_t.targetname");
+    check_offset!(EntVars, dmg_take, "entvars_t.dmg_take");
+    check_offset!(EntVars, dmg_save, "entvars_t.dmg_save");
+    check_offset!(EntVars, dmg_inflictor, "entvars_t.dmg_inflictor");
+    check_offset!(EntVars, owner, "entvars_t.owner");
+    check_offset!(EntVars, movedir, "entvars_t.movedir");
+    check_offset!(EntVars, message, "entvars_t.message");
+    check_offset!(EntVars, sounds, "entvars_t.sounds");
+    check_offset!(EntVars, noise, "entvars_t.noise");
+    check_offset!(EntVars, noise1, "entvars_t.noise1");
+    check_offset!(EntVars, noise2, "entvars_t.noise2");
     check_offset!(EntVars, noise3, "entvars_t.noise3");
 }
 
@@ -129,12 +283,17 @@ fn edict_mirror_matches_engine_headers() {
     // NB: size_of::<Edict>() is the *header* size only; the real array stride
     // is the runtime qcvm->edict_size, which extends past `v` (ADR-006).
     check_size!(Edict, "edict_t");
-    if progs::ENGINE_DEBUG {
-        // The probe only publishes these keys when its TU saw DEBUG/_DEBUG,
-        // and engine_debug_feature_matches_the_c_build() already proved the
-        // two agree.
-        assert_eq!(c_abi("edict_t.edict_ptr"), 0);
-        check_offset!(Edict, area, "edict_t.area");
+    // The three DEBUG/_DEBUG bookkeeping fields exist on the mirror only under
+    // the feature, so this has to be a compile-time gate. All three are 8-byte
+    // members: a mis-ordering would leave sizeof and every later offset
+    // intact, so each needs its own check.
+    // engine_debug_feature_matches_the_c_build() proves the feature and the
+    // probe's TU agree, which is what makes these keys present.
+    #[cfg(feature = "engine-debug")]
+    {
+        check_offset!(Edict, edict_ptr, "edict_t.edict_ptr");
+        check_offset!(Edict, qcvm_owner, "edict_t.qcvm_owner");
+        check_offset!(Edict, edict_num, "edict_t.edict_num");
     }
     check_offset!(Edict, area, "edict_t.area");
     check_offset!(Edict, num_leafs, "edict_t.num_leafs");
@@ -273,4 +432,15 @@ fn progs_consts_match_engine_headers() {
     assert_eq!(progs::LOCALSTACK_SIZE, c_abi("const.LOCALSTACK_SIZE"));
     assert_eq!(progs::STRINGTEMP_BUFFERS, c_abi("const.STRINGTEMP_BUFFERS"));
     assert_eq!(progs::STRINGTEMP_LENGTH, c_abi("const.STRINGTEMP_LENGTH"));
+    assert_eq!(progs::MIN_EDICTS, c_abi("const.MIN_EDICTS"));
+    // the two age thresholds are floats; the probe casts them to size_t,
+    // which is exact for 2.0
+    assert_eq!(
+        progs::MIN_EDICT_AGE_FOR_REUSE as usize,
+        c_abi("const.MIN_EDICT_AGE_FOR_REUSE")
+    );
+    assert_eq!(
+        progs::MAX_EDICT_FREETIME_ALWAYS_REUSE as usize,
+        c_abi("const.MAX_EDICT_FREETIME_ALWAYS_REUSE")
+    );
 }

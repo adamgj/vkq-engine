@@ -85,10 +85,22 @@ fn resolve<'a>(vm: &'a VmRaw, handle: c_int) -> Result<&'a [u8], SaveError> {
         .map_err(|StringError::NonExistent(n)| SaveError::NonExistentString(n))
 }
 
+/// `pr_edict.c`: `PR_UglyValueString` formats into a `static char line[1024]`
+/// with `q_snprintf`, so its result is capped at 1023 bytes plus the NUL.
+/// That cap is part of the function's observable contract — `ED_Write` writes
+/// whatever survives it — so it is applied here rather than only at the
+/// exported shim.
+const UGLY_VALUE_MAX: usize = 1024 - 1;
+
 /// `PR_UglyValueString` — the savegame-facing value formatter.
 ///
 /// `val` is the raw words at the value's location; only as many as the type
 /// needs are read.
+///
+/// COMPAT: the result is truncated to [`UGLY_VALUE_MAX`] bytes, because C's
+/// `q_snprintf` into `line[1024]` truncates. Only the `ev_string` arm can
+/// reach the cap in practice (a mod storing a >1 KB string in an entity
+/// field); every other arm formats a fixed-width number.
 pub fn ugly_value_string(
     vm: &VmRaw,
     sys: &mut dyn SaveSys,
@@ -106,6 +118,11 @@ pub fn ugly_value_string(
             format(b"%i", &[Arg::I32(num)])
         }
         etype::EV_FUNCTION => {
+            // COMPAT (accepted divergence, same rationale as `ev_field`
+            // below): C computes `qcvm->functions + val->function` with no
+            // bounds check and dereferences it, so an out-of-range function
+            // reference reads past the lump. The port writes an empty name
+            // instead. Unreachable from a well-formed progs.
             let name = vm
                 .function_name_handle(w0)
                 .map_or(Ok(&b""[..]), |h| resolve(vm, h))?;
@@ -138,7 +155,13 @@ pub fn ugly_value_string(
         }
         other => format(b"bad type %i", &[Arg::I32(other)]),
     };
-    Ok(out)
+    Ok(truncate_to_c_buffer(out))
+}
+
+/// Applies `PR_UglyValueString`'s `line[1024]` cap.
+fn truncate_to_c_buffer(mut out: Vec<u8>) -> Vec<u8> {
+    out.truncate(UGLY_VALUE_MAX);
+    out
 }
 
 /// The 64-bit QC types are `Q_ALIGN(4)` (`pr_comp.h`), so they are read as two
@@ -251,7 +274,9 @@ pub fn ed_write_globals(
 
         // C passes the *masked* type here, unlike ED_Write which passes the
         // raw one; both end up masking, but the distinction is preserved.
-        let words = vm.g_words(def.ofs as usize, 2);
+        // Read exactly the words the type occupies: a wider read would run
+        // past the globals block for a def at its tail.
+        let words = vm.g_words(def.ofs as usize, value_words(ty));
         let value = ugly_value_string(vm, sys, ty, &words)?;
         out.extend_from_slice(&format(b"\"%s\"\n", &[Arg::Str(&value)]));
     }
