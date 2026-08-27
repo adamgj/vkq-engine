@@ -141,6 +141,8 @@ def main():
     p.add_argument("--demo", default=None)
     p.add_argument("--map", dest="mapname", default=None)
     p.add_argument("--exitafter", type=int, default=1000)
+    p.add_argument("--game", default=None,
+                   help="mod/mission-pack dir, so the trace covers its progs.dat")
     p.add_argument("--min-records", type=int, default=10000)
     p.add_argument("--context", type=int, default=8)
     args = p.parse_args()
@@ -152,11 +154,11 @@ def main():
 
     scenario = args.demo or args.mapname
     a = run_trace.run_once(
-        args.vkquake, args.game_data, args.demo, args.mapname, args.exitafter
+        args.vkquake, args.game_data, args.demo, args.mapname, args.exitafter, args.game
     )
     try:
         b = run_trace.run_once(
-            args.vkquake_b, args.game_data, args.demo, args.mapname, args.exitafter
+            args.vkquake_b, args.game_data, args.demo, args.mapname, args.exitafter, args.game
         )
         try:
             n = compare(a, b, args.min_records, args.context)
@@ -165,7 +167,8 @@ def main():
     finally:
         os.unlink(a)
 
-    print(f"trace identical: {n} records over {scenario}")
+    where = f"{args.game}/{scenario}" if args.game else scenario
+    print(f"trace identical: {n} records over {where}")
 
 
 if __name__ == "__main__":
