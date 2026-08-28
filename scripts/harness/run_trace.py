@@ -27,7 +27,10 @@ def _stage_entry(src, dst):
         shutil.copyfile(src, dst)
 
 
-def run_once(exe, game_data, demo, mapname, exitafter, game=None):
+def stage(game_data):
+    """A temp basedir with every gamedir of game_data linked in.
+
+    Shared with builtin_diff.py, which drives the engine the same way."""
     staging = tempfile.mkdtemp(prefix="vkq-t-")
     for entry in sorted(os.listdir(game_data)):
         src = os.path.join(game_data, entry)
@@ -37,6 +40,11 @@ def run_once(exe, game_data, demo, mapname, exitafter, game=None):
         os.makedirs(dst, exist_ok=True)
         for f in sorted(os.listdir(src)):
             _stage_entry(os.path.join(src, f), os.path.join(dst, f))
+    return staging
+
+
+def run_once(exe, game_data, demo, mapname, exitafter, game=None):
+    staging = stage(game_data)
 
     with open(os.path.join(staging, "harness.cmds"), "w") as f:
         f.write(f"0 {'playdemo ' + demo if demo else 'map ' + mapname}\n")

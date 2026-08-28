@@ -193,6 +193,18 @@ jobs:
           python3 scripts/harness/trace_diff.py --vkquake build-c-trace/vkqr-engine \
             --vkquake-b build-rs-trace/vkqr-engine --map "$m" --exitafter 400
         done
+    # Phase 6 (ROADMAP exit criterion): builtin *numbering* is decided by
+    # PR_InitExtensions, PR_EnableExtensions and PR_PatchRereleaseBuiltins,
+    # and none of them shows up in an instruction trace unless a mod happens
+    # to call the affected builtin -- so the resolved table is diffed
+    # directly. The dump carries its own minimum-entry floor.
+    - name: Builtin-table dump diff (C-only vs mixed)
+      run: |
+        export QUAKE_GAME_DATA="$PWD/shareware-data"
+        for m in e1m1 start; do
+          python3 scripts/harness/builtin_diff.py --vkquake build-c/vkqr-engine \
+            --vkquake-b build-rs/vkqr-engine --map "$m"
+        done
     # Phase 4 (ADR-019 sound PCM-hash): the mixer runs on the deterministic
     # harness DMA clock under -sndhash; the per-frame paintbuffer+DMA chain
     # must be bit-identical between the Rust sound engine and the C original

@@ -189,3 +189,54 @@ unsigned long long PRParse_Glue_Strtoull (const char *s);
 int				   PRParse_Glue_FindFieldOfs (const char *name);
 int				   PRParse_Glue_FindFunction (const char *name);
 void			   PRParse_Glue_UnlinkEdict (int edict_num);
+
+/* Phase 6 M6: the progs loader's engine seams (pr_edict_load_glue.c).
+ * hash_map_t stays opaque -- the loader only passes the handle through. */
+struct hash_map_s;
+void			  *PRLoad_Glue_MapCreate (void);
+void			   PRLoad_Glue_MapReserve (void *map, int capacity);
+void			   PRLoad_Glue_MapInsert (void *map, const char *key, const void *value);
+void			   PRLoad_Glue_MapDestroy (void *map);
+void			   PRLoad_Glue_SwitchQCVM (struct qcvm_s *nvm);
+void			   PRLoad_Glue_DeselectQCVM (void);
+void			   PRLoad_Glue_SetPrGlobalStruct (float *globals);
+void			   PRLoad_Glue_SetEmptyEngineString (void);
+int				   PRLoad_Glue_FindFieldOfs (const char *name);
+qboolean		   PRLoad_Glue_GlobalFloat (const char *name, float *out);
+int				   PRLoad_Glue_FindFunction (const char *name);
+const char		  *PRLoad_Glue_VaComponent (const char *name, int component);
+void			   PRLoad_Glue_ShutdownExtensions (void);
+void			   PRLoad_Glue_EnableExtensions (void *globaldefs);
+qboolean		   PRLoad_Glue_IsServerVM (struct qcvm_s *vm);
+void			   PRLoad_Glue_SetEffectsMask (int mask);
+
+/* Phase 6 M7: the ported builtins' engine seams (pr_cmds_glue.c). Every one
+ * is a leaf or reaches only Sys_Error/Con_*: a seam that can Host_Error would
+ * longjmp over the Rust builtin frame (ADR-009). */
+double		PRBI_Glue_Ceil (double v);
+void		PRBI_Glue_AngleVectors (const float *angles);
+int			PRBI_Glue_StoreTempString (const char *bytes, int len);
+int			PRBI_Glue_EmptyEngineString (void);
+const char *PRBI_Glue_VarString (int first);
+float		PRBI_Glue_CvarValue (const char *name);
+qboolean	PRBI_Glue_ChangelevelIssued (qboolean set);
+
+/* Phase 6 M8: the guarded seams (ADR-009 rule 3 -- each returns Host_Guard's
+ * result, which the Rust side hands back for Host_Reraise) and the message
+ * writers' destination funnel. */
+int	 PRBI_Glue_EdAlloc (int *num);
+int	 PRBI_Glue_EdFree (int num);
+int	 PRBI_Glue_EdPrintWithBanner (const char *banner, int num);
+int	 PRBI_Glue_EdPrintNum (int num);
+int	 PRBI_Glue_MaxClients (void);
+void PRBI_Glue_MsgWrite (int dest, int entnum, int kind, int i, float f, const char *bytes);
+
+/* Phase 6 M9: the pr_ext.c batch-1 seams. */
+double		 PRBI_Glue_Tan (double v);
+double		 PRBI_Glue_Asin (double v);
+double		 PRBI_Glue_Atan (double v);
+double		 PRBI_Glue_Pow (double a, double b);
+unsigned int PRBI_Glue_StrtoulHex (const char *s);
+int			 PRBI_Glue_StrCmp (const char *a, const char *b, int len, qboolean fold_case, qboolean use_len);
+void		 PRBI_Glue_VectorVectors (const float *forward);
+void		 PRBI_Glue_VectorAngles (const float *forward, const float *up, float *out);

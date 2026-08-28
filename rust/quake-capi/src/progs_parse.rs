@@ -11,7 +11,7 @@ use quake_progs::alloc::{AllocError, FreeListOverflow};
 use quake_progs::arena::{EdictArena, EdictId, Mem, VmRaw};
 use quake_progs::parse::{self, ParseError, ParseSys};
 use quake_progs::save::value_words;
-use quake_types::progs::{FreeList, QcVm, DEF_SAVEGLOBAL};
+use quake_types::progs::{FreeList, QcVm};
 
 /// Status codes shared with `Quake/pr_edict_parse_glue.c` (keep in sync).
 const PRPARSE_OK: c_int = 0;
@@ -196,10 +196,15 @@ pub unsafe extern "C" fn quake_rs_ed_new_string(s: *const c_char) -> c_int {
     let s = unsafe { CStr::from_ptr(s) };
     // SAFETY: see ambient_vm(). No arena is built: this runs during
     // PR_LoadProgs too, before the edict array exists.
-    let mut vm = unsafe { ambient_vm() };
     let mut sys = EngineParse::new();
-    let handle = parse::ed_new_string(&mut vm, &mut sys, s);
-    drop(vm);
+    // the view is scoped so it cannot outlive the parse: `sys.flush()` runs
+    // Con_Printf, which is not a leaf (it can reach SCR_UpdateScreen)
+    let handle = {
+        // SAFETY: see ambient_vm(). No arena is built: this runs during
+        // PR_LoadProgs too, before the edict array exists.
+        let mut vm = unsafe { ambient_vm() };
+        parse::ed_new_string(&mut vm, &mut sys, s)
+    };
     sys.flush();
     handle
 }
@@ -250,27 +255,32 @@ pub unsafe extern "C" fn quake_rs_ed_parse_epair(
     // `num_edicts .. loaded_ent_num` and `loaded_ent_num` itself -- all at
     // indices >= num_edicts, hence strictly above the parsed edict. See the
     // aliasing note on `EdictArena::borrowed`.
-    let mut vm = unsafe { ambient_vm() };
-    let mut arena = unsafe { ambient_arena(&vm) };
-    // SAFETY: the free list lives inside the same qcvm_t; no other Rust
-    // reference to it is live.
-    let free_list: &mut FreeList = unsafe { &mut (*vm.as_ptr()).free_list };
-
     let mut sys = EngineParse::new();
-    let result = parse::ed_parse_epair(
-        &mut vm,
-        &mut arena,
-        free_list,
-        &mut sys,
-        dest,
-        c_int::from(key_type),
-        key_s_name,
-        s,
-        zoned,
-    );
+    // the views are scoped so neither outlives the parse: `sys.flush()` runs
+    // Con_Printf, which is not a leaf (it can reach SCR_UpdateScreen)
+    let result = {
+        // SAFETY: see ambient_vm() -- the host frame selected this VM.
+        let mut vm = unsafe { ambient_vm() };
+        // SAFETY: see ambient_arena(). The VM is loaded here -- ED_ParseEpair
+        // only runs from ED_ParseEdict/ED_ParseGlobals, after PR_LoadProgs.
+        let mut arena = unsafe { ambient_arena(&vm) };
+        // SAFETY: the free list lives inside the same qcvm_t; no other Rust
+        // reference to it is live.
+        let free_list: &mut FreeList = unsafe { &mut (*vm.as_ptr()).free_list };
 
-    drop(arena);
-    drop(vm);
+        parse::ed_parse_epair(
+            &mut vm,
+            &mut arena,
+            free_list,
+            &mut sys,
+            dest,
+            c_int::from(key_type),
+            key_s_name,
+            s,
+            zoned,
+        )
+    };
+
     sys.flush();
 
     match result {

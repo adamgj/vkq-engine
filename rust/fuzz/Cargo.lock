@@ -163,6 +163,7 @@ dependencies = [
  "quake-fs",
  "quake-image",
  "quake-net",
+ "quake-progs",
  "quake-snd",
  "quake-types",
  "quake-util",
@@ -190,6 +191,14 @@ dependencies = [
  "libc",
  "quake-types",
  "socket2",
+]
+
+[[package]]
+name = "quake-progs"
+version = "0.1.0"
+dependencies = [
+ "quake-types",
+ "quake-util",
 ]
 
 [[package]]

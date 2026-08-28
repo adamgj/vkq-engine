@@ -257,3 +257,558 @@ The PR's own review found two red CI checks and seven substantive items. Assessm
 **Not changed, with reasons:** nothing in the review was rejected outright. Item 2 was resolved by documentation rather than by the raise the wording leaned toward, because a raise would be behaviour C does not have — recorded above so the choice is reviewable rather than silent.
 
 **Second CI iteration — an arch-gated clippy error local runs structurally cannot see.** The push fixing the above left `fmt + clippy + deny` red on a *different* error: `manual_range_contains` at `exec.rs:536`, inside `c_cast_i32`'s `#[cfg(target_arch = "x86_64")]` arm. That arm does not compile on this Apple Silicon host, so no amount of local `cargo clippy` would ever have linted it — the aarch64 arm compiles instead. **The check that closes this gap is `cargo clippy -p quake-progs --all-targets --locked --target x86_64-apple-darwin -- -D warnings`**: `quake-progs` has no `quake-c-sys` dependency (deliberately, so it stays fuzzable), so it cross-checks with nothing to link. Verified non-vacuous by mutation — restoring the old expression reproduces CI's exact error. The rewrite to `(-2147483648.0..2147483648.0).contains(&v)` is a De Morgan transformation of the original and was checked to be bit-identical over NaN, both infinities, both boundaries and 2000 pseudo-random bit patterns before being applied, because this function is the per-arch float→int UB emulation and its behaviour is the contract. `exec.rs` is the only `target_arch` gate in the Phase 6 crates; the other platform gates in the workspace are Phase 2/5 code that Linux CI already lints.
+
+### 2026-08-27 M6 — the progs loader
+
+Landed: `PR_LoadProgs`, `PR_MergeEngineFieldDefs`, `PR_ClearProgs`,
+`PR_HasGlobal`/`PR_FindSupportedEffects` and `PR_PatchRereleaseBuiltins` are
+Rust and **flipped**. `PR_SwitchQCVM` and the `qcvm`/`pr_global_struct`
+storage stay C in the glue, per the flip-mechanism map.
+
+1. **Fourth behaviour-neutral C split**: `Quake/pr_edict_load.c`, moved
+   verbatim (lines 1019–1399 of `pr_edict.c`), swapped for
+   `pr_edict_load_glue.c` under the switch. Neutrality verified before the
+   flip: corpus `--check` 11/11 against the darwin-arm64 goldens with the
+   split alone. `Quake/common.make` was updated in the same commit — the M5
+   PR-review root cause was that the Makefile fallback's hand-maintained
+   object list is independent of Meson and nothing cross-checks it.
+2. **Second unsafe island (ADR-004 amendment): `quake_progs::image`.** The
+   progs image is untyped C memory whose interior layout comes from the file
+   header at runtime, the same shape of problem as the edict arena, so
+   `ProgsImage`, `DefTable` and `VmLoad` hold the raw access and
+   `quake_progs::load` stays `deny(unsafe_code)`. Every lump read is
+   `read_unaligned`: C dereferences `(dstatement_t *)((byte *)progs + ofs)`
+   directly, and the port must not add alignment UB on top of the bounds
+   checks it adds.
+3. **`VmLoad` is separate from `VmRaw` on purpose.** `VmRaw::new` asserts the
+   lumps are loaded, which is precisely what is not yet true mid-load, and
+   keeping the loader's setters off the execution path means nothing in
+   `exec` can reach a setter that only makes sense during `PR_LoadProgs`.
+4. **COMPAT, bug preserved deliberately: the `colormod_x/_y/_z` map keys are
+   `va` pointers.** `PR_MergeEngineFieldDefs` inserts the three vector
+   components into `fielddefs_map` keyed on `va ("%s_%c", ...)`, i.e. into one
+   of `va`'s eight rotating THREAD_LOCAL buffers. `hash_map_t` stores the key
+   *pointer* and dereferences it on lookup, so once eight more `va` calls have
+   gone by, `ED_FindField ("colormod_x")` compares against whatever now
+   occupies that buffer and misses. The port therefore calls the engine's own
+   `va` through `LoadSys::va_component_name` rather than using a stable Rust
+   string: the divergence is not in *what* is inserted but in *which storage*
+   the key points at, and a stable key would make three fields findable that
+   are not findable in C. Logged as a post-parity fix candidate.
+5. **Accepted divergence: an out-of-range lump is refused.** C computes every
+   lump base as `(byte *)progs + ofs` and walks `count` entries with no
+   validation at all, so a malformed `progs.dat` — mod data — is an
+   out-of-bounds read *and* an in-place byteswap write past the buffer. The
+   port returns `LoadError::LumpOutOfRange`, which the glue raises as
+   `"%s has a lump that runs past the end of the file"`. C's own
+   strings-past-end check is evaluated **before** the added bounds pass so a
+   truncated `progs.dat` still reports the message C reports.
+6. **COMPAT: the non-fatal arms leak the file buffer, and that is preserved.**
+   C sets `qcvm->progs = NULL` and returns without freeing what `COM_LoadFile`
+   allocated. Freeing it would be the only behaviour a sanitizer run over the
+   mixed build could see differ from the C oracle, so the leak stands.
+7. **The hash maps are created through `LoadSys`, not `quake_util::hash_map`.**
+   `ED_FindField`/`ED_FindGlobal`/`ED_FindFunction` stay in `pr_edict.c` and
+   look these maps up from C, so the object C dereferences has to be the one
+   C's `HashMap_Lookup` was written against. Same call-through argument as the
+   injected `qsort` in M2 and the libc conversions in M5.
+8. **Deviation from the milestone plan: there is no `progs_load_differential`
+   C oracle.** `PR_LoadProgs` reaches `COM_LoadFile` (renamed to
+   `c_ref_COM_LoadFile` by the differential prelude, so an oracle would need a
+   staged gamedir per case) and `PR_EnableExtensions`/`PR_ShutdownExtensions`
+   (in `pr_ext.c`, not an oracle file, so both sides would have to call a
+   stub). What replaces it: `progs_load_synthetic.rs`, 16 Rust-side tests over
+   synthetic images with a recording `LoadSys` mock — reverse map build order
+   and first-match resolution, the reserve margin, the merge offsets and
+   `edict_size`, the already-defined-field case, the `va`-keyed components,
+   both version arms, all nine foreign-CRC arms, `DEF_SAVEGLOBAL`,
+   strings-past-end, five out-of-range lumps, the re-release patch's
+   exact-match rule, the effects mask in all four states, and both
+   `PR_ClearProgs` ownership states — plus `fuzz_progs_load`. The reason this
+   is proportionate rather than a gap: **trace parity is what compares the
+   loader against C**, and it is byte-identical over id1 e1m1/e2m1/e3m1 and
+   hipnotic/rogue/rerelease `start` (223k–489k records each), which cannot
+   hold unless the globals block, both lumps and all three maps came out
+   identical; `save_diff` covers `edict_size` and the merge. What the
+   synthetic suite adds is the arms real data never reaches.
+9. **`fuzz_ed_parse` landed too** — the gap the M1–M5 review named, where
+   findings 1 and 3 of that review sat. Both new targets are in the CI fuzz
+   loop with committed seeds (7 and 12).
+10. **New CI gate: `cargo clippy -p quake-capi --features progs`.** The
+    `progs` feature is off by default, so the workspace clippy pass had never
+    type-checked `quake-capi::progs_*` at all. Verified non-vacuous the hard
+    way: it immediately found four pre-existing lints in the M3–M5 shims (two
+    no-op `drop()`s of types that do not implement `Drop`, an undocumented
+    `unsafe` block, and an `unnecessary_lazy_evaluations`), all fixed. The two
+    `drop()`s were standing in for "the raw views end before `Con_Printf`
+    runs"; that is now a real scope block rather than a no-op call.
+11. **Gates**: all five meson configs build; corpus `--check` 11/11 on
+    `build-c`, `build-rs` and `build-rs-cprogs` plus `--compare` C-vs-mixed;
+    `save_diff` byte-identical (91,562 / 91,547); trace parity byte-identical
+    over six map/game combinations; 48 ctest suites green; `check_headers`,
+    `check_capi_signatures`, `check_ctest_symbols` clean; bindgen regen-diff
+    clean; `cargo fmt --check` and both clippy passes clean.
+
+### 2026-08-27 M7 — `pr_cmds.c` batch 1: the self-contained builtins
+
+22 builtin slots flipped to Rust plus `PF_changeyaw`, through the ROADMAP's
+Pattern C: `pr_cmds.c`'s two tables name the ported entries `PF_RS (name)`,
+which resolves to a wrapper in the new `Quake/pr_cmds_glue.c` under
+`-Duse_rust_progs` and to the C original otherwise. Both sets of bodies stay
+compiled in both configs, so the C ones remain the oracle.
+
+Ported: `normalize`, `vlen`, `vectoyaw`, `vectoangles`, `makevectors`,
+`random`, `fabs`, `floor`, `ceil`, `rint`, `ftos`, `vtos`, `Find`, `nextent`,
+`traceon`, `traceoff`, `precache_file`, `cvar`, `cvar_set`, `localcmd`,
+`dprint`, `coredump`, `changeyaw`.
+
+1. **The batch is decided by an ADR-009 constraint discovered here, not by
+   taste.** The interpreter wraps a builtin *dispatch* in `Host_Guard` (M3), so
+   the setjmp sits **outside** the builtin. A ported builtin that calls an
+   engine seam which can `Host_Error` therefore longjmps over a Rust frame —
+   exactly what ADR-009 forbids. That rules out, for this milestone,
+   `PF_Spawn`/`PF_Remove` (`ED_Alloc` raises "no free edicts"), `PF_eprint`
+   (`ED_PrintNum` → `EDICT_NUM`), and `PF_error`/`PF_objerror` (`ED_Print`
+   from a Rust frame). Every seam in `pr_cmds_glue.c` was checked against this
+   rule and the rule is stated at the top of the file. **M8's first task is to
+   lift the constraint** by guarding the seams themselves, which is what
+   unblocks batch 2.
+2. **`PF_break` stays C permanently-ish**: it writes through `(int *)-4` on
+   purpose, to trap into a debugger. That is not expressible in Rust and there
+   is nothing to gain by trying.
+3. **`PF_changeyaw` flips in-file, not through the table.** `sv_move.c`'s
+   `SV_MoveToGoal` calls it directly as well, so a vtable-slot flip alone would
+   leave the two callers on different implementations. `#ifdef USE_RUST_PROGS`
+   in `pr_cmds.c` redirects the function itself.
+4. **String arguments raise, they do not fall back to empty.** The first draft
+   of `pf_cvar`/`pf_localcmd`/`pf_find` used `unwrap_or (b"")` on a cleared
+   engine handle. C's `G_STRING` goes through `PR_GetString`, which
+   `Host_Error`s on one — so the fallback would have silently turned a raise
+   into "look up the empty cvar" / "run the empty command". Now
+   `BuiltinError::NonExistentString`, raised by the glue with C's exact text.
+   The regression test drives all three.
+5. **`PF_Find` compares bytes, not `strcmp`.** C tests `!strcmp (t, s)`, and
+   for two NUL-terminated strings "compares equal" and "same bytes" are the
+   same predicate. This is deliberately *not* the `OP_NE_S` case, which does
+   call through because it stores `strcmp`'s raw magnitude into a float slot.
+6. **`PR_GetTempString` + `q_snprintf` + `PR_SetEngineString` is one seam.**
+   The temp-string ring is process-global and shared by both VMs (landmine
+   16); splitting the seam would have let the ring be stepped a different
+   number of times. `PF_VarString` stays C for the same class of reason — it
+   runs the localisation layer and rate-limits its own overflow warning against
+   `realtime`, and `pr_ext.c` builtins share it.
+7. **cbindgen does not expand `macro_rules!`.** The 24 exports were originally
+   generated by a macro; cbindgen parses syntactically, so `quake_rs.h` came
+   out without them and the glue failed to compile. They are written out one
+   by one now, with the reason recorded at the `run` helper.
+8. **A C-only build break got past the first gate run.** Renaming the table
+   entry to `PF_RS (find)` broke `-Duse_rust_progs=disabled`, where `PF_RS`
+   expands to `PF_find` and the C function is `PF_Find`. The corpus and trace
+   runs that followed compared against a *stale* `build-c`, so they passed
+   while `build-c` was in fact red. Fixed by keeping the C spelling in the
+   macro argument; the lesson is that the build loop must fail the run, which
+   it now does because every gate rebuild is checked before the comparisons.
+9. **No C oracle suite, same structural reason as M6 and recorded the same
+   way.** `pr_cmds.c` is not an oracle file — its builtins reach `SV_Move`,
+   `SV_LinkEdict`, `SV_StartSound`, `WriteDest`, the PVS and the client, so an
+   oracle would be driven through stubs on both sides. That is precisely why
+   the ROADMAP's mechanism for this file is a per-slot flip. What compares
+   these builtins against C is `trace_diff.py`, and for builtins it is
+   unusually direct: the trace carries every builtin call (`B`), its return
+   (`R`) and every global write (`W`), so a C-vs-Rust run compares each ported
+   builtin call by call over real game code. `progs_builtins_synthetic.rs` (24
+   tests) covers the domain gameplay does not reach, and `PF_ftos`/`PF_vtos`
+   *do* get a real C oracle there — their formatting is checked against the
+   platform `snprintf` through the ADR-005 conformance seam, which is where
+   their risk lives.
+10. **Gates**: five meson configs; corpus `--check` 11/11 on `build-c`,
+    `build-rs` and `build-rs-cprogs` plus `--compare`; `save_diff` identical;
+    trace parity byte-identical over six map/game combinations (223k–489k
+    records each); 49 ctest suites green; `check_headers`,
+    `check_capi_signatures`, `check_ctest_symbols`, bindgen regen-diff, `cargo
+    fmt --check` and both clippy passes clean.
+
+### 2026-08-27 M8 — guarded seams, and `pr_cmds.c` batch 2
+
+M7 ended with an explicit blocker: a ported builtin could not call an engine
+seam that raises, because the interpreter's `Host_Guard` sits *outside* the
+builtin dispatch. This milestone lifts that, and spends it on the builtins it
+unblocks plus the message writers.
+
+1. **Guarded seams (ADR-009 rule 3, applied one level down).** `ED_Alloc`,
+   `ED_Free`, `ED_Print` and `ED_PrintNum` each run under their *own*
+   `Host_Guard` in `pr_cmds_glue.c`. A caught jump comes back as a plain
+   status, travels through Rust as `BuiltinError::GuardCaught`, and
+   `PRBI_Raise` re-issues it with `Host_Reraise` once the Rust frame has
+   returned. Guards nest one at a time, exactly as M3's amendment describes:
+   the inner guard restores the interpreter's `jmp_buf` before returning, so
+   the re-issued jump lands on the outer guard, which re-raises from
+   `PR_ExecuteProgram`'s C frame. This is the general mechanism the remaining
+   builtin milestones need.
+2. **Flipped**: `PF_Spawn`, `PF_Remove`, `PF_eprint`, `PF_error`,
+   `PF_objerror`, `WriteDest` and all eight `PF_sv_Write*`.
+3. **`PF_error`/`PF_objerror` print through a single seam.** The first draft
+   deferred the `"======SERVER ERROR in ..."` banner the way every other
+   diagnostic in this phase is deferred, and called `ED_Print` separately —
+   which would have put the entity dump *above* the banner, because `ED_Print`
+   writes to the console too. `ed_print_with_banner` runs both in the one C
+   frame instead. Caught by reading the ordering, not by a gate: console text
+   is in no golden.
+4. **`G_EDICTNUM` range-checks, and that is not debug-only.** `PF_eprint`,
+   `PF_sv_WriteEntity` and `WriteDest`'s `MSG_ONE` arm all reach
+   `NUM_FOR_EDICT`, whose `b < 0 || b >= num_edicts` test raises in release
+   builds. Reported as `BuiltinError::BadEdictPointer` with C's exact
+   `"NUM_FOR_EDICT: bad pointer"`. This is the third place in the phase that
+   test has had to be reproduced by hand (after the M5 read side and the
+   PR #23 write side); it is now a shared `num_for_edict` helper.
+5. **The writers' argument conversion is per-arch, and only for four of
+   them.** `MSG_WriteByte`/`Char`/`Short`/`Long` take a C `int`, so
+   `G_FLOAT (OFS_PARM1)` goes through the float→int UB emulation;
+   `MSG_WriteAngle`/`Coord` take a `float` and get the value untouched. The
+   test pins both halves, including NaN and infinity through the float ones.
+6. **`WriteDest` returns a destination, not a pointer.** The `sizebuf_t`
+   selection stays in the glue, so `sv.datagram`/`sv.signon`/`svs.clients[]`
+   and `sv.protocolflags`/`sv_protocol_pext2` never cross the boundary. What
+   moved is the switch, the `MSG_ONE` client range test and the
+   `MSG_EXT_ENTITY`-shares-`MSG_EXT_MULTICAST` quirk.
+7. **Carve-out, recorded per the per-batch stop rule.** The rest of
+   `pr_cmds.c` stays C and moves to **Phase 7**, because its dependency is not
+   a stable funnel but the server itself: `PF_setorigin`/`PF_setsize`/
+   `PF_sv_setmodel` (`SV_LinkEdict`, `SV_TouchLinks` → re-entrant
+   `PR_ExecuteProgram`), `PF_traceline`/`PF_checkpos`/`PF_tracebox`
+   (`SV_Move`), `PF_sv_checkclient`/`PF_newcheckclient` (PVS +
+   `checkpvs`, a process-global), `PF_walkmove`/`PF_droptofloor`/
+   `PF_checkbottom`/`PF_pointcontents` (`sv_move.c`, `world.c`),
+   `PF_aim` (`sv_player`, traces, `sv_aim`), `PF_findradius`,
+   `PF_sound`/`PF_sv_ambientsound`/`PF_particle`/`PF_sv_lightstyle`/
+   `PF_sv_makestatic`/`PF_sv_setspawnparms`/`PF_sv_changelevel`,
+   `PF_stuffcmd`/`PF_bprint`/`PF_sprint`/`PF_centerprint`,
+   `PF_sv_precache_sound`/`_model`, and the whole `PF_cl_*` set. `PF_break`
+   stays C permanently (it writes through `(int *)-4` on purpose).
+8. **Gates**: five meson configs; corpus `--check` 11/11 on all three engine
+   configs plus `--compare`; `save_diff` identical; trace parity
+   byte-identical over six map/game combinations; 49 ctest suites green
+   (`progs_builtins_synthetic` now 33 tests); the three static checks, bindgen
+   regen-diff, `cargo fmt --check` and both clippy passes clean.
+
+### 2026-08-27 M9 — `pr_ext.c` batch 1: maths, conversions and strings
+
+43 extension builtins flipped through the same per-slot mechanism `pr_cmds.c`
+uses: `extensionbuiltins[]`'s SSQC and CSQC columns name `PF_RS (x)`.
+
+Ported: `sin cos tan asin acos atan atan2 sqrt pow log mod min max bound
+anglemod bitshift crossproduct vectorvectors vectoangles2`; `stof stoi stoh
+itos htos etos etof ftoe ftoi itof`; `strlen strcat substring str2chr chr2str
+strpad strncmp strcasecmp strncasecmp strstrofs strtrim strreplace strireplace
+strtoupper strtolower`.
+
+1. **The honest coverage statement, up front.** Trace parity says almost
+   nothing about this batch: these are DarkPlaces/FTE extension builtins, and
+   none of id1, hipnotic, rogue or the re-release calls them. The corpus's four
+   mod entries (`ad`, `copper`, `alkaline`, `quoth`) — the ones that *would*
+   exercise them — are all skipped for want of the mod directories, here and
+   in CI. **The Rust-side suite is the coverage for this milestone, not a
+   supplement to it**, which is why it is 22 tests pinning one documented quirk
+   each rather than a smoke test. `PF_itos`/`PF_htos` do get a real C oracle
+   through the ADR-005 `snprintf` seam. Landing one of those mods in the
+   corpus is the single highest-value thing a future milestone could do for
+   this phase's confidence, and it is recorded as such.
+2. **The suite immediately earned itself.** `PF_chr2str` calls `pr_ext.c`'s own
+   `qc_isascii`, which is `u < 256` — **not** `q_ctype.h`'s `q_isascii`, which
+   is `(c & ~0x7f) == 0`. The first draft used the `q_ctype.h` one, which would
+   have turned every high-bit byte — the entire coloured-text charset — into
+   `?`. Caught by the test that pins the three arms, not by review.
+3. **Three preserved bugs, each with a test.**
+   - `PF_strireplace` bounds its output loop with `sizeof (resultbuf)` where
+     `resultbuf` is a `char *`, so its capacity is **8 bytes**, not
+     `STRINGTEMP_LENGTH`. It produces at most `8 - replacelen - 2` bytes and
+     nothing at all once the replacement is six bytes or longer.
+     `PF_strreplace` next door uses the constant and is fine.
+   - `PF_strncmp`/`PF_strncasecmp` compute and clamp `bofs` and then never use
+     it: `strncmp (a + aofs, b, len)`.
+   - `PF_str2chr`'s range test is `ofs && (ofs < 0 || ofs > strlen)`, so index
+     0 is never rejected and an index equal to the length reads the
+     terminator.
+4. **`PF_anglemod` is not `mathlib.c`'s `anglemod`.** The builtin is a
+   subtract-loop and is exact; `PF_changeyaw` uses the mathlib one, which
+   quantises to 1/65536 of a turn. Both are now in the tree and the test
+   asserts they differ, so a future tidy-up cannot merge them.
+5. **The compare builtins call through, the search builtins do not.**
+   `strncmp`/`strcasecmp` store `strcmp`'s **raw** return value into a float
+   slot where QuakeC can read the magnitude, so they go to the platform
+   (ADR-010) — the same argument as `OP_NE_S`. `PF_Find` and `PF_strstrofs`
+   only ever test for equality/position, so they compare bytes in Rust.
+6. **`replace` with an empty search returns the subject's own handle.** C hands
+   `PR_SetEngineString` the subject pointer, which resolves back to the
+   caller's handle rather than allocating. A temp string would have given
+   QuakeC a different handle for the same bytes, which `strunzone` and handle
+   comparisons can see.
+7. **`Con_Warning`'s prefix is left to the engine.** The deferred console queue
+   grew `WARN`/`DWARN` levels that call `Con_Warning`/`Con_DWarning` rather
+   than reconstructing the `\x02Warning: ` prefix and the `Con_SafePrintf`
+   routing in Rust.
+8. **Carved out of `pr_ext.c`, recorded per the per-batch stop rule**:
+   `PF_strzone`/`PF_strunzone` and the `knownzone` bitmap (they belong with the
+   arena flip, not with the string builtins); `PF_sprintf_internal` and
+   `PF_sprintf` (470 lines, and its own formatter — a milestone of its own);
+   the tokenizer (`PF_Tokenize`/`PF_ArgC`/`PF_ArgV`/`PF_tokenizebyseparator`,
+   which own the process-global `qctoken`); `PF_strconv` and its three
+   `chrconv_*` tables; `PF_infoadd`/`PF_infoget`; `PF_strftime` (wall clock);
+   `PF_stov` (`COM_Parse` over the ambient `com_token`); FRIK_FILE and the
+   strbufs (`qcfiles`/`strbuflist`, process-global); the temp-entity and
+   particle blocks and `PF_getsurface*` → Phase 7/8 as the ROADMAP already
+   says; and the CSQC 2D drawing block → Phase 8.
+9. **Gates**: five meson configs; corpus `--check` 11/11 on all three engine
+   configs plus `--compare`; `save_diff` identical; trace parity byte-identical
+   over six map/game combinations; 49 ctest suites green
+   (`progs_builtins_synthetic` now 54 tests); the three static checks, bindgen
+   regen-diff, `cargo fmt --check` and both clippy passes clean.
+
+### 2026-08-27 M10 — the extension machinery: assessed, carved out, and gated
+
+The plan's M10 was "port `PR_InitExtensions`/`PR_EnableExtensions`/
+`PR_ShutdownExtensions`, resolve `PF_Fixme`'s lazy self-patching, and add the
+builtin-table dump diff gate". **The gate landed; the port did not, and that is
+a decision rather than a shortfall.** The assessment, so it is reviewable:
+
+1. **`PR_InitExtensions` has no compatibility content to move.** Its body is
+   `number = documentednumber ? documentednumber : --g`, counting down from
+   1024 in table order. What is delicate is that it mutates the **static**
+   `extensionbuiltins[]` table and must run exactly once — and that table's
+   entries are C function pointers, most of them still-C builtins. Porting it
+   would mean sharing that table's storage across the boundary to move three
+   lines of arithmetic.
+2. **`PR_EnableExtensions` is 200 lines of X-macro expansion**
+   (`QCEXTFUNCS_*`, `QCEXTGLOBALS_*`) resolving names against the loaded progs
+   into `qcvm->extfuncs`/`extglobals`, plus the `#0` function remapping and
+   autocvar registration. The macro lists *are* the ABI; the port would be a
+   transliteration of three lists with no branch to get subtly wrong, and the
+   thing that could go wrong — which ordinal ends up bound to what — is exactly
+   what the new gate now compares directly.
+3. **`PF_Fixme` is the ADR-009 hazard in its worst form.** It decodes the
+   callee from `qcvm->statements[qcvm->xstatement]`, **writes**
+   `qcvm->builtins[binum]`, and then *calls* it — mutating the dispatch table
+   from inside a dispatch and then invoking an arbitrary builtin, most of which
+   are still C and can `Host_Error`. Porting it would put a Rust frame between
+   the interpreter's `Host_Guard` and every unported builtin, rather than
+   between it and the bounded seam list M8 guarded. That is the wrong order:
+   it should follow the builtins, not lead them.
+4. **`PR_ShutdownExtensions` wipes the process-globals** (`qctoken`,
+   `qcfiles`, `strbuflist[64]`, `checkpvs`, `nearsurface_cache_valid`) at map
+   end for whichever VM tears down — landmine 16. Every one of those belongs to
+   a builtin that is still C, so moving the teardown ahead of them would split
+   ownership.
+5. **The CSQC load chain is Phase 7's.** `csprogsvers/%x.dat` → `csprogs.dat` →
+   `progs.dat` is driven from `cl_parse.c`, which this phase does not touch.
+
+**What landed instead: the builtin-table dump diff gate** — the ROADMAP's own
+Phase 6 exit criterion, and the thing that actually covers items 1–3.
+
+- `pr_dumpbuiltins` (`pr_ext.c`, unconditional C — it is a diagnostic, not a
+  port target) writes `name declared-number bound-ordinal` for every
+  `extensionbuiltins[]` entry plus the three `PR_PatchRereleaseBuiltins`
+  `first_statement` results. It selects `sv.qcvm` itself, because console
+  commands run outside the server frame where no VM is ambient.
+- `scripts/harness/builtin_diff.py` runs it on two builds and compares, with a
+  minimum-entry floor so a build that printed nothing fails loudly instead of
+  comparing equal (the Phase 5 delivered-record lesson again).
+- **Verified non-vacuous by mutation**: perturbing one entry's number under
+  `USE_RUST_PROGS` and rebuilding produced
+  `line 4: A: PRBUILTIN sqrt 62 -1 / B: PRBUILTIN sqrt 63 -1` and a non-zero
+  exit; reverting restored `identical`.
+- Green C-vs-mixed over id1 `e1m1` and `start` and over hipnotic, rogue and
+  re-release `start` — 235 entries each. Added to `build-linux.yml` on the two
+  shareware maps, and to `Misc/harness/README.md`.
+- Honest limit of the gate: for id1 only 20 of the 235 entries actually *bind*
+  (`PR_EnableExtensions` refuses to clobber a slot the progs left as
+  `PF_Fixme`, and vanilla progs declare 90 builtins). The declared numbers and
+  the patch results are compared for all of them; the bound column carries
+  signal only for mods that use the extensions — the same corpus gap M9
+  recorded.
+- One refinement while building it: an entry whose function *is* `PF_Fixme`
+  would otherwise report "bound to ordinal 0", which is `PF_Fixme`'s own slot.
+  Suppressed, so the column means what it says.
+
+**A self-inflicted incident worth recording.** During the mutation test I
+reverted the probe with `git checkout -- Quake/pr_ext.c`, which also discarded
+the *uncommitted* dump command in the same file; the next build failed with an
+undefined `PR_DumpBuiltinTable_f`. Recovered by re-applying it. The lesson is
+the obvious one — a whole-file checkout is not a targeted revert when the file
+carries uncommitted work — and it is recorded because the same gesture would
+have silently lost a subtler change instead of breaking the build.
+
+### 2026-08-27 M11 — phase exit: Miri, the fuzz soak, and five loader defects it found
+
+1. **The carried Miri gap is closed.** The M1–M5 review asked to see
+   `quake_rs_ed_parse_epair`'s aliasing shape modelled — a `&mut [i32]` into
+   *one edict's field block*, an `EdictArena` over the *whole* array, a
+   borrow-free `VmRaw` over the same `qcvm_t`, and a `&mut FreeList` inside
+   that same `qcvm_t`, all live at once. `ev_entity_arm_aliases_the_parsed_
+   edict_without_invalidating_it` builds exactly that and drives the arm that
+   allocates, so Stacked Borrows sees every derivation in the real order.
+   Green under `MIRIFLAGS=-Zmiri-strict-provenance cargo +nightly miri test`,
+   alongside M2's re-entrancy model. It lives in `arena.rs` because that is the
+   crate's unsafe island; `parse.rs` is `deny(unsafe_code)` and could not host
+   it.
+2. **The fuzz soak found seven real defects in the M6 loader, and two in its own
+   harness.** This is the milestone's most substantive result, and every one of
+   them was reachable from an untrusted `progs.dat` — i.e. from mod data. It
+   took six rounds: each fix exposed the next one behind it.
+   - `edict_size = entityfields * 4 + header` **overflow-panicked** on a
+     hostile header, where C wraps. A panic in the engine is an abort (ADR-009),
+     so this was a remote-ish crash. Now `LoadError::BadEntityFields`.
+   - `DefTable::realloc_from` used a **typed** `copy_nonoverlapping`, whose
+     alignment precondition an `ofs_fielddefs` that is not 4-aligned violates.
+     C's `memcpy` does not care. The copy is over bytes now.
+   - `PR_ClearProgs` read `progs->ofs_fielddefs` **unconditionally**, so a
+     truncated file that raised during load overran the buffer at teardown.
+     `image_fielddefs` now returns `None` when the image cannot hold a header.
+   - A **negative `numstrings`** sailed through C's own
+     `ofs_strings + numstrings >= com_filesize` test (the sum only gets
+     smaller) straight into `qcvm->stringssize`, which is a bound. Now
+     rejected by the lump-bounds pass.
+   - `PR_MergeEngineFieldDefs` **counts in one loop and emits in another**, and
+     the second re-derives "is this new?" from
+     `newidx >= entityfields && newidx < maxofs`. A progs that *declares* one
+     of the autofield names at an offset at or past `entityfields` satisfies
+     that test without having been counted — so C emits a def it did not
+     allocate room for and writes past its own `Mem_Alloc` block. The port
+     carries an explicit is-new flag, so the two loops agree by construction.
+   - A file **shorter than a `dprograms_t`** overran twice over: C's very
+     first act after `COM_LoadFile` is to byteswap 15 words *in place*, before
+     any validation, and `PR_MergeEngineFieldDefs` later writes `numfielddefs`
+     and `entityfields` back into that same header. Now `LoadError::TooShort`.
+   - An **unterminated strings lump**. Every symbol name reaching the hash maps
+     is `strings + s_name`, and the engine's `HashStr` calls `strlen` on it;
+     C's only guard is `ofs_strings + numstrings >= com_filesize`, which says
+     nothing about a terminator. The very first `HashMap_Insert` then reads
+     past the file. Now `LoadError::UnterminatedStrings` — one byte to check,
+     and a `progs.dat` from any compiler ends its table with a NUL.
+   Two of the nine crashes were the harnesses' own: `fuzz_ed_parse` left
+   `globals` NULL, and `ED_ParseEpair`'s `ev_field` arm reads
+   `G_INT (def->ofs)` — the *globals* block, indexed by a fielddef offset,
+   unchecked, exactly as C does; and `fuzz_progs_load` asserted every lump
+   pointer was `< end`, where a zero-count lump sitting exactly at the end of
+   the file yields a legal one-past-the-end pointer that is never
+   dereferenced. Both fixed in the targets, not the port.
+   Each port defect has a regression test in `progs_load_synthetic.rs` (21
+   tests now). After the fixes both targets soak clean.
+3. **Every one of those five is an "accepted divergence" of the same family as
+   the interpreter's bounds checks** (M3 amendment 3): C performs an unchecked
+   read or write that a malformed `progs.dat` turns into a heap overflow, and
+   the port refuses instead. They are documented individually at the raise
+   sites. That the fuzzer found five in one file is the argument for the
+   ROADMAP's fuzzing gate, not against the port.
+4. **ROADMAP updated**: the Phase 6 status paragraph now records what is
+   flipped, both coverage gaps, and every carve-out with its reason; the
+   deletes list distinguishes what can be deleted now (`pr_exec.c` and the
+   three `pr_edict.c` splits) from what moves to Phase 7/8 (`pr_edict.c`'s
+   remainder, `pr_edict_arena.c`, and `pr_cmds.c`/`pr_ext.c`, which flip per
+   slot and are deleted when their last slot does).
+5. **Not done, and named rather than buried**: the `progs` capi feature is
+   still not enabled in `quake-ctest`, so the shims are covered by
+   `check_capi_signatures.sh` and the engine gates but by no sanitizer. This
+   has now been deferred at M1, M3 and here; the reason is unchanged (the
+   shims import `qcvm` and the `PR*_Glue_*` entry points, which live in
+   engine-only translation units), and the honest fix is a stub layer for
+   those, not another deferral. Recorded as the first item for whoever
+   continues.
+
+## M12 — PR #24 review findings
+
+A read-only review of M6–M11 against the C originals raised eight findings.
+All eight were verified against the C before acting; all eight were real, and
+all eight are resolved here. Five were behavioural, three documentation.
+
+1. **`pf_vectoyaw`/`pf_vectoangles` truncated the wrong type** (blocking).
+   C is `(int)(atan2 (...) * 180 / M_PI)` and `atan2` returns `double`, so the
+   truncation is of the *double*. The port narrowed to `f32` first, because
+   `c_cast_i32` only takes `f32` — inserting a rounding step C does not have,
+   which can round *up* across an integer boundary C truncates down. Roughly 1
+   input in 200k, a silent 1° error in monster facing and `SV_MoveToGoal`.
+   Trace parity over e1m1/e2m1/e3m1 missed it because the cardinal directions
+   are exactly representable — luck, not coverage. Fixed with
+   `exec::c_cast_i32_f64`, the `f64` sibling with the same per-arch arms
+   (`cvttsd2si` yields `INT_MIN` for the unrepresentable, as `cvttss2si`
+   does). Three call sites: `pf_vectoyaw`'s yaw, `pf_vectoangles`' yaw and
+   pitch. Two regression tests pin bit patterns for which the two truncations
+   *disagree*, with an `assert_ne!` so the fixture cannot silently stop
+   distinguishing them.
+2. **`pf_find`/`pf_nextent` dropped `NUM_FOR_EDICT`'s range raise.** Both C
+   builtins open with `G_EDICTNUM (OFS_PARM0)`, and `NUM_FOR_EDICT`'s
+   `b < 0 || b >= qcvm->num_edicts` test (`pr_edict.c:1090`) is **not**
+   debug-only — the debug-only tests are the two either side of it. The port
+   used `from_prog_num`, so a start entity outside the arena walked from a
+   bogus index where C aborts the frame. An oversight, not a decision:
+   `pf_eprint` already does it correctly through `num_for_edict`, and
+   `BuiltinError::BadEdictPointer` and its `PRBI_Raise` arm already existed.
+   `pf_nextent` becomes `Result`-returning; its capi export loses its
+   `Ok(())` wrapper.
+3. **`pf_substring`'s empty arm stepped the process-global temp ring.** C's
+   empty arm is `PR_SetEngineString ("")` on the *literal*: it never calls
+   `PR_GetTempString`, so the 16-entry ring does not advance, and because
+   `PR_SetEngineString` is pointer-keyed the handle is the one interned at
+   load time. `store_temp_string(b"")` did both of the things C avoids —
+   overwriting a temp string a mod may still hold one call early, and handing
+   QuakeC a different `string_t` for the same bytes, which `strunzone` and
+   direct handle comparison both observe. Fixed with a
+   `BuiltinSys::empty_engine_string` seam over `PRBI_Glue_EmptyEngineString`,
+   the builtin-side twin of `LoadSys::set_empty_engine_string`, which exists
+   for exactly this reason. The mock returns a handle disjoint from the
+   temp-string range so the new test can assert the ring did *not* step.
+4. **`image_fielddefs` computed an out-of-bounds pointer with `ptr::add`.**
+   `ofs` is `ofs_fielddefs` straight out of an untrusted header, and `add`'s
+   "result stays inside the allocated object" requirement is not lifted by the
+   pointer only ever being compared — LLVM lowers it to an `inbounds` GEP and
+   Miri's strict-provenance mode rejects it. Reachable on precisely the paths
+   M11 added: a `LumpOutOfRange`/`TooShort` refusal leaves `progs` set with a
+   garbage header and the `Host_Error` unwinds into `PR_ClearProgs`. Now
+   `wrapping_offset(ofs as isize)`, which additionally matches C's
+   `(byte *)progs + ofs` for a negative offset where the old `ofs.max(0)` did
+   not.
+5. **`pf_localcmd`'s whitespace scan had the wrong signedness.** C is
+   `*str2 && *str2 <= ' '` over a plain `char`, **signed** on x86-64 and
+   Windows and unsigned on AArch64 macOS/Linux — so on the signed targets a
+   high-bit byte (Quake's whole coloured-text charset) compares negative and
+   is skipped as leading whitespace. The port's `b > b' '` was the unsigned
+   reading, matching only AArch64. Reproduced through a `c_char_gt_space`
+   helper that compares in `core::ffi::c_char`, so the mixed build follows its
+   own C oracle on every target. The regression test derives its expectation
+   the same way rather than hard-coding one arch's answer — the divergence
+   cannot be settled by testing on a single host.
+6. **`pf_find`'s doc claimed cleared handles are skipped**, where the code
+   raises. The code was right (C's `if (!t) continue;` is dead — `PR_GetString`
+   `Host_Error`s rather than returning NULL) and the sentence was wrong, which
+   is the dangerous direction: a reader auditing for divergences would take it
+   at face value. Doc corrected.
+7. **`LoadError::UnterminatedStrings` also refuses `numstrings == 0`**, which
+   the doc did not describe — `strings_last_byte` returns `None` for an empty
+   lump. C loads such a file happily (`stringssize` is 0 and every
+   `PR_GetString` takes the out-of-range arm), so this is a deliberate
+   divergence rather than a reproduction, and is now recorded as one.
+8. **Deferred console output reordered the `occupies %uK.` line.** C emits it
+   inline, immediately after the CRC check and *before* `PR_EnableExtensions`
+   prints any of its own messages; the port queued everything and drained after
+   `load_progs` returned, so under `developer 1` the mixed build printed the
+   extension messages first. No gate covers console ordering — which is the
+   point. Rather than document it, a `LoadSys::flush_console` seam drains at
+   the point C prints, removing the divergence. The deferral rationale
+   (`Con_Printf` can reach `SCR_UpdateScreen`) is unaffected: C is in the
+   identical position at the identical point.
+
+**On the review's closing note.** It is right that finding 4 is exactly the
+class of defect the `quake-ctest` `progs`-feature gap hides — ASan or Miri over
+`PR_ClearProgs` after a refused load would have caught it, and instead it took
+a human reading the SAFETY comment. That gap is unchanged and remains recorded
+above as the first item for whoever continues; this entry adds the evidence
+that it is not a theoretical gap.
+
+**Verification.** `cargo test -p quake-ctest` green (59 tests in
+`progs_builtins_synthetic`, five of them new); `cargo clippy --workspace
+--all-targets -D warnings` and the `-p quake-capi --features progs` gate both
+clean; `cargo fmt --check` and `./format.sh` clean; bindgen regenerated for the
+new glue export; `check_headers.sh`, `check_capi_signatures.sh` and
+`check_ctest_symbols.sh` clean; `build-c`, `build-rs`, `build-rs-cprogs`,
+`build-c-trace` and `build-rs-trace` all build; `run_corpus.py --check` and
+`--compare`, `save_diff.py` and `trace_diff.py` re-run at the end of this
+entry's work.

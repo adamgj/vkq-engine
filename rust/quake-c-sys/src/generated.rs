@@ -1026,3 +1026,143 @@ unsafe extern "C" {
 unsafe extern "C" {
     pub fn PRParse_Glue_UnlinkEdict(edict_num: ::std::os::raw::c_int);
 }
+unsafe extern "C" {
+    pub fn PRLoad_Glue_MapCreate() -> *mut ::std::os::raw::c_void;
+}
+unsafe extern "C" {
+    pub fn PRLoad_Glue_MapReserve(
+        map: *mut ::std::os::raw::c_void,
+        capacity: ::std::os::raw::c_int,
+    );
+}
+unsafe extern "C" {
+    pub fn PRLoad_Glue_MapInsert(
+        map: *mut ::std::os::raw::c_void,
+        key: *const ::std::os::raw::c_char,
+        value: *const ::std::os::raw::c_void,
+    );
+}
+unsafe extern "C" {
+    pub fn PRLoad_Glue_MapDestroy(map: *mut ::std::os::raw::c_void);
+}
+unsafe extern "C" {
+    pub fn PRLoad_Glue_SwitchQCVM(nvm: *mut qcvm_s);
+}
+unsafe extern "C" {
+    pub fn PRLoad_Glue_DeselectQCVM();
+}
+unsafe extern "C" {
+    pub fn PRLoad_Glue_SetPrGlobalStruct(globals: *mut f32);
+}
+unsafe extern "C" {
+    pub fn PRLoad_Glue_SetEmptyEngineString();
+}
+unsafe extern "C" {
+    pub fn PRLoad_Glue_FindFieldOfs(name: *const ::std::os::raw::c_char) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn PRLoad_Glue_GlobalFloat(name: *const ::std::os::raw::c_char, out: *mut f32) -> qboolean;
+}
+unsafe extern "C" {
+    pub fn PRLoad_Glue_FindFunction(name: *const ::std::os::raw::c_char) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn PRLoad_Glue_VaComponent(
+        name: *const ::std::os::raw::c_char,
+        component: ::std::os::raw::c_int,
+    ) -> *const ::std::os::raw::c_char;
+}
+unsafe extern "C" {
+    pub fn PRLoad_Glue_ShutdownExtensions();
+}
+unsafe extern "C" {
+    pub fn PRLoad_Glue_EnableExtensions(globaldefs: *mut ::std::os::raw::c_void);
+}
+unsafe extern "C" {
+    pub fn PRLoad_Glue_IsServerVM(vm: *mut qcvm_s) -> qboolean;
+}
+unsafe extern "C" {
+    pub fn PRLoad_Glue_SetEffectsMask(mask: ::std::os::raw::c_int);
+}
+unsafe extern "C" {
+    pub fn PRBI_Glue_Ceil(v: f64) -> f64;
+}
+unsafe extern "C" {
+    pub fn PRBI_Glue_AngleVectors(angles: *const f32);
+}
+unsafe extern "C" {
+    pub fn PRBI_Glue_StoreTempString(
+        bytes: *const ::std::os::raw::c_char,
+        len: ::std::os::raw::c_int,
+    ) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn PRBI_Glue_EmptyEngineString() -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn PRBI_Glue_VarString(first: ::std::os::raw::c_int) -> *const ::std::os::raw::c_char;
+}
+unsafe extern "C" {
+    pub fn PRBI_Glue_CvarValue(name: *const ::std::os::raw::c_char) -> f32;
+}
+unsafe extern "C" {
+    pub fn PRBI_Glue_ChangelevelIssued(set: qboolean) -> qboolean;
+}
+unsafe extern "C" {
+    pub fn PRBI_Glue_EdAlloc(num: *mut ::std::os::raw::c_int) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn PRBI_Glue_EdFree(num: ::std::os::raw::c_int) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn PRBI_Glue_EdPrintWithBanner(
+        banner: *const ::std::os::raw::c_char,
+        num: ::std::os::raw::c_int,
+    ) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn PRBI_Glue_EdPrintNum(num: ::std::os::raw::c_int) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn PRBI_Glue_MaxClients() -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn PRBI_Glue_MsgWrite(
+        dest: ::std::os::raw::c_int,
+        entnum: ::std::os::raw::c_int,
+        kind: ::std::os::raw::c_int,
+        i: ::std::os::raw::c_int,
+        f: f32,
+        bytes: *const ::std::os::raw::c_char,
+    );
+}
+unsafe extern "C" {
+    pub fn PRBI_Glue_Tan(v: f64) -> f64;
+}
+unsafe extern "C" {
+    pub fn PRBI_Glue_Asin(v: f64) -> f64;
+}
+unsafe extern "C" {
+    pub fn PRBI_Glue_Atan(v: f64) -> f64;
+}
+unsafe extern "C" {
+    pub fn PRBI_Glue_Pow(a: f64, b: f64) -> f64;
+}
+unsafe extern "C" {
+    pub fn PRBI_Glue_StrtoulHex(s: *const ::std::os::raw::c_char) -> ::std::os::raw::c_uint;
+}
+unsafe extern "C" {
+    pub fn PRBI_Glue_StrCmp(
+        a: *const ::std::os::raw::c_char,
+        b: *const ::std::os::raw::c_char,
+        len: ::std::os::raw::c_int,
+        fold_case: qboolean,
+        use_len: qboolean,
+    ) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn PRBI_Glue_VectorVectors(forward: *const f32);
+}
+unsafe extern "C" {
+    pub fn PRBI_Glue_VectorAngles(forward: *const f32, up: *const f32, out: *mut f32);
+}

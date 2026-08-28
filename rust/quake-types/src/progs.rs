@@ -40,6 +40,9 @@ pub const PROG_VERSION: c_int = 6;
 /// `progdefs.q1`
 pub const PROGHEADER_CRC: c_int = 5927;
 pub const MAX_PARMS: usize = 8;
+
+/// `progs.h` — the fixed size of `qcvm_t::builtins`.
+pub const MAX_BUILTINS: usize = 1024;
 /// `pr_comp.h`: set in `ddef_t::type` when the global belongs in savegames
 pub const DEF_SAVEGLOBAL: u16 = 1 << 15;
 
@@ -596,7 +599,7 @@ pub struct QcVm {
     /// `progs->entityfields * 4 + sizeof(edict_t) - sizeof(entvars_t)`,
     /// rounded up to pointer alignment. The edict array stride (ADR-006).
     pub edict_size: c_int,
-    pub builtins: [BuiltinT; 1024],
+    pub builtins: [BuiltinT; MAX_BUILTINS],
     pub numbuiltins: c_int,
     pub argc: c_int,
     /// The `Con_Printf` single-step debugger flag, not the `-tracefile`

@@ -29,7 +29,7 @@ impl SaveSys for EngineSave {
         let (mut ty, mut field_ofs, mut s_name) = (0, 0, 0);
         // SAFETY: a leaf lookup in pr_edict.c over the loaded fielddefs.
         let found = unsafe { c::PRSave_Glue_FieldAtOfs(ofs, &mut ty, &mut field_ofs, &mut s_name) };
-        (found != 0).then(|| DDef {
+        (found != 0).then_some(DDef {
             type_: ty as u16,
             ofs: field_ofs as u16,
             s_name,

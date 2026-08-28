@@ -31,6 +31,9 @@ quake-image = { path = "../quake-image" }
 quake-snd = { path = "../quake-snd" }
 # Phase 5: the wire-layer reader/writer core the net capi shims are built on
 quake-net = { path = "../quake-net" }
+# Phase 6 M6: the progs loader and the savegame value parser. quake-progs is
+# deliberately quake-c-sys-free, so both run here with no engine linked in.
+quake-progs = { path = "../quake-progs" }
 
 # Empty table: this package is its own workspace root, so the parent
 # workspace at rust/Cargo.toml (which also lists it in `exclude`) never
@@ -177,3 +180,17 @@ name = "fuzz_net_ccreq"
 path = "fuzz_targets/fuzz_net_ccreq.rs"
 test = false
 doc = false
+
+[[bin]]
+name = "fuzz_progs_load"
+path = "fuzz_targets/fuzz_progs_load.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_ed_parse"
+path = "fuzz_targets/fuzz_ed_parse.rs"
+test = false
+doc = false
+bench = false

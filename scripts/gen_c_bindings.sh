@@ -94,7 +94,7 @@ bindgen rust/quake-c-sys/bindings_wrapper.h \
     --allowlist-var 'net_activeSockets|net_freeSockets|net_activeconnections|DEFAULTnet_hostport|listening|hostCacheCount' \
     --allowlist-function 'NetMain_SVActive|NetMain_MaxClients|NetMain_MaxClientsLimit|NetMain_SetMaxClients|NetMain_Drivers|NetMain_LanDrivers|Cbuf_AddText|Cvar_Set' \
     --allowlist-var 'qcvm' \
-    --allowlist-function 'PRExec_Glue_.*|PRSave_Glue_.*|PRParse_Glue_.*' \
+    --allowlist-function 'PRExec_Glue_.*|PRSave_Glue_.*|PRParse_Glue_.*|PRLoad_Glue_.*|PRBI_Glue_.*' \
     -o rust/quake-c-sys/src/generated.rs \
     -- -IQuake
 

@@ -547,6 +547,30 @@ pub fn c_cast_i32(v: f32) -> i32 {
     }
 }
 
+/// COMPAT (ADR-006): C's `(int)someDouble`, the `f64` sibling of
+/// [`c_cast_i32`]. `pr_cmds.c` truncates `double` expressions directly
+/// (`(int)(atan2 (...) * 180 / M_PI)`), so narrowing to `f32` first would
+/// insert a rounding step C does not have and can round *up* across an
+/// integer boundary C truncates down.
+#[must_use]
+pub fn c_cast_i32_f64(v: f64) -> i32 {
+    #[cfg(target_arch = "x86_64")]
+    {
+        // cvttsd2si yields INT_MIN for anything it cannot represent, NaN
+        // included, exactly as the `f32` form does.
+        if (-2147483648.0..2147483648.0).contains(&v) {
+            v as i32
+        } else {
+            i32::MIN
+        }
+    }
+    #[cfg(not(target_arch = "x86_64"))]
+    {
+        // AArch64 fcvtzs saturates, which is what Rust's `as` does.
+        v as i32
+    }
+}
+
 /// `PR_GetString`, with its one live error mapped into [`ExecError`] so the
 /// raise happens in the C caller's frame (ADR-009).
 fn string_of(vm: &VmRaw, handle: i32) -> Result<*const c_char, ExecError> {
