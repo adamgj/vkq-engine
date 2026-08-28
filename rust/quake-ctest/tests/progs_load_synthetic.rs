@@ -311,6 +311,8 @@ impl LoadSys for MockSys {
         -(self.new_strings.len() as c_int)
     }
 
+    fn flush_console(&mut self) {}
+
     fn set_empty_engine_string(&mut self) {
         self.empty_string_calls += 1;
     }

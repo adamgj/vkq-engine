@@ -713,3 +713,102 @@ have silently lost a subtler change instead of breaking the build.
    engine-only translation units), and the honest fix is a stub layer for
    those, not another deferral. Recorded as the first item for whoever
    continues.
+
+## M12 — PR #24 review findings
+
+A read-only review of M6–M11 against the C originals raised eight findings.
+All eight were verified against the C before acting; all eight were real, and
+all eight are resolved here. Five were behavioural, three documentation.
+
+1. **`pf_vectoyaw`/`pf_vectoangles` truncated the wrong type** (blocking).
+   C is `(int)(atan2 (...) * 180 / M_PI)` and `atan2` returns `double`, so the
+   truncation is of the *double*. The port narrowed to `f32` first, because
+   `c_cast_i32` only takes `f32` — inserting a rounding step C does not have,
+   which can round *up* across an integer boundary C truncates down. Roughly 1
+   input in 200k, a silent 1° error in monster facing and `SV_MoveToGoal`.
+   Trace parity over e1m1/e2m1/e3m1 missed it because the cardinal directions
+   are exactly representable — luck, not coverage. Fixed with
+   `exec::c_cast_i32_f64`, the `f64` sibling with the same per-arch arms
+   (`cvttsd2si` yields `INT_MIN` for the unrepresentable, as `cvttss2si`
+   does). Three call sites: `pf_vectoyaw`'s yaw, `pf_vectoangles`' yaw and
+   pitch. Two regression tests pin bit patterns for which the two truncations
+   *disagree*, with an `assert_ne!` so the fixture cannot silently stop
+   distinguishing them.
+2. **`pf_find`/`pf_nextent` dropped `NUM_FOR_EDICT`'s range raise.** Both C
+   builtins open with `G_EDICTNUM (OFS_PARM0)`, and `NUM_FOR_EDICT`'s
+   `b < 0 || b >= qcvm->num_edicts` test (`pr_edict.c:1090`) is **not**
+   debug-only — the debug-only tests are the two either side of it. The port
+   used `from_prog_num`, so a start entity outside the arena walked from a
+   bogus index where C aborts the frame. An oversight, not a decision:
+   `pf_eprint` already does it correctly through `num_for_edict`, and
+   `BuiltinError::BadEdictPointer` and its `PRBI_Raise` arm already existed.
+   `pf_nextent` becomes `Result`-returning; its capi export loses its
+   `Ok(())` wrapper.
+3. **`pf_substring`'s empty arm stepped the process-global temp ring.** C's
+   empty arm is `PR_SetEngineString ("")` on the *literal*: it never calls
+   `PR_GetTempString`, so the 16-entry ring does not advance, and because
+   `PR_SetEngineString` is pointer-keyed the handle is the one interned at
+   load time. `store_temp_string(b"")` did both of the things C avoids —
+   overwriting a temp string a mod may still hold one call early, and handing
+   QuakeC a different `string_t` for the same bytes, which `strunzone` and
+   direct handle comparison both observe. Fixed with a
+   `BuiltinSys::empty_engine_string` seam over `PRBI_Glue_EmptyEngineString`,
+   the builtin-side twin of `LoadSys::set_empty_engine_string`, which exists
+   for exactly this reason. The mock returns a handle disjoint from the
+   temp-string range so the new test can assert the ring did *not* step.
+4. **`image_fielddefs` computed an out-of-bounds pointer with `ptr::add`.**
+   `ofs` is `ofs_fielddefs` straight out of an untrusted header, and `add`'s
+   "result stays inside the allocated object" requirement is not lifted by the
+   pointer only ever being compared — LLVM lowers it to an `inbounds` GEP and
+   Miri's strict-provenance mode rejects it. Reachable on precisely the paths
+   M11 added: a `LumpOutOfRange`/`TooShort` refusal leaves `progs` set with a
+   garbage header and the `Host_Error` unwinds into `PR_ClearProgs`. Now
+   `wrapping_offset(ofs as isize)`, which additionally matches C's
+   `(byte *)progs + ofs` for a negative offset where the old `ofs.max(0)` did
+   not.
+5. **`pf_localcmd`'s whitespace scan had the wrong signedness.** C is
+   `*str2 && *str2 <= ' '` over a plain `char`, **signed** on x86-64 and
+   Windows and unsigned on AArch64 macOS/Linux — so on the signed targets a
+   high-bit byte (Quake's whole coloured-text charset) compares negative and
+   is skipped as leading whitespace. The port's `b > b' '` was the unsigned
+   reading, matching only AArch64. Reproduced through a `c_char_gt_space`
+   helper that compares in `core::ffi::c_char`, so the mixed build follows its
+   own C oracle on every target. The regression test derives its expectation
+   the same way rather than hard-coding one arch's answer — the divergence
+   cannot be settled by testing on a single host.
+6. **`pf_find`'s doc claimed cleared handles are skipped**, where the code
+   raises. The code was right (C's `if (!t) continue;` is dead — `PR_GetString`
+   `Host_Error`s rather than returning NULL) and the sentence was wrong, which
+   is the dangerous direction: a reader auditing for divergences would take it
+   at face value. Doc corrected.
+7. **`LoadError::UnterminatedStrings` also refuses `numstrings == 0`**, which
+   the doc did not describe — `strings_last_byte` returns `None` for an empty
+   lump. C loads such a file happily (`stringssize` is 0 and every
+   `PR_GetString` takes the out-of-range arm), so this is a deliberate
+   divergence rather than a reproduction, and is now recorded as one.
+8. **Deferred console output reordered the `occupies %uK.` line.** C emits it
+   inline, immediately after the CRC check and *before* `PR_EnableExtensions`
+   prints any of its own messages; the port queued everything and drained after
+   `load_progs` returned, so under `developer 1` the mixed build printed the
+   extension messages first. No gate covers console ordering — which is the
+   point. Rather than document it, a `LoadSys::flush_console` seam drains at
+   the point C prints, removing the divergence. The deferral rationale
+   (`Con_Printf` can reach `SCR_UpdateScreen`) is unaffected: C is in the
+   identical position at the identical point.
+
+**On the review's closing note.** It is right that finding 4 is exactly the
+class of defect the `quake-ctest` `progs`-feature gap hides — ASan or Miri over
+`PR_ClearProgs` after a refused load would have caught it, and instead it took
+a human reading the SAFETY comment. That gap is unchanged and remains recorded
+above as the first item for whoever continues; this entry adds the evidence
+that it is not a theoretical gap.
+
+**Verification.** `cargo test -p quake-ctest` green (59 tests in
+`progs_builtins_synthetic`, five of them new); `cargo clippy --workspace
+--all-targets -D warnings` and the `-p quake-capi --features progs` gate both
+clean; `cargo fmt --check` and `./format.sh` clean; bindgen regenerated for the
+new glue export; `check_headers.sh`, `check_capi_signatures.sh` and
+`check_ctest_symbols.sh` clean; `build-c`, `build-rs`, `build-rs-cprogs`,
+`build-c-trace` and `build-rs-trace` all build; `run_corpus.py --check` and
+`--compare`, `save_diff.py` and `trace_diff.py` re-run at the end of this
+entry's work.

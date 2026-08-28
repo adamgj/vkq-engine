@@ -1097,6 +1097,9 @@ unsafe extern "C" {
     ) -> ::std::os::raw::c_int;
 }
 unsafe extern "C" {
+    pub fn PRBI_Glue_EmptyEngineString() -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
     pub fn PRBI_Glue_VarString(first: ::std::os::raw::c_int) -> *const ::std::os::raw::c_char;
 }
 unsafe extern "C" {

@@ -105,6 +105,16 @@ pub trait BuiltinSys {
     /// steps it.
     fn store_temp_string(&mut self, bytes: &[u8]) -> c_int;
 
+    /// `PR_SetEngineString ("")` on the string **literal**.
+    ///
+    /// COMPAT: distinct from `store_temp_string(b"")`. `PR_SetEngineString`
+    /// keys on the *pointer*, so the literal always interns to the same
+    /// handle, and going through `PR_GetTempString` would additionally step
+    /// the 16-entry process-global temp ring — overwriting a temp string a mod
+    /// may still be holding one call earlier than C does. Handle identity is
+    /// observable to QuakeC through `strunzone` and direct comparison.
+    fn empty_engine_string(&mut self) -> c_int;
+
     /// `PF_VarString (first)` — the localisation-aware argument joiner.
     fn var_string(&mut self, first: c_int) -> Vec<u8>;
 
@@ -245,9 +255,9 @@ pub fn pf_vectoyaw(vm: &mut VmRaw, sys: &mut dyn BuiltinSys) {
     let yaw = if v[1] == 0.0 && v[0] == 0.0 {
         0.0
     } else {
-        let mut yaw = crate::exec::c_cast_i32(
-            (sys.atan2(f64::from(v[1]), f64::from(v[0])) * 180.0 / PI) as f32,
-        ) as f32;
+        let mut yaw =
+            crate::exec::c_cast_i32_f64(sys.atan2(f64::from(v[1]), f64::from(v[0])) * 180.0 / PI)
+                as f32;
         if yaw < 0.0 {
             yaw += 360.0;
         }
@@ -268,9 +278,9 @@ pub fn pf_vectoangles(vm: &mut VmRaw, sys: &mut dyn BuiltinSys) {
         yaw = 0.0;
         pitch = if v[2] > 0.0 { 90.0 } else { 270.0 };
     } else {
-        let mut y = crate::exec::c_cast_i32(
-            (sys.atan2(f64::from(v[1]), f64::from(v[0])) * 180.0 / PI) as f32,
-        ) as f32;
+        let mut y =
+            crate::exec::c_cast_i32_f64(sys.atan2(f64::from(v[1]), f64::from(v[0])) * 180.0 / PI)
+                as f32;
         if y < 0.0 {
             y += 360.0;
         }
@@ -280,8 +290,8 @@ pub fn pf_vectoangles(vm: &mut VmRaw, sys: &mut dyn BuiltinSys) {
         // above -- `sqrt (v[0] * v[0] + v[1] * v[1])` promotes the float
         // product to double only at the call.
         let forward = sys.sqrt(f64::from(v[0] * v[0] + v[1] * v[1])) as f32;
-        let mut p = crate::exec::c_cast_i32(
-            (sys.atan2(f64::from(v[2]), f64::from(forward)) * 180.0 / PI) as f32,
+        let mut p = crate::exec::c_cast_i32_f64(
+            sys.atan2(f64::from(v[2]), f64::from(forward)) * 180.0 / PI,
         ) as f32;
         if p < 0.0 {
             p += 360.0;
@@ -452,8 +462,10 @@ pub fn pf_vtos(vm: &mut VmRaw, sys: &mut dyn BuiltinSys) {
 /// `entity find (entity start, .string field, string match)`
 ///
 /// COMPAT: the search starts at `start + 1` and returns the *world* entity
-/// when nothing matches, which is how QuakeC's `find` loops terminate. A
-/// cleared string handle is skipped rather than compared.
+/// when nothing matches, which is how QuakeC's `find` loops terminate. C's
+/// `if (!t) continue;` is dead code — `PR_GetString` never returns NULL, it
+/// `Host_Error`s on a cleared known string — so a cleared handle raises here
+/// too rather than being skipped.
 ///
 /// The comparison is byte equality, not a `strcmp` call-through: C tests
 /// `!strcmp (t, s)`, and for two NUL-terminated strings "compares equal" and
@@ -461,7 +473,9 @@ pub fn pf_vtos(vm: &mut VmRaw, sys: &mut dyn BuiltinSys) {
 /// call through, because it stores `strcmp`'s raw return value into a float
 /// slot where QuakeC can read the platform-specific magnitude.)
 pub fn pf_find(vm: &mut VmRaw, _sys: &mut dyn BuiltinSys) -> Result<(), BuiltinError> {
-    let mut e = vm.from_prog_num(vm.g_i32(OFS_PARM0));
+    // C opens with `G_EDICTNUM (OFS_PARM0)`, and `NUM_FOR_EDICT`'s range test
+    // is not debug-only: a start entity outside the arena raises here.
+    let mut e = num_for_edict(vm, vm.g_i32(OFS_PARM0))?;
     let field = vm.g_i32(OFS_PARM1);
     let s = string_arg(vm, vm.g_i32(OFS_PARM2))?;
 
@@ -487,17 +501,21 @@ pub fn pf_find(vm: &mut VmRaw, _sys: &mut dyn BuiltinSys) -> Result<(), BuiltinE
 }
 
 /// `entity nextent (entity)` — the next non-free edict, or world at the end.
-pub fn pf_nextent(vm: &mut VmRaw) {
-    let mut i = vm.from_prog_num(vm.g_i32(OFS_PARM0));
+///
+/// COMPAT: C opens with `G_EDICTNUM (OFS_PARM0)`, whose `NUM_FOR_EDICT` range
+/// test is not debug-only, so an argument outside the arena raises rather than
+/// walking from a bogus index.
+pub fn pf_nextent(vm: &mut VmRaw) -> Result<(), BuiltinError> {
+    let mut i = num_for_edict(vm, vm.g_i32(OFS_PARM0))?;
     loop {
         i += 1;
         if i == vm.num_edicts() {
             vm.set_g_i32(OFS_RETURN, vm.to_prog_num(0));
-            return;
+            return Ok(());
         }
         if !vm.edict_free(i) {
             vm.set_g_i32(OFS_RETURN, vm.to_prog_num(i));
-            return;
+            return Ok(());
         }
     }
 }
@@ -532,9 +550,19 @@ pub fn pf_cvar_set(vm: &mut VmRaw, sys: &mut dyn BuiltinSys) -> Result<(), Built
 /// COMPAT: the `restart` guard skips leading bytes `<= ' '` (so control
 /// characters count as whitespace) and matches by prefix, so `restartfoo`
 /// trips it too.
+///
+/// COMPAT (arch-dependent, reproduced): C's scan is `*str2 <= ' '` over a
+/// plain `char`, which is **signed** on x86-64 and Windows and unsigned on
+/// AArch64 macOS/Linux. On the signed targets a high-bit byte — Quake's whole
+/// coloured-text charset — compares negative and is skipped as leading
+/// whitespace. The comparison below is done in `i8` so the mixed build
+/// matches its own C oracle on every target rather than only on AArch64.
 pub fn pf_localcmd(vm: &mut VmRaw, sys: &mut dyn BuiltinSys) -> Result<(), BuiltinError> {
     let text = string_arg(vm, vm.g_i32(OFS_PARM0))?;
-    let start = text.iter().position(|&b| b > b' ').unwrap_or(text.len());
+    let start = text
+        .iter()
+        .position(|&b| c_char_gt_space(b))
+        .unwrap_or(text.len());
     if text[start..].starts_with(b"restart") && sys.changelevel_issued(true) {
         return Ok(());
     }
@@ -640,6 +668,13 @@ fn error_banner(vm: &VmRaw, banner: &[u8], message: &[u8]) -> Vec<u8> {
 /// `NUM_FOR_EDICT (PROG_TO_EDICT (prog))` including the range test, which is
 /// **not** debug-only: `b < 0 || b >= qcvm->num_edicts` raises in release
 /// builds too.
+/// C's `*str2 > ' '` over a plain `char`, whose signedness is the target's.
+///
+/// COMPAT: see [`pf_localcmd`].
+fn c_char_gt_space(b: u8) -> bool {
+    (b as core::ffi::c_char) > (b' ' as core::ffi::c_char)
+}
+
 pub(crate) fn num_for_edict(vm: &VmRaw, prog: i32) -> Result<c_int, BuiltinError> {
     let num = vm.from_prog_num(prog);
     if num < 0 || num >= vm.num_edicts() {

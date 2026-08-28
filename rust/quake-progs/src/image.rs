@@ -514,8 +514,11 @@ impl VmLoad {
         // and its header has been byteswapped, so `ofs_fielddefs` is the
         // in-file offset C uses here.
         let ofs = unsafe { (*progs).ofs_fielddefs };
-        // SAFETY: as above; the offset is only compared, never dereferenced.
-        Some(unsafe { progs.cast::<u8>().add(ofs.max(0) as usize) })
+        // `wrapping_offset`, not `add`: `ofs` comes straight out of an
+        // untrusted header, and `add`'s "stays inside the allocation"
+        // requirement is not lifted by the pointer only ever being compared.
+        // This also matches C's `(byte *)progs + ofs` for a negative offset.
+        Some(progs.cast::<u8>().wrapping_offset(ofs as isize))
     }
 
     /// `PR_GetString` restricted to the strings blob, which is all the loader

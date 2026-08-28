@@ -216,6 +216,7 @@ void			   PRLoad_Glue_SetEffectsMask (int mask);
 double		PRBI_Glue_Ceil (double v);
 void		PRBI_Glue_AngleVectors (const float *angles);
 int			PRBI_Glue_StoreTempString (const char *bytes, int len);
+int			PRBI_Glue_EmptyEngineString (void);
 const char *PRBI_Glue_VarString (int first);
 float		PRBI_Glue_CvarValue (const char *name);
 qboolean	PRBI_Glue_ChangelevelIssued (qboolean set);

@@ -105,6 +105,7 @@ impl LoadSys for FuzzSys {
         -1
     }
 
+    fn flush_console(&mut self) {}
     fn set_empty_engine_string(&mut self) {}
 
     fn find_field_ofs(&mut self, name: &CStr) -> c_int {

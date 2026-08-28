@@ -142,6 +142,10 @@ impl LoadSys for EngineLoad {
         unsafe { c::PRLoad_Glue_VaComponent(name.as_ptr(), c_int::from(component)) }
     }
 
+    fn flush_console(&mut self) {
+        self.drain();
+    }
+
     fn shutdown_extensions(&mut self) {
         // SAFETY: `PR_ShutdownExtensions` runs against the ambient VM, which
         // `clear_progs` has just selected.

@@ -359,7 +359,10 @@ pub fn pf_substring(vm: &mut VmRaw, sys: &mut dyn BuiltinSys) -> Result<(), Buil
     }
 
     if start >= slen || length <= 0 {
-        let handle = sys.store_temp_string(b"");
+        // COMPAT: C's empty arm is `PR_SetEngineString ("")` on the literal,
+        // not `PR_GetTempString`, so it neither steps the process-global temp
+        // ring nor returns a fresh handle. See `BuiltinSys::empty_engine_string`.
+        let handle = sys.empty_engine_string();
         vm.set_g_i32(OFS_RETURN, handle);
         return Ok(());
     }

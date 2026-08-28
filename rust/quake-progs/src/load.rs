@@ -82,6 +82,16 @@ pub trait LoadSys: Mem {
     /// inserted but in *which storage* the key points at.
     fn va_component_name(&mut self, name: &CStr, component: u8) -> *const c_char;
 
+    /// Drain whatever `print`/`dprint`/`dwarn` have queued to the real
+    /// console *now*.
+    ///
+    /// COMPAT: the loader defers console output because `Con_Printf` can reach
+    /// `SCR_UpdateScreen` (Phase 5's lesson), but C emits its messages inline —
+    /// so a bare drain-at-the-end reorders them past anything the C seams print
+    /// mid-load, `PR_EnableExtensions` above all. Flushing where C prints keeps
+    /// the `developer 1` transcript identical.
+    fn flush_console(&mut self);
+
     /// `PR_ShutdownExtensions`.
     fn shutdown_extensions(&mut self);
     /// `PR_EnableExtensions (qcvm->globaldefs)`.
@@ -123,7 +133,7 @@ pub enum LoadError {
     StringsPastEnd,
     /// `PR_LoadProgs: pr_fielddefs[i].type & DEF_SAVEGLOBAL`
     FieldDefSaveGlobal,
-    /// A strings lump whose last byte is not a NUL.
+    /// A strings lump whose last byte is not a NUL, or an empty one.
     ///
     /// COMPAT (accepted divergence): every symbol name the loader hashes is a
     /// `PR_GetString` pointer into this blob, and `HashStr` runs `strlen` on
@@ -132,6 +142,12 @@ pub enum LoadError {
     /// the very first hash-map insert read past the file. Reachable from mod
     /// data; found by `fuzz_progs_load`. A `progs.dat` from any compiler ends
     /// its string table with a NUL.
+    ///
+    /// `numstrings == 0` takes this arm too: with an empty blob and any
+    /// symbol to hash, C reads off the end for the same reason. C itself
+    /// loads such a file — `stringssize` is 0, every `PR_GetString` takes the
+    /// out-of-range arm and returns `qcvm->strings` — so refusing it is a
+    /// deliberate divergence, not a reproduction.
     UnterminatedStrings,
     /// A file shorter than a `dprograms_t` header.
     ///
@@ -361,6 +377,9 @@ pub fn load_progs(
     occupies.append(&mut kb);
     occupies.extend_from_slice(b"K.\n");
     sys.dprint(&occupies);
+    // C prints this inline, before `PR_EnableExtensions` emits any of its own
+    // messages; drain here so the ordering survives the deferral.
+    sys.flush_console();
 
     // C's own check, kept ahead of the added bounds pass so a truncated
     // progs.dat still reports the message C reports. C sums two `int`s and

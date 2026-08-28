@@ -136,6 +136,14 @@ int PRBI_Glue_StoreTempString (const char *bytes, int len)
 	return PR_SetEngineString (s);
 }
 
+/* PR_SetEngineString on the literal, which is pointer-keyed: it interns to
+   the same handle every time and never steps the temp-string ring. Distinct
+   from PRBI_Glue_StoreTempString ("", 0). */
+int PRBI_Glue_EmptyEngineString (void)
+{
+	return PR_SetEngineString ("");
+}
+
 const char *PRBI_Glue_VarString (int first)
 {
 	return PF_VarString (first);

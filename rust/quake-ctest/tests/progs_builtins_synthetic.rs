@@ -59,6 +59,10 @@ struct MockSys {
     writes: Vec<(c_int, c_int, MsgKind, String)>,
 }
 
+/// The handle `MockSys::empty_engine_string` interns to; positive, where the
+/// mock's temp-string handles are negative.
+const EMPTY_ENGINE_STRING: c_int = 7777;
+
 impl BuiltinSys for MockSys {
     fn sqrt(&mut self, v: f64) -> f64 {
         v.sqrt()
@@ -166,6 +170,12 @@ impl BuiltinSys for MockSys {
         let n = bytes.len().min(builtins::STRINGTEMP_LENGTH - 1);
         self.temp_strings.push(bytes[..n].to_vec());
         -(self.temp_strings.len() as c_int)
+    }
+
+    /// A fixed handle that is *not* one `store_temp_string` can hand out, so
+    /// a test can tell the two apart and see that the ring did not step.
+    fn empty_engine_string(&mut self) -> c_int {
+        EMPTY_ENGINE_STRING
     }
 
     fn var_string(&mut self, _first: c_int) -> Vec<u8> {
@@ -467,8 +477,57 @@ fn vectoyaw_truncates_before_the_negative_wrap() {
     let mut sys = core::mem::take(&mut f.sys);
     builtins::pf_vectoyaw(&mut f.raw(), &mut sys);
     let exact = 0.9f64.atan2(1.0) * 180.0 / core::f64::consts::PI;
-    assert_eq!(f.get_f32(OFS_RETURN), exact as f32 as i32 as f32);
+    assert_eq!(f.get_f32(OFS_RETURN), exact as i32 as f32);
     assert!(exact.fract() != 0.0, "the fixture must exercise truncation");
+}
+
+#[test]
+fn vectoyaw_truncates_the_double_not_a_narrowed_float() {
+    // C is `(int)(atan2 (...) * 180 / M_PI)` and `atan2` returns `double`, so
+    // the truncation is of the *double*. Narrowing to float first inserts a
+    // rounding step C does not have, which can round up across the integer
+    // boundary C truncates down -- about 1 input in 200k, a silent 1-degree
+    // error in monster facing. These bit patterns are such an input.
+    let v = [
+        f32::from_bits(0x443a_482f),
+        f32::from_bits(0xc3d7_1992),
+        0.0,
+    ];
+    let exact = f64::from(v[1]).atan2(f64::from(v[0])) * 180.0 / core::f64::consts::PI;
+    assert_ne!(
+        exact as i32, exact as f32 as i32,
+        "the fixture must distinguish the two truncations"
+    );
+
+    let mut f = Fixture::new(b"\0");
+    f.set_vec3(OFS_PARM0, v);
+    let mut sys = core::mem::take(&mut f.sys);
+    builtins::pf_vectoyaw(&mut f.raw(), &mut sys);
+    assert_eq!(f.get_f32(OFS_RETURN), (exact as i32 + 360) as f32);
+}
+
+#[test]
+fn vectoangles_truncates_both_angles_from_the_double() {
+    // As above, for `pf_vectoangles`' yaw and pitch arms. `forward` really is
+    // computed in `float` (C declares it `float`), so only the final `(int)`
+    // differs from the port's original narrowing.
+    let v = [
+        f32::from_bits(0x450e_2922),
+        f32::from_bits(0xc560_eb54),
+        f32::from_bits(0xc4c1_b0a9),
+    ];
+    let forward = (f64::from(v[0] * v[0] + v[1] * v[1])).sqrt() as f32;
+    let pitch_exact = f64::from(v[2]).atan2(f64::from(forward)) * 180.0 / core::f64::consts::PI;
+    assert_ne!(
+        pitch_exact as i32, pitch_exact as f32 as i32,
+        "the fixture must distinguish the two truncations"
+    );
+
+    let mut f = Fixture::new(b"\0");
+    f.set_vec3(OFS_PARM0, v);
+    let mut sys = core::mem::take(&mut f.sys);
+    builtins::pf_vectoangles(&mut f.raw(), &mut sys);
+    assert_eq!(f.get_f32(OFS_RETURN), (pitch_exact as i32 + 360) as f32);
 }
 
 #[test]
@@ -759,6 +818,41 @@ fn a_cleared_string_handle_reports_prgetstrings_raise_not_an_empty_string() {
 }
 
 #[test]
+fn find_and_nextent_range_check_the_way_num_for_edict_does() {
+    // Both open with `G_EDICTNUM (OFS_PARM0)`, and `NUM_FOR_EDICT`'s range
+    // test (pr_edict.c:1090) is *not* debug-only -- it raises for any pointer
+    // outside [0, num_edicts). Silently continuing would walk from a bogus
+    // index where C aborts the frame.
+    let mut f = Fixture::new(b"\0target\0");
+    f.vm.num_edicts = 3;
+    f.edict_field(1, false, 0, 1);
+    f.edict_field(2, false, 0, 1);
+
+    let stride = f.vm.edict_size;
+    for bad in [-stride, 3 * stride, 900 * stride] {
+        f.set_i32(OFS_PARM0, bad);
+        f.set_i32(OFS_PARM1, 0);
+        f.set_i32(OFS_PARM2, 1);
+        let mut sys = core::mem::take(&mut f.sys);
+        assert_eq!(
+            builtins::pf_find(&mut f.raw(), &mut sys),
+            Err(BuiltinError::BadEdictPointer),
+            "find from {bad}"
+        );
+        assert_eq!(
+            builtins::pf_nextent(&mut f.raw()),
+            Err(BuiltinError::BadEdictPointer),
+            "nextent from {bad}"
+        );
+    }
+
+    // the last in-range entity is still fine
+    f.set_i32(OFS_PARM0, 2 * stride);
+    assert_eq!(builtins::pf_nextent(&mut f.raw()), Ok(()));
+    assert_eq!(f.get_i32(OFS_RETURN), 0, "past the end: world");
+}
+
+#[test]
 fn nextent_skips_free_edicts_and_wraps_to_world() {
     let mut f = Fixture::new(b"\0");
     f.vm.num_edicts = 4;
@@ -769,7 +863,7 @@ fn nextent_skips_free_edicts_and_wraps_to_world() {
     let stride = f.vm.edict_size;
     let mut probe = |start: c_int| -> c_int {
         f.set_i32(OFS_PARM0, start * stride);
-        builtins::pf_nextent(&mut f.raw());
+        builtins::pf_nextent(&mut f.raw()).unwrap();
         f.get_i32(OFS_RETURN) / stride
     };
     assert_eq!(probe(0), 2, "1 is free");
@@ -804,6 +898,29 @@ fn localcmd_restart_guard_matches_by_prefix_after_control_bytes() {
         builtins::pf_localcmd(&mut f.raw(), &mut sys).unwrap();
         assert!(sys.cbuf.is_empty(), "second {text:?}");
     }
+}
+
+#[test]
+fn localcmd_whitespace_scan_follows_the_targets_char_signedness() {
+    // C's scan is `*str2 && *str2 <= ' '` over a plain `char`. On x86-64 and
+    // Windows `char` is signed, so a high-bit byte -- Quake's whole coloured
+    // -text charset -- compares negative and is skipped as leading whitespace;
+    // on AArch64 macOS/Linux `char` is unsigned and it is not. The port has to
+    // follow its own C oracle on whichever target it is built for, so the
+    // expectation here is derived the same way rather than hard-coded.
+    let mut blob = vec![0u8];
+    blob.extend_from_slice(b"\x8drestart\n");
+    blob.push(0);
+    let mut f = Fixture::new(&blob);
+    f.set_i32(OFS_PARM0, 1);
+    let mut sys = core::mem::take(&mut f.sys);
+    builtins::pf_localcmd(&mut f.raw(), &mut sys).unwrap();
+
+    let signed_char = (0x8du8 as core::ffi::c_char) < 0;
+    assert_eq!(
+        sys.changelevel, signed_char,
+        "0x8d is leading whitespace exactly when this target's `char` is signed"
+    );
 }
 
 #[test]
@@ -1420,9 +1537,6 @@ fn substring_handles_negative_start_and_length_the_way_c_does() {
         (-100.0, 3.0, b"abc"),  // start re-clamped to 0 after the adjustment
         (0.0, -1.0, b"abcdef"), // negative length: to the end
         (0.0, -3.0, b"abcd"),
-        (10.0, 3.0, b""),   // start past the end
-        (0.0, 0.0, b""),    // zero length
-        (0.0, -100.0, b""), // length goes negative
     ] {
         f.set_f32(OFS_PARM1, start);
         f.set_f32(OFS_PARM2, length);
@@ -1433,6 +1547,36 @@ fn substring_handles_negative_start_and_length_the_way_c_does() {
             expect.to_vec(),
             "substring(\"abcdef\", {start}, {length})"
         );
+    }
+}
+
+#[test]
+fn substrings_empty_arm_interns_the_literal_and_does_not_step_the_temp_ring() {
+    // C's empty arm is `PR_SetEngineString ("")` on the *literal*: it never
+    // calls PR_GetTempString, so the 16-entry process-global ring does not
+    // advance (a temp string a mod is still holding would otherwise be
+    // overwritten a call early), and the handle is the pointer-keyed one the
+    // loader interned rather than a fresh temp handle. Handle identity is
+    // observable to QuakeC through strunzone and direct comparison.
+    let mut blob = vec![0u8];
+    blob.extend_from_slice(b"abcdef\0");
+    let mut f = ext_fixture(&blob);
+    f.set_i32(OFS_PARM0, 1);
+
+    for (start, length) in [
+        (10.0f32, 3.0f32), // start past the end
+        (0.0, 0.0),        // zero length
+        (0.0, -100.0),     // length goes negative
+    ] {
+        f.set_f32(OFS_PARM1, start);
+        f.set_f32(OFS_PARM2, length);
+        let mut sys = core::mem::take(&mut f.sys);
+        ext::pf_substring(&mut f.raw(), &mut sys).unwrap();
+        assert!(
+            sys.temp_strings.is_empty(),
+            "substring(\"abcdef\", {start}, {length}) stepped the temp ring"
+        );
+        assert_eq!(f.get_i32(OFS_RETURN), EMPTY_ENGINE_STRING);
     }
 }
 

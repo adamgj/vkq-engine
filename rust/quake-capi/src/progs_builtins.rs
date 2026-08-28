@@ -200,6 +200,11 @@ impl BuiltinSys for EngineBuiltin {
         unsafe { c::PRBI_Glue_StoreTempString(bytes.as_ptr().cast(), bytes.len() as c_int) }
     }
 
+    fn empty_engine_string(&mut self) -> c_int {
+        // SAFETY: a leaf call; `PR_SetEngineString` on a string literal.
+        unsafe { c::PRBI_Glue_EmptyEngineString() }
+    }
+
     fn var_string(&mut self, first: c_int) -> Vec<u8> {
         // SAFETY: PF_VarString returns its `static char out[1024]`, valid
         // until the next call; the bytes are copied out immediately.
@@ -617,10 +622,7 @@ pub unsafe extern "C" fn quake_rs_pf_Find(detail: *mut c_int) -> c_int {
 /// with `detail` pointing at a live `int`.
 #[no_mangle]
 pub unsafe extern "C" fn quake_rs_pf_nextent(detail: *mut c_int) -> c_int {
-    run(detail, |vm, _sys| {
-        builtins::pf_nextent(vm);
-        Ok(())
-    })
+    run(detail, |vm, _sys| builtins::pf_nextent(vm))
 }
 
 /// `PF_traceon`.
