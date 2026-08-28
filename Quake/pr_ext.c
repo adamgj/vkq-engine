@@ -251,6 +251,14 @@ int PR_Markup_Parse (struct markup_s *mu)
    configs -- the C ones are the -Duse_rust_progs=disabled oracle. */
 #ifdef USE_RUST_PROGS
 #define PF_RS(name) rust_pf_##name
+/* Pattern C flips the builtin table one slot at a time and keeps the C
+   original beside every flipped one -- both bodies stay compiled so
+   -Duse_rust_progs=disabled remains the reference oracle and any slot can be
+   unflipped without resurrecting deleted code. The flipped originals are
+   therefore unreferenced statics in this configuration, which GCC reports
+   under -Werror=unused-function. Scoped to the mixed build only: the C-only
+   build keeps full warning coverage over exactly the same bodies. */
+#pragma GCC diagnostic ignored "-Wunused-function"
 void rust_pf_Sin (void);
 void rust_pf_Cos (void);
 void rust_pf_tan (void);

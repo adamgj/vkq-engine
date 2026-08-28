@@ -31,6 +31,14 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #ifdef USE_RUST_PROGS
 #include "steam.h" // quake_rs.h declares the Phase 2 Steam shims in terms of steamgame_t
 #include "quake_rs.h"
+/* Pattern C flips the builtin table one slot at a time and keeps the C
+   original beside every flipped one -- both bodies stay compiled so
+   -Duse_rust_progs=disabled remains the reference oracle and any slot can be
+   unflipped without resurrecting deleted code. The flipped originals are
+   therefore unreferenced statics in this configuration, which GCC reports
+   under -Werror=unused-function. Scoped to the mixed build only: the C-only
+   build keeps full warning coverage over exactly the same bodies. */
+#pragma GCC diagnostic ignored "-Wunused-function"
 #define PF_RS(name) rust_pf_##name
 void rust_pf_normalize (void);
 void rust_pf_vlen (void);
