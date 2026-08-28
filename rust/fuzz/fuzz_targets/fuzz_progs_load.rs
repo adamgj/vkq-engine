@@ -212,6 +212,12 @@ fuzz_target!(|data: &[u8]| {
             // A successful load must leave a self-consistent VM: every lump
             // pointer inside the image, and edict_size positive and pointer
             // aligned (it is the arena stride, ADR-006).
+            //
+            // The bound is `<= end`, not `< end`: a lump with a zero count
+            // sitting exactly at the end of the file yields a legal
+            // one-past-the-end pointer that is never dereferenced. The first
+            // version of this assertion used `<` and the fuzzer produced that
+            // shape within minutes.
             let base = image_bytes.as_ptr() as usize;
             let end = base + image_bytes.len();
             for p in [
@@ -221,7 +227,7 @@ fuzz_target!(|data: &[u8]| {
                 view.globals() as usize,
                 view.strings() as usize,
             ] {
-                assert!(p >= base && p < end, "lump pointer escaped the image");
+                assert!(p >= base && p <= end, "lump pointer escaped the image");
             }
             let align = core::mem::size_of::<*const c_void>() as c_int;
             assert!(view.edict_size() > 0);

@@ -175,6 +175,12 @@ fuzz_target!(|data: &[u8]| {
     let stride = ENTITYFIELDS as usize * 4 + 512;
     let mut arena = EdictArena::owned(stride, MAX_EDICTS as usize);
     let mut strings = vec![0u8; 64];
+    // ED_ParseEpair's ev_field arm reads `G_INT (def->ofs)` -- the *globals*
+    // block, indexed by a fielddef offset, unchecked, exactly as C does. The
+    // first version of this target left `globals` NULL and the fuzzer found
+    // the null deref immediately; the VM needs a real block, and
+    // ParseSys::find_field_ofs below keeps the offset inside it.
+    let mut globals = vec![0i32; ENTITYFIELDS as usize * 2];
 
     // entityfields lives in the progs header, which the parser reads through
     // VmRaw when it bounds an edict field write
@@ -197,6 +203,7 @@ fuzz_target!(|data: &[u8]| {
     });
 
     vm.progs = &mut *header;
+    vm.globals = globals.as_mut_ptr().cast();
     vm.edicts = arena.base().cast();
     vm.edict_size = stride as c_int;
     vm.max_edicts = MAX_EDICTS;

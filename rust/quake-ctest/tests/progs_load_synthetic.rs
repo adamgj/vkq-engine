@@ -726,6 +726,169 @@ fn a_lump_that_leaves_the_file_is_refused_rather_than_walked() {
     spec.header_patch = vec![(2, -4)];
     let mut f = Fixture::new(&spec);
     assert_eq!(f.run(true, PROGHEADER_CRC), Err(LoadError::LumpOutOfRange));
+
+    // and so is a negative `numstrings`, which C's own strings-past-end test
+    // lets through (the sum only gets smaller) straight into
+    // `qcvm->stringssize`, where it is used as a bound. Found by
+    // fuzz_progs_load.
+    let mut spec = minimal();
+    spec.header_patch = vec![(11, -1)];
+    let mut f = Fixture::new(&spec);
+    assert_eq!(f.run(true, PROGHEADER_CRC), Err(LoadError::LumpOutOfRange));
+}
+
+#[test]
+fn an_unterminated_string_table_is_refused() {
+    // Every symbol name the loader hashes is `strings + s_name`, and the
+    // engine's HashStr runs strlen on it. C's only guard is
+    // `ofs_strings + numstrings >= com_filesize`, which says nothing about a
+    // terminator, so a blob whose tail has no NUL makes the first hash-map
+    // insert read past the file. Found by fuzz_progs_load under ASan.
+    let spec = minimal();
+    let raw = spec.build();
+    let numstrings = i32::from_le_bytes(raw[44..48].try_into().unwrap());
+
+    // shortening the blob by one byte puts its last byte inside a name
+    let mut spec2 = minimal();
+    spec2.header_patch = vec![(11, numstrings - 1)];
+    let mut f = Fixture::new(&spec2);
+    assert_eq!(
+        f.run(true, PROGHEADER_CRC),
+        Err(LoadError::UnterminatedStrings)
+    );
+
+    // an empty table has no terminator either
+    let mut spec3 = minimal();
+    spec3.header_patch = vec![(11, 0)];
+    let mut f = Fixture::new(&spec3);
+    assert_eq!(
+        f.run(true, PROGHEADER_CRC),
+        Err(LoadError::UnterminatedStrings)
+    );
+
+    // and the well-formed one still loads
+    let mut f = Fixture::new(&spec);
+    assert_eq!(f.run(true, PROGHEADER_CRC), Ok(true));
+}
+
+#[test]
+fn an_autofield_declared_past_entityfields_does_not_overrun_the_merged_table() {
+    // COMPAT (accepted divergence): PR_MergeEngineFieldDefs counts how many
+    // defs to allocate in one loop and decides what to emit in another, and
+    // the second loop re-derives "is this new?" from
+    // `newidx >= entityfields && newidx < maxofs`. A progs that *declares*
+    // one of the autofield names at an offset at or past `entityfields`
+    // satisfies that test without having been counted, so C emits a def it
+    // did not allocate room for -- a heap overflow, reachable from mod data.
+    //
+    // The port carries an explicit is-new flag instead, so the two loops
+    // agree by construction. Found by fuzz_progs_load.
+    let mut spec = minimal();
+    spec.entityfields = 4;
+    spec.fielddefs = vec![
+        ("origin", etype::EV_VECTOR as u16, 0),
+        // declared at exactly entityfields, which C's re-derivation
+        // misreads as "newly assigned"
+        ("scale", etype::EV_FLOAT as u16, 4),
+    ];
+    let mut f = Fixture::new(&spec);
+    assert_eq!(f.run(true, PROGHEADER_CRC), Ok(true));
+
+    // .scale keeps the offset the progs gave it, and is not re-emitted
+    assert_eq!(f.sys.find_field_ofs(c"scale"), 4);
+    assert!(
+        !f.sys.new_strings.iter().any(|s| s.to_bytes() == b"scale"),
+        "no engine string is allocated for a field that already exists"
+    );
+    // and the fields that really are new still land after it
+    assert_eq!(f.sys.find_field_ofs(c"alpha"), 4);
+    assert_eq!(f.sys.find_field_ofs(c"emiteffectnum"), 5);
+}
+
+#[test]
+fn clear_progs_survives_an_image_too_short_to_hold_a_header() {
+    // PR_LoadProgs sets qcvm->progs before it validates anything, so a
+    // truncated file that raises still leaves the pointer installed, and the
+    // teardown that follows compares against progs->ofs_fielddefs.
+    //
+    // COMPAT (accepted divergence): C reads that field unconditionally, i.e.
+    // past the end of the buffer. Found by fuzz_progs_load under ASan.
+    let spec = minimal();
+    let raw = spec.build();
+    for len in [1usize, 4, 16, 59] {
+        let mut f = Fixture::new(&spec);
+        f.len = len.min(raw.len());
+        assert_eq!(
+            f.run(true, PROGHEADER_CRC),
+            Err(LoadError::TooShort(len.min(raw.len()))),
+            "a {len}-byte image must not load"
+        );
+        // the teardown must not read the header it does not have
+        f.clear();
+        assert!(f.sys.live.is_empty(), "{len}-byte image");
+    }
+}
+
+#[test]
+fn an_unaligned_fielddefs_lump_is_copied_the_way_memcpy_would() {
+    // Nothing requires ofs_fielddefs to be 4-aligned, and PR_MergeEngineFieldDefs
+    // memcpy's the lump into its fresh table. The port's first version used a
+    // *typed* copy_nonoverlapping, whose alignment precondition a lump at an
+    // odd offset violates -- UB that C's memcpy does not have.
+    //
+    // Found by fuzz_progs_load. The image builder pads every lump to a word,
+    // so the offset is perturbed through the header patch instead, which is
+    // exactly what a hostile progs.dat would do.
+    let spec = minimal();
+    let raw = spec.build();
+    let aligned_ofs = i32::from_le_bytes(raw[24..28].try_into().unwrap());
+
+    for skew in [1i32, 2, 3] {
+        let mut spec = minimal();
+        // shift the lump back by `skew` bytes and drop the count to one so it
+        // still lies inside the file
+        spec.header_patch = vec![(6, aligned_ofs - skew)];
+        let mut f = Fixture::new(&spec);
+        assert_eq!(
+            f.run(true, PROGHEADER_CRC),
+            Ok(true),
+            "ofs_fielddefs {} (skew {skew})",
+            aligned_ofs - skew
+        );
+        // the merge ran, so the table was copied out of the unaligned lump
+        assert_ne!(
+            f.vm.fielddefs.cast::<u8>(),
+            f.image.wrapping_add((aligned_ofs - skew) as usize)
+        );
+    }
+}
+
+#[test]
+fn an_absurd_entityfields_is_refused_rather_than_overflowing_edict_size() {
+    // COMPAT (accepted divergence): C computes edict_size with signed int
+    // arithmetic and lets it overflow, then allocates max_edicts * edict_size
+    // from the wrapped value. `entityfields` is a header field of an
+    // untrusted progs.dat, so this is reachable from mod data.
+    //
+    // Found by fuzz_progs_load on its first run: the port panicked on the
+    // multiplication instead, and a panic in the engine is an abort (ADR-009).
+    for bad in [c_int::MAX, c_int::MAX / 4, 0x2000_0000, -1] {
+        let mut spec = minimal();
+        spec.header_patch = vec![(14, bad)];
+        let mut f = Fixture::new(&spec);
+        assert_eq!(
+            f.run(true, PROGHEADER_CRC),
+            Err(LoadError::BadEntityFields(bad)),
+            "entityfields {bad}"
+        );
+    }
+
+    // and a large-but-addressable value still loads
+    let mut spec = minimal();
+    spec.entityfields = 1 << 20;
+    let mut f = Fixture::new(&spec);
+    assert_eq!(f.run(true, PROGHEADER_CRC), Ok(true));
+    assert!(f.vm.edict_size > 0);
 }
 
 #[test]

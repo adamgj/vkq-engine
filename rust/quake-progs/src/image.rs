@@ -276,6 +276,18 @@ impl ProgsImage {
         unsafe { self.base.add(ofs as usize).cast() }
     }
 
+    /// The last byte of the strings blob, or `None` if the lump is empty or
+    /// does not fit.
+    #[must_use]
+    pub fn strings_last_byte(&self, ofs: c_int, count: c_int) -> Option<u8> {
+        let (ofs, count) = (usize::try_from(ofs).ok()?, usize::try_from(count).ok()?);
+        let end = ofs.checked_add(count)?;
+        if count == 0 || end > self.len {
+            return None;
+        }
+        Some(self.bytes()[end - 1])
+    }
+
     /// A raw byte pointer into the image.
     #[must_use]
     pub fn at(&self, ofs: c_int) -> *mut u8 {
@@ -318,14 +330,26 @@ impl DefTable {
         copy: usize,
     ) -> Self {
         assert!(copy <= src.count && copy <= count);
-        let base = mem
-            .alloc(count * core::mem::size_of::<DDef>())
-            .cast::<DDef>();
-        // SAFETY: `base` is a fresh allocation of `count` ddef_t (Mem_Alloc
-        // aborts rather than returning null, ADR-013) and cannot overlap
-        // `src`, which is either the progs image or an older block.
-        unsafe { core::ptr::copy_nonoverlapping(src.base.cast_const(), base, copy) };
-        Self { base, count }
+        let bytes = mem.alloc(count * core::mem::size_of::<DDef>());
+        // The copy is over **bytes**, not `DDef`s, because `src` may be the
+        // image's own lump at whatever `ofs_fielddefs` says -- and nothing
+        // requires that to be 4-aligned. C's `memcpy` does not care; a typed
+        // `copy_nonoverlapping` would be UB. Found by `fuzz_progs_load`.
+        //
+        // SAFETY: `bytes` is a fresh allocation of `count * size_of::<DDef>()`
+        // (Mem_Alloc aborts rather than returning null, ADR-013), and `src` is
+        // either the progs image or an older block, so the two cannot overlap.
+        unsafe {
+            core::ptr::copy_nonoverlapping(
+                src.base.cast::<u8>().cast_const(),
+                bytes,
+                copy * core::mem::size_of::<DDef>(),
+            );
+        }
+        Self {
+            base: bytes.cast::<DDef>(),
+            count,
+        }
     }
 
     #[must_use]
@@ -472,12 +496,26 @@ impl VmLoad {
     /// `(ddef_t *)((byte *)qcvm->progs + qcvm->progs->ofs_fielddefs)` — the
     /// pointer `PR_ClearProgs` compares against to decide whether
     /// `qcvm->fielddefs` is the image's own lump or a `Mem_Alloc` block.
+    ///
+    /// `None` when the image is too short to hold a header, which happens when
+    /// `PR_LoadProgs` raised before it got that far and the VM is torn down
+    /// afterwards.
+    ///
+    /// COMPAT (accepted divergence): C reads `qcvm->progs->ofs_fielddefs`
+    /// unconditionally, so a truncated `progs.dat` makes `PR_ClearProgs` read
+    /// past the buffer. Found by `fuzz_progs_load` under ASan.
     #[must_use]
-    pub fn image_fielddefs(&self) -> *mut u8 {
+    pub fn image_fielddefs(&self) -> Option<*mut u8> {
         let progs = self.progs();
-        // SAFETY: `progs` points at the loaded image whose header has been
-        // byteswapped, so `ofs_fielddefs` is the in-file offset C uses here.
-        unsafe { progs.cast::<u8>().add((*progs).ofs_fielddefs as usize) }
+        if progs.is_null() || (self.progssize() as usize) < core::mem::size_of::<DPrograms>() {
+            return None;
+        }
+        // SAFETY: the image is at least a whole header long (checked above),
+        // and its header has been byteswapped, so `ofs_fielddefs` is the
+        // in-file offset C uses here.
+        let ofs = unsafe { (*progs).ofs_fielddefs };
+        // SAFETY: as above; the offset is only compared, never dereferenced.
+        Some(unsafe { progs.cast::<u8>().add(ofs.max(0) as usize) })
     }
 
     /// `PR_GetString` restricted to the strings blob, which is all the loader

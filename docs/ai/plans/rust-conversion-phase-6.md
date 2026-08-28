@@ -636,3 +636,80 @@ undefined `PR_DumpBuiltinTable_f`. Recovered by re-applying it. The lesson is
 the obvious one — a whole-file checkout is not a targeted revert when the file
 carries uncommitted work — and it is recorded because the same gesture would
 have silently lost a subtler change instead of breaking the build.
+
+### 2026-08-27 M11 — phase exit: Miri, the fuzz soak, and five loader defects it found
+
+1. **The carried Miri gap is closed.** The M1–M5 review asked to see
+   `quake_rs_ed_parse_epair`'s aliasing shape modelled — a `&mut [i32]` into
+   *one edict's field block*, an `EdictArena` over the *whole* array, a
+   borrow-free `VmRaw` over the same `qcvm_t`, and a `&mut FreeList` inside
+   that same `qcvm_t`, all live at once. `ev_entity_arm_aliases_the_parsed_
+   edict_without_invalidating_it` builds exactly that and drives the arm that
+   allocates, so Stacked Borrows sees every derivation in the real order.
+   Green under `MIRIFLAGS=-Zmiri-strict-provenance cargo +nightly miri test`,
+   alongside M2's re-entrancy model. It lives in `arena.rs` because that is the
+   crate's unsafe island; `parse.rs` is `deny(unsafe_code)` and could not host
+   it.
+2. **The fuzz soak found seven real defects in the M6 loader, and two in its own
+   harness.** This is the milestone's most substantive result, and every one of
+   them was reachable from an untrusted `progs.dat` — i.e. from mod data. It
+   took six rounds: each fix exposed the next one behind it.
+   - `edict_size = entityfields * 4 + header` **overflow-panicked** on a
+     hostile header, where C wraps. A panic in the engine is an abort (ADR-009),
+     so this was a remote-ish crash. Now `LoadError::BadEntityFields`.
+   - `DefTable::realloc_from` used a **typed** `copy_nonoverlapping`, whose
+     alignment precondition an `ofs_fielddefs` that is not 4-aligned violates.
+     C's `memcpy` does not care. The copy is over bytes now.
+   - `PR_ClearProgs` read `progs->ofs_fielddefs` **unconditionally**, so a
+     truncated file that raised during load overran the buffer at teardown.
+     `image_fielddefs` now returns `None` when the image cannot hold a header.
+   - A **negative `numstrings`** sailed through C's own
+     `ofs_strings + numstrings >= com_filesize` test (the sum only gets
+     smaller) straight into `qcvm->stringssize`, which is a bound. Now
+     rejected by the lump-bounds pass.
+   - `PR_MergeEngineFieldDefs` **counts in one loop and emits in another**, and
+     the second re-derives "is this new?" from
+     `newidx >= entityfields && newidx < maxofs`. A progs that *declares* one
+     of the autofield names at an offset at or past `entityfields` satisfies
+     that test without having been counted — so C emits a def it did not
+     allocate room for and writes past its own `Mem_Alloc` block. The port
+     carries an explicit is-new flag, so the two loops agree by construction.
+   - A file **shorter than a `dprograms_t`** overran twice over: C's very
+     first act after `COM_LoadFile` is to byteswap 15 words *in place*, before
+     any validation, and `PR_MergeEngineFieldDefs` later writes `numfielddefs`
+     and `entityfields` back into that same header. Now `LoadError::TooShort`.
+   - An **unterminated strings lump**. Every symbol name reaching the hash maps
+     is `strings + s_name`, and the engine's `HashStr` calls `strlen` on it;
+     C's only guard is `ofs_strings + numstrings >= com_filesize`, which says
+     nothing about a terminator. The very first `HashMap_Insert` then reads
+     past the file. Now `LoadError::UnterminatedStrings` — one byte to check,
+     and a `progs.dat` from any compiler ends its table with a NUL.
+   Two of the nine crashes were the harnesses' own: `fuzz_ed_parse` left
+   `globals` NULL, and `ED_ParseEpair`'s `ev_field` arm reads
+   `G_INT (def->ofs)` — the *globals* block, indexed by a fielddef offset,
+   unchecked, exactly as C does; and `fuzz_progs_load` asserted every lump
+   pointer was `< end`, where a zero-count lump sitting exactly at the end of
+   the file yields a legal one-past-the-end pointer that is never
+   dereferenced. Both fixed in the targets, not the port.
+   Each port defect has a regression test in `progs_load_synthetic.rs` (21
+   tests now). After the fixes both targets soak clean.
+3. **Every one of those five is an "accepted divergence" of the same family as
+   the interpreter's bounds checks** (M3 amendment 3): C performs an unchecked
+   read or write that a malformed `progs.dat` turns into a heap overflow, and
+   the port refuses instead. They are documented individually at the raise
+   sites. That the fuzzer found five in one file is the argument for the
+   ROADMAP's fuzzing gate, not against the port.
+4. **ROADMAP updated**: the Phase 6 status paragraph now records what is
+   flipped, both coverage gaps, and every carve-out with its reason; the
+   deletes list distinguishes what can be deleted now (`pr_exec.c` and the
+   three `pr_edict.c` splits) from what moves to Phase 7/8 (`pr_edict.c`'s
+   remainder, `pr_edict_arena.c`, and `pr_cmds.c`/`pr_ext.c`, which flip per
+   slot and are deleted when their last slot does).
+5. **Not done, and named rather than buried**: the `progs` capi feature is
+   still not enabled in `quake-ctest`, so the shims are covered by
+   `check_capi_signatures.sh` and the engine gates but by no sanitizer. This
+   has now been deferred at M1, M3 and here; the reason is unchanged (the
+   shims import `qcvm` and the `PR*_Glue_*` entry points, which live in
+   engine-only translation units), and the honest fix is a stub layer for
+   those, not another deferral. Recorded as the first item for whoever
+   continues.

@@ -20,6 +20,9 @@ const PRLOAD_ERR_CRC: c_int = 3;
 const PRLOAD_ERR_STRINGS_PAST_END: c_int = 4;
 const PRLOAD_ERR_SAVEGLOBAL: c_int = 5;
 const PRLOAD_ERR_LUMP_RANGE: c_int = 6;
+const PRLOAD_ERR_ENTITYFIELDS: c_int = 7;
+const PRLOAD_ERR_TOO_SHORT: c_int = 8;
+const PRLOAD_ERR_UNTERMINATED_STRINGS: c_int = 9;
 
 /// Deferred console output. `Con_Printf` is not a leaf (it can reach
 /// `SCR_UpdateScreen`), so nothing is printed while the loader holds its views
@@ -202,6 +205,15 @@ fn encode(err: LoadError, detail: &mut c_int) -> c_int {
         LoadError::StringsPastEnd => PRLOAD_ERR_STRINGS_PAST_END,
         LoadError::FieldDefSaveGlobal => PRLOAD_ERR_SAVEGLOBAL,
         LoadError::LumpOutOfRange => PRLOAD_ERR_LUMP_RANGE,
+        LoadError::UnterminatedStrings => PRLOAD_ERR_UNTERMINATED_STRINGS,
+        LoadError::TooShort(n) => {
+            *detail = n as c_int;
+            PRLOAD_ERR_TOO_SHORT
+        }
+        LoadError::BadEntityFields(n) => {
+            *detail = n;
+            PRLOAD_ERR_ENTITYFIELDS
+        }
     }
 }
 

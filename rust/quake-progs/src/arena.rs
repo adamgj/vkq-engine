@@ -701,6 +701,159 @@ mod tests {
         unsafe { std::alloc::dealloc(base, layout) };
     }
 
+    use crate::parse::{ed_parse_epair, ParseSys};
+    use core::ffi::CStr;
+    use quake_types::progs::{etype, DPrograms, Edict, EntVars, QcVm};
+
+    /// A `ParseSys` that does nothing, so the model below is about the
+    /// aliasing shape and nothing else.
+    struct Quiet;
+
+    impl Mem for Quiet {
+        fn alloc(&mut self, size: usize) -> *mut u8 {
+            let layout = std::alloc::Layout::from_size_align(size.max(1), 8).unwrap();
+            // SAFETY: non-zero size, valid alignment.
+            unsafe { std::alloc::alloc_zeroed(layout) }
+        }
+        fn realloc(&mut self, _p: *mut u8, size: usize) -> *mut u8 {
+            self.alloc(size)
+        }
+        fn free(&mut self, _p: *mut u8) {}
+        fn note_slot_growth(&mut self, _n: c_int) {}
+    }
+
+    impl ParseSys for Quiet {
+        fn atof(&mut self, s: &CStr) -> f64 {
+            f64::from(self.atoi(s))
+        }
+        fn atoi(&mut self, s: &CStr) -> c_int {
+            core::str::from_utf8(s.to_bytes())
+                .ok()
+                .and_then(|t| t.parse().ok())
+                .unwrap_or(0)
+        }
+        fn strtoll(&mut self, _s: &CStr) -> i64 {
+            0
+        }
+        fn strtoull(&mut self, _s: &CStr) -> u64 {
+            0
+        }
+        fn find_field_ofs(&mut self, _n: &CStr) -> Option<c_int> {
+            None
+        }
+        fn find_function(&mut self, _n: &CStr) -> Option<c_int> {
+            None
+        }
+        fn unlink_edict(&mut self, _id: EdictId) {}
+        fn dprint(&mut self, _p: &str, _a: &[u8], _s: &str) {}
+        fn print(&mut self, _p: &str, _a: &[u8], _s: &str) {}
+        fn dwarn(&mut self, _p: &str, _a: &[u8], _m: &str, _a2: &[u8], _s: &str) {}
+    }
+
+    /// The aliasing shape the M1–M5 compatibility review asked to see modelled
+    /// under Miri and that M5's amendment deferred to a later milestone:
+    /// `quake_rs_ed_parse_epair` holds, at the same time, a `&mut [i32]` into
+    /// **one edict's field block**, an `EdictArena` over the *whole* edict
+    /// array, a borrow-free `VmRaw` over the same `qcvm_t`, and a
+    /// `&mut FreeList` into that same `qcvm_t`.
+    ///
+    /// Three of those four overlap in memory, and the argument that it is
+    /// sound is entirely about *which* edicts each one touches: the callers
+    /// raise `qcvm->num_edicts` above the edict being parsed before calling,
+    /// and the `ev_entity` arm only ever writes at indices `>= num_edicts`.
+    /// This test builds exactly that configuration and drives the arm that
+    /// allocates, so Stacked Borrows sees every derivation in the real order.
+    #[test]
+    fn ev_entity_arm_aliases_the_parsed_edict_without_invalidating_it() {
+        const ENTITYFIELDS: c_int = 128;
+        const COUNT: usize = 8;
+        let stride = (EDICT_V_OFFSET + ENTITYFIELDS as usize * 4).next_multiple_of(8);
+        assert!(stride >= core::mem::size_of::<Edict>() - core::mem::size_of::<EntVars>());
+
+        let layout = std::alloc::Layout::from_size_align(stride * COUNT, 8).unwrap();
+        // SAFETY: non-zero size, valid alignment.
+        let base = unsafe { std::alloc::alloc_zeroed(layout) };
+        assert!(!base.is_null());
+
+        let mut header = Box::new(DPrograms {
+            version: 0,
+            crc: 0,
+            ofs_statements: 0,
+            numstatements: 0,
+            ofs_globaldefs: 0,
+            numglobaldefs: 0,
+            ofs_fielddefs: 0,
+            numfielddefs: 0,
+            ofs_functions: 0,
+            numfunctions: 0,
+            ofs_strings: 0,
+            numstrings: 1,
+            ofs_globals: 0,
+            numglobals: 0,
+            entityfields: ENTITYFIELDS,
+        });
+        let mut strings = vec![0u8; 4];
+        // SAFETY: qcvm_t is a POD C struct; all-zeroes is what sv/cl start in.
+        let mut vm: Box<QcVm> = unsafe { Box::new(core::mem::zeroed()) };
+        vm.progs = &mut *header;
+        vm.edicts = base.cast();
+        vm.edict_size = stride as c_int;
+        vm.max_edicts = COUNT as c_int;
+        // the parsed edict is 1; the callers have already raised num_edicts
+        // past it, which is the invariant the shim records
+        vm.num_edicts = 2;
+        vm.strings = strings.as_mut_ptr().cast();
+        vm.stringssize = strings.len() as c_int;
+
+        let vm_ptr: *mut QcVm = &mut *vm;
+        // SAFETY: every lump the parser touches is set above and the edict
+        // array is `max_edicts * edict_size` bytes.
+        let mut raw = unsafe { VmRaw::new(vm_ptr) };
+        // SAFETY: same allocation; the arena re-derives every access from
+        // `base` rather than holding a reference into it.
+        let mut arena = unsafe { EdictArena::borrowed(base, stride, COUNT) };
+        // SAFETY: the free list lives inside the same qcvm_t, and no other
+        // Rust reference to it is live for the duration of this borrow.
+        let free_list: &mut FreeList = unsafe { &mut (*vm_ptr).free_list };
+
+        // `dest` points into edict 1's field block -- inside the very array
+        // the arena covers, which is why the review flagged this shape.
+        // SAFETY: one i32 at word 0 of edict 1's progs fields, in bounds.
+        let dest = unsafe {
+            core::slice::from_raw_parts_mut(base.add(stride + EDICT_V_OFFSET).cast::<i32>(), 1)
+        };
+
+        // "5" is above num_edicts, so the arm extends the VM and frees the
+        // gap -- arena writes at indices 2..5 plus 5, all strictly above the
+        // parsed edict 1.
+        let value = c"5";
+        let mut sys = Quiet;
+        let r = ed_parse_epair(
+            &mut raw,
+            &mut arena,
+            free_list,
+            &mut sys,
+            dest,
+            etype::EV_ENTITY,
+            0,
+            value,
+            false,
+        );
+        assert_eq!(r, Ok(true));
+
+        // the destination slice is still usable afterwards: nothing the arena
+        // did invalidated the pointer it was derived from
+        assert_eq!(dest[0], 5 * stride as i32);
+        dest[0] = 0;
+
+        // SAFETY: `vm_ptr` is still live and nothing borrows it now.
+        assert!(unsafe { (*vm_ptr).num_edicts } >= 6);
+        assert!(free_list.size > 0, "the gap edicts were freed");
+
+        // SAFETY: same pointer and layout the allocation was made with.
+        unsafe { std::alloc::dealloc(base, layout) };
+    }
+
     /// The owned constructor must produce a pointer-aligned block, because
     /// `edict_size` is rounded up to pointer alignment and the engine relies
     /// on edicts being aligned.

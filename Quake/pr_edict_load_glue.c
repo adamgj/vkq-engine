@@ -33,13 +33,16 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include "quake_rs.h"
 
 /* status codes shared with rust/quake-capi/src/progs_load.rs (keep in sync) */
-#define PRLOAD_OK					0
-#define PRLOAD_FALSE				1 /* C's `return false`, message already printed */
-#define PRLOAD_ERR_VERSION			2
-#define PRLOAD_ERR_CRC				3
-#define PRLOAD_ERR_STRINGS_PAST_END 4
-#define PRLOAD_ERR_SAVEGLOBAL		5
-#define PRLOAD_ERR_LUMP_RANGE		6
+#define PRLOAD_OK						0
+#define PRLOAD_FALSE					1 /* C's `return false`, message already printed */
+#define PRLOAD_ERR_VERSION				2
+#define PRLOAD_ERR_CRC					3
+#define PRLOAD_ERR_STRINGS_PAST_END		4
+#define PRLOAD_ERR_SAVEGLOBAL			5
+#define PRLOAD_ERR_LUMP_RANGE			6
+#define PRLOAD_ERR_ENTITYFIELDS			7
+#define PRLOAD_ERR_TOO_SHORT			8
+#define PRLOAD_ERR_UNTERMINATED_STRINGS 9
 
 /* ---- the C-owned VM selection (the flip map keeps this side C) ---- */
 
@@ -193,6 +196,12 @@ qboolean PR_LoadProgs (const char *filename, qboolean fatal, unsigned int needcr
 		Host_Error ("PR_LoadProgs: pr_fielddefs[i].type & DEF_SAVEGLOBAL");
 	case PRLOAD_ERR_LUMP_RANGE:
 		Host_Error ("%s has a lump that runs past the end of the file", filename);
+	case PRLOAD_ERR_UNTERMINATED_STRINGS:
+		Host_Error ("%s has an unterminated string table", filename);
+	case PRLOAD_ERR_TOO_SHORT:
+		Host_Error ("%s is %i bytes, too short to hold a progs header", filename, detail);
+	case PRLOAD_ERR_ENTITYFIELDS:
+		Host_Error ("%s declares %i entity fields, which cannot be addressed", filename, detail);
 	default:
 		Host_Error ("PR_LoadProgs: unknown status %i", status);
 	}

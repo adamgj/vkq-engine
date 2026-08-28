@@ -123,6 +123,35 @@ pub enum LoadError {
     StringsPastEnd,
     /// `PR_LoadProgs: pr_fielddefs[i].type & DEF_SAVEGLOBAL`
     FieldDefSaveGlobal,
+    /// A strings lump whose last byte is not a NUL.
+    ///
+    /// COMPAT (accepted divergence): every symbol name the loader hashes is a
+    /// `PR_GetString` pointer into this blob, and `HashStr` runs `strlen` on
+    /// it. C's only guard is `ofs_strings + numstrings >= com_filesize`, which
+    /// says nothing about a terminator — so a blob whose tail has no NUL makes
+    /// the very first hash-map insert read past the file. Reachable from mod
+    /// data; found by `fuzz_progs_load`. A `progs.dat` from any compiler ends
+    /// its string table with a NUL.
+    UnterminatedStrings,
+    /// A file shorter than a `dprograms_t` header.
+    ///
+    /// COMPAT (accepted divergence): C's very first act after `COM_LoadFile`
+    /// is to byteswap `sizeof (*qcvm->progs) / 4` words **in place**, before
+    /// any validation, so a file shorter than 60 bytes is a heap overflow
+    /// before the version check runs — and `PR_MergeEngineFieldDefs` later
+    /// writes `numfielddefs` and `entityfields` back into the same header.
+    /// Reachable from mod data. Found by `fuzz_progs_load`.
+    TooShort(usize),
+    /// `entityfields` so large that `entityfields * 4 + sizeof (edict_t) -
+    /// sizeof (entvars_t)` does not fit in an `int`.
+    ///
+    /// COMPAT (accepted divergence): C computes `edict_size` with signed
+    /// `int` arithmetic and lets it overflow — UB, wrapping in practice — and
+    /// then allocates `max_edicts * edict_size` from the wrapped value.
+    /// Reachable from mod data: `entityfields` is a header field of an
+    /// untrusted `progs.dat`. The port refuses instead. Found by
+    /// `fuzz_progs_load` on its first run.
+    BadEntityFields(c_int),
     /// A lump whose offset and count do not fit inside the file.
     ///
     /// COMPAT (accepted divergence): C computes every lump base as
@@ -152,6 +181,11 @@ const EXTRAFIELDS: [(&CStr, c_int); 8] = [
 /// `HashMap_Reserve (fielddefs_map, numfielddefs + countof (extrafields) * 3)`
 /// — the margin assumes every autofield could be a vector.
 const EXTRAFIELDS_RESERVE_MARGIN: c_int = EXTRAFIELDS.len() as c_int * 3;
+
+/// The most words `PR_MergeEngineFieldDefs` can add to `entityfields`: one per
+/// float autofield and three for `colormod`. Headroom for the `edict_size`
+/// overflow bound.
+const EXTRAFIELDS_MAX_WORDS: i64 = EXTRAFIELDS.len() as i64 * 3;
 
 /// The `QCEXTFIELD` names, in `progs.h` declaration order. The order matters
 /// only for the console — every entry is an independent `ED_FindFieldOffset`
@@ -248,9 +282,13 @@ pub fn clear_progs(load: &mut VmLoad, sys: &mut dyn LoadSys) {
     sys.free(load.edicts().cast());
 
     // The merge reallocates `fielddefs` away from the image; C tells the two
-    // ownership states apart by comparing against the image's own lump.
-    if load.fielddefs().cast::<u8>() != load.image_fielddefs() {
-        sys.free(load.fielddefs().cast());
+    // ownership states apart by comparing against the image's own lump. When
+    // the image is too short to hold a header the merge cannot have run, so
+    // `fielddefs` is never an allocator block and nothing is freed here.
+    if let Some(lump) = load.image_fielddefs() {
+        if load.fielddefs().cast::<u8>() != lump {
+            sys.free(load.fielddefs().cast());
+        }
     }
     sys.free(load.progs().cast());
 
@@ -290,6 +328,9 @@ pub fn load_progs(
 
     load.set_progs(image.base().cast());
     load.set_progssize(len as u32);
+    if len < core::mem::size_of::<DPrograms>() {
+        return Err(LoadError::TooShort(len));
+    }
     load.set_progscrc(crc_block(image.bytes()));
     load.set_progshash(block_checksum(image.bytes()));
 
@@ -331,7 +372,11 @@ pub fn load_progs(
 
     // C computes every lump base by pointer arithmetic and never validates it
     // (see LoadError::LumpOutOfRange).
-    if hdr.ofs_strings < 0
+    // `numstrings` is included here purely to reject a *negative* count: C's
+    // own `ofs_strings + numstrings >= com_filesize` test above already
+    // rejects everything that runs past the end, and a negative sum sails
+    // through it into `qcvm->stringssize`, which is a bound.
+    if !image.lump_fits(hdr.ofs_strings, hdr.numstrings, 1)
         || !image.lump_fits(hdr.ofs_statements, hdr.numstatements, 8)
         || !image.lump_fits(hdr.ofs_functions, hdr.numfunctions, 36)
         || !image.lump_fits(hdr.ofs_globaldefs, hdr.numglobaldefs, 8)
@@ -339,6 +384,25 @@ pub fn load_progs(
         || !image.lump_fits(hdr.ofs_globals, hdr.numglobals, 4)
     {
         return Err(LoadError::LumpOutOfRange);
+    }
+
+    // `edict_size` is `entityfields * 4 + header`, rounded up, in `int`
+    // arithmetic; the merge can add ten more words. Bound `entityfields` here
+    // so none of that can overflow (see LoadError::BadEntityFields), and so
+    // the arena's stride stays a sane positive number.
+    let edict_header = (core::mem::size_of::<Edict>() - core::mem::size_of::<EntVars>()) as i64;
+    let ptr_align = core::mem::size_of::<*const c_void>() as i64;
+    let max_entityfields =
+        (i64::from(c_int::MAX) - edict_header - ptr_align + 1) / 4 - EXTRAFIELDS_MAX_WORDS;
+    if hdr.entityfields < 0 || i64::from(hdr.entityfields) > max_entityfields {
+        return Err(LoadError::BadEntityFields(hdr.entityfields));
+    }
+
+    // Every symbol name reaching the hash maps is `strings + s_name`, and the
+    // engine's `HashStr` calls `strlen` on it (see
+    // LoadError::UnterminatedStrings).
+    if image.strings_last_byte(hdr.ofs_strings, hdr.numstrings) != Some(0) {
+        return Err(LoadError::UnterminatedStrings);
     }
 
     load.set_functions(image.at(hdr.ofs_functions).cast());
@@ -442,11 +506,22 @@ fn merge_engine_field_defs(load: &mut VmLoad, image: &mut ProgsImage, sys: &mut 
     let mut maxofs = hdr.entityfields;
     let mut maxdefs = hdr.numfielddefs;
 
-    let mut newidx = [0; EXTRAFIELDS.len()];
+    // `(offset, is_new)`. C does not keep the flag: its second loop re-derives
+    // "is this one new?" from `newidx >= entityfields && newidx < maxofs`.
+    //
+    // COMPAT (accepted divergence): that re-derivation is wrong for a progs
+    // that *declares* one of these field names at an offset at or past
+    // `entityfields` — C then emits a def it did not count, and writes past
+    // the `Mem_Alloc (maxdefs * sizeof (ddef_t))` block it just allocated. A
+    // heap overflow reachable from mod data. Carrying the flag keeps the two
+    // loops in agreement by construction. Unreachable from a well-formed
+    // progs, where every fielddef offset is below `entityfields`; found by
+    // `fuzz_progs_load`.
+    let mut newidx = [(0, false); EXTRAFIELDS.len()];
     for (slot, (name, ty)) in newidx.iter_mut().zip(EXTRAFIELDS) {
-        *slot = sys.find_field_ofs(name);
-        if *slot < 0 {
-            *slot = maxofs;
+        slot.0 = sys.find_field_ofs(name);
+        if slot.0 < 0 {
+            *slot = (maxofs, true);
             maxdefs += 1;
             if ty == etype::EV_VECTOR {
                 maxdefs += 3;
@@ -469,10 +544,11 @@ fn merge_engine_field_defs(load: &mut VmLoad, image: &mut ProgsImage, sys: &mut 
 
     let map = load.fielddefs_map();
     let mut numfielddefs = hdr.numfielddefs;
-    for (&idx, (name, ty)) in newidx.iter().zip(EXTRAFIELDS) {
-        if !(idx >= hdr.entityfields && idx < maxofs) {
+    for (&(idx, is_new), (name, ty)) in newidx.iter().zip(EXTRAFIELDS) {
+        if !is_new {
             continue;
         }
+        debug_assert!(idx >= hdr.entityfields && idx < maxofs, "C's own test");
         defs.set(
             numfielddefs as usize,
             DDef {
