@@ -396,6 +396,17 @@ if get_option('use_rust_progs').enabled() and not use_rust
     error('-Duse_rust_progs=enabled requires -Duse_rust=enabled (the progs VM ships in libquake_rs.a)')
 endif
 use_rust_progs = use_rust and not get_option('use_rust_progs').disabled()
+# Phase 7: the cvar/command registry and the client/server simulation; the C
+# originals stay the comparison oracle under -Duse_rust_cvar=disabled /
+# -Duse_rust_host=disabled. Same auto-follows-use_rust rule as above
+if get_option('use_rust_cvar').enabled() and not use_rust
+    error('-Duse_rust_cvar=enabled requires -Duse_rust=enabled (the cvar/command registry ships in libquake_rs.a)')
+endif
+use_rust_cvar = use_rust and not get_option('use_rust_cvar').disabled()
+if get_option('use_rust_host').enabled() and not use_rust
+    error('-Duse_rust_host=enabled requires -Duse_rust=enabled (the client/server simulation ships in libquake_rs.a)')
+endif
+use_rust_host = use_rust and not get_option('use_rust_host').disabled()
 # the Rust filesystem does not implement the DO_USERDIRS lookup branches yet
 # (quake-capi fails this combination with a compile_error!); say so here
 # rather than several minutes into a cargo build
@@ -435,6 +446,12 @@ if use_rust
     endif
     if use_rust_progs
         rust_feature_list += 'progs'
+    endif
+    if use_rust_cvar
+        rust_feature_list += 'cvar'
+    endif
+    if use_rust_host
+        rust_feature_list += 'host'
     endif
     # cargo features tracking C defines the fs shims must agree with
     if use_sdl3
@@ -519,6 +536,23 @@ if use_rust_progs
     ]
 else
     srcs += ['Quake/pr_exec.c', 'Quake/pr_edict_save.c', 'Quake/pr_edict_parse.c', 'Quake/pr_edict_load.c']
+endif
+
+# Phase 7: the cvar/command registry (M2) and the client/server simulation
+# (M3+). Both defines are, as of M1, pure placeholders: nothing in Quake/ or
+# rust/ reads USE_RUST_CVAR or USE_RUST_HOST, so the two legs compile
+# byte-identical sources and build-rs-chost cannot fail differently from
+# build-rs. They exist now so the meson option, cargo feature and CI leg are
+# in place before M2/M3 flip the first files; they only start carrying signal
+# then. Unlike every other use_rust_* switch these add no srcs entry either --
+# there is no source list to divert yet; the whole-file Pattern A swaps land
+# per milestone and the C originals become the disabled-leg oracle at that
+# point, not before
+if use_rust_cvar
+    cflags += '-DUSE_RUST_CVAR'
+endif
+if use_rust_host
+    cflags += '-DUSE_RUST_HOST'
 endif
 
 if use_rust_snd

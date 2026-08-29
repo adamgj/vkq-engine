@@ -753,12 +753,28 @@ const char *Sys_ConsoleInput (void)
 	int			ch;
 	DWORD		dummy, numread, numevents;
 
+	static qboolean console_unqueryable = false;
+
+	if (console_unqueryable)
+		return NULL;
+
 	TEMP_ALLOC (INPUT_RECORD, recs, 1024);
 
 	for (;;)
 	{
 		if (GetNumberOfConsoleInputEvents (hinput, &numevents) == 0)
-			Sys_Error ("Error getting # of console events");
+		{
+			/* Some automated/sandboxed launch environments (the ones the
+			   Phase 7 soak cells run under) hand the process a console handle
+			   AllocConsole() accepts but this call cannot query. That is not
+			   worth aborting over -- it only means this process has no
+			   readable console input -- so degrade to "no input, ever"
+			   instead of Sys_Error, and say so once rather than silently. */
+			console_unqueryable = true;
+			TEMP_FREE (recs);
+			Con_SafePrintf ("Sys_ConsoleInput: console input unavailable (GetNumberOfConsoleInputEvents failed); disabling console input\n");
+			return NULL;
+		}
 
 		if (!numevents)
 			break;

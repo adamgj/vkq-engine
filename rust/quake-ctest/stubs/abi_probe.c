@@ -1072,3 +1072,478 @@ size_t ctest_abi_progs_lookup (const char *key)
 			return ctest_abi_progs_table[i].value;
 	return (size_t)-1;
 }
+
+/* ---------------------------------------------------------------------------
+ * Phase 7 (host/server/client) ABI probe: `sv`/`svs` (server.h) and
+ * `cl`/`cls` (client.h) are the process-global server and client state.
+ * Under the Phase 7 host/server/client port Rust reads and writes these
+ * C-owned instances directly (dual-view closes per `sv`/`svs` at M6 and
+ * `cl`/`cls` at M7, docs/ai/plans/rust-conversion-phase-7.md), so a mirror
+ * drift here is silent memory corruption, not a link error.
+ *
+ * Neither header is a bindgen-clean root: both pull qcvm_t (progs.h,
+ * already included above), and client.h's client_state_t additionally
+ * embeds entity_t (render.h) by value via `viewent`. render.h
+ * unconditionally #includes "tasks.h" (pulls q_stdinc.h -> SDL.h, not
+ * stubbed anywhere in c_ref_prelude.h) and "q_render_types.h" (the real
+ * Vulkan SDK header; c_ref_prelude.h already stands that one in via
+ * __Q_RENDER_TYPES_H's handle typedefs, for the Phase 3 gl_model.h tail).
+ * Since quake_types::host::EntityOpaque treats entity_t entirely as an
+ * opaque, size/align-verified blob -- Phase 8's renderer owns its real
+ * fields, not Phase 7 -- only entity_t's sizeof/alignof are needed here,
+ * not per-field offsets. So below is a bounded, field-verbatim local
+ * shadow of entity_t/lightcache_t/entlerp_t transcribed from render.h,
+ * reusing the Vulkan handle stand-ins above for entity_t's only
+ * Vulkan-typed member (entity_blas_t, reached solely through a pointer, so
+ * its own body is never needed).
+ *
+ * KNOWN GAP -- this shadow is the one place in this file that is NOT
+ * header-derived, and it is load-bearing: client.h has no #includes of its
+ * own, so the client_state_t laid out in this TU takes every offset at or
+ * after `viewent` from the transcription below rather than from render.h.
+ * A field added to the real entity_t therefore still compiles, still passes
+ * host_abi.rs, and silently invalidates those offsets. Nothing detects that
+ * automatically; render.h carries the codebase's usual
+ * "!!! if this is changed !!!" markers on entity_s/entlerp_s/lightcache_s
+ * pointing here, which is a convention, not a gate. The constants above are
+ * gated properly, by a _Static_assert in Quake/harness.c. Same class,
+ * smaller blast radius: entity_blas_t is transcribed only as far as
+ * "reached solely through a pointer", which holds today but is unenforced.
+ *
+ * What the transcription does buy is that the compiler computes the real
+ * sizeof/alignof from it rather than from a hardcoded number -- and every
+ * field this probe's Rust consumer (host_abi.rs) can
+ * actually reach through a named quake_types::host field gets its own
+ * offsetof entry below, exactly like every other phase in this file.
+ *
+ * server.h/client.h declare `extern server_t sv;`, `extern server_static_t
+ * svs;`, `extern client_state_t cl;` and `extern client_static_t cls;`, but
+ * c_ref_prelude.h already declared small stand-in stubs under those same
+ * four names for the Phase 4/5/6 oracles (snd_mix.c, pr_exec.c,
+ * net_loop.c). Redeclaring the same identifiers with the real, larger
+ * types would be a C "conflicting types" error, so they are renamed out of
+ * the way for just the two #includes below, using the same #define/#undef
+ * idiom c_ref_prelude.h itself uses throughout (e.g. `#define X c_ref_X`).
+ * This does not touch unrelated identifiers that merely share a prefix
+ * (`cl_lightstyle`, `host_client`, ...): C macro substitution is
+ * whole-token only.
+ *
+ * quakedef.h constants server.h/client.h expect from their normal
+ * #include "quakedef.h" chain, which c_ref_prelude.h pre-empts before this
+ * TU ever reaches them (MAX_SOUNDS, MAX_LIGHTSTYLES, MAX_DATAGRAM,
+ * MAX_MSGLEN and MAX_EDICTS are already defined above by the earlier
+ * phases' slices; SERVER_INFO_STRING_SIZE, CLIENT_USER_INFO_STRING_SIZE,
+ * NUM_PING_TIMES, NUM_TOTAL_SPAWN_PARMS, NUM_CSHIFTS, MAX_MAPSTRING,
+ * MAX_DEMOS and MAX_DEMONAME are `#define`d by server.h/client.h
+ * themselves): */
+#define MAX_MODELS		  8192
+#define MAX_PARTICLETYPES 2048
+#define MAX_STYLESTRING	  64
+#define MAX_CL_STATS	  256
+#define MAX_SCOREBOARDNAME 32
+#define VID_CBITS		  6
+#define VID_GRADES		  (1 << VID_CBITS)
+
+typedef struct lightcache_s
+{
+	int	   surfidx;
+	vec3_t pos;
+	short  ds;
+	short  dt;
+} lightcache_t;
+
+typedef struct entlerp_s
+{
+	qboolean movestep;
+	int		 prev_frame;
+	double	 frame_change_time;
+	double	 frame_duration;
+	double	 frame_finish_time;
+	int		 snap_frames;
+	double	 snap_msgtime;
+	vec3_t	 prev_origin;
+	vec3_t	 prev_angles;
+	double	 move_change_time;
+	double	 move_duration;
+} entlerp_t;
+
+typedef struct entity_s
+{
+	qboolean forcelink;
+
+	int update_type;
+
+	entity_state_t baseline;
+	entity_state_t netstate;
+
+	double			 msgtime;
+	vec3_t			 msg_origins[2];
+	vec3_t			 origin;
+	vec3_t			 msg_angles[2];
+	vec3_t			 angles;
+	struct qmodel_s *model;
+	struct efrag_s	*efrag;
+	int				 frame;
+	float			 syncbase;
+	byte			*colormap;
+	int				 effects;
+	int				 skinnum;
+	int				 visframe;
+
+	int dlightframe;
+	int dlightbits;
+
+	struct mnode_s *topnode;
+
+	byte	  eflags;
+	byte	  alpha;
+	entlerp_t lerp;
+
+#ifdef PSET_SCRIPT
+	struct trailstate_s *trailstate;
+	struct trailstate_s *emitstate;
+#endif
+	float  traildelay;
+	vec3_t trailorg;
+
+	lightcache_t lightcache;
+
+	int	   contentscache;
+	vec3_t contentscache_origin;
+
+	struct entity_blas_s *blas_data;
+} entity_t;
+
+/* render.h's efrag_t: not opaque (quake_types::host::Efrag mirrors it
+ * field-by-field), so it needs a real local definition too, referencing
+ * the entity_t shadow above only through a pointer. */
+typedef struct efrag_s
+{
+	struct efrag_s	*leafnext;
+	struct entity_s *entity;
+} efrag_t;
+
+/* c_ref_prelude.h already declares its own `server_state_t`/`cactive_t`
+ * (with the same enumerator names) for the Phase 6 pr_exec.c oracle's
+ * stub `sv`/`cl`. Including the real server.h/client.h below would
+ * redefine those same enumerators, so they're renamed out of the way for
+ * just these two #includes, same idiom as the sv/svs/cl/cls dodge. */
+#define sv			  ctest_host_probe_unused_sv
+#define svs			  ctest_host_probe_unused_svs
+#define cl			  ctest_host_probe_unused_cl
+#define cls			  ctest_host_probe_unused_cls
+#define server_state_t	  ctest_host_real_server_state_t
+#define ss_loading		  ctest_host_real_ss_loading
+#define ss_active		  ctest_host_real_ss_active
+#define cactive_t		  ctest_host_real_cactive_t
+#define ca_dedicated	  ctest_host_real_ca_dedicated
+#define ca_disconnected	  ctest_host_real_ca_disconnected
+#define ca_connected	  ctest_host_real_ca_connected
+#include "server.h"
+#include "client.h"
+#undef sv
+#undef svs
+#undef cl
+#undef cls
+#undef server_state_t
+#undef ss_loading
+#undef ss_active
+#undef cactive_t
+#undef ca_dedicated
+#undef ca_disconnected
+#undef ca_connected
+
+static const ctest_abi_entry_t ctest_abi_host_table[] = {
+	SZ ("server_static_t", server_static_t),
+	OFF ("server_static_t", server_static_t, maxclients),
+	OFF ("server_static_t", server_static_t, maxclientslimit),
+	OFF ("server_static_t", server_static_t, clients),
+	OFF ("server_static_t", server_static_t, serverflags),
+	OFF ("server_static_t", server_static_t, changelevel_issued),
+	OFF ("server_static_t", server_static_t, serverinfo),
+
+	{"const.ss_loading", ctest_host_real_ss_loading},
+	{"const.ss_active", ctest_host_real_ss_active},
+
+	SZ ("ambientsound_t", struct ambientsound_s),
+	OFF ("ambientsound_t", struct ambientsound_s, origin),
+	OFF ("ambientsound_t", struct ambientsound_s, soundindex),
+	OFF ("ambientsound_t", struct ambientsound_s, volume),
+	OFF ("ambientsound_t", struct ambientsound_s, attenuation),
+
+	SZ ("svcustomstat_t", struct svcustomstat_s),
+	OFF ("svcustomstat_t", struct svcustomstat_s, idx),
+	OFF ("svcustomstat_t", struct svcustomstat_s, type),
+	OFF ("svcustomstat_t", struct svcustomstat_s, fld),
+	OFF ("svcustomstat_t", struct svcustomstat_s, ptr),
+
+	SZ ("server_t", server_t),
+	OFF ("server_t", server_t, active),
+	OFF ("server_t", server_t, paused),
+	OFF ("server_t", server_t, loadgame),
+	OFF ("server_t", server_t, nomonsters),
+	OFF ("server_t", server_t, lastsave),
+	OFF ("server_t", server_t, lastcheck),
+	OFF ("server_t", server_t, lastchecktime),
+	OFF ("server_t", server_t, qcvm),
+	OFF ("server_t", server_t, name),
+	OFF ("server_t", server_t, modelname),
+	OFF ("server_t", server_t, model_precache),
+	OFF ("server_t", server_t, models),
+	OFF ("server_t", server_t, sound_precache),
+	OFF ("server_t", server_t, lightstyles),
+	OFF ("server_t", server_t, state),
+	OFF ("server_t", server_t, datagram),
+	OFF ("server_t", server_t, datagram_buf),
+	OFF ("server_t", server_t, reliable_datagram),
+	OFF ("server_t", server_t, reliable_datagram_buf),
+	OFF ("server_t", server_t, signon),
+	OFF ("server_t", server_t, signon_buf),
+	OFF ("server_t", server_t, protocol),
+	OFF ("server_t", server_t, protocolflags),
+	OFF ("server_t", server_t, multicast),
+	OFF ("server_t", server_t, multicast_buf),
+	OFF ("server_t", server_t, particle_precache),
+	OFF ("server_t", server_t, static_entities),
+	OFF ("server_t", server_t, num_statics),
+	OFF ("server_t", server_t, max_statics),
+	OFF ("server_t", server_t, ambientsounds),
+	OFF ("server_t", server_t, num_ambients),
+	OFF ("server_t", server_t, max_ambients),
+	OFF ("server_t", server_t, customstats),
+	OFF ("server_t", server_t, numcustomstats),
+	OFF ("server_t", server_t, effectsmask),
+
+	SZ ("usercmd_t", usercmd_t),
+	OFF ("usercmd_t", usercmd_t, servertime),
+	OFF ("usercmd_t", usercmd_t, seconds),
+	OFF ("usercmd_t", usercmd_t, viewangles),
+	OFF ("usercmd_t", usercmd_t, forwardmove),
+	OFF ("usercmd_t", usercmd_t, sidemove),
+	OFF ("usercmd_t", usercmd_t, upmove),
+	OFF ("usercmd_t", usercmd_t, forwardmove_accumulator),
+	OFF ("usercmd_t", usercmd_t, sidemove_accumulator),
+	OFF ("usercmd_t", usercmd_t, upmove_accumulator),
+	OFF ("usercmd_t", usercmd_t, buttons),
+	OFF ("usercmd_t", usercmd_t, impulse),
+	OFF ("usercmd_t", usercmd_t, sequence),
+	OFF ("usercmd_t", usercmd_t, weapon),
+
+	{"const.PRESPAWN_DONE", PRESPAWN_DONE},
+	{"const.PRESPAWN_FLUSH", PRESPAWN_FLUSH},
+	{"const.PRESPAWN_MODELS", PRESPAWN_MODELS},
+	{"const.PRESPAWN_SOUNDS", PRESPAWN_SOUNDS},
+	{"const.PRESPAWN_PARTICLES", PRESPAWN_PARTICLES},
+	{"const.PRESPAWN_BASELINES", PRESPAWN_BASELINES},
+	{"const.PRESPAWN_STATICS", PRESPAWN_STATICS},
+	{"const.PRESPAWN_AMBIENTS", PRESPAWN_AMBIENTS},
+	{"const.PRESPAWN_SIGNONMSG", PRESPAWN_SIGNONMSG},
+
+	SZ ("entity_num_state_t", struct entity_num_state_s),
+	OFF ("entity_num_state_t", struct entity_num_state_s, num),
+	OFF ("entity_num_state_t", struct entity_num_state_s, state),
+
+	/* `struct deltaframe_s.ents` points at a truly anonymous C struct (no
+	 * tag), so it has no name offsetof/sizeof can take -- this is the
+	 * standard sizeof-of-unevaluated-expression idiom (sizeof never
+	 * evaluates its operand) to still get a real, header-derived size for
+	 * quake_types::host::DeltaFrameEnt. */
+	{"sizeof.deltaframe_ents_t", sizeof (*(((client_t *)0)->frames->ents))},
+
+	SZ ("deltaframe_t", struct deltaframe_s),
+	OFF ("deltaframe_t", struct deltaframe_s, sequence),
+	OFF ("deltaframe_t", struct deltaframe_s, timestamp),
+	OFF ("deltaframe_t", struct deltaframe_s, resendstatsnum),
+	OFF ("deltaframe_t", struct deltaframe_s, resendstatsstr),
+	OFF ("deltaframe_t", struct deltaframe_s, ents),
+	OFF ("deltaframe_t", struct deltaframe_s, numents),
+	OFF ("deltaframe_t", struct deltaframe_s, maxents),
+
+	SZ ("client_t", client_t),
+	OFF ("client_t", client_t, active),
+	OFF ("client_t", client_t, spawned),
+	OFF ("client_t", client_t, dropasap),
+	OFF ("client_t", client_t, sendsignon),
+	OFF ("client_t", client_t, signonidx),
+	OFF ("client_t", client_t, signon_sounds),
+	OFF ("client_t", client_t, signon_models),
+	OFF ("client_t", client_t, last_message),
+	OFF ("client_t", client_t, netconnection),
+	OFF ("client_t", client_t, cmd),
+	OFF ("client_t", client_t, wishdir),
+	OFF ("client_t", client_t, message),
+	OFF ("client_t", client_t, msgbuf),
+	OFF ("client_t", client_t, edict),
+	OFF ("client_t", client_t, name),
+	OFF ("client_t", client_t, colors),
+	OFF ("client_t", client_t, ping_times),
+	OFF ("client_t", client_t, num_pings),
+	OFF ("client_t", client_t, spawn_parms),
+	OFF ("client_t", client_t, old_frags),
+	OFF ("client_t", client_t, datagram),
+	OFF ("client_t", client_t, datagram_buf),
+	OFF ("client_t", client_t, limit_entities),
+	OFF ("client_t", client_t, limit_unreliable),
+	OFF ("client_t", client_t, limit_reliable),
+	OFF ("client_t", client_t, limit_models),
+	OFF ("client_t", client_t, limit_sounds),
+	OFF ("client_t", client_t, pextknown),
+	OFF ("client_t", client_t, protocol_pext1),
+	OFF ("client_t", client_t, protocol_pext2),
+	OFF ("client_t", client_t, resendstatsnum),
+	OFF ("client_t", client_t, resendstatsstr),
+	OFF ("client_t", client_t, oldstats_i),
+	OFF ("client_t", client_t, oldstats_f),
+	OFF ("client_t", client_t, oldstats_s),
+	OFF ("client_t", client_t, previousentities),
+	OFF ("client_t", client_t, numpreviousentities),
+	OFF ("client_t", client_t, maxpreviousentities),
+	OFF ("client_t", client_t, snapshotresume),
+	OFF ("client_t", client_t, pendingentities_bits),
+	OFF ("client_t", client_t, numpendingentities),
+	OFF ("client_t", client_t, frames),
+	OFF ("client_t", client_t, numframes),
+	OFF ("client_t", client_t, lastacksequence),
+	OFF ("client_t", client_t, lastmovemessage),
+	OFF ("client_t", client_t, lastmovetime),
+	OFF ("client_t", client_t, knowntoqc),
+	OFF ("client_t", client_t, userinfo),
+
+	{"const.CA_DEDICATED", ctest_host_real_ca_dedicated},
+	{"const.CA_DISCONNECTED", ctest_host_real_ca_disconnected},
+	{"const.CA_CONNECTED", ctest_host_real_ca_connected},
+
+	SZ ("cshift_t", cshift_t),
+	OFF ("cshift_t", cshift_t, destcolor),
+	OFF ("cshift_t", cshift_t, percent),
+
+	SZ ("scoreboard_t", scoreboard_t),
+	OFF ("scoreboard_t", scoreboard_t, name),
+	OFF ("scoreboard_t", scoreboard_t, entertime),
+	OFF ("scoreboard_t", scoreboard_t, frags),
+	OFF ("scoreboard_t", scoreboard_t, colors),
+	OFF ("scoreboard_t", scoreboard_t, ping),
+	OFF ("scoreboard_t", scoreboard_t, translations),
+	OFF ("scoreboard_t", scoreboard_t, userinfo),
+
+	SZ ("client_static_t", client_static_t),
+	OFF ("client_static_t", client_static_t, state),
+	OFF ("client_static_t", client_static_t, spawnparms),
+	OFF ("client_static_t", client_static_t, demonum),
+	OFF ("client_static_t", client_static_t, demos),
+	OFF ("client_static_t", client_static_t, demorecording),
+	OFF ("client_static_t", client_static_t, demoplayback),
+	OFF ("client_static_t", client_static_t, demopaused),
+	OFF ("client_static_t", client_static_t, demoseeking),
+	OFF ("client_static_t", client_static_t, seektime),
+	OFF ("client_static_t", client_static_t, demospeed),
+	OFF ("client_static_t", client_static_t, demo_prespawn_end),
+	OFF ("client_static_t", client_static_t, timedemo),
+	OFF ("client_static_t", client_static_t, forcetrack),
+	OFF ("client_static_t", client_static_t, demofile),
+	OFF ("client_static_t", client_static_t, td_lastframe),
+	OFF ("client_static_t", client_static_t, td_startframe),
+	OFF ("client_static_t", client_static_t, td_starttime),
+	OFF ("client_static_t", client_static_t, signon),
+	OFF ("client_static_t", client_static_t, netcon),
+	OFF ("client_static_t", client_static_t, message),
+	OFF ("client_static_t", client_static_t, userinfo),
+
+	{"sizeof.entity_t", sizeof (entity_t)},
+	{"alignof.entity_t", _Alignof (entity_t)},
+
+	SZ ("efrag_t", struct efrag_s),
+	OFF ("efrag_t", struct efrag_s, leafnext),
+	OFF ("efrag_t", struct efrag_s, entity),
+
+	/* client_state_t::particle_precache/local_particle_precache elements
+	 * are also a truly anonymous C struct -- same idiom as
+	 * deltaframe_ents_t above. */
+	{"sizeof.particle_precache_entry_t", sizeof (((client_state_t *)0)->particle_precache[0])},
+
+	SZ ("client_state_t", client_state_t),
+	OFF ("client_state_t", client_state_t, movemessages),
+	OFF ("client_state_t", client_state_t, ackedmovemessages),
+	OFF ("client_state_t", client_state_t, movecmds),
+	OFF ("client_state_t", client_state_t, pendingcmd),
+	OFF ("client_state_t", client_state_t, stats),
+	OFF ("client_state_t", client_state_t, statsf),
+	OFF ("client_state_t", client_state_t, statss),
+	OFF ("client_state_t", client_state_t, items),
+	OFF ("client_state_t", client_state_t, item_gettime),
+	OFF ("client_state_t", client_state_t, faceanimtime),
+	OFF ("client_state_t", client_state_t, v_dmg_time),
+	OFF ("client_state_t", client_state_t, v_dmg_roll),
+	OFF ("client_state_t", client_state_t, v_dmg_pitch),
+	OFF ("client_state_t", client_state_t, cshift_empty),
+	OFF ("client_state_t", client_state_t, cshifts),
+	OFF ("client_state_t", client_state_t, prev_cshifts),
+	OFF ("client_state_t", client_state_t, mviewangles),
+	OFF ("client_state_t", client_state_t, viewangles),
+	OFF ("client_state_t", client_state_t, mvelocity),
+	OFF ("client_state_t", client_state_t, velocity),
+	OFF ("client_state_t", client_state_t, punchangle),
+	OFF ("client_state_t", client_state_t, idealpitch),
+	OFF ("client_state_t", client_state_t, pitchvel),
+	OFF ("client_state_t", client_state_t, nodrift),
+	OFF ("client_state_t", client_state_t, driftmove),
+	OFF ("client_state_t", client_state_t, laststop),
+	OFF ("client_state_t", client_state_t, viewheight),
+	OFF ("client_state_t", client_state_t, crouch),
+	OFF ("client_state_t", client_state_t, paused),
+	OFF ("client_state_t", client_state_t, onground),
+	OFF ("client_state_t", client_state_t, inwater),
+	OFF ("client_state_t", client_state_t, fixangle_time),
+	OFF ("client_state_t", client_state_t, intermission),
+	OFF ("client_state_t", client_state_t, completed_time),
+	OFF ("client_state_t", client_state_t, mtime),
+	OFF ("client_state_t", client_state_t, time),
+	OFF ("client_state_t", client_state_t, oldtime),
+	OFF ("client_state_t", client_state_t, last_received_message),
+	OFF ("client_state_t", client_state_t, model_precache),
+	OFF ("client_state_t", client_state_t, sound_precache),
+	OFF ("client_state_t", client_state_t, mapname),
+	OFF ("client_state_t", client_state_t, levelname),
+	OFF ("client_state_t", client_state_t, viewentity),
+	OFF ("client_state_t", client_state_t, maxclients),
+	OFF ("client_state_t", client_state_t, gametype),
+	OFF ("client_state_t", client_state_t, worldmodel),
+	OFF ("client_state_t", client_state_t, free_efrags),
+	OFF ("client_state_t", client_state_t, num_efrags),
+	OFF ("client_state_t", client_state_t, efrag_allocs),
+	OFF ("client_state_t", client_state_t, num_efragallocs),
+	OFF ("client_state_t", client_state_t, viewent),
+	OFF ("client_state_t", client_state_t, entities),
+	OFF ("client_state_t", client_state_t, max_edicts),
+	OFF ("client_state_t", client_state_t, num_entities),
+	OFF ("client_state_t", client_state_t, static_entities),
+	OFF ("client_state_t", client_state_t, max_static_entities),
+	OFF ("client_state_t", client_state_t, num_statics),
+	OFF ("client_state_t", client_state_t, cdtrack),
+	OFF ("client_state_t", client_state_t, looptrack),
+	OFF ("client_state_t", client_state_t, scores),
+	OFF ("client_state_t", client_state_t, protocol),
+	OFF ("client_state_t", client_state_t, protocolflags),
+	OFF ("client_state_t", client_state_t, protocol_pext1),
+	OFF ("client_state_t", client_state_t, protocol_pext2),
+	OFF ("client_state_t", client_state_t, protocol_particles),
+	OFF ("client_state_t", client_state_t, particle_precache),
+	OFF ("client_state_t", client_state_t, local_particle_precache),
+	OFF ("client_state_t", client_state_t, ackframes),
+	OFF ("client_state_t", client_state_t, ackframes_count),
+	OFF ("client_state_t", client_state_t, requestresend),
+	OFF ("client_state_t", client_state_t, sendprespawn),
+	OFF ("client_state_t", client_state_t, qcvm),
+	OFF ("client_state_t", client_state_t, zoom),
+	OFF ("client_state_t", client_state_t, zoomdir),
+	OFF ("client_state_t", client_state_t, serverinfo),
+};
+
+size_t ctest_abi_host_lookup (const char *key)
+{
+	size_t i;
+	for (i = 0; i < sizeof (ctest_abi_host_table) / sizeof (ctest_abi_host_table[0]); i++)
+		if (!strcmp (ctest_abi_host_table[i].name, key))
+			return ctest_abi_host_table[i].value;
+	return (size_t)-1;
+}

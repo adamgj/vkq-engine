@@ -334,9 +334,23 @@ int WINS_Read (sys_socket_t socketid, byte *buf, int len, struct qsockaddr *addr
 		if (err == NET_EWOULDBLOCK || err == NET_ECONNREFUSED)
 			return 0;
 		if (err == WSAECONNRESET)
-			Con_DPrintf ("WINS_Read, recvfrom: %s (%s)\n", socketerror (err), WINS_AddrToString (addr, false));
-		else
-			Con_SafePrintf ("WINS_Read, recvfrom: %s\n", socketerror (err));
+		{
+			/* Windows delivers WSAECONNRESET on a connectionless UDP socket's
+			   next recvfrom() after an ICMP Port Unreachable came back for an
+			   earlier sendto() to the same peer -- nonsensical for UDP, but
+			   real and transient, not an actual read failure. Treat it like
+			   EWOULDBLOCK/ECONNREFUSED (no data this call) rather than
+			   propagating -1, which the netchan layer (net_dgrm_rel.c
+			   Datagram_GetMessage) treats as a fatal read error and drops
+			   the connection outright.
+			   No address is named in the message: recvfrom() returned
+			   SOCKET_ERROR, so the kernel need not have written addr; it can
+			   still hold whatever the caller passed in, which for
+			   Datagram_GetMessage is the previous packet's sender. */
+			Con_DPrintf ("WINS_Read, recvfrom: %s\n", socketerror (err));
+			return 0;
+		}
+		Con_SafePrintf ("WINS_Read, recvfrom: %s\n", socketerror (err));
 	}
 	return ret;
 }

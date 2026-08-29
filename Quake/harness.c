@@ -25,6 +25,19 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include "net_defs.h"
 #include "harness.h"
 
+/* rust/quake-ctest/stubs/abi_probe.c cannot #include render.h (it reaches
+   tasks.h -> SDL.h), so its Phase 7 slice hardcodes these to lay out
+   server_t/client_state_t. Nothing there sees the real headers, so assert the
+   agreement here, in a TU that does -- a silent divergence would leave the
+   probe, and host_abi.rs with it, cheerfully validating a stale layout. */
+_Static_assert (MAX_MODELS == 8192, "abi_probe.c hardcodes this for its Phase 7 host slice; update both together");
+_Static_assert (MAX_PARTICLETYPES == 2048, "abi_probe.c hardcodes this for its Phase 7 host slice; update both together");
+_Static_assert (MAX_STYLESTRING == 64, "abi_probe.c hardcodes this for its Phase 7 host slice; update both together");
+_Static_assert (MAX_CL_STATS == 256, "abi_probe.c hardcodes this for its Phase 7 host slice; update both together");
+_Static_assert (MAX_SCOREBOARDNAME == 32, "abi_probe.c hardcodes this for its Phase 7 host slice; update both together");
+_Static_assert (VID_CBITS == 6, "abi_probe.c hardcodes this for its Phase 7 host slice; update both together");
+_Static_assert (VID_GRADES == 64, "abi_probe.c hardcodes this for its Phase 7 host slice; update both together");
+
 qboolean harness_active = false;
 qboolean harness_fixed_dt = false;
 qboolean no_rendering = false;
@@ -192,13 +205,9 @@ void Harness_Init (void)
 		Harness_LoadCmds (com_argv[i + 1]);
 }
 
-static uint64_t Harness_HashServer (uint64_t h)
+static uint64_t Harness_HashVM (uint64_t h, qcvm_t *vm)
 {
-	qcvm_t *vm = &sv.qcvm;
-	int		i;
-
-	if (!sv.active || !vm->progs)
-		return h;
+	int i;
 
 	for (i = 0; i < vm->num_edicts; i++)
 	{
@@ -231,6 +240,13 @@ static uint64_t Harness_HashServer (uint64_t h)
 	h = Harness_Hash64 (h, &vm->time, sizeof (vm->time));
 	h = Harness_Hash64 (h, &vm->num_edicts, sizeof (vm->num_edicts));
 	return h;
+}
+
+static uint64_t Harness_HashServer (uint64_t h)
+{
+	if (!sv.active || !sv.qcvm.progs)
+		return h;
+	return Harness_HashVM (h, &sv.qcvm);
 }
 
 static uint64_t Harness_HashClient (uint64_t h)
@@ -266,6 +282,20 @@ static uint64_t Harness_HashClient (uint64_t h)
 		h = Harness_Hash64 (h, &ent->skinnum, sizeof (ent->skinnum));
 		h = Harness_Hash64 (h, &ent->alpha, sizeof (ent->alpha));
 	}
+
+	/* CSQC state, when a csprogs is live. No draw_qcvm_mutex here: the mutex
+	   only exists once SCR_Init has run (skipped under no_rendering), and every
+	   worker that touches cl.qcvm is joined inside SCR_UpdateScreen before
+	   _Host_Frame reaches Harness_Frame -- the same main-thread window in which
+	   Host_Frame already runs SV_Physics on cl.qcvm unlocked.
+
+	   Guarding on progs alone (rather than an active flag + progs, as
+	   Harness_HashServer does with sv.active && sv.qcvm.progs) is not an
+	   oversight: there is no cl-side equivalent of sv.active, and
+	   PR_ClearProgs memsets the whole qcvm_t, so a torn-down client VM has
+	   progs == NULL and cannot be half-hashed. */
+	if (cl.qcvm.progs)
+		h = Harness_HashVM (h, &cl.qcvm);
 	return h;
 }
 

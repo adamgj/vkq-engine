@@ -35,6 +35,38 @@
       "requires": [{"path": "id1/pak0.pak", "sha256": "35a9c55e5e5a284a159ad2a62e0e8def23d829561fe2f54eb402dbc0a9a946af"}]
     },
     {
+      "name": "e1m1-long",
+      "tier": "shareware",
+      "cmds": ["0 map e1m1", "6000 quit"],
+      "exitafter": 7000,
+      "note": "Phase 7 T1.1: several-thousand-frame single-map run for deeper server/edict state-hash coverage than save-e1m1 (610 frames). Confirmed via -harnesscmds 'edicts' dumps that no player input is required for server activity: the two entry-room func_door edicts (classname 'door' post-spawn) open purely from the player touching them at spawn placement, and multiple monster_army edicts advance along path_corner patrol routes over the run",
+      "requires": [{"path": "id1/pak0.pak", "sha256": "35a9c55e5e5a284a159ad2a62e0e8def23d829561fe2f54eb402dbc0a9a946af"}]
+    },
+    {
+      "name": "e1m5-trains",
+      "tier": "shareware",
+      "cmds": ["0 map e1m5", "8000 quit"],
+      "exitafter": 9000,
+      "note": "Phase 7 T1.1: pusher/elevator-heavy entry. e1m1/e1m2's func_train and func_plat entities all require a player-triggered button/trigger (confirmed absent activity over 3000-4000 frame no-input windows on e1m1 (plat only), e1m2, e1m3, e1m4, e1m7), but e1m5's 4 func_train entities have no targetname in the bsp entity lump, which the stock QC train_next spawn path treats as 'start moving immediately' rather than waiting for a trigger; confirmed dynamically via -harnesscmds 'edicts' dumps at frames 2/2000/4000/6000/8000 (edicts 21/23/26/29) that all four cycle continuously back and forth for the full 8000-frame run with zero player input, giving sustained SV_Physics_Train/pusher coverage",
+      "requires": [{"path": "id1/pak0.pak", "sha256": "35a9c55e5e5a284a159ad2a62e0e8def23d829561fe2f54eb402dbc0a9a946af"}]
+    },
+    {
+      "name": "e1m1-plat-crush",
+      "tier": "shareware",
+      "cmds": ["0 map e1m1", "10 setpos -544 2656 38", "25 noclip", "4000 quit"],
+      "exitafter": 5000,
+      "note": "Drives the sv_gameplayfix_elevators BLOCKED branch (Quake/sv_phys.c:1540-1546) by parking the player in e1m1's func_plat trigger field so the plat repeatedly crushes its rider. Coordinate derivation, the elevators-axis differential evidence, and the still-open sv_smoothplatformlerps gap are written up in Misc/harness/README.md.",
+      "requires": [{"path": "id1/pak0.pak", "sha256": "35a9c55e5e5a284a159ad2a62e0e8def23d829561fe2f54eb402dbc0a9a946af"}]
+    },
+    {
+      "name": "e3m6-trains",
+      "tier": "registered",
+      "cmds": ["0 map e3m6", "6000 quit"],
+      "exitafter": 7000,
+      "note": "Phase 7 T1.1: registered-tier (PAK1) pusher/elevator-heavy entry, local-only like save-e2m1/gamedir-switch since it needs PAK1.PAK. e3m6's 2 func_train entities also have no targetname (same self-starting pattern as e1m5-trains); confirmed dynamically over a 6000-frame no-input run (edicts 10/15 mirror-cycle continuously)",
+      "requires": [{"path": "id1/PAK1.PAK", "sha256": "94e355836ec42bc464e4cbe794cfb7b5163c6efa1bcc575622bb36475bf1cf30"}]
+    },
+    {
       "name": "save-e2m1",
       "tier": "registered",
       "cmds": ["0 map e2m1", "300 save harness_a", "600 save harness_b", "610 quit"],
@@ -43,6 +75,7 @@
     },
     {
       "name": "gamedir-switch",
+      "physics": false,
       "tier": "registered",
       "cmds": ["0 map e1m1", "300 game hipnotic", "500 map start", "1200 quit"],
       "exitafter": 6000,
