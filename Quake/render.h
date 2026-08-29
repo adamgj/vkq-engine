@@ -42,6 +42,7 @@ typedef struct efrag_s
 	struct entity_s *entity;
 } efrag_t;
 
+// !!! if this is changed, it must be changed in rust/quake-ctest/stubs/abi_probe.c too !!!
 typedef struct lightcache_s
 {
 	int	   surfidx; // < 0: black surface; == 0: no cache; > 0: 1+index of surface
@@ -65,6 +66,7 @@ typedef struct entity_blas_s
 
 // Entity interpolation state. Written only by the parse layer (view.c for the
 // view weapon), read by the renderer. Change times are server (message) times.
+// !!! if this is changed, it must be changed in rust/quake-ctest/stubs/abi_probe.c too !!!
 typedef struct entlerp_s
 {
 	qboolean movestep;			// this is a MOVETYPE_STEP entity, enable movement lerp
@@ -80,6 +82,7 @@ typedef struct entlerp_s
 	double	 move_duration;	   // duration of the current movement transition, frozen when the change was recorded
 } entlerp_t;
 
+// !!! if this is changed, it must be changed in rust/quake-ctest/stubs/abi_probe.c too !!!
 typedef struct entity_s
 {
 	qboolean forcelink; // no previous update to lerp from, snap to the new state

@@ -52,6 +52,16 @@ The frame at which the hash chains first diverge is reported as a diagnostic onl
 
 CI runs a 20k-frame C/C smoke; the full 100k-frame × 8-cell soaks are local-only (M9 and M11), with results recorded in the phase plan's amendment log.
 
+### Phase 7 pusher/elevator entries
+
+`e1m1-long`, `e1m5-trains` and `e1m1-plat-crush` (T1.1) exist to give the physics matrix something that actually moves pushers. `e1m1-plat-crush` is the one with non-obvious construction, so the derivation is recorded here rather than in a corpus note:
+
+`sv_gameplayfix_elevators` only changes behaviour on the BLOCKED branch of `SV_PushMove` ([sv_phys.c:704-705](../../Quake/sv_phys.c), gated at sv_phys.c:1540-1546): it fires when an entity is *riding* a pusher (`FL_ONGROUND` with `groundentity == pusher`) and the pusher's move leaves it still embedded — an elevator crushing its rider, not a horizontal pusher shoving something aside, which the cvar does not affect. e1m1's edict 22 `func_plat` (`blocked = plat_crush()`) has a static, always-active `trigger_field` (edict 23, `touch = plat_center_touch()`, no player-trigger or button needed) spanning its travel column. `setpos -544 2656 38` at frame 10 drops the player into that field just above the plat's resting top surface without embedding in solid BSP — most of the plat's nominal footprint *is* solid, and this spot was found by binary-search probing candidates with `-harnesscmds` `edicts` dumps — and `noclip` at frame 25 restores `MOVETYPE_WALK` so the player can be pushed and blocked. The plat then cycles and crushes its rider repeatedly (health 100→79→65→50→23 over ~500 frames), taking the blocked path every cycle.
+
+Differential evidence that the axis is live (same exe, `run_corpus.run_entry` with `0 sv_gameplayfix_elevators 0` / `3` prepended per `physics_matrix.py`'s `cvar_cmds_for` pattern): the two hash chains first diverge at `F 56`, right as the player is caught by the plat, and differ overall; a same-cvar rerun (0 twice) is byte-identical, so the divergence is the cvar and not nondeterminism.
+
+`sv_smoothplatformlerps` — the `MOVETYPE_STEP` walking-monster-on-a-lift axis — is **not** covered. e1m1's `monster_dog` (edict 118) wanders near the plat but its patrol AI never steps into the trigger footprint inside the frame budgets tried, and there is no monster equivalent of `setpos` to script it. That axis still passes vacuously; a green matrix run is not evidence about it.
+
 Point `QUAKE_GAME_DATA` at a directory containing `id1/` (mission packs, `rerelease/`, and mod dirs beside it are picked up by their corpus tiers). The path never appears in the repo.
 
 ## Corpus tiers and goldens
@@ -66,4 +76,4 @@ Goldens live in `goldens/<os>-<arch>/` with a `MANIFEST.json` recording provenan
 - regenerate only from a `c-reference/*` tag, never hand-edit;
 - the headless RNG stream intentionally differs from a windowed run (menu/renderer RNG consumers are absent), so goldens only ever compare headless runs against headless runs.
 
-Current coverage: `darwin-arm64` (full local tier). Linux/Windows goldens are a known gap until a machine with game data generates them (CI meanwhile enforces run-twice stability and mixed-vs-C-only identity, which need no goldens).
+Current coverage: `darwin-arm64` (full local tier), generated before Phase 7 — so the three new pusher entries have **no goldens on any platform**, and `run_corpus.py --check` skips them without failing. Until goldens are regenerated they are covered only by `--compare` and `--stability`; do not read a green `--check` as having exercised them. Linux/Windows goldens are a known gap until a machine with game data generates them (CI meanwhile enforces run-twice stability and mixed-vs-C-only identity, which need no goldens).

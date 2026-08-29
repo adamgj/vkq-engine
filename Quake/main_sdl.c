@@ -166,22 +166,29 @@ int main (int argc, char *argv[])
 			   divergence around frame 128 in two independently-launched,
 			   otherwise-identical C/C soak sessions. Pacing this client to
 			   the same real-time cadence as the dedicated server keeps the
-			   two processes' packet exchange bounded and reproducible. */
+			   two processes' packet exchange bounded and reproducible.
+
+			   The predicate is deliberately wider than that one script: it
+			   also paces the other non-fixed-dt harness modes (builtin_diff's
+			   20-frame run, capture_session's 1200-frame capture, which is
+			   itself half of a two-process session). The cost is
+			   frames * sys_ticrate of wall clock for runs that may have no
+			   peer; the alternative -- an opt-in flag -- would leave any
+			   future networked harness mode silently unpaced, which is the
+			   failure this fix exists to remove. Note the floor is
+			   sys_ticrate, nominally the *dedicated server* tic rate
+			   (host.c:79): a scenario that sets it changes this client's
+			   cadence too. */
+			newtime = Sys_DoubleTime ();
+			time = newtime - oldtime;
 			if (harness_active && !harness_fixed_dt)
 			{
-				newtime = Sys_DoubleTime ();
-				time = newtime - oldtime;
 				while (time < sys_ticrate.value)
 				{
 					SDL_Delay (1);
 					newtime = Sys_DoubleTime ();
 					time = newtime - oldtime;
 				}
-			}
-			else
-			{
-				newtime = Sys_DoubleTime ();
-				time = newtime - oldtime;
 			}
 
 			/* fixed timestep: state must not depend on wall-clock time */

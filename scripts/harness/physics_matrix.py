@@ -108,6 +108,7 @@ import argparse
 import json
 import os
 import re
+import shutil
 import sys
 import tempfile
 
@@ -170,10 +171,14 @@ def server_exercising_entries(corpus):
     capture client-side and never call SV_SpawnServer, so they cannot
     exercise SV_Physics/pusher/hullcheck code and are excluded. This is
     detected from corpus.json rather than hardcoded, so new server-exercising
-    entries (Phase 7 T1.1) are picked up automatically.
+    entries (Phase 7 T1.1) are picked up automatically. An entry that spawns a
+    server but is not a physics scenario opts out with "physics": false in
+    corpus.json (gamedir-switch does: it is a filesystem test, and it drags a
+    hipnotic dependency into an otherwise shareware+PAK1 matrix).
     """
     return [e["name"] for e in corpus["entries"]
-            if any(_MAP_CMD_RE.match(c) for c in e.get("cmds", []))]
+            if e.get("physics", True)
+            and any(_MAP_CMD_RE.match(c) for c in e.get("cmds", []))]
 
 
 def resolve_data_root(entry, game_data):
@@ -188,7 +193,16 @@ def resolve_data_root(entry, game_data):
     return data_root, None
 
 
-def run_cell(exe_a, exe_b, entry, game_data, hullcheck, elevators, lerps):
+def first_diverging_line(path_a, path_b):
+    """1-based line number of the first differing hash record, or None."""
+    with open(path_a, encoding="utf-8", errors="replace") as fa,             open(path_b, encoding="utf-8", errors="replace") as fb:
+        for n, (la, lb) in enumerate(zip(fa, fb), 1):
+            if la != lb:
+                return n, la.rstrip(), lb.rstrip()
+    return None
+
+
+def run_cell(exe_a, exe_b, entry, game_data, hullcheck, elevators, lerps, results_dir=None):
     data_root, reason = resolve_data_root(entry, game_data)
     if reason:
         return "SKIP", reason
@@ -198,19 +212,38 @@ def run_cell(exe_a, exe_b, entry, game_data, hullcheck, elevators, lerps):
 
     a = tempfile.NamedTemporaryFile(suffix=".hash", delete=False).name
     b = tempfile.NamedTemporaryFile(suffix=".hash", delete=False).name
+    # a failing cell must leave its hash chains behind: deleting them on the
+    # DIFFERS path reduces a red CI cell to a cell name with nothing to bisect,
+    # which is the opposite of what interop_matrix.py's dump_soak_failure does
+    keep = False
     try:
         ok = (run_corpus.run_entry(exe_a, cell_entry, data_root, a)
               and run_corpus.run_entry(exe_b, cell_entry, data_root, b))
         if not ok:
             return "FAIL", "run failed (no hash produced)"
-        same = open(a, "rb").read() == open(b, "rb").read()
-        return ("OK", None) if same else ("FAIL", f"DIFFERS ({a} vs {b})")
+        if open(a, "rb").read() == open(b, "rb").read():
+            return "OK", None
+        keep = True
+        cell = f"{entry['name']}-{cell_name(hullcheck, elevators, lerps)}"
+        if results_dir:
+            os.makedirs(results_dir, exist_ok=True)
+            for src, side in ((a, "a"), (b, "b")):
+                dst = os.path.join(results_dir, f"{cell}-{side}.hash")
+                shutil.move(src, dst)
+                if side == "a":
+                    a = dst
+                else:
+                    b = dst
+        div = first_diverging_line(a, b)
+        where = f", first diverging record line {div[0]}: {div[1]!r} vs {div[2]!r}" if div else ""
+        return "FAIL", f"DIFFERS ({a} vs {b}){where}"
     finally:
-        for p in (a, b):
-            try:
-                os.remove(p)
-            except OSError:
-                pass
+        if not keep:
+            for p in (a, b):
+                try:
+                    os.remove(p)
+                except OSError:
+                    pass
 
 
 def main():
@@ -227,6 +260,9 @@ def main():
     p.add_argument("--cells", nargs="*", default=None,
                     help=f"cell names to run, or 'all' for the full {len(FULL_CELLS)}-cell "
                          f"grid (default: the {len(DEFAULT_CELLS)}-cell CI leg)")
+    p.add_argument("--results-dir", default=None,
+                   help="directory to retain a failing cell's two hash chains in "
+                        "(default: the system temp dir, which CI will not collect)")
     p.add_argument("--list", action="store_true",
                     help="print the selected cells and entries, then exit")
     args = p.parse_args()
@@ -279,7 +315,8 @@ def main():
         h, e, l = FULL_CELLS[cell_n]
         for entry_n in entry_names:
             entry = by_name[entry_n]
-            status, detail = run_cell(exe_a, exe_b, entry, args.game_data, h, e, l)
+            status, detail = run_cell(exe_a, exe_b, entry, args.game_data, h, e, l,
+                                      results_dir=args.results_dir)
             grid[(cell_n, entry_n)] = (status, detail)
             if status == "OK":
                 print(f"ok: {cell_n} {entry_n}")

@@ -135,6 +135,11 @@ jobs:
         meson setup build-rs-csnd -Duse_sdl3=disabled -Duse_rust=enabled -Duse_rust_snd=disabled && ninja -C build-rs-csnd
         meson setup build-rs-cnet -Duse_sdl3=disabled -Duse_rust=enabled -Duse_rust_net=disabled && ninja -C build-rs-cnet
         meson setup build-rs-cprogs -Duse_sdl3=disabled -Duse_rust=enabled -Duse_rust_progs=disabled && ninja -C build-rs-cprogs
+        # Phase 7 M1: build-rs-chost is a deliberate no-op until M2 -- nothing
+        # reads USE_RUST_CVAR/USE_RUST_HOST yet, so this leg compiles the same
+        # sources as build-rs and cannot fail on its own. A gate that cannot
+        # fail is not yet a gate; it is wired now so M2's first flip has the
+        # oracle leg already green. See meson.build's Phase 7 comment.
         meson setup build-rs-chost -Duse_sdl3=disabled -Duse_rust=enabled -Duse_rust_cvar=disabled -Duse_rust_host=disabled && ninja -C build-rs-chost
         # ADR-019 gate 3: the -Dtrace=true pair the progs differ compares
         meson setup build-c-trace -Duse_sdl3=disabled -Duse_rust=disabled -Dtrace=true && ninja -C build-c-trace
@@ -266,10 +271,16 @@ jobs:
     # are local-only (M9/M11) since CI cannot attest an hours-long run.
     # Criterion is liveness + traffic profile, never hash identity: see the
     # script's "Why this gate is not hash-exact".
-    - name: Netplay soak smoke (C/C, 20k server frames, both protocols)
+    #
+    # 5000 frames, not the 20000 the M1 evidence run used: the sessions are
+    # paced to real time (both processes run the sys_ticrate loop), so 20000
+    # frames is ~4.5 min per process run and ~30 min for this job serially,
+    # while both engine bugs this gate was built to catch surfaced by ~frame
+    # 128. 20000 stays the local/milestone budget.
+    - name: Netplay soak smoke (C/C, 5k server frames, both protocols)
       run: |
         export QUAKE_GAME_DATA="$PWD/shareware-data"
-        python3 scripts/harness/interop_matrix.py --soak --frames 20000 --combos C/C \
+        python3 scripts/harness/interop_matrix.py --soak --frames 5000 --combos C/C \
           --vkquake-c build-c/vkqr-engine --vkquake-rs build-rs/vkqr-engine
     # Phase 7 M1 T1.2: the physics cvar matrix (pusher modes 0-3, both
     # hullcheck impls, both lerp settings). CI runs the 12-cell DEFAULT_CELLS

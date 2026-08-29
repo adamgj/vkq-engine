@@ -40,9 +40,11 @@ check instead of the matrix's packet-count health check:
 Cells: 4 build combos (C/C, Csv/Rcl, Rsv/Ccl, R/R) x 2 protocols
 (Base-666, FTE+999) = 8 cells. Frame budget is server-frame-count based
 (--frames; smoke default 20000, full soak 100000 per the plan's soak
-budget decision) -- there is no fixed-dt path for a *dedicated* server (see
-"KNOWN GAP" below), so wall-clock duration tracks real time at
-sys_ticrate-throttled pace, not simulated time.
+budget decision). A dedicated server IS fixed-dt under -demohash (see FIXED
+GAPS below -- Quake/main_sdl.c:133-135, added with this gate), so the hash
+chain is deterministic in simulated time; only the *outer* loop still paces
+to real time, so wall-clock duration tracks a sys_ticrate-throttled pace
+rather than simulated time.
 
 Why this gate is not hash-exact
 ------------------------------
@@ -70,8 +72,13 @@ Pass criterion (per cell, all must hold):
   * the negotiated protocol is the expected one;
   * **liveness**: the cell's server reached every --hash-interval (default
     64) checkpoint frame its protocol's C/C reference reached. A missing
-    checkpoint means the cell's server died, dropped the client, or exited
-    early -- the actual soak failure mode;
+    checkpoint means the cell's server died, crashed or exited early. Note
+    it does NOT mean the client was dropped: the hash stream comes from the
+    dedicated server, which runs to -exitafter whether or not a client is
+    still attached. A dropped client is caught by the traffic profile below
+    plus the client-side Host_Error scan. (--inject-desync-at does not
+    distinguish the two -- net_messagetimeout 0 trips the traffic condition,
+    not this one.);
   * **traffic profile** within the same tolerance the non-soak matrix gate
     uses: reliable counts exact, unreliable counts within +-max(6, 10%), and
     msgbadread judged by its offset from the received-message count.
@@ -160,9 +167,11 @@ EXPECT_PROTO = {
 SOAK_PROTOCOLS = ["Base-666", "FTE+999"]
 SOAK_HASH_INTERVAL = 64
 SOAK_SMOKE_FRAMES = 20000
-# sys_ticrate default (Quake/host.c:79) -- the dedicated server's real-time
-# pacing floor per frame; used to size how long to wait for it to reach
-# -exitafter after a much-faster, unthrottled headless client has finished.
+# sys_ticrate default (Quake/host.c:79) -- the real-time pacing floor per
+# frame for BOTH processes: the dedicated server always, and since the
+# Quake/main_sdl.c fix that landed with this gate, the harness client too
+# (harness_active && !harness_fixed_dt). Every timeout below is sized from
+# it rather than from a flat constant.
 SYS_TICRATE_DEFAULT = 0.025
 SOAK_FULL_FRAMES = 100000
 # The injected fault must be one this gate can actually observe. A pure
@@ -298,7 +307,7 @@ def run_cell(server_exe, client_exe, game_data, cell, host, port, frames, map_na
                  "-netcapture", "harness.cap",
                  "-exitafter", str(frames), "-harnesscmds", "harness.cmds"],
                 cwd=cl_dir, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                text=True, timeout=600)
+                text=True, timeout=max(600, int(frames * SYS_TICRATE_DEFAULT * 2) + 60))
             if client.returncode not in (0, 2):
                 return None, f"client exited with {client.returncode}:\n" + client.stdout[-1500:]
         finally:
@@ -440,7 +449,7 @@ def run_soak_cell(server_exe, client_exe, game_data, protocol, host, port, frame
                  "-netcapture", "harness.cap",
                  "-exitafter", str(frames), "-harnesscmds", "harness.cmds"],
                 cwd=cl_dir, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                text=True, timeout=max(600, frames // 20))
+                text=True, timeout=max(600, int(frames * SYS_TICRATE_DEFAULT * 2) + 60))
         except subprocess.TimeoutExpired as e:
             out = e.stdout
             result["client_stdout"] = out.decode("utf-8", "replace") if isinstance(out, (bytes, bytearray)) else (out or "")
@@ -453,19 +462,18 @@ def run_soak_cell(server_exe, client_exe, game_data, protocol, host, port, frame
                                 f"client exited with {client.returncode}:\n" + client.stdout[-1500:])
             return result
 
-        # -exitafter triggers Harness_Exit(2) from inside the server's own
-        # frame loop. The client (non-dedicated main loop) has no real-time
-        # throttle under a fixed harness timestep and races through `frames`
-        # almost instantly; the dedicated server DOES pace itself to real
-        # wall-clock time via sys_ticrate (default 0.025s/frame, host.c:79)
-        # so the two processes finish at wildly different real times even
-        # though they progress through the same simulation frame count. Wait
-        # long enough for the server's own real-time pacing, not just a
-        # flat post-client margin -- a short fixed wait here truncates the
-        # server (Popen.terminate() reports rc=1 on Windows) well before it
-        # reaches -exitafter, which reads as a false "server exited with 1".
+        # -exitafter triggers Harness_Exit(2) from inside each process' own
+        # frame loop. Both processes now pace to sys_ticrate in real time
+        # (the server always; the client since the Quake/main_sdl.c fix that
+        # landed with this gate), so they finish at roughly the same wall
+        # clock -- the server merely trails by its ~0.5s head start plus
+        # whatever pacing jitter accumulated. The remaining budget after the
+        # client returns is therefore small, so keep a whole frames-worth of
+        # slack rather than a flat margin: a short wait truncates the server
+        # (Popen.terminate() reports rc=1 on Windows) before it reaches
+        # -exitafter, which reads as a false "server exited with 1".
         try:
-            server.wait(timeout=frames * SYS_TICRATE_DEFAULT + 30)
+            server.wait(timeout=frames * SYS_TICRATE_DEFAULT + 60)
         except subprocess.TimeoutExpired:
             pass
     finally:
@@ -685,6 +693,20 @@ def run_soak(args):
             return False
         references[proto] = {"hashes": ref["hashes"], "traffic": ref["traffic"]}
         ref_checkpoints = sorted(f for f in ref["hashes"] if f % args.hash_interval == 0)
+        # Minimum-checkpoint floor, same idea as trace_diff.py's/builtin_diff.py's
+        # minimum-record floors. Every cell's liveness bar is derived from this
+        # stream, so a truncated reference would lower the bar to itself and pass
+        # the whole protocol vacuously -- the same shape as the C/C short-circuit
+        # this gate removed, one level up.
+        expected_checkpoints = args.frames // args.hash_interval
+        if len(ref_checkpoints) < expected_checkpoints:
+            print(f"FAIL reference C/C @ {proto}: reference stream is short -- "
+                  f"{len(ref_checkpoints)} checkpoints, expected >= {expected_checkpoints}; "
+                  f"every cell's liveness bar derives from this stream, so a truncated "
+                  f"reference would pass this protocol vacuously")
+            shutil.rmtree(ref["sv_dir"], ignore_errors=True)
+            shutil.rmtree(ref["cl_dir"], ignore_errors=True)
+            return False
         t = ref["traffic"]
         print(f"  reference: {len(ref['hashes'])} frames hashed, {len(ref_checkpoints)} checkpoints, "
               f"rel {t['recv_rel']}/{t['send_rel']} unrel {t['recv_unrel']}/{t['send_unrel']}")

@@ -1095,9 +1095,24 @@ size_t ctest_abi_progs_lookup (const char *key)
  * shadow of entity_t/lightcache_t/entlerp_t transcribed from render.h,
  * reusing the Vulkan handle stand-ins above for entity_t's only
  * Vulkan-typed member (entity_blas_t, reached solely through a pointer, so
- * its own body is never needed). This is not circular: the compiler still
- * computes the real sizeof/alignof from this transcription, not from a
- * guess -- and every field this probe's Rust consumer (host_abi.rs) can
+ * its own body is never needed).
+ *
+ * KNOWN GAP -- this shadow is the one place in this file that is NOT
+ * header-derived, and it is load-bearing: client.h has no #includes of its
+ * own, so the client_state_t laid out in this TU takes every offset at or
+ * after `viewent` from the transcription below rather than from render.h.
+ * A field added to the real entity_t therefore still compiles, still passes
+ * host_abi.rs, and silently invalidates those offsets. Nothing detects that
+ * automatically; render.h carries the codebase's usual
+ * "!!! if this is changed !!!" markers on entity_s/entlerp_s/lightcache_s
+ * pointing here, which is a convention, not a gate. The constants above are
+ * gated properly, by a _Static_assert in Quake/harness.c. Same class,
+ * smaller blast radius: entity_blas_t is transcribed only as far as
+ * "reached solely through a pointer", which holds today but is unenforced.
+ *
+ * What the transcription does buy is that the compiler computes the real
+ * sizeof/alignof from it rather than from a hardcoded number -- and every
+ * field this probe's Rust consumer (host_abi.rs) can
  * actually reach through a named quake_types::host field gets its own
  * offsetof entry below, exactly like every other phase in this file.
  *

@@ -539,9 +539,15 @@ else
 endif
 
 # Phase 7: the cvar/command registry (M2) and the client/server simulation
-# (M3+). Whole-file Pattern A swaps land per milestone; until the first flip
-# each define compiles the identical C source list, so both legs are the
-# same oracle. The C originals stay the disabled-leg comparison oracle
+# (M3+). Both defines are, as of M1, pure placeholders: nothing in Quake/ or
+# rust/ reads USE_RUST_CVAR or USE_RUST_HOST, so the two legs compile
+# byte-identical sources and build-rs-chost cannot fail differently from
+# build-rs. They exist now so the meson option, cargo feature and CI leg are
+# in place before M2/M3 flip the first files; they only start carrying signal
+# then. Unlike every other use_rust_* switch these add no srcs entry either --
+# there is no source list to divert yet; the whole-file Pattern A swaps land
+# per milestone and the C originals become the disabled-leg oracle at that
+# point, not before
 if use_rust_cvar
     cflags += '-DUSE_RUST_CVAR'
 endif

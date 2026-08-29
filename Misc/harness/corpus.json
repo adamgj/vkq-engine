@@ -55,7 +55,7 @@
       "tier": "shareware",
       "cmds": ["0 map e1m1", "10 setpos -544 2656 38", "25 noclip", "4000 quit"],
       "exitafter": 5000,
-      "note": "Phase 7 T1.8 follow-up: fixes the physics_matrix.py 'KNOWN GAP' -- authors a corpus entry that genuinely exercises the sv_gameplayfix_elevators BLOCKED branch (Quake/sv_phys.c:704-705, gated further at sv_phys.c:1540-1546: only fires when an entity is riding a pusher (FL_ONGROUND with groundentity==pusher) and the pusher's move leaves it still embedded in the pusher -- i.e. an elevator crushing its rider, not a horizontal pusher merely shoving something out of its way sideways, which is unaffected by this cvar regardless of contact). e1m1's edict 22 func_plat (blocked=plat_crush()) has a static, always-active trigger_field (edict 23, touch=plat_center_touch(), no player-trigger/button needed) spanning its full travel column; 'setpos -544 2656 38' (frame 10) drops the player into that field just above the plat's resting top surface without embedding in solid BSP (confirmed by binary-search probing candidate coordinates via -harnesscmds 'edicts' dumps -- most of the plat's nominal x/y/z footprint is solid, this exact spot is the open landing), 'noclip' (frame 25) returns the player to MOVETYPE_WALK so it can be pushed/blocked rather than passing through. The plat immediately starts cycling and repeatedly crushes the rider (player health drops 100->79->65->50->23 over ~500 frames in manual verification), calling plat_crush() -> the SV_PushMove blocked path every cycle. Direct differential evidence (same exe, scripts/harness/run_corpus.run_entry with '0 sv_gameplayfix_elevators 0'/'3' prepended ahead of this entry's own cmds, per physics_matrix.py's cvar_cmds_for pattern): the two resulting hash chains first diverge at 'F 56' (frame 56, right as the player first lands on/is caught by the plat) and differ overall; a same-cvar rerun (elevators=0 twice) reproduces byte-identical output, so the divergence is the cvar, not nondeterminism. sv_smoothplatformlerps (the MOVETYPE_STEP walking-monster-on-a-lift axis) is NOT covered by this entry -- e1m1's nearby monster_dog (edict 118) wanders near the plat when the player is present but its patrol AI never actually steps into the trigger footprint within the frame budgets tried, and scripting monster movement precisely (no monster-equivalent of setpos) proved too fiddly to pin down in the time available; that axis remains open, still passing vacuously per physics_matrix.py's docstring",
+      "note": "Drives the sv_gameplayfix_elevators BLOCKED branch (Quake/sv_phys.c:1540-1546) by parking the player in e1m1's func_plat trigger field so the plat repeatedly crushes its rider. Coordinate derivation, the elevators-axis differential evidence, and the still-open sv_smoothplatformlerps gap are written up in Misc/harness/README.md.",
       "requires": [{"path": "id1/pak0.pak", "sha256": "35a9c55e5e5a284a159ad2a62e0e8def23d829561fe2f54eb402dbc0a9a946af"}]
     },
     {
@@ -75,6 +75,7 @@
     },
     {
       "name": "gamedir-switch",
+      "physics": false,
       "tier": "registered",
       "cmds": ["0 map e1m1", "300 game hipnotic", "500 map start", "1200 quit"],
       "exitafter": 6000,
