@@ -272,8 +272,11 @@ void Cbuf_Execute (void)
 /* Cbuf_InsertText and Cmd_ForwardToServer are listed as direct Rust exports
    in the M2 contract, but both reach SZ_GetSpace, whose overflow path is a
    Host_Error. They are wrapped here instead so the jump is re-issued from C
-   (ADR-009); the C ABI is unchanged, so Cmd_ForwardToServer still registers
-   as the "cmd" xcommand_t. */
+   (ADR-009); the C ABI is unchanged for external callers such as host_cmd.c.
+   Note the "cmd" xcommand_t is NOT this wrapper: Cmd_Init registers the
+   private Rust handler cmd_forward_to_server_handler, which parks its raise
+   in PENDING_RAISE for the dispatcher to drain -- that avoids a
+   Host_Guard-inside-Host_Guard round trip on the console path. */
 void Cbuf_InsertText (const char *text)
 {
 	int raised = 0;

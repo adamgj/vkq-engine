@@ -1938,6 +1938,11 @@ static void ctest_log_cvar_change (cvar_t *var)
 #undef Cvar_SetCallback
 extern void Cvar_SetCallback (cvar_t *var, cvarcallback_t func);
 
+#define CTEST_LOGGED_CVAR_MAX 16
+static cvar_t *ctest_logged_c[CTEST_LOGGED_CVAR_MAX];
+static cvar_t *ctest_logged_r[CTEST_LOGGED_CVAR_MAX];
+static int	   ctest_logged_count;
+
 void ctest_register_logged_cvar_pair (const char *name)
 {
 	cvar_t *c_var = calloc (1, sizeof (cvar_t));
@@ -1950,6 +1955,30 @@ void ctest_register_logged_cvar_pair (const char *name)
 	c_ref_Cvar_SetCallback (c_var, ctest_log_cvar_change);
 	Cvar_RegisterVariable (r_var);
 	Cvar_SetCallback (r_var, ctest_log_cvar_change);
+	if (ctest_logged_count < CTEST_LOGGED_CVAR_MAX)
+	{
+		ctest_logged_c[ctest_logged_count] = c_var;
+		ctest_logged_r[ctest_logged_count] = r_var;
+		ctest_logged_count++;
+	}
+}
+
+/* Drive every logged cvar to a sentinel no fixture uses, for ONE side
+ * (0 = c_ref, 1 = Rust). Without this, a config pass that re-sets a cvar to
+ * the value it already holds hits Cvar_SetQuick's no-change early return and
+ * logs nothing, so cfgfile_differential's second CFG_ReadCvars pass (the one
+ * that exercises FS_rewind state) would be invisible to the differential.
+ * Resetting one side at a time keeps each side's log symmetric. */
+void ctest_reset_logged_cvars (int side)
+{
+	int i;
+	for (i = 0; i < ctest_logged_count; i++)
+	{
+		if (side == 0)
+			c_ref_Cvar_SetQuick (ctest_logged_c[i], "sentinel");
+		else
+			Cvar_SetQuick (ctest_logged_r[i], "sentinel");
+	}
 }
 
 /* sv.modelname is the only server state model_parse.c reads

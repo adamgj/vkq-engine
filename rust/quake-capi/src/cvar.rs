@@ -132,10 +132,13 @@ extern "C" fn cvar_list_f() {
 extern "C" fn cvar_inc_f() {
     match Cmd_Argc() {
         2 => {
-            let raised = cvar_set_value_core(
-                Cmd_Argv(1),
-                Cvar_VariableValue(Cmd_Argv(1)) as c_float + 1.0,
-            );
+            // COMPAT: ADR-010 -- Cvar_VariableValue returns double and
+            // Cvar_SetValue takes float, so C rounds exactly once, at the
+            // call. Adding 1.0 in f64 and narrowing after keeps that single
+            // rounding; `as c_float + 1.0` would round twice and diverge
+            // (e.g. "16777217" -> 16777218 in C, 16777216 two-step).
+            let v = Cvar_VariableValue(Cmd_Argv(1)) + 1.0;
+            let raised = cvar_set_value_core(Cmd_Argv(1), v as c_float);
             set_pending_raise(raised);
         }
         3 => {

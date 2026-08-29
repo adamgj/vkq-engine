@@ -79,6 +79,15 @@ const CMD_NULL_STRING: &CStr = c"";
 /// ADR-009: a raise caught inside a Rust command handler. Handlers are
 /// `extern "C" fn()` with no return value, so the status is parked here and
 /// drained by the dispatcher immediately after the guard helper returns.
+///
+/// INVARIANT: `cmd_execute_string_core` is the only drain site, so no
+/// `xcommand_t` pointer handed out by `Cmd_AddCommand2` may be invoked except
+/// through that dispatcher. A direct `cmd_function_t::function` call (the
+/// pointer is reachable via the public `Cmd_FindCommand`) would leak the
+/// parked status, and it would then be re-issued as a `Host_Error` attributed
+/// to whatever command runs next. The dispatcher clears any stale value
+/// before each handler call so a leak can never be misattributed across
+/// dispatches, and `debug_assert`s that there was none.
 static mut PENDING_RAISE: c_int = 0;
 
 pub(crate) fn set_pending_raise(raised: c_int) {
@@ -263,6 +272,14 @@ fn cbuf_execute_core() -> Raise {
 
 /// C: `void Cmd_StuffCmds_f (void)`
 extern "C" fn cmd_stuffcmds_f() {
+    // COMPAT: `j` is unbounded here exactly as in the C original, and the
+    // no-overflow argument rests entirely on `Quake/common.c:1396` clamping
+    // `com_cmdline` to CMDLINE_LENGTH - 1: j increases by at most 1 per input
+    // byte, so j <= line.len() <= 255 and the trailing `cmds[j] = 0` is in
+    // bounds. C's failure mode if that clamp ever changes is a stack smash;
+    // Rust's is a bounds-check abort. `Quake/harness.c` pins CMDLINE_LENGTH
+    // with a _Static_assert so the constant cannot drift apart from the C
+    // definition silently.
     let mut cmds = [0u8; CMDLINE_LENGTH];
     let mut plus = false; // On Unix, argv[0] is command name
 
@@ -992,6 +1009,12 @@ pub(crate) fn cmd_execute_string_core(
                     cmd = (*cmd).next;
                     continue;
                 }
+                // Enforce the PENDING_RAISE single-drain invariant: nothing
+                // may be parked here on entry to a dispatch. Clearing (rather
+                // than only asserting) keeps a leaked status from being
+                // misattributed to this command in release builds.
+                let stale = take_pending_raise();
+                debug_assert_eq!(stale, 0, "PENDING_RAISE leaked: an xcommand_t was invoked outside cmd_execute_string_core");
                 // ADR-009: never call the handler directly
                 let guard = g::CvarCmd_Glue_CallXCommand((*cmd).function);
                 let pending = take_pending_raise();

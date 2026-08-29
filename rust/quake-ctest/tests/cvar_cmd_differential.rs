@@ -1160,3 +1160,178 @@ extern "C" {
     /// name-copy strategy and `Cvar_SetQuick`'s default_string freeze.
     fn ctest_set_host_initialized(v: c::qboolean);
 }
+
+// ---------------------------------------------------------------------------
+// 11. Console command handlers, driven end-to-end through Cbuf_AddText /
+// Cbuf_Execute.
+//
+// Everything above tests the cvar/cmd *API* directly; the `xcommand_t`
+// handlers that cvar.c's Cvar_Init and cmd.c's Cmd_Init register (inc,
+// toggle, cycle, reset, resetall, resetcfg, set/seta, cvarlist, cmdlist,
+// apropos, echo, wait, exec, stuffcmds, alias, unalias, unaliasall) were
+// entirely uncovered. They are the surface users actually reach, they are
+// where the Rust port routes its raises through PENDING_RAISE rather than
+// returning a status, and the `inc` double->float narrowing bug found in
+// review lived here. Each line is fed to both sides in the same order, and
+// after every line both the console output and the tracked cvar values are
+// compared.
+
+extern "C" {
+    fn c_ref_Cbuf_Waited();
+    fn ctest_clear_con_log();
+    fn ctest_con_log_len() -> c_int;
+    fn ctest_con_log_get(i: c_int) -> *const c_char;
+}
+
+/// SAFETY: caller holds TEST_LOCK; the log holds NUL-terminated C strings
+/// owned by the stub.
+unsafe fn con_snapshot() -> Vec<String> {
+    // SAFETY: see the function contract.
+    unsafe {
+        let n = ctest_con_log_len();
+        (0..n).map(|i| to_str(ctest_con_log_get(i))).collect()
+    }
+}
+
+const T18_CVARS: &[&str] = &["t18_a", "t18_b", "t18_big", "t18_new", "t18_seta"];
+
+#[test]
+fn console_command_handlers_match() {
+    let _g = lock();
+    init_once();
+
+    // SAFETY: leaked cvar_t storage stays valid for the process; TEST_LOCK
+    // serializes both registries and the shared console log; every string
+    // passed in is NUL-terminated and outlives its call.
+    unsafe {
+        c_ref_Cvar_RegisterVariable(new_cvar("t18_a", "0", 0));
+        Cvar_RegisterVariable(new_cvar("t18_a", "0", 0));
+        c_ref_Cvar_RegisterVariable(new_cvar("t18_b", "1", c::cvarflags_t_CVAR_ARCHIVE));
+        Cvar_RegisterVariable(new_cvar("t18_b", "1", c::cvarflags_t_CVAR_ARCHIVE));
+        c_ref_Cvar_RegisterVariable(new_cvar("t18_big", "0", 0));
+        Cvar_RegisterVariable(new_cvar("t18_big", "0", 0));
+
+        // stuffcmds reads the one shared `cmdline` cvar_t (stubs.c-owned), so
+        // both sides see the same input; give it something with a '+' run, a
+        // '-' terminator and a leading argv[0] to exercise the whole loop.
+        let saved_cmdline = c::cmdline.string;
+        c::cmdline.string = leak_str("vkquake +echo one +echo two -window +echo three");
+
+        let lines: &[&str] = &[
+            // echo / usage lines
+            "echo hello world\n",
+            "echo\n",
+            // inc: usage, unit step, explicit amount, and the review
+            // regression -- 16777217 is the first integer f32 cannot hold, so
+            // a double->float narrowing that happens twice diverges here.
+            "inc\n",
+            "inc t18_a\n",
+            "inc t18_a 2.5\n",
+            "set t18_big 16777217\n",
+            "inc t18_big\n",
+            "inc t18_missing\n",
+            // toggle: usage, missing var, numeric flip, explicit value pair
+            "toggle\n",
+            "toggle t18_missing\n",
+            "toggle t18_a\n",
+            "toggle t18_a\n",
+            "toggle t18_a on off\n",
+            "toggle t18_a on off\n",
+            "toggle t18_a on\n",
+            // cycle: usage, no match, match in the middle, match at the end
+            "cycle t18_b\n",
+            "cycle t18_b 1 2 3\n",
+            "cycle t18_b 1 2 3\n",
+            "cycle t18_b 1 2 3\n",
+            "cycle t18_b 1 2 3\n",
+            "cycle t18_b zero one\n",
+            // set / seta: usage, extra args, creation, archive flagging
+            "set t18_new\n",
+            "set t18_new 5\n",
+            "set t18_new a b c\n",
+            "seta t18_seta 7\n",
+            // listings (scoped by prefix so unrelated tests' registrations
+            // cannot perturb the output)
+            "cvarlist t18_\n",
+            "cmdlist t18_\n",
+            "cmdlist unalias\n",
+            "apropos t18_\n",
+            "apropos t18_nothing_matches_this\n",
+            "apropos\n",
+            // aliases through the buffer
+            "alias t18_al \"inc t18_a\"\n",
+            "t18_al\n",
+            "alias t18_al \"inc t18_a 10\"\n",
+            "t18_al\n",
+            "unalias t18_al\n",
+            "t18_al\n",
+            "unalias\n",
+            "unalias t18_al\n",
+            "unaliasall\n",
+            // exec of a file that does not exist
+            "exec t18_missing.cfg\n",
+            "exec\n",
+            // stuffcmds expands cmdline into the buffer
+            "stuffcmds\n",
+            // wait defers the rest of the buffer to the next Cbuf_Execute
+            "echo before; wait; echo after\n",
+            // resets
+            "reset\n",
+            "reset t18_a\n",
+            "reset t18_missing\n",
+            "resetcfg\n",
+            "resetall\n",
+        ];
+
+        for line in lines {
+            let text = cs(line);
+
+            ctest_clear_con_log();
+            c_ref_Cbuf_AddText(text.as_ptr());
+            c_ref_Cbuf_Execute();
+            // `wait` latches cmd_wait, which Cbuf_Execute never clears --
+            // host.c does, once per frame, via Cbuf_Waited. Emulate one frame
+            // boundary so the rest of the buffer drains (and so a stuck
+            // cmd_wait cannot leak into the next line or the next test).
+            c_ref_Cbuf_Waited();
+            c_ref_Cbuf_Execute();
+            let c_log = con_snapshot();
+            let c_state: Vec<String> = T18_CVARS
+                .iter()
+                .map(|n| to_str(c_ref_Cvar_VariableString(cs(n).as_ptr())))
+                .collect();
+
+            ctest_clear_con_log();
+            rcmd::Cbuf_AddText(text.as_ptr());
+            Cbuf_Execute();
+            rcmd::Cbuf_Waited();
+            Cbuf_Execute();
+            let r_log = con_snapshot();
+            let r_state: Vec<String> = T18_CVARS
+                .iter()
+                .map(|n| to_str(rcvar::Cvar_VariableString(cs(n).as_ptr())))
+                .collect();
+
+            assert_eq!(c_log, r_log, "console output for {line:?}");
+            assert_eq!(c_state, r_state, "cvar state after {line:?}");
+        }
+
+        // The regression the review found: C evaluates
+        // Cvar_SetValue (name, Cvar_VariableValue (name) + 1) with a double
+        // add and ONE narrowing at the call. 16777217 + 1 narrowed once is
+        // 16777218; narrowing to f32 first would give 16777216 and then
+        // 16777216 again, so the value would never move.
+        c_ref_Cvar_Set(cs("t18_big").as_ptr(), cs("16777217").as_ptr());
+        Cvar_Set(cs("t18_big").as_ptr(), cs("16777217").as_ptr());
+        c_ref_Cbuf_AddText(cs("inc t18_big\n").as_ptr());
+        c_ref_Cbuf_Execute();
+        rcmd::Cbuf_AddText(cs("inc t18_big\n").as_ptr());
+        Cbuf_Execute();
+        let c_big = to_str(c_ref_Cvar_VariableString(cs("t18_big").as_ptr()));
+        let r_big = to_str(rcvar::Cvar_VariableString(cs("t18_big").as_ptr()));
+        assert_eq!(c_big, r_big, "inc narrowing");
+        assert_ne!(c_big, "16777217", "inc must move the value at all");
+
+        c::cmdline.string = saved_cmdline;
+    }
+}
