@@ -53,6 +53,77 @@ pub mod mi {
     }
 }
 
+/// Symbols the Phase 7 M2 cvar/command port needs that the committed
+/// bindings do not carry: engine string/info helpers, the `sizebuf_t`
+/// writers, libc `atof`/`fprintf`, the two registry-owning globals, and the
+/// `Quake/cvar_cmd_glue.c` helpers (ADR-009 guarded dispatch + the svs/cls
+/// replication blocks that stay C until M6/M7).
+pub mod cvar_cmd {
+    use crate::{cmd_source_t, cvar_t, cvarcallback_t, qboolean, sizebuf_t, xcommand_t, FILE};
+    use core::ffi::{c_char, c_double, c_int, c_uint, c_void};
+
+    extern "C" {
+        /* Quake/common.c string helpers */
+        pub fn q_strcasecmp(s1: *const c_char, s2: *const c_char) -> c_int;
+        pub fn q_strcasestr(haystack: *const c_char, needle: *const c_char) -> *mut c_char;
+        pub fn q_strdup(str_: *const c_char) -> *mut c_char;
+        /// C: `void Info_SetKey (char *info, size_t infosize, const char *key, const char *val)`
+        pub fn Info_SetKey(
+            info: *mut c_char,
+            infosize: usize,
+            key: *const c_char,
+            val: *const c_char,
+        );
+        /// C: `void PR_AutoCvarChanged (cvar_t *var)` -- guarded via CvarCmd_Glue_AutoCvarChanged
+        pub fn PR_AutoCvarChanged(var: *mut cvar_t);
+
+        /* Quake/net_msg.c sizebuf primitives (Rust under -Duse_rust_net; the
+        C ABI is identical either way) */
+        pub fn SZ_Alloc(buf: *mut sizebuf_t, startsize: c_int);
+        pub fn SZ_Clear(buf: *mut sizebuf_t);
+        pub fn SZ_Write(buf: *mut sizebuf_t, data: *const c_void, length: c_int);
+
+        /* libc */
+        pub fn atof(s: *const c_char) -> c_double;
+        pub fn fprintf(stream: *mut FILE, fmt: *const c_char, ...) -> c_int;
+
+        /* Quake/host.c */
+        pub static mut host_initialized: qboolean;
+
+        /* Quake/cvar_cmd_glue.c data (cmd.c's C-visible globals) */
+        pub static mut cmd_text: sizebuf_t;
+        pub static mut cmd_source: cmd_source_t;
+        pub static mut cl_nopext: cvar_t;
+        pub static mut cmd_warncmd: cvar_t;
+
+        /* Quake/cvar_cmd_glue.c helpers -- each returns a Host_Guard status */
+        pub fn CvarCmd_Glue_CallXCommand(function: xcommand_t) -> c_int;
+        pub fn CvarCmd_Glue_CallCvarCallback(cb: cvarcallback_t, var: *mut cvar_t) -> c_int;
+        pub fn CvarCmd_Glue_AutoCvarChanged(var: *mut cvar_t) -> c_int;
+        pub fn CvarCmd_Glue_SzWrite(
+            buf: *mut sizebuf_t,
+            data: *const c_void,
+            length: c_int,
+        ) -> c_int;
+        pub fn CvarCmd_Glue_ServerinfoChanged(var: *mut cvar_t) -> c_int;
+        pub fn CvarCmd_Glue_UserinfoChanged(var: *mut cvar_t) -> c_int;
+        pub fn CvarCmd_Glue_ForwardBegin() -> c_int;
+        pub fn CvarCmd_Glue_ForwardPrint(s: *const c_char) -> c_int;
+
+        /* Quake/cvar_cmd_glue.c accessors for state with no ADR-011 mirror */
+        pub fn CvarCmd_Glue_HostClientName() -> *const c_char;
+        pub fn CvarCmd_Glue_ClsConnected() -> qboolean;
+        pub fn CvarCmd_Glue_ClsDemoPlayback() -> qboolean;
+        pub fn CvarCmd_Glue_Protocols(rmq: *mut c_int, fitzquake: *mut c_int, netquake: *mut c_int);
+        pub fn CvarCmd_Glue_PextNumbers(
+            pext1: *mut c_uint,
+            pext1_client: *mut c_uint,
+            pext2: *mut c_uint,
+            pext2_client: *mut c_uint,
+        );
+    }
+}
+
 #[allow(non_camel_case_types, non_snake_case, non_upper_case_globals)]
 mod generated;
 

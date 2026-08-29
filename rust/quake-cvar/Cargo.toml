@@ -7,5 +7,9 @@ rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
+[dependencies]
+# ADR-005: the C-printf-compatible float formatter (no new crate)
+quake-util = { path = "../quake-util" }
+
 [lints]
 workspace = true

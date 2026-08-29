@@ -258,7 +258,9 @@ int PR_Markup_Parse (struct markup_s *mu)
    therefore unreferenced statics in this configuration, which GCC reports
    under -Werror=unused-function. Scoped to the mixed build only: the C-only
    build keeps full warning coverage over exactly the same bodies. */
+#if defined(__GNUC__)
 #pragma GCC diagnostic ignored "-Wunused-function"
+#endif
 void rust_pf_Sin (void);
 void rust_pf_Cos (void);
 void rust_pf_tan (void);

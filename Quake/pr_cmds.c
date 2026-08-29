@@ -38,7 +38,9 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
    therefore unreferenced statics in this configuration, which GCC reports
    under -Werror=unused-function. Scoped to the mixed build only: the C-only
    build keeps full warning coverage over exactly the same bodies. */
+#if defined(__GNUC__)
 #pragma GCC diagnostic ignored "-Wunused-function"
+#endif
 #define PF_RS(name) rust_pf_##name
 void rust_pf_normalize (void);
 void rust_pf_vlen (void);

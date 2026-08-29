@@ -1,7 +1,10 @@
 //! Differential tests: the Rust cfgfile shims vs the original cfgfile.c
 //! compiled as c_ref_*. Both sides read the same config files through the
-//! same stub filesystem and funnel Cvar_Set into a shared capture log; the
-//! exact call sequences (names, values, order) are compared.
+//! same stub filesystem; since Phase 7 M2 each side's Cvar_Set reaches its
+//! real registry (c_ref cvar.c vs the Rust port), so the tested cvars are
+//! registered into both registries with a change callback feeding the shared
+//! capture log, and the exact change sequences (names, values, order) are
+//! compared.
 
 use core::ffi::{c_char, c_int, CStr};
 use quake_ctest::fs as ctfs; // also links the cc-built c_ref_* archive
@@ -16,6 +19,7 @@ extern "C" {
     fn ctest_cvar_log_len() -> c_int;
     fn ctest_cvar_log_get(i: c_int, which: c_int) -> *const c_char;
     fn ctest_set_args(argc: c_int, argv: *mut *mut c_char);
+    fn ctest_register_logged_cvar_pair(name: *const c_char);
 }
 
 fn snapshot_cvar_log() -> Vec<(String, String)> {
@@ -77,6 +81,14 @@ fn cfgfile_differential() {
         c"vid_refreshrate",
     ];
     let mut c_vars: Vec<*const c_char> = vars.iter().map(|v| v.as_ptr()).collect();
+
+    // SAFETY: valid NUL-terminated names; registers each name into both
+    // registries with the logging change callback (see stubs.c)
+    unsafe {
+        for v in &vars {
+            ctest_register_logged_cvar_pair(v.as_ptr());
+        }
+    }
 
     // both config names: the CONFIG_NAME path (COM_FOpenPrefFile) and the
     // searchpath one (COM_FOpenFile)
