@@ -67,6 +67,13 @@ net = []
 # by Meson when -Duse_rust_progs is enabled, and by quake-ctest for the
 # differential suites
 progs = []
+# the Phase 7 cvar/command-registry shims (cvar.c/cmd.c); set by Meson when
+# -Duse_rust_cvar is enabled, and by quake-ctest for the differential suites
+cvar = []
+# the Phase 7 client/server-simulation shims (world, sv_*, cl_*, host); set
+# by Meson when -Duse_rust_host is enabled, and by quake-ctest for the
+# differential suites
+host = []
 # codec-availability flags mirroring the C build's USE_CODEC_* defines; the
 # Rust codec registry (ADR-014) registers exactly the wrappers Meson links
 codec-wave = []

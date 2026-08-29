@@ -18,7 +18,7 @@ All compiled into every build (runtime-gated); see [harness.h](../../Quake/harne
 
 The state hash covers: per-edict `free`/`freetime`/`alpha`/`baseline`/lerp fields/`num_leafs`+populated `leafnums` + the full progs-visible field block, progs globals, VM time, client sim variables, client entity states, and the RNG state. It deliberately excludes pointers, area links, the debug-only edict header, and `leafnums` entries past `num_leafs` (stale leftovers no observer can see), so debug and release builds hash the same *state* (though FP differences mean goldens are release-only).
 
-**The server half only applies when a server is running.** Demo playback never starts one, so for the demo entries `Harness_HashServer` returns immediately and the chain covers client sim state, client entity states and the RNG only. Server/edict state is exercised by the map entries (`save-e1m1`, `map-e1m2`, `save-e2m1`), which is why CI runs the corpus rather than demos alone. CSQC (`cl.qcvm`) globals are not hashed in Phase 0.
+**The server half only applies when a server is running.** Demo playback never starts one, so for the demo entries `Harness_HashServer` returns immediately and the chain covers client sim state, client entity states and the RNG only. Server/edict state is exercised by the map entries (`save-e1m1`, `map-e1m2`, `save-e2m1`, and the Phase 7 pusher entries `e1m1-long`, `e1m5-trains`, `e1m1-plat-crush`), which is why CI runs the corpus rather than demos alone. Since Phase 7 M1 the client half also hashes `cl.qcvm` when a csprogs is live, so CSQC globals are covered — on id1 data no csprogs loads, so that branch is dormant and was proven live by fault injection rather than by any corpus entry.
 
 Harness runs are hermetic: per-user files (`vkQuake.cfg`, `basedirs.txt`, console history, and the `-condebug` log) are redirected into the disposable staging dir rather than the real pref directory.
 
@@ -31,12 +31,26 @@ Harness runs are hermetic: per-user files (`vkQuake.cfg`, `basedirs.txt`, consol
 - `capture_diff.py` — structural capture differ (reliable-stream prefix under a calibrated window + per-kind counts)
 - `record_diff.py` — deterministic loopback `record` session byte-compared between two builds
 - `netreplay_diff.py` — replay one capture on two builds; state-hash chains + a demo recorded mid-replay must be byte-identical (the timing-noise-free net gate)
-- `interop_matrix.py` — 4-way C/Rust client x server localhost matrix across the negotiable protocol cells (`Base-/FTE+` 15/666/999; optional `--ipv6` leg)
+- `interop_matrix.py` — 4-way C/Rust client x server localhost matrix across the negotiable protocol cells (`Base-/FTE+` 15/666/999; optional `--ipv6` leg). `--soak` runs long sessions instead (see below)
+- `physics_matrix.py` — server-physics cvar sweep: `sv_fte_recursivehullckeck` (0/1) × `sv_gameplayfix_elevators` (0–3) × `sv_smoothplatformlerps` (0/1), each cell a state-hash compare of two builds over the pusher/elevator-heavy corpus entries. `--cells all` is the 16-cell factorial (local); the default `DEFAULT_CELLS` is the 12-cell CI trim. Cvars are delivered as prepended `0 <cvar> <value>` lines in the `-harnesscmds` script, **not** `+cvar` on the command line (Windows command-line length cap). The file header records which axes are proven to fire on the current corpus and which are not — the lerps axis is still vacuous, so a green run must not be read as coverage of it
 - `run_trace.py` — progs trace collection on a `-Dtrace=true` build (`--game <dir>` to trace a mission pack's or mod's own progs.dat, which needs registered data)
 - `trace_diff.py` — the ADR-019 gate-3 consumer: same headless scenario on two `-Dtrace=true` builds, every VM record compared in order, with a minimum-record floor (demo playback starts no server and so emits **zero** progs records — the oracle scenarios are maps)
 - `builtin_diff.py` — the resolved QuakeC builtin table (`pr_dumpbuiltins`) compared across two builds: `name declared-number bound-ordinal` per `extensionbuiltins[]` entry plus the re-release `first_statement` patches. Builtin *numbering* is set by `PR_InitExtensions`/`PR_EnableExtensions`/`PR_PatchRereleaseBuiltins` and is invisible to a trace unless a mod calls the affected builtin. Carries a minimum-entry floor
 - `fetch_shareware.py` — pull the redistributable 1.06 shareware data for CI
 - `check_headers.sh` — core headers compile standalone + bindgen smoke
+
+### `interop_matrix.py --soak`
+
+Long two-process localhost sessions (dedicated server + headless client), for desync classes that only appear over tens of thousands of server frames. The pass criterion is deliberately **not** hash identity: which server frame a live UDP datagram lands on is scheduler- and socket-buffer-dependent, and a one-frame shift in applying a `clc_move` forks the two simulations permanently. A cell passes when all four hold:
+
+1. no `Host_Error`/`Sys_Error`, crash, timeout or unexpected exit;
+2. the negotiated protocol is the expected one;
+3. **liveness** — every reference checkpoint frame was reached;
+4. the traffic profile is within the same tolerance the non-soak matrix gate uses.
+
+The frame at which the hash chains first diverge is reported as a diagnostic only. C/C is re-run like any other combo rather than short-circuited as "equal to its own reference" — that short-circuit is what hid two real engine bugs (client pacing in `Quake/main_sdl.c`, `WSAECONNRESET` treated as fatal in `Quake/net_wins.c`) for the whole of M1, because the comparison path had never once executed against two independently launched processes. Red-tested by injecting `net_messagetimeout 0`, which drops the client and fails condition 3/4.
+
+CI runs a 20k-frame C/C smoke; the full 100k-frame × 8-cell soaks are local-only (M9 and M11), with results recorded in the phase plan's amendment log.
 
 Point `QUAKE_GAME_DATA` at a directory containing `id1/` (mission packs, `rerelease/`, and mod dirs beside it are picked up by their corpus tiers). The path never appears in the repo.
 

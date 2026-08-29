@@ -753,6 +753,13 @@ const char *Sys_ConsoleInput (void)
 	int			ch;
 	DWORD		dummy, numread, numevents;
 
+	/* harness runs are scripted via -harnesscmds/-exitafter, never interactive;
+	   some sandboxed/automated launch environments hand the process a console
+	   handle that AllocConsole() accepts but GetNumberOfConsoleInputEvents()
+	   can't query, so skip console polling entirely rather than fail the run */
+	if (harness_active)
+		return NULL;
+
 	TEMP_ALLOC (INPUT_RECORD, recs, 1024);
 
 	for (;;)

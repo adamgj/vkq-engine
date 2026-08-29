@@ -61,9 +61,15 @@ def main():
     if args.cbindgen and args.header_output:
         crate_dir = os.path.join(workspace, "quake-capi")
         tmp_header = args.header_output + ".tmp"
+        # same rust-toolchain.toml resolution problem as the cargo build above:
+        # cbindgen shells out to `cargo metadata`, which inherits this process'
+        # cwd (the meson build dir) and so silently runs the *default* rustup
+        # toolchain instead of the pin. The output path is relative to the
+        # build dir, so absolutize it before handing cbindgen another cwd
         proc = subprocess.run([args.cbindgen,
                                "--config", os.path.join(crate_dir, "cbindgen.toml"),
-                               "--output", tmp_header, crate_dir])
+                               "--output", os.path.abspath(tmp_header), crate_dir],
+                              cwd=workspace)
         if proc.returncode != 0:
             sys.exit(proc.returncode)
         if not (os.path.isfile(args.header_output)

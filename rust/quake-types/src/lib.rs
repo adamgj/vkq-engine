@@ -7,6 +7,7 @@
 
 pub mod bspfile;
 pub mod fs;
+pub mod host;
 pub mod json;
 pub mod md3;
 pub mod model_mem;

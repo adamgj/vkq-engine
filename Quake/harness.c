@@ -192,13 +192,9 @@ void Harness_Init (void)
 		Harness_LoadCmds (com_argv[i + 1]);
 }
 
-static uint64_t Harness_HashServer (uint64_t h)
+static uint64_t Harness_HashVM (uint64_t h, qcvm_t *vm)
 {
-	qcvm_t *vm = &sv.qcvm;
-	int		i;
-
-	if (!sv.active || !vm->progs)
-		return h;
+	int i;
 
 	for (i = 0; i < vm->num_edicts; i++)
 	{
@@ -231,6 +227,13 @@ static uint64_t Harness_HashServer (uint64_t h)
 	h = Harness_Hash64 (h, &vm->time, sizeof (vm->time));
 	h = Harness_Hash64 (h, &vm->num_edicts, sizeof (vm->num_edicts));
 	return h;
+}
+
+static uint64_t Harness_HashServer (uint64_t h)
+{
+	if (!sv.active || !sv.qcvm.progs)
+		return h;
+	return Harness_HashVM (h, &sv.qcvm);
 }
 
 static uint64_t Harness_HashClient (uint64_t h)
@@ -266,6 +269,14 @@ static uint64_t Harness_HashClient (uint64_t h)
 		h = Harness_Hash64 (h, &ent->skinnum, sizeof (ent->skinnum));
 		h = Harness_Hash64 (h, &ent->alpha, sizeof (ent->alpha));
 	}
+
+	/* CSQC state, when a csprogs is live. No draw_qcvm_mutex here: the mutex
+	   only exists once SCR_Init has run (skipped under no_rendering), and every
+	   worker that touches cl.qcvm is joined inside SCR_UpdateScreen before
+	   _Host_Frame reaches Harness_Frame -- the same main-thread window in which
+	   Host_Frame already runs SV_Physics on cl.qcvm unlocked. */
+	if (cl.qcvm.progs)
+		h = Harness_HashVM (h, &cl.qcvm);
 	return h;
 }
 

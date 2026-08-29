@@ -130,6 +130,10 @@ int main (int argc, char *argv[])
 				time = newtime - oldtime;
 			}
 
+			/* fixed timestep: state must not depend on wall-clock time */
+			if (harness_fixed_dt)
+				time = Harness_FrameTime ();
+
 			Host_Frame (time);
 			oldtime = newtime;
 		}
@@ -148,8 +152,37 @@ int main (int argc, char *argv[])
 				if (!listening && VID_IsMinimized ())
 					SDL_Delay (32);
 			}
-			newtime = Sys_DoubleTime ();
-			time = newtime - oldtime;
+
+			/* A harness client with no fixed timestep (-headless alone, e.g.
+			   interop_matrix.py's live network client) is not a single-process
+			   demo/sound/netreplay hash subject -- it is one half of a genuine
+			   two-process network session. Left unthrottled it races through
+			   -exitafter frames as fast as the CPU allows, flooding the
+			   dedicated server's unreliable channel with a burst of clc_move
+			   datagrams far faster than the server (paced to sys_ticrate)
+			   drains its socket -- OS receive-buffer drop timing is then
+			   genuinely nondeterministic across separate launches, which
+			   showed up as a real (not fault-injected) per-frame state-hash
+			   divergence around frame 128 in two independently-launched,
+			   otherwise-identical C/C soak sessions. Pacing this client to
+			   the same real-time cadence as the dedicated server keeps the
+			   two processes' packet exchange bounded and reproducible. */
+			if (harness_active && !harness_fixed_dt)
+			{
+				newtime = Sys_DoubleTime ();
+				time = newtime - oldtime;
+				while (time < sys_ticrate.value)
+				{
+					SDL_Delay (1);
+					newtime = Sys_DoubleTime ();
+					time = newtime - oldtime;
+				}
+			}
+			else
+			{
+				newtime = Sys_DoubleTime ();
+				time = newtime - oldtime;
+			}
 
 			/* fixed timestep: state must not depend on wall-clock time */
 			if (harness_fixed_dt)
