@@ -36,6 +36,7 @@ const C_SOURCES: &[&str] = &[
     "Quake/strlcpy.c",
     "Quake/strlcat.c",
     "Quake/wad.c",
+    "Quake/world.c",
 ];
 
 /// Builds the synthetic embedded vkquake.pak: a tiny valid single-entry pak,

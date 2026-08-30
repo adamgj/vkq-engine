@@ -522,7 +522,17 @@ static inline void Atomic_StoreUInt32 (volatile atomic_uint32_t *atomic, uint32_
  * unconditional in quakedef.h and changes qmodel_t's layout, so it must be
  * defined before gl_model.h. */
 #define PSET_SCRIPT
-typedef struct efrag_s efrag_t;
+/* render.h's efrag_t, transcribed (render.h itself #includes tasks.h ->
+ * q_stdinc.h -> SDL.h). quake_types::host::Efrag mirrors it field-by-field,
+ * and abi_probe.c's host probe takes its offsetof()s from this definition;
+ * it reaches entity_t only through a pointer, so it can sit here, ahead of
+ * the entity_t transcription further down (which needs protocol.h's
+ * entity_state_t). */
+typedef struct efrag_s
+{
+	struct efrag_s	*leafnext;
+	struct entity_s *entity;
+} efrag_t;
 #define MAX_DLIGHTS			  64
 #define MAX_LBM_HEIGHT		  480
 #define MAX_LIGHTSTYLES		  64
@@ -600,6 +610,43 @@ void GLMesh_DeleteMeshBuffers (aliashdr_t *mainhdr);
 #define ED_ParseEpair         c_ref_ED_ParseEpair
 #define ED_FindField          c_ref_ED_FindField
 #define ED_FindFunction       c_ref_ED_FindFunction
+
+/* ---- Phase 7 M3: world.c, the world-query oracle ----
+ *
+ * Every public symbol world.c defines is renamed c_ref_*; the Rust port
+ * (quake-capi's `host` feature) exports the same plain names beside it. The
+ * block sits HERE, above the prelude's own `void SV_UnlinkEdict (edict_t *)`
+ * forward declaration below and above every `#include "world.h"`, so the
+ * declarations rename with the definitions -- and so pr_edict_arena.c's
+ * ED_Free call site reaches the real, renamed world.c function instead of
+ * the hand-written stub that used to stand in for it (removed from stubs.c).
+ *
+ * world.c's file statics (box_hull/box_clipnodes/box_planes,
+ * SV_AreaTriggerEdicts, SV_TouchLinks, SV_SlowRecursiveHullCheck,
+ * SV_ClipToLinks, World_ClipToNetwork) need no rename. The two cvars DO:
+ * world_glue.c defines them under the plain names for the Rust side.
+ * SV_PushGridEntityLinked is NOT renamed -- it is sv_phys.c's, stays
+ * stub-owned, and both sides call the one definition. */
+#define sv_fte_recursivehullckeck c_ref_sv_fte_recursivehullckeck
+#define sv_fte_createareanode	  c_ref_sv_fte_createareanode
+#define SV_InitBoxHull			  c_ref_SV_InitBoxHull
+#define SV_HullForBox			  c_ref_SV_HullForBox
+#define SV_HullForEntity		  c_ref_SV_HullForEntity
+#define SV_CreateAreaNode		  c_ref_SV_CreateAreaNode
+#define SV_ClearWorld			  c_ref_SV_ClearWorld
+#define SV_UnlinkEdict			  c_ref_SV_UnlinkEdict
+#define SV_FindTouchedLeafs		  c_ref_SV_FindTouchedLeafs
+#define SV_LinkEdict			  c_ref_SV_LinkEdict
+#define SV_HullPointContents	  c_ref_SV_HullPointContents
+#define SV_PointContents		  c_ref_SV_PointContents
+#define SV_TruePointContents	  c_ref_SV_TruePointContents
+#define SV_PointContentsAllBsps	  c_ref_SV_PointContentsAllBsps
+#define SV_TestEntityPosition	  c_ref_SV_TestEntityPosition
+#define Q1BSP_RecursiveHullTrace  c_ref_Q1BSP_RecursiveHullTrace
+#define SV_RecursiveHullCheck	  c_ref_SV_RecursiveHullCheck
+#define SV_ClipMoveToEntity		  c_ref_SV_ClipMoveToEntity
+#define SV_MoveBounds			  c_ref_SV_MoveBounds
+#define SV_Move					  c_ref_SV_Move
 
 #include "protocol.h" /* entity_state_t, which edict_t embeds */
 #include "progs.h"
@@ -753,13 +800,131 @@ extern cvar_t		 developer;
 #include "q_thread.h"
 #include "q_sound.h"
 
-/* the quakedef.h slice snd_mix.c's pause_loops computation reads; the stub
- * definitions expose setters for the differential tests */
+/* ---- Phase 7 M3: the quakedef.h/server.h/render.h slice world.c needs ----
+ *
+ * quakedef.h's DIST_EPSILON and assert_always (quakedef.h:66, :335). The
+ * assert_always guard is spelled exactly as the engine's so a later real
+ * quakedef.h slice cannot silently disagree. */
+#ifndef DIST_EPSILON
+#define DIST_EPSILON (0.03125) // 1/32 epsilon to keep floating point happy (moved from world.c)
+#endif
+FUNC_NORETURN void COM_Assert_Failed (const char *expr, const char *file, int line);
+#ifndef assert_always
+#define assert_always(e) ((e) ? (void)0 : COM_Assert_Failed (#e, __FILE__, __LINE__))
+#endif
+
+/* server.h's movetype/solid/edict-flag enumerators world.c compares against.
+ * They are object-like macros rather than an enum so abi_probe.c -- the one
+ * TU that #includes the real server.h -- can #undef them out of the way
+ * before that include, the same dodge it already uses for sv/svs/cl/cls.
+ * Values transcribed from Quake/server.h:234-280. */
+#define MOVETYPE_PUSH 7
+#define SOLID_NOT	  0
+#define SOLID_TRIGGER 1
+#define SOLID_BSP	  4
+#define FL_MONSTER	  32
+#define FL_ITEM		  256
+
+/* pr_ext.c's extension-enable cvar. world.c branches on it in five places
+ * (SV_HullForEntity, SV_CreateAreaNode, SV_LinkEdict, SV_RecursiveHullCheck,
+ * SV_ClipMoveToEntity), so it is stub-owned and shared un-renamed: the Rust
+ * port reads the same object through quake-c-sys. */
+extern cvar_t pr_checkextension;
+
+/* render.h's entity_t (and the two structs it embeds by value), transcribed:
+ * render.h #includes tasks.h -> q_stdinc.h -> SDL.h, which this build must
+ * stay clear of. World_ClipToNetwork walks cl.entities as entity_t, so the
+ * layout has to be the real one -- the Rust side sees the same objects
+ * through world_glue.c's World_Glue_ClEntity accessor. This transcription is
+ * also what abi_probe.c's Phase 7 host probe measures (it used to carry its
+ * own private copy; that was moved here so both TUs cannot drift apart).
+ * render.h carries the codebase's "!!! if this is changed, it must be
+ * changed in rust/quake-ctest/stubs/abi_probe.c too !!!" markers on
+ * entity_s/entlerp_s/lightcache_s. */
+typedef struct lightcache_s
+{
+	int	   surfidx;
+	vec3_t pos;
+	short  ds;
+	short  dt;
+} lightcache_t;
+
+typedef struct entlerp_s
+{
+	qboolean movestep;
+	int		 prev_frame;
+	double	 frame_change_time;
+	double	 frame_duration;
+	double	 frame_finish_time;
+	int		 snap_frames;
+	double	 snap_msgtime;
+	vec3_t	 prev_origin;
+	vec3_t	 prev_angles;
+	double	 move_change_time;
+	double	 move_duration;
+} entlerp_t;
+
+typedef struct entity_s
+{
+	qboolean forcelink;
+
+	int update_type;
+
+	entity_state_t baseline;
+	entity_state_t netstate;
+
+	double			 msgtime;
+	vec3_t			 msg_origins[2];
+	vec3_t			 origin;
+	vec3_t			 msg_angles[2];
+	vec3_t			 angles;
+	struct qmodel_s *model;
+	struct efrag_s	*efrag;
+	int				 frame;
+	float			 syncbase;
+	byte			*colormap;
+	int				 effects;
+	int				 skinnum;
+	int				 visframe;
+
+	int dlightframe;
+	int dlightbits;
+
+	struct mnode_s *topnode;
+
+	byte	  eflags;
+	byte	  alpha;
+	entlerp_t lerp;
+
+#ifdef PSET_SCRIPT
+	struct trailstate_s *trailstate;
+	struct trailstate_s *emitstate;
+#endif
+	float  traildelay;
+	vec3_t trailorg;
+
+	lightcache_t lightcache;
+
+	int	   contentscache;
+	vec3_t contentscache_origin;
+
+	struct entity_blas_s *blas_data;
+} entity_t;
+
+#include "world.h" /* the renames above are already in effect */
+
+/* the quakedef.h slice snd_mix.c's pause_loops computation reads, plus the
+ * three client_state_t members world.c touches: SV_Move's `qcvm == &cl.qcvm`
+ * CSQC test and World_ClipToNetwork's cl.entities/cl.num_entities walk. The
+ * stub definitions expose setters for the differential tests. */
 typedef struct
 {
 	qboolean  paused;
 	int		  viewentity;
 	qmodel_t *worldmodel;
+	int		  num_entities;
+	entity_t *entities;
+	qcvm_t	  qcvm;
 } ctest_cl_t;
 extern ctest_cl_t cl;
 /* ctest_svs_t (needs client_t, which needs sizebuf_t from net.h) is defined

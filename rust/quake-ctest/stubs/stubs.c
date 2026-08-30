@@ -3037,15 +3037,6 @@ const char *PR_GlobalStringNoContents (int ofs)
 
 static qcvm_t	   ctest_progs_vm_storage;
 static dprograms_t ctest_progs_header;
-/* SV_UnlinkEdict is world.c (Phase 7); the oracle only needs a call log */
-int ctest_progs_unlink_count;
-int ctest_progs_unlink_last;
-
-void SV_UnlinkEdict (edict_t *ent)
-{
-	ctest_progs_unlink_count++;
-	ctest_progs_unlink_last = NUM_FOR_EDICT (ent);
-}
 
 edict_t *EDICT_NUM (int n)
 {
@@ -3088,8 +3079,6 @@ void *ctest_progs_reset_vm (int max_edicts, int entityfields)
 	memset (vm, 0, sizeof (*vm));
 	memset (&ctest_progs_header, 0, sizeof (ctest_progs_header));
 	ctest_progs_setup_nullstate ();
-	ctest_progs_unlink_count = 0;
-	ctest_progs_unlink_last = -1;
 
 	ctest_progs_header.entityfields = entityfields;
 	vm->progs = &ctest_progs_header;
@@ -3389,4 +3378,1164 @@ dfunction_t *ED_FindFunction (const char *fn_name)
 			return &qcvm->functions[i];
 	}
 	return NULL;
+}
+
+
+/* ---------------------------------------------------------------------------
+ * Phase 7 M3: the world.c fixture.
+ *
+ * world.c needs a whole server to be interesting: an ambient qcvm with an
+ * edict arena and an areanode tree, a brush model with three clipping hulls
+ * and a BSP node/leaf tree, a progs image whose touch functions actually
+ * execute, and the sv_phys.c/client-VM seams it calls out through.
+ *
+ * Everything below is shared by both sides of the differential: the c_ref
+ * world.c reaches it under the plain names, and the Rust port reaches the
+ * same objects through world_glue.c's accessors -- whose stub bodies are
+ * also here, because world_glue.c is a Meson-only file and is not in
+ * build.rs's C_SOURCES. Nothing here references a Rust symbol, so the oracle
+ * links and self-checks on its own; the two places where a test has to pick
+ * an implementation (the re-entrant link/unlink a touch handler performs) go
+ * through function pointers the test installs.
+ */
+
+/* quakedef.h's assert_always backing (common.c:1838). The engine prints and
+ * dies; here it routes into the Sys_Error trap so a test can assert WHICH
+ * assertion fired. The abort() is unreachable -- Sys_Error either longjmps
+ * out or aborts itself -- and only satisfies the FUNC_NORETURN contract. */
+void COM_Assert_Failed (const char *expr, const char *file_path, int line)
+{
+	Sys_Error ("Assertion failed: %s (%s:%d)", expr, file_path, line);
+	abort ();
+}
+
+/* common.c:82-100, verbatim: world.c's areanode chains are these links, and
+ * common.c is not in C_SOURCES. */
+void ClearLink (link_t *l)
+{
+	l->prev = l->next = l;
+}
+
+void RemoveLink (link_t *l)
+{
+	l->next->prev = l->prev;
+	l->prev->next = l->next;
+}
+
+void InsertLinkBefore (link_t *l, link_t *before)
+{
+	l->next = before;
+	l->prev = before->prev;
+	l->prev->next = l;
+	l->next->prev = l;
+}
+
+/* pr_ext.c's extension gate. Shared un-renamed: world.c branches on it in
+ * five places and the Rust port reads the same object through quake-c-sys,
+ * so there is deliberately only one copy. */
+cvar_t pr_checkextension;
+
+/* world_glue.c owns these two for the Rust side; world.c defines its own
+ * pair, renamed c_ref_*. ctest_world_set_cvars writes both so they cannot
+ * drift apart mid-test. */
+cvar_t sv_fte_recursivehullckeck;
+cvar_t sv_fte_createareanode;
+
+/* --- the synthetic brush model -------------------------------------------
+ *
+ * A hollow room with a solid pillar and three liquid volumes, built as a
+ * nested if/else chain of axis-aligned boxes. Each box contributes six
+ * clipnodes -- for axis a, one plane at maxs[a] (front child = outside) and
+ * one at mins[a] (back child = outside) -- with every "outside" edge pointing
+ * at the next box's root and the last box falling through to CONTENTS_SOLID.
+ * That is a well-formed clipnode tree (every node is a plane split with two
+ * subtrees), so both hull-check implementations and SV_HullPointContents walk
+ * it exactly as they would a real BSP.
+ *
+ * The three hulls are built from the same boxes expanded the way qbsp expands
+ * them (solid volumes grow by -clip_maxs..-clip_mins, the open room shrinks
+ * by the inverse), so hulls 0/1/2 really do differ and SV_HullForEntity's
+ * size-based selection is observable in trace results.
+ */
+
+#define CTEST_WORLD_BOXES	  5
+#define CTEST_WORLD_CLIPNODES (CTEST_WORLD_BOXES * 6)
+
+typedef struct
+{
+	vec3_t mins, maxs;
+	int	   contents;
+	int	   open; /* shrink instead of grow: this box is a void, not a brush */
+} ctest_world_box_t;
+
+static const ctest_world_box_t ctest_world_boxes[CTEST_WORLD_BOXES] = {
+	{{-256, -256, -256}, {-64, -64, -64}, CONTENTS_WATER, 0},
+	{{-256, 128, -256}, {-128, 256, -128}, CONTENTS_LAVA, 0},
+	{{128, -256, -256}, {256, -128, -128}, CONTENTS_CURRENT_0, 0},
+	{{32, 32, -256}, {96, 96, 256}, CONTENTS_SOLID, 0},
+	{{-448, -448, -192}, {448, 448, 192}, CONTENTS_EMPTY, 1},
+};
+
+static const vec3_t ctest_world_hullmins[MAX_MAP_HULLS] = {
+	{0, 0, 0},
+	{-16, -16, -24},
+	{-32, -32, -24},
+	{0, 0, 0},
+};
+static const vec3_t ctest_world_hullmaxs[MAX_MAP_HULLS] = {
+	{0, 0, 0},
+	{16, 16, 32},
+	{32, 32, 64},
+	{0, 0, 0},
+};
+
+static mclipnode_t ctest_world_clipnodes[MAX_MAP_HULLS][CTEST_WORLD_CLIPNODES];
+static mplane_t	   ctest_world_planes[MAX_MAP_HULLS][CTEST_WORLD_CLIPNODES];
+static qmodel_t	   ctest_world_bmodel;
+static qmodel_t	   ctest_world_alias_model;
+static mnode_t	   ctest_world_nodes[3];
+static mleaf_t	   ctest_world_leafs[5];
+static mplane_t	   ctest_world_nodeplanes[2];
+
+static void ctest_world_build_hull (int h)
+{
+	mclipnode_t *nodes = ctest_world_clipnodes[h];
+	mplane_t	*planes = ctest_world_planes[h];
+	int			 i, a;
+
+	memset (nodes, 0, sizeof (ctest_world_clipnodes[h]));
+	memset (planes, 0, sizeof (ctest_world_planes[h]));
+
+	for (i = 0; i < CTEST_WORLD_BOXES; i++)
+	{
+		const ctest_world_box_t *box = &ctest_world_boxes[i];
+		int						 base = i * 6;
+		int						 out = (i + 1 < CTEST_WORLD_BOXES) ? (i + 1) * 6 : CONTENTS_SOLID;
+		vec3_t					 emins, emaxs;
+
+		for (a = 0; a < 3; a++)
+		{
+			if (box->open)
+			{
+				emins[a] = box->mins[a] - ctest_world_hullmins[h][a];
+				emaxs[a] = box->maxs[a] - ctest_world_hullmaxs[h][a];
+			}
+			else
+			{
+				emins[a] = box->mins[a] - ctest_world_hullmaxs[h][a];
+				emaxs[a] = box->maxs[a] - ctest_world_hullmins[h][a];
+			}
+		}
+
+		for (a = 0; a < 3; a++)
+		{
+			int hi = base + a * 2;
+			int lo = hi + 1;
+
+			planes[hi].normal[a] = 1;
+			planes[hi].dist = emaxs[a];
+			planes[hi].type = (byte)a;
+			planes[lo].normal[a] = 1;
+			planes[lo].dist = emins[a];
+			planes[lo].type = (byte)a;
+
+			nodes[hi].planenum = hi;
+			nodes[hi].children[0] = out; /* at or past maxs: outside the box */
+			nodes[hi].children[1] = lo;
+
+			nodes[lo].planenum = lo;
+			nodes[lo].children[0] = (a == 2) ? box->contents : (lo + 1);
+			nodes[lo].children[1] = out; /* below mins: outside the box */
+		}
+	}
+}
+
+static void ctest_world_build_model (void)
+{
+	int h;
+
+	memset (&ctest_world_bmodel, 0, sizeof (ctest_world_bmodel));
+	memset (&ctest_world_alias_model, 0, sizeof (ctest_world_alias_model));
+	memset (ctest_world_nodes, 0, sizeof (ctest_world_nodes));
+	memset (ctest_world_leafs, 0, sizeof (ctest_world_leafs));
+	memset (ctest_world_nodeplanes, 0, sizeof (ctest_world_nodeplanes));
+
+	q_strlcpy (ctest_world_bmodel.name, "*ctest_world", sizeof (ctest_world_bmodel.name));
+	ctest_world_bmodel.type = mod_brush;
+	ctest_world_bmodel.is_worldmodel = true;
+	/* the areanode tree is built from these: 4096 wide keeps size[axis] >= 500
+	 * through depth 8, so sv_fte_createareanode=1 really does build a deeper
+	 * tree (511 nodes) than the vanilla depth-4 one (31) */
+	ctest_world_bmodel.mins[0] = ctest_world_bmodel.mins[1] = -2048;
+	ctest_world_bmodel.mins[2] = -1024;
+	ctest_world_bmodel.maxs[0] = ctest_world_bmodel.maxs[1] = 2048;
+	ctest_world_bmodel.maxs[2] = 1024;
+
+	for (h = 0; h < MAX_MAP_HULLS; h++)
+	{
+		hull_t *hull = &ctest_world_bmodel.hulls[h];
+		ctest_world_build_hull (h);
+		hull->clipnodes = ctest_world_clipnodes[h];
+		hull->planes = ctest_world_planes[h];
+		hull->firstclipnode = 0;
+		hull->lastclipnode = CTEST_WORLD_CLIPNODES - 1;
+		VectorCopy (ctest_world_hullmins[h], hull->clip_mins);
+		VectorCopy (ctest_world_hullmaxs[h], hull->clip_maxs);
+	}
+
+	/* the node/leaf tree SV_FindTouchedLeafs walks: two splits, four leafs,
+	 * plus leafs[0] standing in for the solid leaf a real BSP keeps at index
+	 * 0 (SV_FindTouchedLeafs numbers leafs from -1). */
+	ctest_world_nodeplanes[0].normal[0] = 1;
+	ctest_world_nodeplanes[0].dist = 0;
+	ctest_world_nodeplanes[0].type = 0;
+	ctest_world_nodeplanes[1].normal[1] = 1;
+	ctest_world_nodeplanes[1].dist = 0;
+	ctest_world_nodeplanes[1].type = 1;
+
+	ctest_world_leafs[0].contents = CONTENTS_SOLID;
+	ctest_world_leafs[1].contents = CONTENTS_EMPTY;
+	ctest_world_leafs[2].contents = CONTENTS_EMPTY;
+	ctest_world_leafs[3].contents = CONTENTS_EMPTY;
+	ctest_world_leafs[4].contents = CONTENTS_WATER;
+
+	ctest_world_nodes[0].contents = 0;
+	ctest_world_nodes[0].plane = &ctest_world_nodeplanes[0];
+	ctest_world_nodes[0].children[0] = &ctest_world_nodes[1];
+	ctest_world_nodes[0].children[1] = &ctest_world_nodes[2];
+	ctest_world_nodes[1].contents = 0;
+	ctest_world_nodes[1].plane = &ctest_world_nodeplanes[1];
+	ctest_world_nodes[1].children[0] = (mnode_t *)&ctest_world_leafs[1];
+	ctest_world_nodes[1].children[1] = (mnode_t *)&ctest_world_leafs[2];
+	ctest_world_nodes[2].contents = 0;
+	ctest_world_nodes[2].plane = &ctest_world_nodeplanes[1];
+	ctest_world_nodes[2].children[0] = (mnode_t *)&ctest_world_leafs[3];
+	ctest_world_nodes[2].children[1] = (mnode_t *)&ctest_world_leafs[4];
+
+	ctest_world_bmodel.nodes = ctest_world_nodes;
+	ctest_world_bmodel.numnodes = 3;
+	ctest_world_bmodel.leafs = ctest_world_leafs;
+	ctest_world_bmodel.numleafs = 4;
+	ctest_world_bmodel.clipnodes = ctest_world_clipnodes[0];
+	ctest_world_bmodel.numclipnodes = CTEST_WORLD_CLIPNODES;
+	ctest_world_bmodel.planes = ctest_world_planes[0];
+	ctest_world_bmodel.numplanes = CTEST_WORLD_CLIPNODES;
+
+	/* modelindex 2: a non-brush model, so SV_HullForEntity's
+	 * SOLID_BSP-with-a-non-bsp-model warning path is reachable */
+	q_strlcpy (ctest_world_alias_model.name, "progs/ctest.mdl", sizeof (ctest_world_alias_model.name));
+	ctest_world_alias_model.type = mod_alias;
+}
+
+static qmodel_t *ctest_world_getmodel (int modelindex)
+{
+	if (modelindex == 1)
+		return &ctest_world_bmodel;
+	if (modelindex == 2)
+		return &ctest_world_alias_model;
+	return NULL;
+}
+
+/* --- the progs image whose touch functions run ---------------------------
+ *
+ * pr_exec.c cannot dispatch a builtin at top level (world.c:365 hands
+ * PR_ExecuteProgram a func_t, and PR_ExecuteProgram's own comment says a
+ * builtin there would crash), so each touch function is two real statements:
+ * OP_CALL0 into a logging builtin, then OP_DONE. Both sides run this same
+ * c_ref interpreter, so the log isolates world.c's own ordering logic.
+ */
+
+#define CTEST_WORLD_TOUCH_KINDS 4
+
+/* touch kinds; the test's own enum mirrors these */
+#define CTEST_WORLD_TOUCH_LOG	   0 /* record (self, other, time) only */
+#define CTEST_WORLD_TOUCH_RELINK   1 /* record, then relink ctest_world_relink_target */
+#define CTEST_WORLD_TOUCH_FREE	   2 /* record, then free ctest_world_free_target */
+#define CTEST_WORLD_TOUCH_FREESELF 3 /* record, then free `other` (the linking edict) */
+
+#define CTEST_WORLD_TOUCH_LOG_MAX 256
+
+typedef struct
+{
+	int	  self;
+	int	  other;
+	float time;
+	int	  kind;
+} ctest_world_touch_rec_t;
+
+static ctest_world_touch_rec_t ctest_world_touch_log[CTEST_WORLD_TOUCH_LOG_MAX];
+static int					   ctest_world_touch_log_count;
+
+static int ctest_world_relink_target = -1;
+static int ctest_world_free_target = -1;
+
+static void (*ctest_world_link_fn) (edict_t *ent, qboolean touch_triggers);
+static void (*ctest_world_unlink_fn) (edict_t *ent);
+
+static void ctest_world_default_link (edict_t *ent, qboolean touch_triggers)
+{
+	SV_LinkEdict (ent, touch_triggers); /* renamed c_ref_SV_LinkEdict */
+}
+
+static void ctest_world_default_unlink (edict_t *ent)
+{
+	SV_UnlinkEdict (ent); /* renamed c_ref_SV_UnlinkEdict */
+}
+
+/* Installs the implementation a re-entrant touch handler reaches. NULL
+ * restores the c_ref pair, which is what the oracle self-check uses. */
+void ctest_world_set_link_fns (void (*link) (edict_t *, qboolean), void (*unlink) (edict_t *))
+{
+	ctest_world_link_fn = link ? link : ctest_world_default_link;
+	ctest_world_unlink_fn = unlink ? unlink : ctest_world_default_unlink;
+}
+
+static void ctest_world_record_touch (int kind)
+{
+	if (ctest_world_touch_log_count < CTEST_WORLD_TOUCH_LOG_MAX)
+	{
+		ctest_world_touch_rec_t *r = &ctest_world_touch_log[ctest_world_touch_log_count];
+		r->self = pr_global_struct->self ? NUM_FOR_EDICT (PROG_TO_EDICT (pr_global_struct->self)) : 0;
+		r->other = pr_global_struct->other ? NUM_FOR_EDICT (PROG_TO_EDICT (pr_global_struct->other)) : 0;
+		r->time = pr_global_struct->time;
+		r->kind = kind;
+	}
+	ctest_world_touch_log_count++;
+}
+
+static void ctest_world_free_edict (int num)
+{
+	edict_t *ed;
+	if (num < 0 || num >= qcvm->num_edicts)
+		return;
+	ed = EDICT_NUM (num);
+	if (ed->free)
+		return;
+	ctest_world_unlink_fn (ed);
+	ed->v.model = 0;
+	ed->v.takedamage = 0;
+	ed->v.modelindex = 0;
+	ed->v.colormap = 0;
+	ed->v.skin = 0;
+	ed->v.frame = 0;
+	VectorCopy (vec3_origin, ed->v.origin);
+	VectorCopy (vec3_origin, ed->v.angles);
+	ed->v.nextthink = -1;
+	ed->v.solid = 0;
+	ed->freetime = (float)qcvm->time;
+	ed->free = true;
+}
+
+static void ctest_world_builtin_log (void)
+{
+	ctest_world_record_touch (CTEST_WORLD_TOUCH_LOG);
+}
+
+static void ctest_world_builtin_relink (void)
+{
+	ctest_world_record_touch (CTEST_WORLD_TOUCH_RELINK);
+	if (ctest_world_relink_target >= 0 && ctest_world_relink_target < qcvm->num_edicts)
+	{
+		edict_t *ed = EDICT_NUM (ctest_world_relink_target);
+		if (!ed->free)
+		{
+			ed->v.origin[0] += 8;
+			ctest_world_link_fn (ed, false);
+		}
+	}
+}
+
+static void ctest_world_builtin_free (void)
+{
+	ctest_world_record_touch (CTEST_WORLD_TOUCH_FREE);
+	ctest_world_free_edict (ctest_world_free_target);
+}
+
+static void ctest_world_builtin_freeself (void)
+{
+	ctest_world_record_touch (CTEST_WORLD_TOUCH_FREESELF);
+	if (pr_global_struct->other)
+		ctest_world_free_edict (NUM_FOR_EDICT (PROG_TO_EDICT (pr_global_struct->other)));
+}
+
+static qcvm_t		ctest_world_sv_vm;
+static dprograms_t	ctest_world_progs_hdr;
+static dstatement_t ctest_world_statements[CTEST_WORLD_TOUCH_KINDS * 2];
+static dfunction_t	ctest_world_functions[1 + CTEST_WORLD_TOUCH_KINDS * 2];
+static char			ctest_world_strings[64];
+static int			ctest_world_numglobals;
+static int			ctest_world_builtin_ofs;
+
+/* the func_t to store in an edict's v.touch for a given touch kind */
+int ctest_world_touch_func (int kind)
+{
+	if (kind < 0 || kind >= CTEST_WORLD_TOUCH_KINDS)
+		return 0;
+	return 1 + kind;
+}
+
+int ctest_world_touch_log_len (void)
+{
+	return ctest_world_touch_log_count;
+}
+
+int ctest_world_touch_log_get (int i, int *self, int *other, float *time, int *kind)
+{
+	if (i < 0 || i >= ctest_world_touch_log_count || i >= CTEST_WORLD_TOUCH_LOG_MAX)
+		return 0;
+	*self = ctest_world_touch_log[i].self;
+	*other = ctest_world_touch_log[i].other;
+	*time = ctest_world_touch_log[i].time;
+	*kind = ctest_world_touch_log[i].kind;
+	return 1;
+}
+
+void ctest_world_touch_log_clear (void)
+{
+	ctest_world_touch_log_count = 0;
+	memset (ctest_world_touch_log, 0, sizeof (ctest_world_touch_log));
+}
+
+void ctest_world_set_relink_target (int num)
+{
+	ctest_world_relink_target = num;
+}
+
+void ctest_world_set_free_target (int num)
+{
+	ctest_world_free_target = num;
+}
+
+/* --- sv_phys.c / client-VM seams ----------------------------------------- */
+
+#define CTEST_WORLD_PUSHGRID_MAX 256
+static int ctest_world_pushgrid_log[CTEST_WORLD_PUSHGRID_MAX];
+static int ctest_world_pushgrid_count;
+
+void SV_PushGridEntityLinked (edict_t *ent)
+{
+	if (ctest_world_pushgrid_count < CTEST_WORLD_PUSHGRID_MAX)
+		ctest_world_pushgrid_log[ctest_world_pushgrid_count] = NUM_FOR_EDICT (ent);
+	ctest_world_pushgrid_count++;
+}
+
+/* world_glue.c's thin wrapper, for the Rust side */
+void World_Glue_PushGridEntityLinked (edict_t *ent)
+{
+	SV_PushGridEntityLinked (ent);
+}
+
+int ctest_world_pushgrid_len (void)
+{
+	return ctest_world_pushgrid_count;
+}
+
+int ctest_world_pushgrid_get (int i)
+{
+	if (i < 0 || i >= ctest_world_pushgrid_count || i >= CTEST_WORLD_PUSHGRID_MAX)
+		return -1;
+	return ctest_world_pushgrid_log[i];
+}
+
+void ctest_world_pushgrid_clear (void)
+{
+	ctest_world_pushgrid_count = 0;
+}
+
+typedef struct
+{
+	edict_t *touch;
+	edict_t *other;
+	float	 time;
+} ctest_world_calltouch_args_t;
+
+static void ctest_world_invoke_touch (void *p)
+{
+	ctest_world_calltouch_args_t *a = (ctest_world_calltouch_args_t *)p;
+
+	pr_global_struct->self = EDICT_TO_PROG (a->touch);
+	pr_global_struct->other = EDICT_TO_PROG (a->other);
+	pr_global_struct->time = a->time;
+	PR_ExecuteProgram (a->touch->v.touch); /* renamed c_ref_PR_ExecuteProgram */
+}
+
+/* world_glue.c's guarded touch dispatch (the contract's World_Glue_CallTouch).
+ * Parameter order follows world.c:362-365: the first edict is the toucher --
+ * it becomes pr_global_struct->self and its v.touch is the function that runs
+ * -- and the second is the edict being linked, which becomes
+ * pr_global_struct->other. Only the dispatch is here; the list, the bbox
+ * re-tests and the self/other save/restore stay on the caller's side, in
+ * Rust. Returns 0, or the Host_Guard result for the caller to re-raise. */
+int World_Glue_CallTouch (edict_t *touch, edict_t *self, float time)
+{
+	ctest_world_calltouch_args_t args;
+	args.touch = touch;
+	args.other = self;
+	args.time = time;
+	return Host_Guard (ctest_world_invoke_touch, &args);
+}
+
+int World_Glue_QcvmIsClient (void)
+{
+	return qcvm == &cl.qcvm;
+}
+
+int World_Glue_ClNumEntities (void)
+{
+	return cl.num_entities;
+}
+
+entity_t *World_Glue_ClEntity (int i)
+{
+	if (i < 0 || i >= cl.num_entities || !cl.entities)
+		return NULL;
+	return &cl.entities[i];
+}
+
+/* --- fixture setup / inspection ------------------------------------------ */
+
+#define CTEST_WORLD_MAX_CL_ENTITIES 16
+static entity_t ctest_world_cl_entities[CTEST_WORLD_MAX_CL_ENTITIES];
+
+/* defined at the very bottom of this file, where the prelude's rename macros
+ * can be #undef'd without affecting anything else */
+void ctest_world_set_plain_cvars (float recursivehullcheck, float createareanode);
+
+void ctest_world_set_cvars (float recursivehullcheck, float createareanode, float checkextension)
+{
+	c_ref_sv_fte_recursivehullckeck.value = recursivehullcheck;
+	c_ref_sv_fte_createareanode.value = createareanode;
+	ctest_world_set_plain_cvars (recursivehullcheck, createareanode);
+	pr_checkextension.value = checkextension;
+}
+
+/* Rebuilds the whole fixture: model, progs image, arena, client entities and
+ * every log. `client_vm` publishes cl.qcvm as the ambient VM instead of the
+ * standalone server one, which is what turns on SV_Move's World_ClipToNetwork
+ * branch. */
+void ctest_world_reset (int client_vm, int num_edicts)
+{
+	qcvm_t *vm = client_vm ? &cl.qcvm : &ctest_world_sv_vm;
+	int		i;
+
+	ctest_world_build_model ();
+
+	if (vm->edicts)
+		Mem_Free (vm->edicts);
+	if (vm->globals)
+		Mem_Free (vm->globals);
+	memset (vm, 0, sizeof (*vm));
+	memset (&ctest_world_progs_hdr, 0, sizeof (ctest_world_progs_hdr));
+	memset (ctest_world_statements, 0, sizeof (ctest_world_statements));
+	memset (ctest_world_functions, 0, sizeof (ctest_world_functions));
+	memset (ctest_world_strings, 0, sizeof (ctest_world_strings));
+	memcpy (ctest_world_strings + 1, "ctest_ent", 10);
+
+	ctest_world_numglobals = (int)(sizeof (globalvars_t) / 4) + 8;
+	ctest_world_builtin_ofs = (int)(sizeof (globalvars_t) / 4);
+
+	for (i = 0; i < CTEST_WORLD_TOUCH_KINDS; i++)
+	{
+		ctest_world_statements[i * 2 + 0].op = OP_CALL0;
+		ctest_world_statements[i * 2 + 0].a = (unsigned short)(ctest_world_builtin_ofs + i);
+		ctest_world_statements[i * 2 + 1].op = OP_DONE;
+
+		ctest_world_functions[1 + i].first_statement = i * 2;
+		ctest_world_functions[1 + i].parm_start = 0;
+		ctest_world_functions[1 + i].locals = 0;
+		ctest_world_functions[1 + i].numparms = 0;
+		ctest_world_functions[1 + i].s_name = 1;
+
+		/* the builtin entries OP_CALL0 targets */
+		ctest_world_functions[1 + CTEST_WORLD_TOUCH_KINDS + i].first_statement = -(i + 1);
+		ctest_world_functions[1 + CTEST_WORLD_TOUCH_KINDS + i].s_name = 1;
+	}
+
+	ctest_world_progs_hdr.entityfields = (int)(sizeof (entvars_t) / 4);
+	ctest_world_progs_hdr.numfunctions = 1 + CTEST_WORLD_TOUCH_KINDS * 2;
+	ctest_world_progs_hdr.numstatements = CTEST_WORLD_TOUCH_KINDS * 2;
+	ctest_world_progs_hdr.numglobals = ctest_world_numglobals;
+
+	vm->progs = &ctest_world_progs_hdr;
+	vm->statements = ctest_world_statements;
+	vm->functions = ctest_world_functions;
+	vm->strings = ctest_world_strings;
+	vm->stringssize = (int)sizeof (ctest_world_strings);
+	vm->globals = (float *)Mem_Alloc ((size_t)ctest_world_numglobals * sizeof (float));
+
+	vm->builtins[0] = ctest_world_builtin_log;
+	vm->builtins[1] = ctest_world_builtin_log;
+	vm->builtins[2] = ctest_world_builtin_relink;
+	vm->builtins[3] = ctest_world_builtin_free;
+	vm->builtins[4] = ctest_world_builtin_freeself;
+	vm->numbuiltins = 1 + CTEST_WORLD_TOUCH_KINDS;
+
+	vm->edict_size = ctest_world_progs_hdr.entityfields * 4 + (int)sizeof (edict_t) - (int)sizeof (entvars_t);
+	vm->edict_size += (int)sizeof (void *) - 1;
+	vm->edict_size &= ~((int)sizeof (void *) - 1);
+	vm->max_edicts = num_edicts;
+	vm->num_edicts = num_edicts;
+	vm->edicts = (edict_t *)Mem_Alloc ((size_t)num_edicts * vm->edict_size);
+	vm->time = 4.5;
+	vm->worldmodel = &ctest_world_bmodel;
+	vm->GetModel = ctest_world_getmodel;
+
+	qcvm = vm;
+	pr_global_struct = (globalvars_t *)vm->globals;
+
+	for (i = 0; i < CTEST_WORLD_TOUCH_KINDS; i++)
+		((int *)vm->globals)[ctest_world_builtin_ofs + i] = 1 + CTEST_WORLD_TOUCH_KINDS + i;
+
+	/* the world edict: SOLID_BSP on the brush model, exactly as sv_main.c
+	 * leaves it, so SV_Move's clip-to-world step has something to trace */
+	{
+		edict_t *world = EDICT_NUM (0);
+		world->v.solid = SOLID_BSP;
+		world->v.movetype = MOVETYPE_PUSH;
+		world->v.modelindex = 1;
+		world->v.classname = 1;
+	}
+	for (i = 1; i < num_edicts; i++)
+		EDICT_NUM (i)->v.classname = 1;
+
+	memset (ctest_world_cl_entities, 0, sizeof (ctest_world_cl_entities));
+	cl.entities = ctest_world_cl_entities;
+	cl.num_entities = 0;
+	cl.worldmodel = &ctest_world_bmodel;
+
+	ctest_world_touch_log_clear ();
+	ctest_world_pushgrid_clear ();
+	ctest_world_relink_target = -1;
+	ctest_world_free_target = -1;
+	ctest_world_set_link_fns (NULL, NULL);
+	ctest_world_set_cvars (1.0f, 1.0f, 1.0f);
+	ctest_clear_con_log ();
+}
+
+void *ctest_world_qcvm (void)
+{
+	return qcvm;
+}
+
+void *ctest_world_edict (int num)
+{
+	return EDICT_NUM (num);
+}
+
+void *ctest_world_hull (int hullnum)
+{
+	return &ctest_world_bmodel.hulls[hullnum];
+}
+
+void *ctest_world_model (void)
+{
+	return &ctest_world_bmodel;
+}
+
+/* Configures one edict. touch_kind < 0 leaves v.touch at 0, which is how a
+ * non-trigger entity is spelled. */
+void ctest_world_edict_set (
+	int num, float solid, float movetype, float modelindex, const float *origin, const float *mins, const float *maxs, const float *angles, float flags,
+	int touch_kind, float skin, int owner, int is_free)
+{
+	edict_t *ed = EDICT_NUM (num);
+
+	ed->v.solid = solid;
+	ed->v.movetype = movetype;
+	ed->v.modelindex = modelindex;
+	VectorCopy (origin, ed->v.origin);
+	VectorCopy (mins, ed->v.mins);
+	VectorCopy (maxs, ed->v.maxs);
+	VectorSubtract (maxs, mins, ed->v.size);
+	VectorCopy (angles, ed->v.angles);
+	ed->v.flags = flags;
+	ed->v.touch = touch_kind >= 0 ? ctest_world_touch_func (touch_kind) : 0;
+	ed->v.skin = skin;
+	ed->v.owner = owner;
+	ed->free = is_free ? true : false;
+}
+
+void ctest_world_edict_absbox (int num, float *out6)
+{
+	edict_t *ed = EDICT_NUM (num);
+	out6[0] = ed->v.absmin[0];
+	out6[1] = ed->v.absmin[1];
+	out6[2] = ed->v.absmin[2];
+	out6[3] = ed->v.absmax[0];
+	out6[4] = ed->v.absmax[1];
+	out6[5] = ed->v.absmax[2];
+}
+
+int ctest_world_edict_leafs (int num, int *out, int max)
+{
+	edict_t *ed = EDICT_NUM (num);
+	int		 n = (int)ed->num_leafs;
+	int		 i;
+	for (i = 0; i < n && i < max; i++)
+		out[i] = ed->leafnums[i];
+	return n;
+}
+
+int ctest_world_edict_is_free (int num)
+{
+	return EDICT_NUM (num)->free ? 1 : 0;
+}
+
+/* Five ints per areanode, in index order: index, axis, dist (bit pattern),
+ * child0 index, child1 index (-1 for a leaf). Returns the number of ints. */
+int ctest_world_snapshot_areanodes (int *out, int max)
+{
+	int n = qcvm->numareanodes;
+	int i, w = 0;
+
+	for (i = 0; i < n; i++)
+	{
+		areanode_t *node = &qcvm->areanodes[i];
+		float		dist = node->dist;
+		int			bits;
+		memcpy (&bits, &dist, sizeof (bits));
+		if (w + 5 > max)
+			break;
+		out[w++] = i;
+		out[w++] = node->axis;
+		out[w++] = bits;
+		out[w++] = node->children[0] ? (int)(node->children[0] - qcvm->areanodes) : -1;
+		out[w++] = node->children[1] ? (int)(node->children[1] - qcvm->areanodes) : -1;
+	}
+	return w;
+}
+
+/* Four ints per linked edict, in chain order: areanode index, list (0 =
+ * trigger_edicts, 1 = solid_edicts), position in that chain, edict number.
+ * Chain order is the observable thing -- membership alone would not catch an
+ * InsertLinkBefore that inserted on the wrong side. */
+int ctest_world_snapshot_links (int *out, int max)
+{
+	int i, list, w = 0;
+
+	for (i = 0; i < qcvm->numareanodes; i++)
+	{
+		areanode_t *node = &qcvm->areanodes[i];
+		for (list = 0; list < 2; list++)
+		{
+			link_t *head = list ? &node->solid_edicts : &node->trigger_edicts;
+			link_t *l;
+			int		pos = 0;
+			if (!head->next)
+				continue; /* never cleared: an unbuilt tree */
+			for (l = head->next; l != head; l = l->next)
+			{
+				if (w + 4 > max)
+					return w;
+				out[w++] = i;
+				out[w++] = list;
+				out[w++] = pos++;
+				out[w++] = NUM_FOR_EDICT (EDICT_FROM_AREA (l));
+				if (pos > qcvm->num_edicts)
+					return w; /* corrupt chain: stop rather than spin */
+			}
+		}
+	}
+	return w;
+}
+
+/* Serializes a hull_t so the two implementations' private box hulls can be
+ * compared without either side's pointer being meaningful. The ints are exact
+ * in float here (clipnode indices and contents are tiny). */
+int ctest_world_snapshot_hull (const void *hullp, float *out, int max)
+{
+	const hull_t *hull = (const hull_t *)hullp;
+	int			  i, w = 0;
+
+	if (w + 8 > max)
+		return -1;
+	out[w++] = (float)hull->firstclipnode;
+	out[w++] = (float)hull->lastclipnode;
+	out[w++] = hull->clip_mins[0];
+	out[w++] = hull->clip_mins[1];
+	out[w++] = hull->clip_mins[2];
+	out[w++] = hull->clip_maxs[0];
+	out[w++] = hull->clip_maxs[1];
+	out[w++] = hull->clip_maxs[2];
+
+	for (i = hull->firstclipnode; i <= hull->lastclipnode; i++)
+	{
+		const mclipnode_t *node = &hull->clipnodes[i];
+		const mplane_t	  *plane = &hull->planes[node->planenum];
+		if (w + 9 > max)
+			return -1;
+		out[w++] = (float)node->planenum;
+		out[w++] = (float)node->children[0];
+		out[w++] = (float)node->children[1];
+		out[w++] = plane->normal[0];
+		out[w++] = plane->normal[1];
+		out[w++] = plane->normal[2];
+		out[w++] = plane->dist;
+		out[w++] = (float)plane->type;
+		out[w++] = (float)plane->signbits;
+	}
+	return w;
+}
+
+/* --- the client VM's entity list (World_ClipToNetwork) -------------------- */
+
+void ctest_world_cl_set_num_entities (int n)
+{
+	if (n < 0)
+		n = 0;
+	if (n > CTEST_WORLD_MAX_CL_ENTITIES)
+		n = CTEST_WORLD_MAX_CL_ENTITIES;
+	cl.num_entities = n;
+}
+
+void ctest_world_cl_set_entity (int i, int modelindex, unsigned int solidsize, const float *origin, const float *angles, int skinnum)
+{
+	entity_t *e;
+	if (i < 0 || i >= CTEST_WORLD_MAX_CL_ENTITIES)
+		return;
+	e = &ctest_world_cl_entities[i];
+	memset (e, 0, sizeof (*e));
+	e->model = ctest_world_getmodel (modelindex);
+	e->netstate.solidsize = solidsize;
+	VectorCopy (origin, e->origin);
+	VectorCopy (angles, e->angles);
+	e->skinnum = skinnum;
+}
+
+/* trace_t's exact layout, so the test's #[repr(C)] mirror is checked against
+ * the compiler's own view instead of being assumed (ADR-007/011 in spirit;
+ * trace_t has no quake-types mirror, the mirror lives in the test file). */
+int ctest_world_trace_layout (int *out, int max)
+{
+	if (max < 11)
+		return 0;
+	out[0] = (int)sizeof (trace_t);
+	out[1] = (int)offsetof (trace_t, allsolid);
+	out[2] = (int)offsetof (trace_t, startsolid);
+	out[3] = (int)offsetof (trace_t, inopen);
+	out[4] = (int)offsetof (trace_t, inwater);
+	out[5] = (int)offsetof (trace_t, fraction);
+	out[6] = (int)offsetof (trace_t, endpos);
+	out[7] = (int)offsetof (trace_t, plane);
+	out[8] = (int)offsetof (trace_t, plane.dist);
+	out[9] = (int)offsetof (trace_t, ent);
+	out[10] = (int)offsetof (trace_t, contents);
+	return 11;
+}
+
+/* The rest of world_glue.c's surface (it is a Meson-only TU, so the harness
+ * has to supply the same bodies for the Rust side to call). Kept
+ * line-for-line equivalent to Quake/world_glue.c. */
+
+typedef struct
+{
+	int		  num;
+	edict_t **out;
+} ctest_world_edictnum_arg_t;
+
+static void ctest_world_invoke_edictnum (void *p)
+{
+	ctest_world_edictnum_arg_t *a = (ctest_world_edictnum_arg_t *)p;
+	*a->out = EDICT_NUM (a->num);
+}
+
+int World_Glue_EdictNum (int num, edict_t **out)
+{
+	ctest_world_edictnum_arg_t arg;
+	arg.num = num;
+	arg.out = out;
+	*out = NULL;
+	return Host_Guard (ctest_world_invoke_edictnum, &arg);
+}
+
+typedef struct
+{
+	edict_t *ent;
+	int		*out;
+} ctest_world_numfor_arg_t;
+
+static void ctest_world_invoke_numfor (void *p)
+{
+	ctest_world_numfor_arg_t *a = (ctest_world_numfor_arg_t *)p;
+	*a->out = NUM_FOR_EDICT (a->ent);
+}
+
+int World_Glue_NumForEdict (edict_t *ent, int *out)
+{
+	ctest_world_numfor_arg_t arg;
+	arg.ent = ent;
+	arg.out = out;
+	*out = 0;
+	return Host_Guard (ctest_world_invoke_numfor, &arg);
+}
+
+typedef struct
+{
+	const char *expr;
+	const char *file;
+	int			line;
+} ctest_world_assert_arg_t;
+
+static void ctest_world_invoke_assert (void *p)
+{
+	ctest_world_assert_arg_t *a = (ctest_world_assert_arg_t *)p;
+	COM_Assert_Failed (a->expr, a->file, a->line);
+}
+
+int World_Glue_AssertFailed (const char *expr, const char *file_path, int line)
+{
+	ctest_world_assert_arg_t arg;
+	arg.expr = expr;
+	arg.file = file_path;
+	arg.line = line;
+	return Host_Guard (ctest_world_invoke_assert, &arg);
+}
+
+void World_Glue_EntClipInfo (entity_t *e, unsigned int *solidsize, qmodel_t **model, vec3_t origin, vec3_t angles, int *skinnum)
+{
+	*solidsize = e->netstate.solidsize;
+	*model = e->model;
+	VectorCopy (e->origin, origin);
+	VectorCopy (e->angles, angles);
+	*skinnum = e->skinnum;
+}
+
+/* Both warn sites format PR_GetString (ent->v.classname), and PR_GetString
+ * reaches Host_Error (Quake/pr_edict_arena.c:315) when the string_t is
+ * negative and its knownstrings slot is NULL. That makes them raise-capable,
+ * so per ADR-009 they are Host_Guard'd here and hand a status back for the
+ * Rust caller to propagate; world_glue.c does the same in the real build. */
+static void World_InvokeWarnSolidBspNoPush (void *p)
+{
+	edict_t *ent = (edict_t *)p;
+	Con_Warning ("SOLID_BSP without MOVETYPE_PUSH (%s at %f %f %f)\n", PR_GetString (ent->v.classname), ent->v.origin[0], ent->v.origin[1], ent->v.origin[2]);
+}
+
+int World_Glue_WarnSolidBspNoPush (edict_t *ent)
+{
+	return Host_Guard (World_InvokeWarnSolidBspNoPush, ent);
+}
+
+static void World_InvokeWarnSolidBspNonBspModel (void *p)
+{
+	edict_t *ent = (edict_t *)p;
+	Con_Warning ("SOLID_BSP with a non bsp model (%s at %f %f %f)\n", PR_GetString (ent->v.classname), ent->v.origin[0], ent->v.origin[1], ent->v.origin[2]);
+}
+
+int World_Glue_WarnSolidBspNonBspModel (edict_t *ent)
+{
+	return Host_Guard (World_InvokeWarnSolidBspNonBspModel, ent);
+}
+
+void World_Glue_DPrintBackupPast0 (void)
+{
+	Con_DPrintf ("backup past 0\n");
+}
+
+/* Pointer -> index, so a trace_t's `ent` and an areanode_t* can be compared
+ * across two implementations that each hand back their own pointers. */
+int ctest_world_edict_index (const void *p)
+{
+	const byte *base = (const byte *)qcvm->edicts;
+	const byte *e = (const byte *)p;
+	if (!p)
+		return -1;
+	if (e < base || e >= base + (size_t)qcvm->num_edicts * qcvm->edict_size)
+		return -2;
+	return (int)((e - base) / qcvm->edict_size);
+}
+
+int ctest_world_areanode_index (const void *p)
+{
+	const areanode_t *n = (const areanode_t *)p;
+	if (!p)
+		return -1;
+	if (n < qcvm->areanodes || n >= qcvm->areanodes + AREA_NODES)
+		return -2;
+	return (int)(n - qcvm->areanodes);
+}
+
+int ctest_world_numareanodes (void)
+{
+	return qcvm->numareanodes;
+}
+
+/* Drives SV_CreateAreaNode directly (it appends to qcvm->areanodes, so the
+ * counter has to be reset by hand -- SV_ClearWorld is the only caller in the
+ * engine and does it there). */
+void ctest_world_reset_areanodes (void)
+{
+	memset (qcvm->areanodes, 0, sizeof (qcvm->areanodes));
+	qcvm->numareanodes = 0;
+}
+
+void ctest_world_world_bounds (float *out6)
+{
+	out6[0] = ctest_world_bmodel.mins[0];
+	out6[1] = ctest_world_bmodel.mins[1];
+	out6[2] = ctest_world_bmodel.mins[2];
+	out6[3] = ctest_world_bmodel.maxs[0];
+	out6[4] = ctest_world_bmodel.maxs[1];
+	out6[5] = ctest_world_bmodel.maxs[2];
+}
+
+void *ctest_world_nodes_root (void)
+{
+	return ctest_world_bmodel.nodes;
+}
+
+void ctest_world_hull_arrays (const void *hullp, void **clipnodes, void **planes)
+{
+	const hull_t *hull = (const hull_t *)hullp;
+	*clipnodes = (void *)hull->clipnodes;
+	*planes = (void *)hull->planes;
+}
+
+int ctest_world_rhtctx_size (void)
+{
+	return (int)sizeof (struct rhtctx_s);
+}
+
+/* --- forcing PR_GetString to raise ----------------------------------------
+ * PR_GetString (Quake/pr_edict_arena.c:307-326) calls Host_Error only for a
+ * negative string_t inside the knownstrings range whose slot is NULL; every
+ * other input returns without raising. ctest_world_reset leaves
+ * numknownstrings at 0, so the fixture has to install a table before the
+ * SV_HullForEntity warn sites can raise at all. */
+static const char *ctest_world_knownstrings[4];
+
+void ctest_world_arm_bad_classname (int num)
+{
+	int i;
+	for (i = 0; i < 4; i++)
+		ctest_world_knownstrings[i] = NULL;
+	qcvm->knownstrings = ctest_world_knownstrings;
+	qcvm->numknownstrings = 4;
+	qcvm->maxknownstrings = 4;
+	EDICT_NUM (num)->v.classname = -1; /* knownstrings[0], which is NULL */
+}
+
+/* --- the plain-named world cvars ------------------------------------------
+ * The Rust port reads the engine's own `sv_fte_*` cvars, which the shipping
+ * build defines in world_glue.c -- a Meson-only translation unit that is not
+ * one of build.rs's C_SOURCES. The harness therefore owns them, and has to
+ * step around the prelude's rename macros to spell them plainly.
+ *
+ * DUPLICATE-SYMBOL HAZARD: if world_glue.c is ever added to build.rs's
+ * C_SOURCES, these two cvars AND all five plain SV_* wrappers at the bottom
+ * of this file must be removed together -- world_glue.c defines every one of
+ * them, and keeping either half would break the link. */
+#undef sv_fte_recursivehullckeck
+#undef sv_fte_createareanode
+
+cvar_t sv_fte_recursivehullckeck;
+cvar_t sv_fte_createareanode;
+
+void ctest_world_set_plain_cvars (float recursivehullcheck, float createareanode)
+{
+	sv_fte_recursivehullckeck.value = recursivehullcheck;
+	sv_fte_createareanode.value = createareanode;
+}
+
+/* --- the raise-capable world.c public ABI ---------------------------------
+ * ADR-009: six world.c entry points reach Host_Error -- SV_LinkEdict through
+ * SV_TouchLinks -> PR_ExecuteProgram, and five more through PR_GetString
+ * inside the two SV_HullForEntity Con_Warning sites plus, for SV_Move,
+ * assert_always/COM_Assert_Failed at its tail -- so the Rust port exports
+ * them as quake_rs_* status cores and the shipping build wraps them in
+ * Quake/world_glue.c. world_glue.c is not one of build.rs's C_SOURCES, so
+ * the harness owns the wrappers -- same topology, same names. The tests
+ * drive the plain symbols only, so no longjmp unwinds a Rust frame here any
+ * more than it does in the engine.
+ *
+ * DUPLICATE-SYMBOL HAZARD: if world_glue.c is ever added to build.rs's
+ * C_SOURCES, all six wrappers below AND the two plain sv_fte_* cvars above
+ * must be removed together -- world_glue.c defines every one of them, and
+ * keeping either half would break the link.
+ *
+ * The prelude's rename macros are still live in this translation unit and
+ * would rewrite these definitions to c_ref_*, colliding with the real oracle
+ * compiled from world.c, so each name is #undef'd first. */
+#undef SV_LinkEdict
+#undef SV_UnlinkEdict
+#undef SV_HullForEntity
+#undef SV_ClipMoveToEntity
+#undef SV_Move
+#undef SV_TestEntityPosition
+#undef SV_PointContentsAllBsps
+
+extern int quake_rs_sv_link_edict (edict_t *ent, qboolean touch_triggers);
+extern void SV_UnlinkEdict (edict_t *ent); /* the Rust export; world.h's declaration was renamed by the prelude */
+extern int quake_rs_sv_hull_for_entity (edict_t *ent, vec3_t mins, vec3_t maxs, vec3_t offset, hull_t **out);
+extern int quake_rs_sv_clip_move_to_entity (trace_t *out, edict_t *ent, vec3_t start, vec3_t mins, vec3_t maxs, vec3_t end, unsigned int hitcontents);
+extern int quake_rs_sv_move (trace_t *out, vec3_t start, vec3_t mins, vec3_t maxs, vec3_t end, int type, edict_t *passedict);
+extern int quake_rs_sv_test_entity_position (edict_t *ent, edict_t **out);
+extern int quake_rs_sv_point_contents_all_bsps (int *out, vec3_t p, edict_t *forent);
+
+void SV_LinkEdict (edict_t *ent, qboolean touch_triggers)
+{
+	Host_Reraise (quake_rs_sv_link_edict (ent, touch_triggers));
+}
+
+hull_t *SV_HullForEntity (edict_t *ent, vec3_t mins, vec3_t maxs, vec3_t offset)
+{
+	hull_t *out = NULL;
+	int		r = quake_rs_sv_hull_for_entity (ent, mins, maxs, offset, &out);
+	if (r)
+		Host_Reraise (r);
+	return out;
+}
+
+trace_t SV_ClipMoveToEntity (edict_t *ent, vec3_t start, vec3_t mins, vec3_t maxs, vec3_t end, unsigned int hitcontents)
+{
+	trace_t out;
+	int		r;
+	memset (&out, 0, sizeof (out));
+	r = quake_rs_sv_clip_move_to_entity (&out, ent, start, mins, maxs, end, hitcontents);
+	if (r)
+		Host_Reraise (r);
+	return out;
+}
+
+trace_t SV_Move (vec3_t start, vec3_t mins, vec3_t maxs, vec3_t end, int type, edict_t *passedict)
+{
+	trace_t out;
+	int		r;
+	memset (&out, 0, sizeof (out));
+	r = quake_rs_sv_move (&out, start, mins, maxs, end, type, passedict);
+	if (r)
+		Host_Reraise (r);
+	return out;
+}
+
+edict_t *SV_TestEntityPosition (edict_t *ent)
+{
+	edict_t *out = NULL;
+	int		 r = quake_rs_sv_test_entity_position (ent, &out);
+	if (r)
+		Host_Reraise (r);
+	return out;
+}
+
+/* SV_PointContentsAllBsps (world.c:588) calls SV_Move, so it inherits the
+ * whole raise-capable pipeline underneath it. `*out` stays untouched on the
+ * raising path because world.c:590 reads trace.contents only after SV_Move
+ * returns -- the longjmp writes nothing either. */
+int SV_PointContentsAllBsps (vec3_t p, edict_t *forent)
+{
+	int contents = 0;
+	int r = quake_rs_sv_point_contents_all_bsps (&contents, p, forent);
+	if (r)
+		Host_Reraise (r);
+	return contents;
+}
+
+/* Points the fixture's re-entrant link/unlink hook at the Rust pair. Doing
+ * this from C rather than handing ctest_world_set_link_fns a Rust function
+ * pointer keeps the ADR-009 rule intact on the raising path: a touch handler
+ * that relinks reaches the wrapper above directly, so the longjmp out of
+ * Host_Reraise unwinds C frames only. */
+void ctest_world_set_rust_link_fns (void)
+{
+	ctest_world_set_link_fns (SV_LinkEdict, SV_UnlinkEdict);
 }

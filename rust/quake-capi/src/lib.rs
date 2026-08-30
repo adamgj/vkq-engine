@@ -77,6 +77,8 @@ pub mod snd_wave;
 pub mod steam;
 pub mod strl;
 pub mod wad;
+#[cfg(feature = "host")]
+pub mod world; // world.c
 
 /// Phase 0 link probe: proves the staticlib is linked and its symbols
 /// resolve from C. Returns the quake-capi crate ABI version.

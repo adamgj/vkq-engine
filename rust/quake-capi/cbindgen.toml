@@ -361,6 +361,39 @@ void quake_rs_cbuf_insert_text(const char *text, int *raised);
 qboolean quake_rs_cmd_execute_string(const char *text, cmd_source_t src, int *raised);
 int quake_rs_cmd_forward_to_server(void);
 #endif
+/* Phase 7 M3: world/collision. The world.c entry points whose bodies can reach
+ * Host_Error -- SV_LinkEdict (PR_ExecuteProgram), SV_HullForEntity (PR_GetString
+ * behind two Con_Warnings), SV_ClipMoveToEntity, SV_Move, SV_TestEntityPosition
+ * and SV_PointContentsAllBsps -- are quake_rs_* status cores wrapped by
+ * Quake/world_glue.c, which re-issues the jump from a pure C frame (ADR-009).
+ * The rest keep their engine names and are non-raising. SV_FindTouchedLeafs and
+ * SV_MoveBounds have no engine-header prototype, so this block is their only
+ * declaration; it is guarded on world.h like the rest so the
+ * edict_t/hull_t/areanode_t/vec3_t typedefs are in scope. */
+#ifdef _QUAKE_WORLD_H
+void SV_InitBoxHull(void);
+hull_t *SV_HullForBox(vec3_t mins, vec3_t maxs);
+areanode_t *SV_CreateAreaNode(int depth, vec3_t mins, vec3_t maxs);
+void SV_ClearWorld(void);
+void SV_UnlinkEdict(edict_t *ent);
+void SV_FindTouchedLeafs(edict_t *ent, mnode_t *node);
+int SV_HullPointContents(hull_t *hull, int num, vec3_t p);
+int SV_PointContents(vec3_t p);
+int SV_TruePointContents(vec3_t p);
+int Q1BSP_RecursiveHullTrace(struct rhtctx_s *ctx, int num, float p1f, float p2f, vec3_t p1, vec3_t p2, trace_t *trace);
+qboolean SV_RecursiveHullCheck(hull_t *hull, vec3_t p1, vec3_t p2, trace_t *trace, unsigned int hitcontents);
+void SV_MoveBounds(vec3_t start, vec3_t mins, vec3_t maxs, vec3_t end, vec3_t boxmins, vec3_t boxmaxs);
+/* ADR-009 status cores; Quake/world_glue.c owns the plain SV_* wrappers that
+ * re-issue a caught jump (SV_LinkEdict, SV_HullForEntity, SV_ClipMoveToEntity,
+ * SV_Move, SV_TestEntityPosition, SV_PointContentsAllBsps), so those six names
+ * are not declared here. */
+int quake_rs_sv_link_edict(edict_t *ent, qboolean touch_triggers);
+int quake_rs_sv_hull_for_entity(edict_t *ent, vec3_t mins, vec3_t maxs, vec3_t offset, hull_t **out);
+int quake_rs_sv_clip_move_to_entity(trace_t *out, edict_t *ent, vec3_t start, vec3_t mins, vec3_t maxs, vec3_t end, unsigned int hitcontents);
+int quake_rs_sv_move(trace_t *out, vec3_t start, vec3_t mins, vec3_t maxs, vec3_t end, int type, edict_t *passedict);
+int quake_rs_sv_test_entity_position(edict_t *ent, edict_t **out);
+int quake_rs_sv_point_contents_all_bsps(int *out, vec3_t p, edict_t *forent);
+#endif
 #ifdef __cplusplus
 } /* extern "C" -- these hand-written declarations sit outside cbindgen's own
    * cpp_compat guard, so they carry their own */
@@ -499,4 +532,14 @@ exclude = [
     "rust_net_SlistPrintServer", "rust_net_SlistPrintServerName",
     "rust_net_Close", "rust_net_CheckNewConnections",
     "rust_net_ListAddresses",
+    # Phase 7 M3 -- declared by hand above, guarded on world.h
+    "SV_InitBoxHull", "SV_HullForBox", "SV_CreateAreaNode",
+    "SV_ClearWorld", "SV_UnlinkEdict", "SV_FindTouchedLeafs",
+    "SV_HullPointContents", "SV_PointContents", "SV_TruePointContents",
+    "Q1BSP_RecursiveHullTrace", "SV_RecursiveHullCheck", "SV_MoveBounds",
+    "quake_rs_sv_link_edict", "quake_rs_sv_hull_for_entity",
+    "quake_rs_sv_clip_move_to_entity", "quake_rs_sv_move",
+    "quake_rs_sv_test_entity_position", "quake_rs_sv_point_contents_all_bsps",
+    "Trace", "PlaneT", "RhtCtx", "Edict", "EntVars", "AreaNode", "Link",
+    "GlobalVars", "QcVm",
 ]

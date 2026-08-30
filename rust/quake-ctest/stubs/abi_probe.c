@@ -1091,14 +1091,18 @@ size_t ctest_abi_progs_lookup (const char *key)
  * Since quake_types::host::EntityOpaque treats entity_t entirely as an
  * opaque, size/align-verified blob -- Phase 8's renderer owns its real
  * fields, not Phase 7 -- only entity_t's sizeof/alignof are needed here,
- * not per-field offsets. So below is a bounded, field-verbatim local
- * shadow of entity_t/lightcache_t/entlerp_t transcribed from render.h,
- * reusing the Vulkan handle stand-ins above for entity_t's only
+ * not per-field offsets. The bounded, field-verbatim shadow of
+ * entity_t/lightcache_t/entlerp_t/efrag_t transcribed from render.h used to
+ * live right here; Phase 7 M3 moved it into c_ref_prelude.h, because
+ * world.c's World_ClipToNetwork walks cl.entities as entity_t and needs the
+ * same layout in its own TU. Two copies would have been free to drift, so
+ * there is now one, force-included into every oracle TU including this one.
+ * It reuses the Vulkan handle stand-ins above for entity_t's only
  * Vulkan-typed member (entity_blas_t, reached solely through a pointer, so
  * its own body is never needed).
  *
- * KNOWN GAP -- this shadow is the one place in this file that is NOT
- * header-derived, and it is load-bearing: client.h has no #includes of its
+ * KNOWN GAP -- that shadow is the one place in this probe's input that is
+ * NOT header-derived, and it is load-bearing: client.h has no #includes of its
  * own, so the client_state_t laid out in this TU takes every offset at or
  * after `viewent` from the transcription below rather than from render.h.
  * A field added to the real entity_t therefore still compiles, still passes
@@ -1144,84 +1148,8 @@ size_t ctest_abi_progs_lookup (const char *key)
 #define VID_CBITS		  6
 #define VID_GRADES		  (1 << VID_CBITS)
 
-typedef struct lightcache_s
-{
-	int	   surfidx;
-	vec3_t pos;
-	short  ds;
-	short  dt;
-} lightcache_t;
-
-typedef struct entlerp_s
-{
-	qboolean movestep;
-	int		 prev_frame;
-	double	 frame_change_time;
-	double	 frame_duration;
-	double	 frame_finish_time;
-	int		 snap_frames;
-	double	 snap_msgtime;
-	vec3_t	 prev_origin;
-	vec3_t	 prev_angles;
-	double	 move_change_time;
-	double	 move_duration;
-} entlerp_t;
-
-typedef struct entity_s
-{
-	qboolean forcelink;
-
-	int update_type;
-
-	entity_state_t baseline;
-	entity_state_t netstate;
-
-	double			 msgtime;
-	vec3_t			 msg_origins[2];
-	vec3_t			 origin;
-	vec3_t			 msg_angles[2];
-	vec3_t			 angles;
-	struct qmodel_s *model;
-	struct efrag_s	*efrag;
-	int				 frame;
-	float			 syncbase;
-	byte			*colormap;
-	int				 effects;
-	int				 skinnum;
-	int				 visframe;
-
-	int dlightframe;
-	int dlightbits;
-
-	struct mnode_s *topnode;
-
-	byte	  eflags;
-	byte	  alpha;
-	entlerp_t lerp;
-
-#ifdef PSET_SCRIPT
-	struct trailstate_s *trailstate;
-	struct trailstate_s *emitstate;
-#endif
-	float  traildelay;
-	vec3_t trailorg;
-
-	lightcache_t lightcache;
-
-	int	   contentscache;
-	vec3_t contentscache_origin;
-
-	struct entity_blas_s *blas_data;
-} entity_t;
-
-/* render.h's efrag_t: not opaque (quake_types::host::Efrag mirrors it
- * field-by-field), so it needs a real local definition too, referencing
- * the entity_t shadow above only through a pointer. */
-typedef struct efrag_s
-{
-	struct efrag_s	*leafnext;
-	struct entity_s *entity;
-} efrag_t;
+/* entity_t / lightcache_t / entlerp_t / efrag_t come from c_ref_prelude.h
+ * (see the note above); nothing is transcribed locally any more. */
 
 /* c_ref_prelude.h already declares its own `server_state_t`/`cactive_t`
  * (with the same enumerator names) for the Phase 6 pr_exec.c oracle's
@@ -1256,6 +1184,18 @@ typedef struct efrag_s
  * same treatment as sv/svs/cl/cls: renamed away for the include, then
  * discarded (nothing below needs the variable, only the struct layout). */
 #define host_client	  ctest_host_probe_unused_host_client
+/* Phase 7 M3: c_ref_prelude.h supplies world.c's slice of server.h's
+ * movetype/solid/flags enumerators as object-like macros (quakedef.h is
+ * neutered, so world.c never sees the real enums). Here -- the one TU that
+ * does include the real server.h -- those macros would rewrite the enum
+ * bodies themselves (`SOLID_NOT = 0,` -> `0 = 0,`). Drop them for good:
+ * nothing below this point needs the constants, only the struct layouts. */
+#undef MOVETYPE_PUSH
+#undef SOLID_NOT
+#undef SOLID_TRIGGER
+#undef SOLID_BSP
+#undef FL_MONSTER
+#undef FL_ITEM
 #include "server.h"
 #include "client.h"
 #undef sv

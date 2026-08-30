@@ -275,7 +275,6 @@ srcs = [
 	'Quake/sys_sdl.c',
     'Quake/tasks.c',
     'Quake/view.c',
-    'Quake/world.c',
 	 run_generate_embedded_pak,
 ]
 
@@ -541,16 +540,30 @@ endif
 # data symbols, the Host_Guard trampolines for command handlers and cvar
 # callbacks, and the Host_Reraise wrappers (ADR-009). The C originals stay the
 # -Duse_rust_cvar=disabled comparison oracle.
-# USE_RUST_HOST is still an M1 placeholder: nothing reads it yet; the
-# client/server simulation swaps land from M3 and it only carries signal then
 if use_rust_cvar
     cflags += '-DUSE_RUST_CVAR'
     srcs += ['Quake/cvar_cmd_glue.c']
 else
     srcs += ['Quake/cvar.c', 'Quake/cmd.c']
 endif
+# Phase 7 M3: world.c. Same whole-file Pattern A swap: the Rust exports
+# replace world.c, with world_glue.c supplying the two C-visible cvars and
+# the ADR-009 raise topology. Six of world.c's entry points are raise-capable
+# -- SV_LinkEdict reaches PR_ExecuteProgram, and SV_HullForEntity's two
+# Con_Warning sites reach Host_Error through PR_GetString
+# (pr_edict_arena.c:315), which makes SV_ClipMoveToEntity, SV_Move,
+# SV_TestEntityPosition and SV_PointContentsAllBsps raise-capable in turn --
+# so each is a reraising C wrapper here over a quake_rs_* status core, and
+# the Host_Guard trampolines around every C callee that can longjmp live in
+# the glue. No longjmp crosses a Rust frame. The glue also carries the
+# cl.entities accessors World_ClipToNetwork needs until the M7 client port
+# gives `cl` an ADR-011 mirror. The C original stays the
+# -Duse_rust_host=disabled comparison oracle.
 if use_rust_host
     cflags += '-DUSE_RUST_HOST'
+    srcs += ['Quake/world_glue.c']
+else
+    srcs += ['Quake/world.c']
 endif
 
 if use_rust_snd

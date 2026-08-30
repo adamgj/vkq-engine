@@ -124,6 +124,63 @@ pub mod cvar_cmd {
     }
 }
 
+/// Symbols the Phase 7 M3 `world.c` port needs: the two cvars world.c's
+/// collision paths gate on, the assertion helper, and the
+/// `Quake/world_glue.c` ADR-009 guards and `cl`/`entity_t` accessors.
+///
+/// Engine aggregates are passed as `c_void` pointers here rather than pulling
+/// `quake-types` into this crate; `quake-capi`'s `world` module casts them to
+/// the ADR-011 mirrors at the call sites.
+pub mod world {
+    use crate::cvar_t;
+    use core::ffi::{c_char, c_float, c_int, c_uint, c_void};
+
+    extern "C" {
+        /* Quake/pr_ext.c */
+        pub static mut pr_checkextension: cvar_t;
+
+        /* Quake/world_glue.c data (world.c:33-35) */
+        pub static mut sv_fte_recursivehullckeck: cvar_t;
+        pub static mut sv_fte_createareanode: cvar_t;
+
+        /// C: `void COM_Assert_Failed (const char *expr, const char *file_path, int line)`
+        /// -- always reached through `World_Glue_AssertFailed`; declared here
+        /// only because the guard's own body names it.
+        pub fn COM_Assert_Failed(expr: *const c_char, file_path: *const c_char, line: c_int);
+
+        /* Quake/world_glue.c helpers -- each returns a Host_Guard status */
+        pub fn World_Glue_CallTouch(touch: *mut c_void, self_: *mut c_void, time: c_float)
+            -> c_int;
+        pub fn World_Glue_EdictNum(num: c_int, out: *mut *mut c_void) -> c_int;
+        pub fn World_Glue_NumForEdict(ent: *mut c_void, out: *mut c_int) -> c_int;
+        pub fn World_Glue_AssertFailed(
+            expr: *const c_char,
+            file: *const c_char,
+            line: c_int,
+        ) -> c_int;
+
+        /// C: `void Con_Warning (...)` behind `PR_GetString`, which can
+        /// Host_Error (pr_edict_arena.c:315) -- guarded, so it returns a status.
+        pub fn World_Glue_WarnSolidBspNoPush(ent: *mut c_void) -> c_int;
+        pub fn World_Glue_WarnSolidBspNonBspModel(ent: *mut c_void) -> c_int;
+
+        /* Quake/world_glue.c non-raising shims */
+        pub fn World_Glue_PushGridEntityLinked(ent: *mut c_void);
+        pub fn World_Glue_QcvmIsClient() -> c_int;
+        pub fn World_Glue_ClNumEntities() -> c_int;
+        pub fn World_Glue_ClEntity(i: c_int) -> *mut c_void;
+        pub fn World_Glue_EntClipInfo(
+            e: *mut c_void,
+            solidsize: *mut c_uint,
+            model: *mut *mut c_void,
+            origin: *mut c_float,
+            angles: *mut c_float,
+            skinnum: *mut c_int,
+        );
+        pub fn World_Glue_DPrintBackupPast0();
+    }
+}
+
 #[allow(non_camel_case_types, non_snake_case, non_upper_case_globals)]
 mod generated;
 
