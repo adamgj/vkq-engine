@@ -38,6 +38,18 @@ _Static_assert (MAX_SCOREBOARDNAME == 32, "abi_probe.c hardcodes this for its Ph
 _Static_assert (VID_CBITS == 6, "abi_probe.c hardcodes this for its Phase 7 host slice; update both together");
 _Static_assert (VID_GRADES == 64, "abi_probe.c hardcodes this for its Phase 7 host slice; update both together");
 
+/* Phase 7 M2 copied these two into Rust (rust/quake-capi/src/cmd.rs) and, for
+   CMDLINE_LENGTH, a third time into rust/quake-ctest/include/c_ref_prelude.h.
+   CMDLINE_LENGTH is load-bearing beyond behaviour: cmd_stuffcmds_f writes into
+   a [u8; CMDLINE_LENGTH] with an index bounded only by common.c's clamp of
+   com_cmdline to CMDLINE_LENGTH - 1, so raising the C constant without the
+   Rust copies would abort on an ordinary command line during startup. */
+_Static_assert (CMDLINE_LENGTH == 256, "rust/quake-capi/src/cmd.rs and c_ref_prelude.h hardcode this; update all three together");
+/* Only the length is checkable portably here (a compile-time string compare
+   needs __builtin_strcmp, which MSVC cl lacks); the exact spelling is covered
+   by the config byte-diff gate, which reads the file back by name. */
+_Static_assert (sizeof (CONFIG_NAME) == sizeof ("vkQuake.cfg"), "rust/quake-capi/src/cmd.rs hardcodes this; update both together");
+
 qboolean harness_active = false;
 qboolean harness_fixed_dt = false;
 qboolean no_rendering = false;

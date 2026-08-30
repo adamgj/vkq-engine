@@ -21,6 +21,7 @@ doctest = false
 [dependencies]
 quake-util = { path = "../quake-util" }
 quake-math = { path = "../quake-math" }
+quake-cvar = { path = "../quake-cvar" }
 quake-fs = { path = "../quake-fs" }
 quake-image = { path = "../quake-image" }
 quake-formats = { path = "../quake-formats" }

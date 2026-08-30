@@ -7,7 +7,9 @@ use std::path::PathBuf;
 
 const C_SOURCES: &[&str] = &[
     "Quake/cfgfile.c",
+    "Quake/cmd.c",
     "Quake/common_fs.c",
+    "Quake/cvar.c",
     "Quake/crc.c",
     "Quake/hash_map.c",
     "Quake/image_decode.c",

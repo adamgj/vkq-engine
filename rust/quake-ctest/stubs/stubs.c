@@ -796,9 +796,68 @@ qboolean isDedicated = false;
 qboolean multiuser = false;
 qboolean harness_active = true; /* hermetic: pref files land in com_gamedir */
 
+/* Phase 7 M2: true once command execution is "live". Gates
+ * Cvar_RegisterVariable's dynamic-vs-static name-copy strategy and
+ * Cvar_SetQuick's default_string update-in-place behavior; tests toggle it
+ * with ctest_set_host_initialized to exercise both paths. */
+qboolean host_initialized = false;
+void	 ctest_set_host_initialized (qboolean v) { host_initialized = v; }
+
+/* Phase 7 M2: the client the current src_client command is attributed to;
+ * only Cmd_ExecuteString's src_client warning path reads it. */
+client_t *host_client = NULL;
+void	  ctest_set_host_client (client_t *c) { host_client = c; }
+
+/* Phase 7 M2: differential tests exercising Cmd_ExecuteString's src_client
+ * path need a `host_client` whose ->name is safe to print (cmd.c's
+ * Cmd_ExecuteString dereferences it unconditionally for the "tried to"
+ * warning); leaked so the pointer stays valid for the life of the process. */
+client_t *ctest_make_client_with_name (const char *name)
+{
+	client_t *c = (client_t *)calloc (1, sizeof (client_t));
+	q_strlcpy (c->name, name, sizeof (c->name));
+	return c;
+}
+
 cvar_t registered = {"registered", "1", CVAR_ROM, 1.0f, NULL, NULL, NULL, NULL};
 cvar_t cmdline = {"cmdline", "", CVAR_ROM, 0.0f, NULL, NULL, NULL, NULL};
 cvar_t developer = {"developer", "0", CVAR_NONE, 0.0f, NULL, NULL, NULL, NULL};
+/* Phase 7 M2: cvar.c's CVAR_USERINFO replication special-cases these three
+ * by address (Cvar_SetQuick's "name"/"color" legacy setinfo hacks). */
+cvar_t cl_name = {"_cl_name", "player", CVAR_ARCHIVE | CVAR_USERINFO, 0.0f, NULL, NULL, NULL, NULL};
+cvar_t cl_topcolor = {"_cl_topcolor", "0", CVAR_ARCHIVE | CVAR_USERINFO, 0.0f, NULL, NULL, NULL, NULL};
+cvar_t cl_bottomcolor = {"_cl_bottomcolor", "0", CVAR_ARCHIVE | CVAR_USERINFO, 0.0f, NULL, NULL, NULL, NULL};
+
+/* Phase 7 M2: records the argv of whichever side's Cmd_ExecuteString/direct
+ * call last ran a probe command, so cvar_cmd_differential.rs can compare the
+ * two sides' tokenization without either side needing to expose cmd_argv
+ * directly. ctest_probe_xcommand is registered as a c_ref-side xcommand (its
+ * Cmd_Argc/Cmd_Argv calls resolve through the renames above to the c_ref
+ * registry); the Rust side has no equivalent C source to compile an xcommand
+ * from, so its test-side callback fills the same buffer via
+ * ctest_probe_set_arg/ctest_probe_set_argc after calling the Rust Cmd_Argc/
+ * Cmd_Argv exports itself. */
+#define CTEST_PROBE_MAX_ARGS 16
+static int	ctest_probe_argc_v;
+static char ctest_probe_argv_v[CTEST_PROBE_MAX_ARGS][256];
+void		ctest_probe_xcommand (void)
+{
+	int i, n = Cmd_Argc ();
+	if (n > CTEST_PROBE_MAX_ARGS)
+		n = CTEST_PROBE_MAX_ARGS;
+	ctest_probe_argc_v = n;
+	for (i = 0; i < n; i++)
+		snprintf (ctest_probe_argv_v[i], sizeof (ctest_probe_argv_v[i]), "%s", Cmd_Argv (i));
+}
+void ctest_probe_clear (void) { ctest_probe_argc_v = 0; }
+int	 ctest_probe_argc (void) { return ctest_probe_argc_v; }
+const char *ctest_probe_argv (int i) { return (i >= 0 && i < ctest_probe_argc_v) ? ctest_probe_argv_v[i] : ""; }
+void		ctest_probe_set_argc (int n) { ctest_probe_argc_v = (n > CTEST_PROBE_MAX_ARGS) ? CTEST_PROBE_MAX_ARGS : n; }
+void		ctest_probe_set_arg (int i, const char *value)
+{
+	if (i >= 0 && i < CTEST_PROBE_MAX_ARGS)
+		snprintf (ctest_probe_argv_v[i], sizeof (ctest_probe_argv_v[i]), "%s", value);
+}
 
 /* pref dir for the non-harness COM_FOpenPrefFile / COM_SetUserPrefDir path */
 static char ctest_pref_path[1024];
@@ -947,19 +1006,21 @@ void Sys_QuitNoShutdown (void)
 
 /* ---------------------------------------------------------------------------
  * Cvar / Cmd registration capture
- */
-
-void Cvar_RegisterVariable (cvar_t *variable)
-{
-	Con_Printf ("ctest Cvar_RegisterVariable %s\n", variable->name);
-}
-
-struct cmd_function_s *Cmd_AddCommand2 (const char *cmd_name, xcommand_t function, cmd_source_t srctype, qboolean qcinterceptable)
-{
-	(void)function;
-	Con_Printf ("ctest Cmd_AddCommand %s src=%d qc=%d\n", cmd_name, (int)srctype, (int)qcinterceptable);
-	return NULL;
-}
+ *
+ * Phase 7 M2: Cvar_RegisterVariable / Cmd_AddCommand2 (and, further below,
+ * Cvar_Set / Cvar_SetQuick / Cvar_SetCallback / Cmd_Argc / Cmd_Argv) used to
+ * be placeholder logging stubs here so both the c_ref oracle's C_SOURCES
+ * files and the Rust shims funneled through one capture point. Now that
+ * cvar.c/cmd.c compile into this binary as c_ref_Cvar_RegisterVariable /
+ * c_ref_Cmd_AddCommand2 / etc (c_ref_prelude.h), and quake-capi's `cvar`
+ * feature provides the real plain-named Rust exports (quake-capi/src/cvar.rs,
+ * cmd.rs) that quake-c-sys's other FFI callers (fs.rs, snd_dma.rs, ...) link
+ * against, a stub definition under any of these plain names would collide at
+ * link time with the c_ref_* rename of the real definition. The registration
+ * event log (ctest_cvar_log / ctest_clear_cvar_log / ctest_cvar_log_len /
+ * ctest_cvar_log_get, below) is left in place -- cfgfile_differential.rs and
+ * fs_gamedir_differential.rs still call it, it now just always observes an
+ * empty log on both sides, since neither reaches a capture stub any more. */
 
 /* Rust migration seams that stay in common.c in the real engine */
 void COM_Game_f (void) {}
@@ -1060,6 +1121,30 @@ int q_strcasecmp (const char *s1, const char *s2)
 	return (int)(c1 - c2);
 }
 
+/* q_strcasestr copied verbatim from Quake/common.c: the cmd.c oracle's
+ * Cmd_TintSubstring calls the real (renamed) q_strcasestr, and quake-capi's
+ * cmd module needs the plain name too (common.c isn't in C_SOURCES).
+ * q_strncasecmp (which this calls) is already defined further below as part
+ * of the model_parse.c tail stand-ins -- reuse that definition rather than
+ * redefining it here. */
+char *q_strcasestr (const char *haystack, const char *needle)
+{
+	const size_t len = strlen (needle);
+
+	if (!len)
+		return (char *)haystack;
+
+	while (*haystack)
+	{
+		if (!q_strncasecmp (haystack, needle, len))
+			return (char *)haystack;
+
+		++haystack;
+	}
+
+	return NULL;
+}
+
 /* q_vsnprintf / q_snprintf copied verbatim from Quake/common.c */
 int q_vsnprintf (char *str, size_t size, const char *format, va_list args)
 {
@@ -1115,43 +1200,17 @@ static short ctest_ShortNoSwap (short l)
 short (*LittleShort) (short l) = ctest_ShortNoSwap;
 
 /* ---------------------------------------------------------------------------
- * Cvar_Set capture: both the C reference and the Rust shims funnel through
- * this stub, so tests snapshot and compare the exact call sequences
+ * Cvar_Set capture log accessors. See the Phase 7 M2 comment above
+ * Cvar_RegisterVariable's old definition: the old plain-named logging stubs
+ * are gone (both sides now reach the real c_ref_Cvar_Set / quake_rs
+ * Cvar_Set), so the log is refilled through a change callback on cvars a
+ * test registers into BOTH registries via ctest_register_logged_cvar_pair
+ * (defined below the raise-capable wrappers). fs_gamedir_differential.rs
+ * still observes an empty log on both sides by design.
  */
 #define CTEST_CVAR_LOG_MAX 128
 static char ctest_cvar_log[CTEST_CVAR_LOG_MAX][2][256];
 static int	ctest_cvar_log_count;
-
-void Cvar_Set (const char *var_name, const char *value)
-{
-	if (ctest_cvar_log_count < CTEST_CVAR_LOG_MAX)
-	{
-		snprintf (ctest_cvar_log[ctest_cvar_log_count][0], 256, "%s", var_name);
-		snprintf (ctest_cvar_log[ctest_cvar_log_count][1], 256, "%s", value);
-	}
-	ctest_cvar_log_count++;
-}
-
-/* Cvar_SetQuick / Cvar_SetCallback are reached from S_Init on both sides of
- * the seam (c_ref snd_dma.c and the Rust shim). Routing the set through the
- * same capture keeps the two symmetric; the callback assignment mirrors
- * cvar.c so a registered callback still fires. */
-void Cvar_SetQuick (cvar_t *var, const char *value)
-{
-	Cvar_Set (var->name, value);
-	var->value = atof (value);
-	if (var->callback)
-		var->callback (var);
-}
-
-void Cvar_SetCallback (cvar_t *var, cvarcallback_t func)
-{
-	var->callback = func;
-	if (func)
-		var->flags |= CVAR_CALLBACK;
-	else
-		var->flags &= ~CVAR_CALLBACK;
-}
 
 void ctest_clear_cvar_log (void)
 {
@@ -1360,6 +1419,566 @@ int ctest_try_host (void (*fn) (void *), void *arg)
 const char *ctest_host_error_message (void)
 {
 	return ctest_host_error_msg;
+}
+
+/* ---------------------------------------------------------------------------
+ * Phase 7 M2: cvar.c/cmd.c externals quake-capi's `cvar` feature needs.
+ *
+ * Host.c's Host_Guard/Host_Reraise and Quake/cvar_cmd_glue.c (the C frame
+ * around the Rust cvar/cmd registries, ADR-009 rule 3) are not compiled into
+ * this binary -- host.c isn't in C_SOURCES, and cvar_cmd_glue.c is only
+ * built by Meson under -Duse_rust_cvar. quake-capi's cvar/cmd modules still
+ * declare all of it as extern (rust/quake-c-sys/src/lib.rs, module
+ * cvar_cmd), so enabling the `cvar` feature (this crate's Cargo.toml) makes
+ * every test binary in this crate need these symbols to link, not just
+ * cvar_cmd_differential.rs.
+ *
+ * Host_Guard below reuses the Sys_Error/Host_Error traps already defined
+ * above (ctest_sys_error_jmp/armed/msg, ctest_host_error_jmp/armed/msg): it
+ * saves/installs its own setjmp point in those same statics, the way the
+ * real Host_Guard saves/installs host_abortserver/screen_error, so a
+ * Host_Error or Sys_Error raised inside fn() is caught here instead of
+ * unwinding past the Rust frame that called it. The two-case CTEST_GUARD_*
+ * result isn't the real HOST_GUARD_OK/ABORTSERVER/SCREEN_ERROR (this harness
+ * has no console-abort/fatal-screen distinction, only the two traps above),
+ * so it uses its own names rather than claiming identical semantics.
+ * Host_Reraise re-issues the catch by calling Host_Error/Sys_Error again,
+ * landing in the next guard out or, at the outermost level, in a test's own
+ * ctest_try_host/ctest_try.
+ *
+ * The plain Cvar_, Cbuf_ and Cmd_ wrapper names below are exactly
+ * cvar_cmd_glue.c's raise-capable public ABI. They are also cvar.c/cmd.c's
+ * own names (c_ref_prelude.h renames those to c_ref_*), so each one is
+ * #undef'd first: the force-included prelude's rename macros are still
+ * active in this translation unit and would otherwise rewrite the
+ * definition itself to c_ref_Cvar_Set etc, colliding with the real,
+ * unrelated c_ref_Cvar_Set this same binary links from cvar.c.
+ */
+
+#define CTEST_GUARD_OK		   0
+#define CTEST_GUARD_HOST_ERROR 1
+#define CTEST_GUARD_SYS_ERROR  2
+
+int Host_Guard (void (*fn) (void *), void *arg)
+{
+	jmp_buf saved_host_jmp, saved_sys_jmp;
+	int		saved_host_armed = ctest_host_error_armed;
+	int		saved_sys_armed = ctest_sys_error_armed;
+	int		result;
+
+	memcpy (saved_host_jmp, ctest_host_error_jmp, sizeof (jmp_buf));
+	memcpy (saved_sys_jmp, ctest_sys_error_jmp, sizeof (jmp_buf));
+
+	if (setjmp (ctest_host_error_jmp))
+	{
+		result = CTEST_GUARD_HOST_ERROR;
+	}
+	else if (setjmp (ctest_sys_error_jmp))
+	{
+		result = CTEST_GUARD_SYS_ERROR;
+	}
+	else
+	{
+		ctest_host_error_armed = 1;
+		ctest_sys_error_armed = 1;
+		fn (arg);
+		result = CTEST_GUARD_OK;
+	}
+
+	memcpy (ctest_host_error_jmp, saved_host_jmp, sizeof (jmp_buf));
+	memcpy (ctest_sys_error_jmp, saved_sys_jmp, sizeof (jmp_buf));
+	ctest_host_error_armed = saved_host_armed;
+	ctest_sys_error_armed = saved_sys_armed;
+	return result;
+}
+
+void Host_Reraise (int guard_result)
+{
+	switch (guard_result)
+	{
+	case CTEST_GUARD_HOST_ERROR:
+		Host_Error ("%s", ctest_host_error_msg);
+		break;
+	case CTEST_GUARD_SYS_ERROR:
+		Sys_Error ("%s", ctest_sys_error_msg);
+		break;
+	default:
+		break;
+	}
+}
+
+/* Quake/common.c's Info_SetKey/Info_RemoveKey (common.c:759-824), copied
+ * verbatim: cvar.c's CVAR_SERVERINFO/CVAR_USERINFO replication below and the
+ * Rust cvar module both call Info_SetKey directly, and common.c isn't in
+ * C_SOURCES. */
+static void ctest_Info_RemoveKey (char *info, const char *key)
+{
+	size_t keylen = strlen (key);
+
+	while (*info)
+	{
+		char *l = info;
+		if (*info++ != '\\')
+			break;
+		if (!strncmp (info, key, keylen) && info[keylen] == '\\')
+		{
+			info += keylen + 1;
+			while (*info && *info != '\\')
+				info++;
+			memmove (l, info, strlen (info) + 1);
+			return;
+		}
+		while (*info && *info != '\\')
+			info++;
+		if (*info++ != '\\')
+			break;
+		while (*info && *info != '\\')
+			info++;
+	}
+}
+
+void Info_SetKey (char *info, size_t infosize, const char *key, const char *val)
+{
+	size_t keylen = strlen (key);
+	size_t vallen = strlen (val);
+
+	ctest_Info_RemoveKey (info, key);
+
+	if (vallen)
+	{
+		char *o = info + strlen (info);
+		char *e = info + infosize - 1;
+
+		if (!*key || strchr (key, '\\') || strchr (val, '\\'))
+			Con_Warning ("Info_SetKey(%s): invalid key/value\n", key);
+		else if (o + 2 + keylen + vallen >= e)
+			Con_Warning ("Info_SetKey(%s): length exceeds max\n", key);
+		else
+		{
+			*o++ = '\\';
+			memcpy (o, key, keylen);
+			o += keylen;
+			*o++ = '\\';
+			memcpy (o, val, vallen);
+			o += vallen;
+			*o = 0;
+		}
+	}
+}
+
+/* pr_ext.c's autocvar-changed notifier: no QC VM is loaded in these test
+ * binaries (Phase 6's progs harness is a separate set of suites), so this is
+ * a no-op -- CVAR_AUTOCVAR is never set on any fixture cvar here. */
+void PR_AutoCvarChanged (cvar_t *var)
+{
+	(void)var;
+}
+
+/* ---------------------------------------------------------------------------
+ * C-visible registry data (cvar_cmd_glue.c). console.c would walk these for
+ * tab completion in the real engine; nothing in this binary does.
+ */
+
+#undef cl_nopext
+#undef cmd_warncmd
+cvar_t cl_nopext = {"cl_nopext", "0", CVAR_NONE};
+cvar_t cmd_warncmd = {"cl_warncmd", "1", CVAR_NONE};
+
+#define MAX_ALIAS_NAME 32
+typedef struct cmdalias_s
+{
+	struct cmdalias_s *next;
+	char			   name[MAX_ALIAS_NAME];
+	char			  *value;
+} cmdalias_t;
+
+#undef cmd_text
+#undef cmd_source
+#undef cmd_functions
+#undef cmd_alias
+sizebuf_t		 cmd_text;
+cmd_source_t	 cmd_source;
+cmd_function_t	*cmd_functions;
+cmdalias_t		*cmd_alias;
+
+/* ---------------------------------------------------------------------------
+ * CvarCmd_Glue_*: guarded dispatch + the accessors/replication blocks
+ * cvar_cmd_glue.c keeps in C (svs/cls have no ADR-011 mirror yet).
+ */
+
+typedef struct
+{
+	xcommand_t fn;
+} ctest_xcommand_arg_t;
+
+static void ctest_invoke_xcommand (void *p)
+{
+	((ctest_xcommand_arg_t *)p)->fn ();
+}
+
+int CvarCmd_Glue_CallXCommand (xcommand_t fn)
+{
+	ctest_xcommand_arg_t arg;
+	arg.fn = fn;
+	return Host_Guard (ctest_invoke_xcommand, &arg);
+}
+
+typedef struct
+{
+	cvarcallback_t cb;
+	cvar_t		  *var;
+} ctest_cvarcallback_arg_t;
+
+static void ctest_invoke_cvar_callback (void *p)
+{
+	ctest_cvarcallback_arg_t *a = (ctest_cvarcallback_arg_t *)p;
+	a->cb (a->var);
+}
+
+int CvarCmd_Glue_CallCvarCallback (cvarcallback_t cb, cvar_t *var)
+{
+	ctest_cvarcallback_arg_t arg;
+	arg.cb = cb;
+	arg.var = var;
+	return Host_Guard (ctest_invoke_cvar_callback, &arg);
+}
+
+static void ctest_invoke_autocvar_changed (void *p)
+{
+	PR_AutoCvarChanged ((cvar_t *)p);
+}
+
+int CvarCmd_Glue_AutoCvarChanged (cvar_t *var)
+{
+	return Host_Guard (ctest_invoke_autocvar_changed, var);
+}
+
+typedef struct
+{
+	sizebuf_t  *buf;
+	const void *data;
+	int			length;
+} ctest_szwrite_arg_t;
+
+static void ctest_invoke_szwrite (void *p)
+{
+	ctest_szwrite_arg_t *a = (ctest_szwrite_arg_t *)p;
+	SZ_Write (a->buf, a->data, a->length);
+}
+
+int CvarCmd_Glue_SzWrite (sizebuf_t *buf, const void *data, int length)
+{
+	ctest_szwrite_arg_t arg;
+	arg.buf = buf;
+	arg.data = data;
+	arg.length = length;
+	return Host_Guard (ctest_invoke_szwrite, &arg);
+}
+
+const char *CvarCmd_Glue_HostClientName (void)
+{
+	return host_client ? host_client->name : "";
+}
+
+qboolean CvarCmd_Glue_ClsConnected (void)
+{
+	return cls.state == ca_connected;
+}
+
+qboolean CvarCmd_Glue_ClsDemoPlayback (void)
+{
+	return cls.demoplayback;
+}
+
+static void ctest_invoke_forward_begin (void *p)
+{
+	(void)p;
+	MSG_WriteByte (&cls.message, clc_stringcmd);
+}
+
+int CvarCmd_Glue_ForwardBegin (void)
+{
+	return Host_Guard (ctest_invoke_forward_begin, NULL);
+}
+
+static void ctest_invoke_forward_print (void *p)
+{
+	SZ_Print (&cls.message, (const char *)p);
+}
+
+int CvarCmd_Glue_ForwardPrint (const char *s)
+{
+	return Host_Guard (ctest_invoke_forward_print, (void *)s);
+}
+
+/* protocol.h numbers, handed over rather than re-spelled here */
+void CvarCmd_Glue_Protocols (int *rmq, int *fitzquake, int *netquake)
+{
+	*rmq = PROTOCOL_RMQ;
+	*fitzquake = PROTOCOL_FITZQUAKE;
+	*netquake = PROTOCOL_NETQUAKE;
+}
+
+void CvarCmd_Glue_PextNumbers (unsigned int *pext1, unsigned int *pext1_client, unsigned int *pext2, unsigned int *pext2_client)
+{
+	*pext1 = PROTOCOL_FTE_PEXT1;
+	*pext1_client = PEXT1_SUPPORTED_CLIENT;
+	*pext2 = PROTOCOL_FTE_PEXT2;
+	*pext2_client = PEXT2_SUPPORTED_CLIENT;
+}
+
+static void ctest_invoke_serverinfo_changed (void *p)
+{
+	cvar_t *var = (cvar_t *)p;
+
+	Info_SetKey (svs.serverinfo, sizeof (svs.serverinfo), var->name, var->string);
+
+	for (client_t *current_client = svs.clients; current_client < svs.clients + svs.maxclients; current_client++)
+	{
+		if (current_client->active)
+		{
+			MSG_WriteByte (&current_client->message, svc_stufftext);
+			MSG_WriteString (&current_client->message, va ("%s \"%s\" \"%s\"\n", "//svi", var->name, var->string));
+		}
+	}
+}
+
+int CvarCmd_Glue_ServerinfoChanged (cvar_t *var)
+{
+	return Host_Guard (ctest_invoke_serverinfo_changed, var);
+}
+
+static void ctest_invoke_userinfo_changed (void *p)
+{
+	cvar_t *var = (cvar_t *)p;
+
+	Info_SetKey (cls.userinfo, sizeof (cls.userinfo), var->name, var->string);
+
+	if (cls.state == ca_connected)
+	{
+		MSG_WriteByte (&cls.message, clc_stringcmd);
+		if (var == &cl_name)
+			MSG_WriteString (&cls.message, va ("name \"%s\"\n", var->string));
+		else if (var == &cl_topcolor || var == &cl_bottomcolor)
+			MSG_WriteString (&cls.message, va ("color \"%s\" \"%s\"\n", cl_topcolor.string, cl_bottomcolor.string));
+		else
+			MSG_WriteString (&cls.message, va ("setinfo \"%s\" \"%s\"\n", var->name, var->string));
+	}
+}
+
+int CvarCmd_Glue_UserinfoChanged (cvar_t *var)
+{
+	return Host_Guard (ctest_invoke_userinfo_changed, var);
+}
+
+/* ---------------------------------------------------------------------------
+ * The raise-capable public ABI: thin wrappers over the Rust quake_rs_*
+ * status cores, re-issuing the caught jump from this pure C frame. Mirrors
+ * cvar_cmd_glue.c exactly (its only reason to not be reused as-is is that it
+ * is conditionally compiled by Meson, not part of any C_SOURCES entry here).
+ */
+
+/* quake-capi's cmd module (Cbuf_Init/Cbuf_AddText, direct exports) calls
+ * these plain names directly, not through a quake_rs_* status core -- their
+ * own overflow path (SZ_GetSpace) isn't reachable from Cbuf_Init/Cbuf_AddText
+ * the way it is from Cbuf_InsertText, so no guard/reraise is needed here,
+ * just a passthrough to net_msg.c's real (renamed) implementations.
+ * SZ_Clear is deliberately NOT wrapped here: quake-capi's net module (the
+ * "net" feature, already enabled in this crate's Cargo.toml) exports its own
+ * real Rust SZ_Clear (rust/quake-capi/src/net.rs), so a plain-named C
+ * definition of it here would be a duplicate-symbol link error. */
+#undef SZ_Alloc
+#undef SZ_Write
+void c_ref_SZ_Alloc (sizebuf_t *buf, int startsize);
+void c_ref_SZ_Write (sizebuf_t *buf, const void *data, int length);
+void SZ_Alloc (sizebuf_t *buf, int startsize) { c_ref_SZ_Alloc (buf, startsize); }
+void SZ_Write (sizebuf_t *buf, const void *data, int length) { c_ref_SZ_Write (buf, data, length); }
+
+extern int		quake_rs_cbuf_execute (void);
+extern void		quake_rs_cbuf_insert_text (const char *text, int *raised);
+extern qboolean quake_rs_cmd_execute_string (const char *text, cmd_source_t src, int *raised);
+extern int		quake_rs_cmd_forward_to_server (void);
+extern void		quake_rs_cvar_register_variable (cvar_t *variable, int *raised);
+extern void		quake_rs_cvar_set_quick (cvar_t *var, const char *value, int *raised);
+extern void		quake_rs_cvar_set_value_quick (cvar_t *var, float value, int *raised);
+extern void		quake_rs_cvar_set (const char *name, const char *value, int *raised);
+extern void		quake_rs_cvar_set_value (const char *name, float value, int *raised);
+extern void		quake_rs_cvar_set_rom (const char *name, const char *value, int *raised);
+extern void		quake_rs_cvar_set_value_rom (const char *name, float value, int *raised);
+extern cvar_t  *quake_rs_cvar_create (const char *name, const char *value, int *raised);
+extern qboolean quake_rs_cvar_command (int *raised);
+extern void		quake_rs_cvar_reset (const char *name, int *raised);
+
+#undef Cbuf_Execute
+void Cbuf_Execute (void)
+{
+	Host_Reraise (quake_rs_cbuf_execute ());
+}
+
+#undef Cbuf_InsertText
+void Cbuf_InsertText (const char *text)
+{
+	int raised = 0;
+	quake_rs_cbuf_insert_text (text, &raised);
+	Host_Reraise (raised);
+}
+
+#undef Cmd_ForwardToServer
+void Cmd_ForwardToServer (void)
+{
+	Host_Reraise (quake_rs_cmd_forward_to_server ());
+}
+
+#undef Cmd_ExecuteString
+qboolean Cmd_ExecuteString (const char *text, cmd_source_t src)
+{
+	int		 raised = 0;
+	qboolean result = quake_rs_cmd_execute_string (text, src, &raised);
+	Host_Reraise (raised);
+	return result;
+}
+
+#undef Cvar_RegisterVariable
+void Cvar_RegisterVariable (cvar_t *variable)
+{
+	int raised = 0;
+	quake_rs_cvar_register_variable (variable, &raised);
+	Host_Reraise (raised);
+}
+
+#undef Cvar_SetQuick
+void Cvar_SetQuick (cvar_t *var, const char *value)
+{
+	int raised = 0;
+	quake_rs_cvar_set_quick (var, value, &raised);
+	Host_Reraise (raised);
+}
+
+#undef Cvar_SetValueQuick
+void Cvar_SetValueQuick (cvar_t *var, const float value)
+{
+	int raised = 0;
+	quake_rs_cvar_set_value_quick (var, value, &raised);
+	Host_Reraise (raised);
+}
+
+#undef Cvar_Set
+void Cvar_Set (const char *var_name, const char *value)
+{
+	int raised = 0;
+	quake_rs_cvar_set (var_name, value, &raised);
+	Host_Reraise (raised);
+}
+
+#undef Cvar_SetValue
+void Cvar_SetValue (const char *var_name, const float value)
+{
+	int raised = 0;
+	quake_rs_cvar_set_value (var_name, value, &raised);
+	Host_Reraise (raised);
+}
+
+#undef Cvar_SetROM
+void Cvar_SetROM (const char *var_name, const char *value)
+{
+	int raised = 0;
+	quake_rs_cvar_set_rom (var_name, value, &raised);
+	Host_Reraise (raised);
+}
+
+#undef Cvar_SetValueROM
+void Cvar_SetValueROM (const char *var_name, const float value)
+{
+	int raised = 0;
+	quake_rs_cvar_set_value_rom (var_name, value, &raised);
+	Host_Reraise (raised);
+}
+
+#undef Cvar_Create
+cvar_t *Cvar_Create (const char *name, const char *value)
+{
+	int		raised = 0;
+	cvar_t *result = quake_rs_cvar_create (name, value, &raised);
+	Host_Reraise (raised);
+	return result;
+}
+
+#undef Cvar_Command
+qboolean Cvar_Command (void)
+{
+	int		 raised = 0;
+	qboolean result = quake_rs_cvar_command (&raised);
+	Host_Reraise (raised);
+	return result;
+}
+
+#undef Cvar_Reset
+void Cvar_Reset (const char *name)
+{
+	int raised = 0;
+	quake_rs_cvar_reset (name, &raised);
+	Host_Reraise (raised);
+}
+
+/* cfgfile_differential's capture seam: register one cvar under the same name
+ * into the c_ref registry and the Rust registry, with a change callback that
+ * appends (name, new value) to ctest_cvar_log. Cvar_SetQuick's no-change
+ * early return means only real value changes log — identically on both
+ * sides, which is the differential. The cvar_t storage and name leak by
+ * design (registry entries must outlive the test). */
+static void ctest_log_cvar_change (cvar_t *var)
+{
+	if (ctest_cvar_log_count >= CTEST_CVAR_LOG_MAX)
+		return;
+	q_strlcpy (ctest_cvar_log[ctest_cvar_log_count][0], var->name, sizeof (ctest_cvar_log[0][0]));
+	q_strlcpy (ctest_cvar_log[ctest_cvar_log_count][1], var->string, sizeof (ctest_cvar_log[0][1]));
+	ctest_cvar_log_count++;
+}
+
+#undef Cvar_SetCallback
+extern void Cvar_SetCallback (cvar_t *var, cvarcallback_t func);
+
+#define CTEST_LOGGED_CVAR_MAX 16
+static cvar_t *ctest_logged_c[CTEST_LOGGED_CVAR_MAX];
+static cvar_t *ctest_logged_r[CTEST_LOGGED_CVAR_MAX];
+static int	   ctest_logged_count;
+
+void ctest_register_logged_cvar_pair (const char *name)
+{
+	cvar_t *c_var = calloc (1, sizeof (cvar_t));
+	cvar_t *r_var = calloc (1, sizeof (cvar_t));
+	c_var->name = q_strdup (name);
+	c_var->string = "";
+	r_var->name = c_var->name;
+	r_var->string = "";
+	c_ref_Cvar_RegisterVariable (c_var);
+	c_ref_Cvar_SetCallback (c_var, ctest_log_cvar_change);
+	Cvar_RegisterVariable (r_var);
+	Cvar_SetCallback (r_var, ctest_log_cvar_change);
+	if (ctest_logged_count < CTEST_LOGGED_CVAR_MAX)
+	{
+		ctest_logged_c[ctest_logged_count] = c_var;
+		ctest_logged_r[ctest_logged_count] = r_var;
+		ctest_logged_count++;
+	}
+}
+
+/* Drive every logged cvar to a sentinel no fixture uses, for ONE side
+ * (0 = c_ref, 1 = Rust). Without this, a config pass that re-sets a cvar to
+ * the value it already holds hits Cvar_SetQuick's no-change early return and
+ * logs nothing, so cfgfile_differential's second CFG_ReadCvars pass (the one
+ * that exercises FS_rewind state) would be invisible to the differential.
+ * Resetting one side at a time keeps each side's log symmetric. */
+void ctest_reset_logged_cvars (int side)
+{
+	int i;
+	for (i = 0; i < ctest_logged_count; i++)
+	{
+		if (side == 0)
+			c_ref_Cvar_SetQuick (ctest_logged_c[i], "sentinel");
+		else
+			Cvar_SetQuick (ctest_logged_r[i], "sentinel");
+	}
 }
 
 /* sv.modelname is the only server state model_parse.c reads
@@ -2115,16 +2734,12 @@ mleaf_t *Mod_PointInLeaf (float *p, qmodel_t *model)
 	return ctest_point_leaf;
 }
 
-static int	ctest_cmd_argc = 0;
-static char ctest_cmd_argv[8][64];
-int Cmd_Argc (void)
-{
-	return ctest_cmd_argc;
-}
-const char *Cmd_Argv (int arg)
-{
-	return (arg >= 0 && arg < ctest_cmd_argc) ? ctest_cmd_argv[arg] : "";
-}
+/* Phase 7 M2: the old Cmd_Argc/Cmd_Argv placeholders (always argc==0) were
+ * removed -- they would collide at link time with the c_ref_* rename of the
+ * real cmd.c definitions (c_ref_prelude.h). Both sides now reach real
+ * tokenizer state: c_ref_Cmd_Argc/c_ref_Cmd_Argv (cmd.c) for the oracle, and
+ * quake_rs::cmd::Cmd_Argc/Cmd_Argv (quake-capi's `cvar` feature) for callers
+ * that link the Rust shim. */
 
 CON_STUB (Con_SafePrintf, "[safe]")
 
@@ -2315,10 +2930,11 @@ void NetMain_SetMaxClients (int n)
 {
 	(void)n;
 }
-void Cbuf_AddText (const char *text)
-{
-	Con_Printf ("ctest Cbuf_AddText %s", text);
-}
+/* Phase 7 M2: Cbuf_AddText/Cbuf_Init/Cbuf_AddTextLen/Cbuf_Waited are direct
+ * quake-capi `#[no_mangle]` exports now (cmd.rs) -- the c_ref_prelude.h
+ * rename table sends the real cvar.c/cmd.c oracle's own calls to these names
+ * to c_ref_Cbuf_AddText etc, so a plain-named placeholder here would collide
+ * with that renamed definition once the "cvar" feature links cmd.c. */
 
 /* Phase 5 M10: base pointers of the driver vtable arrays. The engine
  * defines these in net_main.c; here they hand back the stub arrays so the

@@ -284,6 +284,102 @@ static inline int FindLastBitNonZero (const uint32_t mask)
 #define W_GetLumpinfoList	c_ref_W_GetLumpinfoList
 #define SwapPic				c_ref_SwapPic
 
+/* cvar.c / cmd.c (Phase 7 M2): rename every public symbol so the reference
+ * registries link next to the Rust cvar/cmd shims (quake-capi's `cvar`
+ * feature exports the same plain names). Placed before cfgfile.c's block
+ * below because cfgfile.c calls plain Cvar_Set, and the shared prelude's
+ * object-like macros must be defined before that text is read for the
+ * rename to apply there too -- the same reasoning holds for common_fs.c's
+ * Cvar_RegisterVariable/Cmd_AddCommand and snd_dma.c's Cvar_SetQuick /
+ * Cvar_SetCallback call sites: they are rewritten by these same defines. */
+#define CMDLINE_LENGTH 256 /* quakedef.h; cmd.c's Cmd_StuffCmds_f needs it */
+
+#define Cvar_List_f			 c_ref_Cvar_List_f
+#define Cvar_Inc_f			 c_ref_Cvar_Inc_f
+#define Cvar_Set_f			 c_ref_Cvar_Set_f
+#define Cvar_Toggle_f		 c_ref_Cvar_Toggle_f
+#define Cvar_Cycle_f		 c_ref_Cvar_Cycle_f
+#define Cvar_Reset_f		 c_ref_Cvar_Reset_f
+#define Cvar_ResetAll_f		 c_ref_Cvar_ResetAll_f
+#define Cvar_ResetCfg_f		 c_ref_Cvar_ResetCfg_f
+#define Cvar_Init			 c_ref_Cvar_Init
+#define Cvar_FindVar		 c_ref_Cvar_FindVar
+#define Cvar_FindVarAfter	 c_ref_Cvar_FindVarAfter
+#define Cvar_LockVar		 c_ref_Cvar_LockVar
+#define Cvar_UnlockVar		 c_ref_Cvar_UnlockVar
+#define Cvar_UnlockAll		 c_ref_Cvar_UnlockAll
+#define Cvar_VariableValue	 c_ref_Cvar_VariableValue
+#define Cvar_VariableString c_ref_Cvar_VariableString
+#define Cvar_CompleteVariable c_ref_Cvar_CompleteVariable
+#define Cvar_Reset			 c_ref_Cvar_Reset
+#define Cvar_SetQuick		 c_ref_Cvar_SetQuick
+#define Cvar_SetValueQuick	 c_ref_Cvar_SetValueQuick
+#define Cvar_Set			 c_ref_Cvar_Set
+#define Cvar_SetValue		 c_ref_Cvar_SetValue
+#define Cvar_SetROM			 c_ref_Cvar_SetROM
+#define Cvar_SetValueROM	 c_ref_Cvar_SetValueROM
+#define Cvar_RegisterVariable c_ref_Cvar_RegisterVariable
+#define Cvar_Create			 c_ref_Cvar_Create
+#define Cvar_SetCallback	 c_ref_Cvar_SetCallback
+#define Cvar_SetCompletion	 c_ref_Cvar_SetCompletion
+#define Cvar_Command		 c_ref_Cvar_Command
+#define Cvar_WriteVariables	 c_ref_Cvar_WriteVariables
+
+#define cl_nopext	 c_ref_cl_nopext
+#define cmd_warncmd	 c_ref_cmd_warncmd
+#define cmd_text	 c_ref_cmd_text
+#define cmd_alias	 c_ref_cmd_alias
+#define cmd_source	 c_ref_cmd_source
+#define cmd_functions c_ref_cmd_functions
+#define Cmd_Wait_f			 c_ref_Cmd_Wait_f
+#define Cbuf_Init			 c_ref_Cbuf_Init
+#define Cbuf_AddText		 c_ref_Cbuf_AddText
+#define Cbuf_AddTextLen		 c_ref_Cbuf_AddTextLen
+#define Cbuf_InsertText		 c_ref_Cbuf_InsertText
+#define Cbuf_Waited			 c_ref_Cbuf_Waited
+#define Cbuf_Execute		 c_ref_Cbuf_Execute
+#define Cmd_StuffCmds_f		 c_ref_Cmd_StuffCmds_f
+#define Cmd_Exec_f			 c_ref_Cmd_Exec_f
+#define Cmd_Echo_f			 c_ref_Cmd_Echo_f
+#define Cmd_Alias_f			 c_ref_Cmd_Alias_f
+#define Cmd_Unalias_f		 c_ref_Cmd_Unalias_f
+#define Cmd_AliasExists		 c_ref_Cmd_AliasExists
+#define Cmd_Unaliasall_f	 c_ref_Cmd_Unaliasall_f
+#define Cmd_List_f			 c_ref_Cmd_List_f
+#define Cmd_Apropos_f		 c_ref_Cmd_Apropos_f
+#define Cmd_Init			 c_ref_Cmd_Init
+#define Cmd_Argc			 c_ref_Cmd_Argc
+#define Cmd_Argv			 c_ref_Cmd_Argv
+#define Cmd_Args			 c_ref_Cmd_Args
+#define Cmd_TokenizeString	 c_ref_Cmd_TokenizeString
+#define Cmd_AddArg			 c_ref_Cmd_AddArg
+#define Cmd_AddCommand2		 c_ref_Cmd_AddCommand2
+#define Cmd_RemoveCommand	 c_ref_Cmd_RemoveCommand
+#define Cmd_FindCommand		 c_ref_Cmd_FindCommand
+#define Cmd_IsReservedName	 c_ref_Cmd_IsReservedName
+#define Cmd_Exists			 c_ref_Cmd_Exists
+#define Cmd_CompleteCommand c_ref_Cmd_CompleteCommand
+#define Cmd_ExecuteString	 c_ref_Cmd_ExecuteString
+#define Cmd_ForwardToServer c_ref_Cmd_ForwardToServer
+#define Cmd_CheckParm		 c_ref_Cmd_CheckParm
+
+/* cvar.h/cmd.h are clean (only depend on q_types.h's qboolean, already
+ * included above); pulling them in this early means every later forward
+ * declaration of a renamed name (cfgfile.c's Cvar_Set below, common_fs.c's
+ * Cvar_RegisterVariable/Cmd_AddCommand, snd_dma.c's Cvar_SetQuick /
+ * Cvar_SetCallback) type-checks against the real prototype instead of a
+ * hand-rolled stand-in. */
+#include "cvar.h"
+#include "cmd.h"
+
+/* quakedef.h globals cvar.c/cmd.c read directly (definitions in stubs.c) */
+extern qboolean host_initialized; // true once command execution is live;
+								   // gates Cvar_RegisterVariable's dynamic
+								   // vs static name-copy strategy and
+								   // Cvar_SetQuick's default_string update
+extern void PR_AutoCvarChanged (cvar_t *var);				  // pr_ext.c
+extern void Info_SetKey (char *info, size_t infosize, const char *key, const char *val); // common.c
+
 /* cfgfile.c */
 #define CFG_OpenConfig		 c_ref_CFG_OpenConfig
 #define CFG_CloseConfig		 c_ref_CFG_CloseConfig
@@ -292,7 +388,6 @@ static inline int FindLastBitNonZero (const uint32_t mask)
 #define CONFIG_NAME			 "vkQuake.cfg"
 
 void Con_Printf (const char *fmt, ...);
-void Cvar_Set (const char *var_name, const char *value);
 void Con_Warning (const char *fmt, ...);
 void Con_DPrintf (const char *fmt, ...);
 void Con_DPrintf2 (const char *fmt, ...);
@@ -577,18 +672,6 @@ extern qboolean		 multiuser;
 extern qboolean		 harness_active;
 extern cvar_t		 developer;
 
-/* cmd.h's registration macro over the real Cmd_AddCommand2 signature (the
- * stub logs the name); cmd.h itself drags in non-clean headers */
-typedef void (*xcommand_t) (void);
-typedef enum
-{
-	src_client,
-	src_command,
-	src_server
-} cmd_source_t;
-struct cmd_function_s *Cmd_AddCommand2 (const char *cmd_name, xcommand_t function, cmd_source_t srctype, qboolean qcinterceptable);
-#define Cmd_AddCommand(cmdname, func) Cmd_AddCommand2 (cmdname, func, src_command, false)
-
 /* ---- Phase 4 sound slice: snd_mem.c as the sfx loader/resampler oracle ----
  *
  * COM_LoadFile / com_filesize resolve through the Phase 2 renames and fs
@@ -679,11 +762,8 @@ typedef struct
 	qmodel_t *worldmodel;
 } ctest_cl_t;
 extern ctest_cl_t cl;
-typedef struct
-{
-	int maxclients;
-} ctest_svs_t;
-extern ctest_svs_t svs;
+/* ctest_svs_t (needs client_t, which needs sizebuf_t from net.h) is defined
+ * further down, after the net.h include block. */
 typedef enum
 {
 	key_game,
@@ -740,13 +820,8 @@ typedef enum
 	ca_disconnected,
 	ca_connected
 } cactive_t;
-typedef struct
-{
-	cactive_t state;
-	int		  signon;
-	int		  demonum;
-} ctest_cls_stub_t;
-extern ctest_cls_stub_t cls;
+/* ctest_cls_stub_t is defined further down (needs sizebuf_t from net.h for
+ * cls.message). */
 /* ---- Phase 5 M2: net_msg.c wire serialization oracle ---- */
 #include "protocol.h" /* PRFL_* / PEXT2_* flag sets (pulls q_minmax.h's Q_rint) */
 /* Phase 5 M5: net_loop.c oracle needs the net headers (quakedef.h
@@ -765,8 +840,49 @@ extern unsigned int harness_badread_count;
 mleaf_t				   *Mod_PointInLeaf (float *p, qmodel_t *model); /* stub-owned, settable */
 void					S_CodecInit (void);							/* snd_codec.h; stub no-ops */
 void					S_CodecShutdown (void);
-int						Cmd_Argc (void);
-const char			   *Cmd_Argv (int arg);
 void					Con_SafePrintf (const char *fmt, ...);
+
+/* Phase 7 M2: the server.h/client.h slice cvar.c's CVAR_SERVERINFO /
+ * CVAR_USERINFO replication blocks and cmd.c's Cmd_ExecuteString /
+ * Cmd_ForwardToServer read. Stub-owned mirror structs, like ctest_cl_t
+ * above; definitions/instances live in stubs.c. */
+/* Named client_t/client_s (not ctest_-prefixed like ctest_svs_t below):
+ * cvar.c's own CVAR_SERVERINFO replication block (cvar.c:513) declares a
+ * local `client_t *current_client` by that literal name, so the type must
+ * exist under this exact name for cvar.c's unmodified source to compile.
+ * abi_probe.c separately #includes the real server.h/client.h for its own
+ * struct-layout ABI probe further down in that file; it #define/#undef's
+ * this name (and svs/sv/cl/cls, same idiom) out of the way for just those
+ * two #includes to avoid a duplicate-definition error in that TU. */
+typedef struct client_s
+{
+	qboolean  active;
+	sizebuf_t message;
+	char	  name[32];
+} client_t;
+extern client_t *host_client; // valid only while cmd_source == src_client
+
+typedef struct
+{
+	int		  maxclients;
+	char	  serverinfo[512];
+	client_t *clients;
+} ctest_svs_t;
+extern ctest_svs_t svs;
+
+typedef struct
+{
+	cactive_t state;
+	int		  signon;
+	int		  demonum;
+	qboolean  demoplayback;
+	char	  userinfo[512];
+	sizebuf_t message;
+} ctest_cls_stub_t;
+extern ctest_cls_stub_t cls;
+
+extern cvar_t cl_name;
+extern cvar_t cl_topcolor;
+extern cvar_t cl_bottomcolor;
 
 #endif /* C_REF_PRELUDE_H */

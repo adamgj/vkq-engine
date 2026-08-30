@@ -1239,12 +1239,30 @@ typedef struct efrag_s
 #define ca_dedicated	  ctest_host_real_ca_dedicated
 #define ca_disconnected	  ctest_host_real_ca_disconnected
 #define ca_connected	  ctest_host_real_ca_connected
+/* Phase 7 M2: c_ref_prelude.h now also declares its own small `client_t`
+ * (struct client_s), for cvar.c's CVAR_SERVERINFO replication block, under
+ * this same real name. Same dodge as sv/svs/cl/cls above, but NOT undone
+ * below like the others: the OFF()/SZ() table further down still spells the
+ * type as bare `client_t` (only the "client_t" string label needs to stay
+ * literal, which it does -- macros don't expand inside string literals), so
+ * the rename has to stay live for the rest of this translation unit for
+ * those to keep resolving to server.h's real, full struct rather than
+ * falling back to the small mock once this block ends. */
+#define client_t	  ctest_host_real_client_t
+#define client_s	  ctest_host_real_client_s
+/* server.h also declares `extern client_t *host_client;` under the real
+ * type -- c_ref_prelude.h's own extern of the same name (mock type) is
+ * already in scope from the force-included prelude, so this one needs the
+ * same treatment as sv/svs/cl/cls: renamed away for the include, then
+ * discarded (nothing below needs the variable, only the struct layout). */
+#define host_client	  ctest_host_probe_unused_host_client
 #include "server.h"
 #include "client.h"
 #undef sv
 #undef svs
 #undef cl
 #undef cls
+#undef host_client
 #undef server_state_t
 #undef ss_loading
 #undef ss_active

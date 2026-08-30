@@ -18,7 +18,11 @@ pub mod alloc;
 #[cfg(feature = "snd")]
 pub mod bgmusic;
 pub mod cfgfile;
+#[cfg(feature = "cvar")]
+pub mod cmd; // cmd.c
 pub mod crc;
+#[cfg(feature = "cvar")]
+pub mod cvar; // cvar.c
 #[cfg(feature = "fs")]
 pub mod fs;
 #[cfg(feature = "fs")]

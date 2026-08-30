@@ -1,7 +1,10 @@
 //! Differential tests: the Rust cfgfile shims vs the original cfgfile.c
 //! compiled as c_ref_*. Both sides read the same config files through the
-//! same stub filesystem and funnel Cvar_Set into a shared capture log; the
-//! exact call sequences (names, values, order) are compared.
+//! same stub filesystem; since Phase 7 M2 each side's Cvar_Set reaches its
+//! real registry (c_ref cvar.c vs the Rust port), so the tested cvars are
+//! registered into both registries with a change callback feeding the shared
+//! capture log, and the exact change sequences (names, values, order) are
+//! compared.
 
 use core::ffi::{c_char, c_int, CStr};
 use quake_ctest::fs as ctfs; // also links the cc-built c_ref_* archive
@@ -16,6 +19,8 @@ extern "C" {
     fn ctest_cvar_log_len() -> c_int;
     fn ctest_cvar_log_get(i: c_int, which: c_int) -> *const c_char;
     fn ctest_set_args(argc: c_int, argv: *mut *mut c_char);
+    fn ctest_register_logged_cvar_pair(name: *const c_char);
+    fn ctest_reset_logged_cvars(side: c_int);
 }
 
 fn snapshot_cvar_log() -> Vec<(String, String)> {
@@ -78,6 +83,14 @@ fn cfgfile_differential() {
     ];
     let mut c_vars: Vec<*const c_char> = vars.iter().map(|v| v.as_ptr()).collect();
 
+    // SAFETY: valid NUL-terminated names; registers each name into both
+    // registries with the logging change callback (see stubs.c)
+    unsafe {
+        for v in &vars {
+            ctest_register_logged_cvar_pair(v.as_ptr());
+        }
+    }
+
     // both config names: the CONFIG_NAME path (COM_FOpenPrefFile) and the
     // searchpath one (COM_FOpenFile)
     for cfg in [c"vkQuake.cfg", c"other.cfg", c"missing.cfg"] {
@@ -87,7 +100,13 @@ fn cfgfile_differential() {
             ctest_clear_cvar_log();
             let c_open = c_ref_CFG_OpenConfig(cfg.as_ptr());
             c_ref_CFG_ReadCvars(c_vars.as_mut_ptr(), c_vars.len() as c_int);
-            // a second pass exercises FS_rewind state
+            // A second pass exercises FS_rewind state, but it re-sets the
+            // same values, which Cvar_SetQuick's no-change early return
+            // would swallow -- the pass would log nothing and be invisible
+            // here. Drive this side's cvars to a sentinel first so pass 2's
+            // sets are real changes. The sentinel writes themselves log,
+            // identically on both sides.
+            ctest_reset_logged_cvars(0);
             c_ref_CFG_ReadCvars(c_vars.as_mut_ptr(), 2);
             c_ref_CFG_CloseConfig();
             let c_log = snapshot_cvar_log();
@@ -95,6 +114,7 @@ fn cfgfile_differential() {
             ctest_clear_cvar_log();
             let r_open = quake_rs::cfgfile::CFG_OpenConfig(cfg.as_ptr());
             quake_rs::cfgfile::CFG_ReadCvars(c_vars.as_mut_ptr(), c_vars.len() as c_int);
+            ctest_reset_logged_cvars(1);
             quake_rs::cfgfile::CFG_ReadCvars(c_vars.as_mut_ptr(), 2);
             quake_rs::cfgfile::CFG_CloseConfig();
             let r_log = snapshot_cvar_log();
@@ -103,6 +123,16 @@ fn cfgfile_differential() {
             assert_eq!(c_log, r_log, "Cvar_Set sequence for {cfg:?}");
             if cfg != c"missing.cfg" {
                 assert!(!c_log.is_empty(), "expected matches for {cfg:?}");
+                // pass 2 must actually be observable: a vid_width set has to
+                // appear after the sentinel writes
+                let sentinel = c_log
+                    .iter()
+                    .rposition(|(_, v)| v == "\u{1}sentinel")
+                    .expect("sentinel writes logged");
+                assert!(
+                    c_log[sentinel + 1..].iter().any(|(n, _)| n == "vid_width"),
+                    "second CFG_ReadCvars pass produced no visible sets for {cfg:?}"
+                );
             }
         }
     }
