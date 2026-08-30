@@ -269,8 +269,6 @@ srcs = [
     'Quake/sbar.c',
     'Quake/steam_api.c',
     'Quake/sv_main.c',
-    'Quake/sv_move.c',
-    'Quake/sv_phys.c',
     'Quake/sv_user.c',
 	'Quake/sys_sdl.c',
     'Quake/tasks.c',
@@ -564,6 +562,20 @@ if use_rust_host
     srcs += ['Quake/world_glue.c']
 else
     srcs += ['Quake/world.c']
+endif
+
+# Phase 7 M4: sv_move.c + sv_phys.c, riding the same use_rust_host switch.
+# Nine of their twelve entry points are raise-capable, so each is a reraising
+# C wrapper in the glue over a quake_rs_* status core, exactly as M3 did for
+# world.c; SV_FixCheckBottom, SV_CloseEnough and SV_PushGridEntityLinked are
+# plain Rust exports. sv_phys_glue.c also owns the twelve physics cvars
+# (sv_main.c registers them by address), sv_analyticphysics_frame (read by
+# sv_user.c, C until M6) and the sv_speeds_* counters (read and zeroed by
+# host.c). The C originals stay the -Duse_rust_host=disabled oracle.
+if use_rust_host
+    srcs += ['Quake/sv_move_glue.c', 'Quake/sv_phys_glue.c']
+else
+    srcs += ['Quake/sv_move.c', 'Quake/sv_phys.c']
 endif
 
 if use_rust_snd

@@ -14,8 +14,14 @@
 //! reset the fixture from scratch, drive the SAME call sequence through that
 //! side's entry points, and snapshot everything observable (full `trace_t`
 //! bit patterns, areanode topology, per-areanode link chain ORDER, touched
-//! leafs, absmin/absmax, the touch-dispatch log, the push-grid log and the
-//! console log). The two snapshots must be identical.
+//! leafs, absmin/absmax, the touch-dispatch log and the console log). The
+//! two snapshots must be identical.
+//!
+//! Phase 7 M4 removed the push-grid log this suite used to compare:
+//! `Quake/sv_phys.c` joined `build.rs`'s `C_SOURCES`, so
+//! `SV_PushGridEntityLinked` is now the real function under
+//! `c_ref_SV_PushGridEntityLinked` and there is no interceptable seam left on
+//! the C side. `sv_phys_differential.rs` covers the grid itself instead.
 //!
 //! Six entry points are raise-capable -- `SV_LinkEdict` (through
 //! `SV_TouchLinks` -> `PR_ExecuteProgram`) and `SV_HullForEntity`,
@@ -123,7 +129,8 @@ struct RhtCtx {
 
 extern "C" {
     // fixture (stubs/stubs.c)
-    fn ctest_world_reset(client_vm: c_int, num_edicts: c_int);
+    /// `vm_kind`: 0 standalone server VM, 1 `cl.qcvm`, 2 `sv.qcvm`.
+    fn ctest_world_reset(vm_kind: c_int, num_edicts: c_int);
     fn ctest_world_set_cvars(hullcheck: c_float, areanode: c_float, checkext: c_float);
     fn ctest_world_edict(num: c_int) -> *mut c_void;
     fn ctest_world_hull(hullnum: c_int) -> *mut c_void;
@@ -177,8 +184,6 @@ extern "C" {
         link: Option<extern "C" fn(*mut c_void, u8)>,
         unlink: Option<extern "C" fn(*mut c_void)>,
     );
-    fn ctest_world_pushgrid_len() -> c_int;
-    fn ctest_world_pushgrid_get(i: c_int) -> c_int;
     fn ctest_world_cl_set_num_entities(n: c_int);
     fn ctest_world_cl_set_entity(
         i: c_int,
@@ -825,15 +830,6 @@ fn touch_log() -> Vec<(i32, i32, u32, i32)> {
     out
 }
 
-fn pushgrid_log() -> Vec<i32> {
-    // SAFETY: plain counter read.
-    let n = unsafe { ctest_world_pushgrid_len() };
-    // SAFETY: `i < n`.
-    (0..n)
-        .map(|i| unsafe { ctest_world_pushgrid_get(i) })
-        .collect()
-}
-
 fn con_log() -> Vec<String> {
     // SAFETY: plain counter read.
     let n = unsafe { ctest_con_log_len() };
@@ -985,7 +981,6 @@ struct Snap<T> {
     links: Vec<i32>,
     edicts: Vec<u32>,
     touch: Vec<(i32, i32, u32, i32)>,
-    pushgrid: Vec<i32>,
     con: Vec<String>,
 }
 
@@ -996,7 +991,6 @@ fn capture<T>(value: T) -> Snap<T> {
         links: snapshot_links(),
         edicts: snapshot_edicts(ARENA),
         touch: touch_log(),
-        pushgrid: pushgrid_log(),
         con: con_log(),
     }
 }
@@ -1025,7 +1019,6 @@ where
     assert_eq!(c.links, rust.links, "link chain order");
     assert_eq!(c.edicts, rust.edicts, "per-edict absbox / leafs / free");
     assert_eq!(c.touch, rust.touch, "touch dispatch log");
-    assert_eq!(c.pushgrid, rust.pushgrid, "push-grid log");
     assert_eq!(c.con, rust.con, "console log");
     c
 }
@@ -1775,11 +1768,6 @@ fn link_edict_chain_order_matches() {
     assert_ne!(
         vanilla.links, fte.links,
         "the two areanode depths must home edicts differently"
-    );
-    assert_eq!(
-        vanilla.pushgrid.len(),
-        10,
-        "every link reports to the push grid"
     );
 }
 

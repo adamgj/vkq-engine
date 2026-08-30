@@ -76,6 +76,10 @@ pub mod snd_wave;
 #[cfg(feature = "fs")]
 pub mod steam;
 pub mod strl;
+#[cfg(feature = "host")]
+pub mod sv_move; // sv_move.c
+#[cfg(feature = "host")]
+pub mod sv_phys; // sv_phys.c
 pub mod wad;
 #[cfg(feature = "host")]
 pub mod world; // world.c

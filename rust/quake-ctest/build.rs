@@ -35,6 +35,8 @@ const C_SOURCES: &[&str] = &[
     "Quake/steam.c",
     "Quake/strlcpy.c",
     "Quake/strlcat.c",
+    "Quake/sv_move.c",
+    "Quake/sv_phys.c",
     "Quake/wad.c",
     "Quake/world.c",
 ];

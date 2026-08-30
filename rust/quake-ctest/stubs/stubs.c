@@ -3645,13 +3645,18 @@ static qmodel_t *ctest_world_getmodel (int modelindex)
  * c_ref interpreter, so the log isolates world.c's own ordering logic.
  */
 
-#define CTEST_WORLD_TOUCH_KINDS 4
+#define CTEST_WORLD_TOUCH_KINDS 6
+
+/* spare arena slots above num_edicts, for CTEST_WORLD_TOUCH_SPAWN */
+#define CTEST_WORLD_SPAWN_HEADROOM 8
 
 /* touch kinds; the test's own enum mirrors these */
 #define CTEST_WORLD_TOUCH_LOG	   0 /* record (self, other, time) only */
 #define CTEST_WORLD_TOUCH_RELINK   1 /* record, then relink ctest_world_relink_target */
 #define CTEST_WORLD_TOUCH_FREE	   2 /* record, then free ctest_world_free_target */
 #define CTEST_WORLD_TOUCH_FREESELF 3 /* record, then free `other` (the linking edict) */
+#define CTEST_WORLD_TOUCH_SPAWN	   4 /* record, then ED_Alloc a live pushable edict */
+#define CTEST_WORLD_TOUCH_SETSELF  5 /* record, then rewrite self's movetype/nextthink */
 
 #define CTEST_WORLD_TOUCH_LOG_MAX 256
 
@@ -3758,6 +3763,114 @@ static void ctest_world_builtin_freeself (void)
 		ctest_world_free_edict (NUM_FOR_EDICT (PROG_TO_EDICT (pr_global_struct->other)));
 }
 
+/* --- the mid-tick allocator, and why it exists ---------------------------
+ *
+ * sv_phys.c:2397 installs SV_Physics_Alloc_Hook for the whole of SV_Physics'
+ * entity loop, so an edict allocated by QC *during* a tick is appended to
+ * pushable_ent_cache and can still be pushed by a pusher processed later in
+ * the same loop (sv_phys.c:254 splices the cache tail onto every grid
+ * query). Nothing else in the fixture ever calls ED_Alloc, so without this
+ * builtin the hook is dead code on both sides and a Rust port that never
+ * installed it would look identical to one that did.
+ *
+ * The allocation is budgeted because the builtin runs from whatever QC entry
+ * point the test points at it, which may fire more than once per tick. */
+static int	  ctest_world_spawn_budget;
+static int	  ctest_world_spawn_count;
+static int	  ctest_world_spawned_num = -1;
+static float  ctest_world_spawn_origin[3];
+static int	  ctest_world_spawn_ground = -1;
+
+static void ctest_world_builtin_spawn (void)
+{
+	edict_t *ed;
+
+	ctest_world_record_touch (CTEST_WORLD_TOUCH_SPAWN);
+	if (ctest_world_spawn_count >= ctest_world_spawn_budget)
+		return;
+	ctest_world_spawn_count++;
+
+	ed = ED_Alloc (); /* renamed c_ref_ED_Alloc -- fires the installed hook */
+	ctest_world_spawned_num = NUM_FOR_EDICT (ed);
+
+	ed->v.classname = 1;
+	ed->v.movetype = MOVETYPE_STEP; /* SV_IsPushable accepts it, sv_phys.c:101 */
+	ed->v.solid = SOLID_SLIDEBOX;
+	ed->v.modelindex = 2;
+	VectorCopy (ctest_world_spawn_origin, ed->v.origin);
+	ed->v.mins[0] = ed->v.mins[1] = -16;
+	ed->v.mins[2] = -24;
+	ed->v.maxs[0] = ed->v.maxs[1] = 16;
+	ed->v.maxs[2] = 32;
+	VectorSubtract (ed->v.maxs, ed->v.mins, ed->v.size);
+	/* riding the given pusher: SV_EntityRidingPusher (sv_phys.c:1153) wants
+	 * FL_ONGROUND and groundentity, which is what puts the new edict on the
+	 * pusher's candidate list for real rather than merely in the cache */
+	if (ctest_world_spawn_ground >= 0 && ctest_world_spawn_ground < qcvm->num_edicts)
+	{
+		ed->v.flags = (float)((int)ed->v.flags | FL_ONGROUND);
+		ed->v.groundentity = EDICT_TO_PROG (EDICT_NUM (ctest_world_spawn_ground));
+	}
+	ctest_world_link_fn (ed, false);
+}
+
+/* budget <= 0 disables the allocation but keeps the touch record */
+void ctest_world_set_spawn (int budget, const float *origin, int ground)
+{
+	ctest_world_spawn_budget = budget;
+	ctest_world_spawn_count = 0;
+	ctest_world_spawned_num = -1;
+	ctest_world_spawn_ground = ground;
+	ctest_world_spawn_origin[0] = origin[0];
+	ctest_world_spawn_origin[1] = origin[1];
+	ctest_world_spawn_origin[2] = origin[2];
+}
+
+/* the edict number the last ctest_world_builtin_spawn handed out, or -1 */
+int ctest_world_spawned_edict (void)
+{
+	return ctest_world_spawned_num;
+}
+
+int ctest_world_spawn_calls (void)
+{
+	return ctest_world_spawn_count;
+}
+
+/* --- QC that rewrites its own entity mid-dispatch -------------------------
+ *
+ * SV_Physics dispatches on ent->v.movetype and then, after the handler has
+ * run whatever QC the tick reached, re-reads ent->v.movetype for the
+ * sendinterval test (sv_phys.c:2444). A think that changes its own movetype
+ * is therefore observable in ent->sendinterval without changing which
+ * physics handler ran, and nothing else in the fixture can produce that. */
+static int	 ctest_world_setself_armed;
+static float ctest_world_setself_movetype;
+static float ctest_world_setself_think_delay;
+
+static void ctest_world_builtin_setself (void)
+{
+	ctest_world_record_touch (CTEST_WORLD_TOUCH_SETSELF);
+	if (!ctest_world_setself_armed || !pr_global_struct->self)
+		return;
+	{
+		edict_t *ed = PROG_TO_EDICT (pr_global_struct->self);
+		if (ed->free)
+			return;
+		ed->v.movetype = ctest_world_setself_movetype;
+		ed->v.nextthink = (float)qcvm->time + ctest_world_setself_think_delay;
+	}
+}
+
+/* armed == 0 keeps the touch record but leaves the entity alone, so a test
+ * can hold the QC dispatch log fixed and vary only the write */
+void ctest_world_set_selfpoke (int armed, float movetype, float think_delay)
+{
+	ctest_world_setself_armed = armed;
+	ctest_world_setself_movetype = movetype;
+	ctest_world_setself_think_delay = think_delay;
+}
+
 static qcvm_t		ctest_world_sv_vm;
 static dprograms_t	ctest_world_progs_hdr;
 static dstatement_t ctest_world_statements[CTEST_WORLD_TOUCH_KINDS * 2];
@@ -3806,41 +3919,16 @@ void ctest_world_set_free_target (int num)
 	ctest_world_free_target = num;
 }
 
-/* --- sv_phys.c / client-VM seams ----------------------------------------- */
-
-#define CTEST_WORLD_PUSHGRID_MAX 256
-static int ctest_world_pushgrid_log[CTEST_WORLD_PUSHGRID_MAX];
-static int ctest_world_pushgrid_count;
-
-void SV_PushGridEntityLinked (edict_t *ent)
-{
-	if (ctest_world_pushgrid_count < CTEST_WORLD_PUSHGRID_MAX)
-		ctest_world_pushgrid_log[ctest_world_pushgrid_count] = NUM_FOR_EDICT (ent);
-	ctest_world_pushgrid_count++;
-}
-
-/* world_glue.c's thin wrapper, for the Rust side */
-void World_Glue_PushGridEntityLinked (edict_t *ent)
-{
-	SV_PushGridEntityLinked (ent);
-}
-
-int ctest_world_pushgrid_len (void)
-{
-	return ctest_world_pushgrid_count;
-}
-
-int ctest_world_pushgrid_get (int i)
-{
-	if (i < 0 || i >= ctest_world_pushgrid_count || i >= CTEST_WORLD_PUSHGRID_MAX)
-		return -1;
-	return ctest_world_pushgrid_log[i];
-}
-
-void ctest_world_pushgrid_clear (void)
-{
-	ctest_world_pushgrid_count = 0;
-}
+/* --- sv_phys.c / client-VM seams -----------------------------------------
+ *
+ * Phase 7 M4: SV_PushGridEntityLinked used to be a stub-owned logger here,
+ * because sv_phys.c was not one of build.rs's C_SOURCES and world.c:495 had
+ * nothing else to call. It is now, so the real definition (sv_phys.c:200)
+ * links under c_ref_SV_PushGridEntityLinked and the plain name belongs to
+ * the Rust port. There is consequently no interceptable seam left on the C
+ * side, and the M3 pushgrid log had to go with it -- see the M4 report.
+ * World_Glue_PushGridEntityLinked now forwards to the Rust export and lives
+ * at the bottom of this file, where the rename macro can be #undef'd. */
 
 typedef struct
 {
@@ -3910,12 +3998,16 @@ void ctest_world_set_cvars (float recursivehullcheck, float createareanode, floa
 }
 
 /* Rebuilds the whole fixture: model, progs image, arena, client entities and
- * every log. `client_vm` publishes cl.qcvm as the ambient VM instead of the
- * standalone server one, which is what turns on SV_Move's World_ClipToNetwork
- * branch. */
-void ctest_world_reset (int client_vm, int num_edicts)
+ * every log. `vm_kind` picks which VM is published as the ambient one:
+ *   0 -- a standalone server-shaped VM (the M3 default)
+ *   1 -- cl.qcvm, which turns on SV_Move's World_ClipToNetwork branch
+ *   2 -- sv.qcvm (Phase 7 M4): sv_phys.c gates its whole server-only half on
+ *        `qcvm == &sv.qcvm` (pusher support frame, sv_speeds timing, client
+ *        physics, sv_freezenonclients), so the physics differential has to
+ *        run on the real sv.qcvm instance rather than a look-alike. */
+void ctest_world_reset (int vm_kind, int num_edicts)
 {
-	qcvm_t *vm = client_vm ? &cl.qcvm : &ctest_world_sv_vm;
+	qcvm_t *vm = (vm_kind == 1) ? &cl.qcvm : (vm_kind == 2) ? &sv.qcvm : &ctest_world_sv_vm;
 	int		i;
 
 	ctest_world_build_model ();
@@ -3968,14 +4060,21 @@ void ctest_world_reset (int client_vm, int num_edicts)
 	vm->builtins[2] = ctest_world_builtin_relink;
 	vm->builtins[3] = ctest_world_builtin_free;
 	vm->builtins[4] = ctest_world_builtin_freeself;
+	vm->builtins[5] = ctest_world_builtin_spawn;
+	vm->builtins[6] = ctest_world_builtin_setself;
 	vm->numbuiltins = 1 + CTEST_WORLD_TOUCH_KINDS;
 
 	vm->edict_size = ctest_world_progs_hdr.entityfields * 4 + (int)sizeof (edict_t) - (int)sizeof (entvars_t);
 	vm->edict_size += (int)sizeof (void *) - 1;
 	vm->edict_size &= ~((int)sizeof (void *) - 1);
-	vm->max_edicts = num_edicts;
+	/* Headroom above num_edicts: ED_Alloc's grow path Host_Errors the moment
+	 * num_edicts reaches max_edicts, so CTEST_WORLD_TOUCH_SPAWN would raise
+	 * instead of allocating on an exactly-sized arena. num_edicts itself is
+	 * unchanged, so every other test sees the same live entity count it did
+	 * before, and the spare slots stay zeroed until something claims one. */
+	vm->max_edicts = num_edicts + CTEST_WORLD_SPAWN_HEADROOM;
 	vm->num_edicts = num_edicts;
-	vm->edicts = (edict_t *)Mem_Alloc ((size_t)num_edicts * vm->edict_size);
+	vm->edicts = (edict_t *)Mem_Alloc ((size_t)vm->max_edicts * vm->edict_size);
 	vm->time = 4.5;
 	vm->worldmodel = &ctest_world_bmodel;
 	vm->GetModel = ctest_world_getmodel;
@@ -4004,9 +4103,13 @@ void ctest_world_reset (int client_vm, int num_edicts)
 	cl.worldmodel = &ctest_world_bmodel;
 
 	ctest_world_touch_log_clear ();
-	ctest_world_pushgrid_clear ();
 	ctest_world_relink_target = -1;
 	ctest_world_free_target = -1;
+	{
+		static const float zero[3] = {0, 0, 0};
+		ctest_world_set_spawn (0, zero, -1);
+	}
+	ctest_world_set_selfpoke (0, 0, 0);
 	ctest_world_set_link_fns (NULL, NULL);
 	ctest_world_set_cvars (1.0f, 1.0f, 1.0f);
 	ctest_clear_con_log ();
@@ -4415,6 +4518,811 @@ void ctest_world_arm_bad_classname (int num)
 	EDICT_NUM (num)->v.classname = -1; /* knownstrings[0], which is NULL */
 }
 
+/* ===========================================================================
+ * Phase 7 M4: the sv_move.c / sv_phys.c differential fixture
+ *
+ * Layered on top of the M3 world fixture: ctest_phys_reset republishes the
+ * same synthetic room and progs image on sv.qcvm (vm_kind 2), because
+ * sv_phys.c gates its entire server-only half on `qcvm == &sv.qcvm`.
+ * Everything below is shared by both sides of a differential unless the name
+ * says otherwise (`_c` reads the c_ref_* storage, `_plain` the Rust one).
+ * ===========================================================================
+ */
+
+/* --- engine seams the two new translation units link against --------------
+ * None of these live in a build.rs C_SOURCES file, so the harness owns a
+ * single shared definition and both sides call it. */
+
+/* sv_main.c:53 -- sv_phys.c:1893 reads sv_player->v.flags */
+edict_t *sv_player;
+
+/* host.c:70 -- deliberately NOT renamed by the prelude: sv_phys.c's timing
+ * blocks and host.c's report read one and the same cvar in the engine. */
+cvar_t sv_speeds;
+
+/* Quake/pr_edict.c, copied verbatim. SV_EntGravity (sv_phys.c:665) is the
+ * only caller here; the fixture's progs image has no fielddefs, so
+ * ED_FindField returns NULL, the offset is -1 and SV_EntGravity falls back
+ * to 1.0 on both sides. */
+int ED_FindFieldOffset (const char *name)
+{
+	ddef_t *def = ED_FindField (name); /* renamed c_ref_ED_FindField */
+	if (!def)
+		return -1;
+	return def->ofs;
+}
+
+eval_t *GetEdictFieldValue (edict_t *ed, int fldofs)
+{
+	if (fldofs < 0)
+		return NULL;
+	return (eval_t *)((char *)&ed->v + fldofs * 4);
+}
+
+/* Quake/pr_cmds.c's PF_changeyaw, copied verbatim. sv_move.c:242 calls this
+ * plain C symbol directly (it declares its own prototype at sv_move.c:235),
+ * and pr_cmds.c is not in C_SOURCES, so the harness owns it. It reaches no
+ * PR_ExecuteProgram and cannot raise, which is why the Rust port calls it
+ * without a Host_Guard. */
+void PF_changeyaw (void);
+void PF_changeyaw (void)
+{
+	edict_t *ent;
+	float	 ideal, current, move, speed;
+
+	ent = PROG_TO_EDICT (pr_global_struct->self);
+	current = anglemod (ent->v.angles[1]);
+	ideal = ent->v.ideal_yaw;
+	speed = ent->v.yaw_speed;
+
+	if (current == ideal)
+		return;
+	move = ideal - current;
+	if (ideal > current)
+	{
+		if (move >= 180)
+			move = move - 360;
+	}
+	else
+	{
+		if (move <= -180)
+			move = move + 360;
+	}
+	if (move > 0)
+	{
+		if (move > speed)
+			move = speed;
+	}
+	else
+	{
+		if (move < -speed)
+			move = -speed;
+	}
+
+	ent->v.angles[1] = anglemod (current + move);
+}
+
+/* host.c:185. Routed through the existing Host_Error trap so ctest_try_host
+ * catches it; the "Host_EndGame: " prefix keeps the two raise paths
+ * distinguishable in ctest_host_error_message(). */
+static int ctest_phys_endgame_count;
+
+FUNC_NORETURN void Host_EndGame (const char *message, ...)
+{
+	va_list ap;
+	char	buf[1024];
+
+	va_start (ap, message);
+	vsnprintf (buf, sizeof (buf), message, ap);
+	va_end (ap);
+
+	ctest_phys_endgame_count++;
+	Host_Error ("Host_EndGame: %s", buf);
+}
+
+int ctest_phys_endgame_calls (void)
+{
+	return ctest_phys_endgame_count;
+}
+
+/* sv_main.c:1274. sv_phys.c reaches it from SV_CheckWaterTransition
+ * (sv_phys.c:2139,2148) and SV_Physics_Step (sv_phys.c:2270). The real one
+ * Host_Errors on an unprecached sample, so the recorder can be armed to do
+ * the same -- that is what makes the water-transition raise test possible. */
+#define CTEST_PHYS_SOUND_MAX 64
+
+typedef struct
+{
+	int	  ent;
+	int	  channel;
+	int	  volume;
+	float attenuation;
+	int	  has_origin;
+	char  sample[64];
+} ctest_phys_sound_rec_t;
+
+static ctest_phys_sound_rec_t ctest_phys_sounds[CTEST_PHYS_SOUND_MAX];
+static int					  ctest_phys_sound_count;
+static int					  ctest_phys_sound_raises;
+
+void SV_StartSound (edict_t *entity, float *origin, int channel, const char *sample, int volume, float attenuation)
+{
+	if (ctest_phys_sound_count < CTEST_PHYS_SOUND_MAX)
+	{
+		ctest_phys_sound_rec_t *r = &ctest_phys_sounds[ctest_phys_sound_count];
+		r->ent = NUM_FOR_EDICT (entity);
+		r->channel = channel;
+		r->volume = volume;
+		r->attenuation = attenuation;
+		r->has_origin = origin ? 1 : 0;
+		q_strlcpy (r->sample, sample ? sample : "", sizeof (r->sample));
+	}
+	ctest_phys_sound_count++;
+
+	if (ctest_phys_sound_raises)
+		Host_Error ("SV_StartSound: %s not precached", sample ? sample : "");
+}
+
+void ctest_phys_sound_arm_raise (int on)
+{
+	ctest_phys_sound_raises = on ? 1 : 0;
+}
+
+int ctest_phys_sound_len (void)
+{
+	return ctest_phys_sound_count;
+}
+
+int ctest_phys_sound_get (int i, int *ent, int *channel, int *volume, float *attenuation, int *has_origin, const char **sample)
+{
+	if (i < 0 || i >= ctest_phys_sound_count || i >= CTEST_PHYS_SOUND_MAX)
+		return 0;
+	*ent = ctest_phys_sounds[i].ent;
+	*channel = ctest_phys_sounds[i].channel;
+	*volume = ctest_phys_sounds[i].volume;
+	*attenuation = ctest_phys_sounds[i].attenuation;
+	*has_origin = ctest_phys_sounds[i].has_origin;
+	*sample = ctest_phys_sounds[i].sample;
+	return 1;
+}
+
+void ctest_phys_sound_clear (void)
+{
+	ctest_phys_sound_count = 0;
+	memset (ctest_phys_sounds, 0, sizeof (ctest_phys_sounds));
+}
+
+/* --- the sv_phys.c glue helpers -------------------------------------------
+ * Quake/sv_phys_glue.c is not one of build.rs's C_SOURCES (it only compiles
+ * under Meson's -Duse_rust_host), so the harness owns the same trampolines
+ * under the same names. Every guarded one returns a Host_Guard status the
+ * Rust caller propagates; ADR-009 keeps the longjmp inside C frames.
+ *
+ * DUPLICATE-SYMBOL HAZARD: if sv_phys_glue.c is ever added to C_SOURCES,
+ * every SvPhys_Glue_* below AND the plain cvar/counter block at the bottom
+ * of this file must be removed together. */
+
+typedef struct
+{
+	edict_t	   *self;
+	edict_t	   *other;
+	float		time;
+	int			channel;
+	int			volume;
+	float		attenuation;
+	const char *sample;
+} ctest_phys_glue_args_t;
+
+static void ctest_phys_invoke_think (void *p)
+{
+	ctest_phys_glue_args_t *a = (ctest_phys_glue_args_t *)p;
+
+	pr_global_struct->time = a->time;
+	pr_global_struct->self = EDICT_TO_PROG (a->self);
+	pr_global_struct->other = EDICT_TO_PROG (qcvm->edicts);
+	PR_ExecuteProgram (a->self->v.think);
+}
+
+/* sv_phys.c:368-372 (SV_RunThink) and sv_phys.c:1609-1613 (SV_Physics_Pusher).
+ * Both set time/self/other identically and dispatch ent->v.think; the
+ * surrounding bookkeeping stays in Rust. */
+int SvPhys_Glue_CallThink (edict_t *ent, float time)
+{
+	ctest_phys_glue_args_t a;
+	memset (&a, 0, sizeof (a));
+	a.self = ent;
+	a.time = time;
+	return Host_Guard (ctest_phys_invoke_think, &a);
+}
+
+static void ctest_phys_invoke_blocked (void *p)
+{
+	ctest_phys_glue_args_t *a = (ctest_phys_glue_args_t *)p;
+
+	pr_global_struct->self = EDICT_TO_PROG (a->self);
+	pr_global_struct->other = EDICT_TO_PROG (a->other);
+	PR_ExecuteProgram (a->self->v.blocked);
+}
+
+/* sv_phys.c:1557-1562. Note C does NOT set pr_global_struct->time here. */
+int SvPhys_Glue_CallBlocked (edict_t *pusher, edict_t *obstacle)
+{
+	ctest_phys_glue_args_t a;
+	memset (&a, 0, sizeof (a));
+	a.self = pusher;
+	a.other = obstacle;
+	return Host_Guard (ctest_phys_invoke_blocked, &a);
+}
+
+static void ctest_phys_invoke_prethink (void *p)
+{
+	ctest_phys_glue_args_t *a = (ctest_phys_glue_args_t *)p;
+
+	pr_global_struct->time = a->time;
+	pr_global_struct->self = EDICT_TO_PROG (a->self);
+	PR_ExecuteProgram (pr_global_struct->PlayerPreThink);
+}
+
+/* sv_phys.c:2007-2009 */
+int SvPhys_Glue_CallPlayerPreThink (edict_t *ent, float time)
+{
+	ctest_phys_glue_args_t a;
+	memset (&a, 0, sizeof (a));
+	a.self = ent;
+	a.time = time;
+	return Host_Guard (ctest_phys_invoke_prethink, &a);
+}
+
+static void ctest_phys_invoke_postthink (void *p)
+{
+	ctest_phys_glue_args_t *a = (ctest_phys_glue_args_t *)p;
+
+	pr_global_struct->time = a->time;
+	pr_global_struct->self = EDICT_TO_PROG (a->self);
+	PR_ExecuteProgram (pr_global_struct->PlayerPostThink);
+}
+
+/* sv_phys.c:2065-2067 */
+int SvPhys_Glue_CallPlayerPostThink (edict_t *ent, float time)
+{
+	ctest_phys_glue_args_t a;
+	memset (&a, 0, sizeof (a));
+	a.self = ent;
+	a.time = time;
+	return Host_Guard (ctest_phys_invoke_postthink, &a);
+}
+
+static void ctest_phys_invoke_startframe (void *p)
+{
+	ctest_phys_glue_args_t *a = (ctest_phys_glue_args_t *)p;
+
+	pr_global_struct->self = EDICT_TO_PROG (qcvm->edicts);
+	pr_global_struct->other = EDICT_TO_PROG (qcvm->edicts);
+	pr_global_struct->time = a->time;
+	PR_ExecuteProgram (pr_global_struct->StartFrame);
+}
+
+/* sv_phys.c:2333-2339 */
+int SvPhys_Glue_CallStartFrame (float time)
+{
+	ctest_phys_glue_args_t a;
+	memset (&a, 0, sizeof (a));
+	a.time = time;
+	return Host_Guard (ctest_phys_invoke_startframe, &a);
+}
+
+/* sv_phys.c:318 / :323. PR_GetString (pr_edict_arena.c:315) raises, so the
+ * whole Con_DPrintf stays in C with the format string verbatim. */
+static void ctest_phys_invoke_nan_velocity (void *p)
+{
+	edict_t *ent = (edict_t *)p;
+	Con_DPrintf ("Got a NaN velocity on %s\n", PR_GetString (ent->v.classname));
+}
+
+int SvPhys_Glue_WarnNanVelocity (edict_t *ent)
+{
+	return Host_Guard (ctest_phys_invoke_nan_velocity, ent);
+}
+
+static void ctest_phys_invoke_nan_origin (void *p)
+{
+	edict_t *ent = (edict_t *)p;
+	Con_DPrintf ("Got a NaN origin on %s\n", PR_GetString (ent->v.classname));
+}
+
+int SvPhys_Glue_WarnNanOrigin (edict_t *ent)
+{
+	return Host_Guard (ctest_phys_invoke_nan_origin, ent);
+}
+
+/* sv_phys.c:2055 and :2429 -- distinct strings, so two helpers. */
+static void ctest_phys_invoke_endgame_client (void *p)
+{
+	Host_EndGame ("SV_Physics_client: bad movetype %i", *(int *)p);
+}
+
+int SvPhys_Glue_EndGameBadClientMovetype (int movetype)
+{
+	int m = movetype;
+	return Host_Guard (ctest_phys_invoke_endgame_client, &m);
+}
+
+static void ctest_phys_invoke_endgame (void *p)
+{
+	Host_EndGame ("SV_Physics: bad movetype %i", *(int *)p);
+}
+
+int SvPhys_Glue_EndGameBadMovetype (int movetype)
+{
+	int m = movetype;
+	return Host_Guard (ctest_phys_invoke_endgame, &m);
+}
+
+/* sv_phys.c:2139,:2148 (SV_CheckWaterTransition) and :2270
+ * (SV_Physics_Step). SV_StartSound Host_Errors on an unprecached sample. */
+static void ctest_phys_invoke_startsound (void *p)
+{
+	ctest_phys_glue_args_t *a = (ctest_phys_glue_args_t *)p;
+	SV_StartSound (a->self, NULL, a->channel, a->sample, a->volume, a->attenuation);
+}
+
+int SvPhys_Glue_StartSound (edict_t *ent, int channel, const char *sample, int volume, float attenuation)
+{
+	ctest_phys_glue_args_t a;
+	memset (&a, 0, sizeof (a));
+	a.self = ent;
+	a.channel = channel;
+	a.sample = sample;
+	a.volume = volume;
+	a.attenuation = attenuation;
+	return Host_Guard (ctest_phys_invoke_startsound, &a);
+}
+
+/* sv_phys.c:297. Unguarded: M3 established that plain Con_Printf does not
+ * raise; only a PR_GetString argument makes one of these raise-capable. */
+void SvPhys_Glue_PrintInvalidPosition (void)
+{
+	Con_Printf ("entity in invalid position\n");
+}
+
+/* sv_phys.c:413-443 (SV_Impact). NOT World_Glue_CallTouch: that helper stamps
+ * pr_global_struct->time on every call, while SV_Impact stamps it once at
+ * :419 and deliberately does not restamp between the two dispatches, so QC
+ * that writes the `time` global inside e1's touch is observable inside e2's.
+ * The single store stays on the caller's side; this only sets self/other and
+ * dispatches self->v.touch. */
+static void ctest_phys_invoke_impact_touch (void *p)
+{
+	ctest_phys_glue_args_t *a = (ctest_phys_glue_args_t *)p;
+
+	pr_global_struct->self = EDICT_TO_PROG (a->self);
+	pr_global_struct->other = EDICT_TO_PROG (a->other);
+	PR_ExecuteProgram (a->self->v.touch);
+}
+
+int SvPhys_Glue_ImpactTouch (edict_t *self, edict_t *other)
+{
+	ctest_phys_glue_args_t a;
+	memset (&a, 0, sizeof (a));
+	a.self = self;
+	a.other = other;
+	return Host_Guard (ctest_phys_invoke_impact_touch, &a);
+}
+
+/* sv_phys.c:1254. Guarded because NUM_FOR_EDICT raises on an out-of-arena
+ * edict; the format string stays in C because Rust cannot call variadic C. */
+static void ctest_phys_invoke_dprint_unembedded (void *p)
+{
+	ctest_phys_glue_args_t *a = (ctest_phys_glue_args_t *)p;
+	Con_DPrintf2 ("SV_PushEntityTo: un-embedded entity %i from pusher %i\n", NUM_FOR_EDICT (a->self), NUM_FOR_EDICT (a->other));
+}
+
+int SvPhys_Glue_DPrintUnembedded (edict_t *ent, edict_t *ground)
+{
+	ctest_phys_glue_args_t a;
+	memset (&a, 0, sizeof (a));
+	a.self = ent;
+	a.other = ground;
+	return Host_Guard (ctest_phys_invoke_dprint_unembedded, &a);
+}
+
+/* sv_phys.c:1655, :1669 and :1676. Constant strings, so unguarded. */
+void SvPhys_Glue_DPrintUnstuck (void)
+{
+	Con_DPrintf ("Unstuck.\n");
+}
+
+void SvPhys_Glue_DPrintPlayerStuck (void)
+{
+	Con_DPrintf ("player is stuck.\n");
+}
+
+/* --- non-raising server-state accessors ----------------------------------
+ * sv_phys.c gates its whole server-only half on `qcvm == &sv.qcvm` and reads
+ * svs/sv_player directly. Those are C aggregates with no ADR-011 mirror in
+ * Phase 7, so the port reaches them through these accessors. */
+int SvPhys_Glue_QcvmIsServer (void)
+{
+	return qcvm == &sv.qcvm;
+}
+
+int SvPhys_Glue_MaxClients (void)
+{
+	return svs.maxclients;
+}
+
+/* `num` is the 1-based edict number of the client, as sv_phys.c:1996 and
+ * :1999 use it (svs.clients[num - 1]). Out-of-range answers false rather
+ * than reading past the array; C never asks outside 1..maxclients. */
+int SvPhys_Glue_ClientActive (int num)
+{
+	if (!svs.clients || num < 1 || num > svs.maxclients)
+		return 0;
+	return svs.clients[num - 1].active ? 1 : 0;
+}
+
+int SvPhys_Glue_ClientKnownToQc (int num)
+{
+	if (!svs.clients || num < 1 || num > svs.maxclients)
+		return 0;
+	return svs.clients[num - 1].knowntoqc ? 1 : 0;
+}
+
+edict_t *SvPhys_Glue_SvPlayer (void)
+{
+	return sv_player;
+}
+
+/* --- the fixture ---------------------------------------------------------- */
+
+#define CTEST_PHYS_MAX_CLIENTS 8
+#define CTEST_PHYS_RAND_SEED   0x5EED4A17ull
+
+static client_t ctest_phys_clients[CTEST_PHYS_MAX_CLIENTS];
+static float	ctest_phys_mode_value;
+
+/* defined at the bottom of this file, past the #undef's */
+void ctest_phys_set_plain_cvars (const float *v);
+void ctest_phys_zero_speeds_plain (void);
+
+static void ctest_phys_zero_speeds_c (void)
+{
+	sv_speeds_think_ms = 0; /* every name in this function is renamed c_ref_* */
+	sv_speeds_pusher_ms = 0;
+	sv_speeds_build_ms = 0;
+	sv_speeds_thinks = 0;
+	sv_speeds_pushers = 0;
+	sv_speeds_pushables = 0;
+	sv_speeds_grid_entries = 0;
+}
+
+/* v[13]: friction, stopspeed, gravity, maxvelocity, nostep, freezenonclients,
+ * spawnbeforethinks, bouncedownslopes, elevators, fastpushmove, pushgrid,
+ * analyticphysics, speeds. Only .value is read by sv_phys.c/sv_move.c. */
+void ctest_phys_set_cvars (const float *v)
+{
+	sv_friction.value = v[0]; /* every cvar here is renamed c_ref_* */
+	sv_stopspeed.value = v[1];
+	sv_gravity.value = v[2];
+	sv_maxvelocity.value = v[3];
+	sv_nostep.value = v[4];
+	sv_freezenonclients.value = v[5];
+	sv_gameplayfix_spawnbeforethinks.value = v[6];
+	sv_gameplayfix_bouncedownslopes.value = v[7];
+	sv_gameplayfix_elevators.value = v[8];
+	sv_fastpushmove.value = v[9];
+	sv_pushgrid.value = v[10];
+	sv_analyticphysics.value = v[11];
+	ctest_phys_set_plain_cvars (v);
+	sv_speeds.value = v[12]; /* shared with host.c, not renamed */
+}
+
+/* Rebuilds the world fixture on sv.qcvm and clears every physics-side log.
+ * `physics_mode` < 0 leaves qcvm->extglobals.physics_mode NULL, which is how
+ * SV_Physics' `(qcvm == &cl.qcvm) ? 0 : 2` default is reached. */
+void ctest_phys_reset (int num_edicts, int maxclients, double frametime, double vmtime, int physics_mode)
+{
+	int i;
+
+	ctest_world_reset (2, num_edicts);
+	sv.active = true;
+	sv.state = ss_active;
+
+	if (maxclients < 0)
+		maxclients = 0;
+	if (maxclients > CTEST_PHYS_MAX_CLIENTS)
+		maxclients = CTEST_PHYS_MAX_CLIENTS;
+	memset (ctest_phys_clients, 0, sizeof (ctest_phys_clients));
+	for (i = 0; i < maxclients; i++)
+	{
+		ctest_phys_clients[i].active = true;
+		ctest_phys_clients[i].knowntoqc = true;
+	}
+	svs.maxclients = maxclients;
+	svs.clients = ctest_phys_clients;
+
+	host_frametime = frametime;
+	qcvm->time = vmtime;
+	sv_player = EDICT_NUM (num_edicts > 1 ? 1 : 0);
+
+	if (physics_mode < 0)
+		qcvm->extglobals.physics_mode = NULL;
+	else
+	{
+		ctest_phys_mode_value = (float)physics_mode;
+		qcvm->extglobals.physics_mode = &ctest_phys_mode_value;
+	}
+
+	ctest_phys_endgame_count = 0;
+	ctest_phys_sound_raises = 0;
+	ctest_phys_sound_clear ();
+	ctest_phys_zero_speeds_c ();
+	ctest_phys_zero_speeds_plain ();
+	COM_SeedRand (CTEST_PHYS_RAND_SEED);
+	ctest_clear_con_log ();
+}
+
+/* Forces SV_BeginPusherSupportFrame's "the arena moved" branch (sv_phys.c:743
+ * -- `sv_pusher_support_edicts != qcvm->edicts`). Publishing a freshly
+ * allocated arena WITHOUT freeing the old one guarantees a different pointer;
+ * reusing ctest_world_reset would not, because the allocator is free to hand
+ * the same block back. The old arena is deliberately leaked: a test run makes
+ * a handful of these calls.
+ *
+ * The new arena is zeroed, so every areanode chain now dangles. The caller
+ * must re-apply its edict specs and re-run SV_ClearWorld/SV_LinkEdict before
+ * touching the world again. */
+void ctest_phys_swap_arena (int num_edicts)
+{
+	size_t sz;
+
+	if (num_edicts < 1)
+		num_edicts = 1;
+	sz = (size_t)num_edicts * qcvm->edict_size;
+	qcvm->edicts = (edict_t *)Mem_Alloc (sz);
+	memset (qcvm->edicts, 0, sz);
+	qcvm->max_edicts = num_edicts;
+	qcvm->num_edicts = num_edicts;
+	sv_player = EDICT_NUM (num_edicts > 1 ? 1 : 0);
+}
+
+void ctest_phys_set_client (int slot, int active, int knowntoqc)
+{
+	if (slot < 0 || slot >= CTEST_PHYS_MAX_CLIENTS)
+		return;
+	ctest_phys_clients[slot].active = active ? true : false;
+	ctest_phys_clients[slot].knowntoqc = knowntoqc ? true : false;
+}
+
+/* Points StartFrame/PlayerPreThink/PlayerPostThink at the M3 logging touch
+ * functions; kind < 0 leaves the global at 0 (no dispatch). */
+void ctest_phys_set_prog_funcs (int startframe_kind, int prethink_kind, int postthink_kind, float force_retouch)
+{
+	pr_global_struct->StartFrame = startframe_kind >= 0 ? ctest_world_touch_func (startframe_kind) : 0;
+	pr_global_struct->PlayerPreThink = prethink_kind >= 0 ? ctest_world_touch_func (prethink_kind) : 0;
+	pr_global_struct->PlayerPostThink = postthink_kind >= 0 ? ctest_world_touch_func (postthink_kind) : 0;
+	pr_global_struct->force_retouch = force_retouch;
+}
+
+/* scalars[16]: movetype, solid, modelindex, flags, waterlevel, watertype,
+ *              groundentity (edict number, < 0 = none), nextthink, ltime,
+ *              frame, owner (edict number, < 0 = none), yaw_speed,
+ *              ideal_yaw, health, takedamage, skin
+ * vectors[18]: origin[3], mins[3], maxs[3], velocity[3], angles[3],
+ *              avelocity[3]
+ * The three *_kind arguments select an M3 logging touch function (< 0 = 0). */
+void ctest_phys_edict_set (int num, const float *scalars, const float *vectors, int think_kind, int touch_kind, int blocked_kind, int is_free)
+{
+	edict_t *ed = EDICT_NUM (num);
+
+	ed->v.movetype = scalars[0];
+	ed->v.solid = scalars[1];
+	ed->v.modelindex = scalars[2];
+	ed->v.flags = scalars[3];
+	ed->v.waterlevel = scalars[4];
+	ed->v.watertype = scalars[5];
+	ed->v.groundentity = scalars[6] >= 0 ? (float)EDICT_TO_PROG (EDICT_NUM ((int)scalars[6])) : 0;
+	ed->v.nextthink = scalars[7];
+	ed->v.ltime = scalars[8];
+	ed->v.frame = scalars[9];
+	ed->v.owner = scalars[10] >= 0 ? (float)EDICT_TO_PROG (EDICT_NUM ((int)scalars[10])) : 0;
+	ed->v.yaw_speed = scalars[11];
+	ed->v.ideal_yaw = scalars[12];
+	ed->v.health = scalars[13];
+	ed->v.takedamage = scalars[14];
+	ed->v.skin = scalars[15];
+
+	VectorCopy (vectors + 0, ed->v.origin);
+	VectorCopy (vectors + 3, ed->v.mins);
+	VectorCopy (vectors + 6, ed->v.maxs);
+	VectorSubtract (ed->v.maxs, ed->v.mins, ed->v.size);
+	VectorCopy (vectors + 9, ed->v.velocity);
+	VectorCopy (vectors + 12, ed->v.angles);
+	VectorCopy (vectors + 15, ed->v.avelocity);
+
+	ed->v.think = think_kind >= 0 ? ctest_world_touch_func (think_kind) : 0;
+	ed->v.touch = touch_kind >= 0 ? ctest_world_touch_func (touch_kind) : 0;
+	ed->v.blocked = blocked_kind >= 0 ? ctest_world_touch_func (blocked_kind) : 0;
+	ed->free = is_free ? true : false;
+}
+
+/* sv_move.c reads three entvars the setter above does not cover, and none of
+ * the five entry points writes them, so they get a separate setter rather
+ * than widening the 16-float scalar block. `enemy` and `goalentity` are edict
+ * numbers (< 0 = the world edict, which is what sv_move.c:408 and :129 test
+ * against); `flags` is or'd, not replaced, so a test can add FL_ONGROUND to a
+ * population entry without restating it. */
+void ctest_phys_edict_set_refs (int num, int enemy, int goalentity, int extra_flags)
+{
+	edict_t *ed = EDICT_NUM (num);
+
+	ed->v.enemy = (float)EDICT_TO_PROG (EDICT_NUM (enemy >= 0 ? enemy : 0));
+	ed->v.goalentity = (float)EDICT_TO_PROG (EDICT_NUM (goalentity >= 0 ? goalentity : 0));
+	ed->v.flags = (float)((int)ed->v.flags | extra_flags);
+}
+
+/* SV_MoveToGoal (sv_move.c:392-416) is a QC builtin body: it takes its actor
+ * from pr_global_struct->self, its distance from OFS_PARM0 and reports
+ * through OFS_RETURN. */
+void ctest_phys_set_self (int num)
+{
+	pr_global_struct->self = EDICT_TO_PROG (EDICT_NUM (num));
+}
+
+void ctest_phys_set_parm0 (float v)
+{
+	G_FLOAT (OFS_PARM0) = v;
+	G_FLOAT (OFS_RETURN) = 0;
+}
+
+void ctest_phys_globals (float *out3)
+{
+	out3[0] = G_FLOAT (OFS_RETURN);
+	out3[1] = G_FLOAT (OFS_PARM0);
+	out3[2] = (float)pr_global_struct->self;
+}
+
+/* Raw entvars_t write for what the setter above does not cover -- a NaN
+ * velocity component in particular. `float_ofs` is a float offset into
+ * entvars_t; the test spells it with the mirror's field offsets. */
+void ctest_phys_edict_poke_bits (int num, int float_ofs, unsigned bits)
+{
+	memcpy (((float *)&EDICT_NUM (num)->v) + float_ofs, &bits, sizeof (bits));
+}
+
+/* The float offset of one entvars_t field, so a test can pin the constants it
+ * pokes with against the C compiler's own layout instead of hardcoding them.
+ * Returns -1 for a name this helper does not know. */
+int ctest_phys_entvars_offset (const char *name)
+{
+	static const struct
+	{
+		const char *name;
+		size_t		byte_ofs;
+	} fields[] = {
+		{"modelindex", offsetof (entvars_t, modelindex)},
+		{"absmin", offsetof (entvars_t, absmin)},
+		{"absmax", offsetof (entvars_t, absmax)},
+		{"ltime", offsetof (entvars_t, ltime)},
+		{"movetype", offsetof (entvars_t, movetype)},
+		{"solid", offsetof (entvars_t, solid)},
+		{"origin", offsetof (entvars_t, origin)},
+		{"oldorigin", offsetof (entvars_t, oldorigin)},
+		{"velocity", offsetof (entvars_t, velocity)},
+		{"angles", offsetof (entvars_t, angles)},
+		{"mins", offsetof (entvars_t, mins)},
+		{"maxs", offsetof (entvars_t, maxs)},
+		{"flags", offsetof (entvars_t, flags)},
+		{"waterlevel", offsetof (entvars_t, waterlevel)},
+		{"watertype", offsetof (entvars_t, watertype)},
+		{"nextthink", offsetof (entvars_t, nextthink)},
+		{"ideal_yaw", offsetof (entvars_t, ideal_yaw)},
+		{"yaw_speed", offsetof (entvars_t, yaw_speed)},
+	};
+	size_t i;
+
+	for (i = 0; i < sizeof (fields) / sizeof (fields[0]); i++)
+		if (!strcmp (fields[i].name, name))
+			return (int)(fields[i].byte_ofs / sizeof (float));
+	return -1;
+}
+
+#define CTEST_PHYS_EDICT_WORDS 50
+
+static void ctest_phys_put_f (unsigned *out, int *n, float v)
+{
+	memcpy (out + *n, &v, sizeof (v));
+	(*n)++;
+}
+
+static void ctest_phys_put_i (unsigned *out, int *n, int v)
+{
+	out[*n] = (unsigned)v;
+	(*n)++;
+}
+
+static void ctest_phys_put_v (unsigned *out, int *n, const float *v)
+{
+	ctest_phys_put_f (out, n, v[0]);
+	ctest_phys_put_f (out, n, v[1]);
+	ctest_phys_put_f (out, n, v[2]);
+}
+
+/* Every observable field of one edict, floats as exact bit patterns. */
+int ctest_phys_edict_snapshot (int num, unsigned *out, int max)
+{
+	edict_t *ed;
+	int		 n = 0;
+
+	if (max < CTEST_PHYS_EDICT_WORDS)
+		return 0;
+	ed = EDICT_NUM (num);
+
+	ctest_phys_put_i (out, &n, ed->free ? 1 : 0);
+	ctest_phys_put_i (out, &n, (int)ed->num_leafs);
+	ctest_phys_put_v (out, &n, ed->v.origin);
+	ctest_phys_put_v (out, &n, ed->v.velocity);
+	ctest_phys_put_v (out, &n, ed->v.angles);
+	ctest_phys_put_v (out, &n, ed->v.avelocity);
+	ctest_phys_put_v (out, &n, ed->v.mins);
+	ctest_phys_put_v (out, &n, ed->v.maxs);
+	ctest_phys_put_v (out, &n, ed->v.size);
+	ctest_phys_put_v (out, &n, ed->v.absmin);
+	ctest_phys_put_v (out, &n, ed->v.absmax);
+	ctest_phys_put_f (out, &n, ed->v.movetype);
+	ctest_phys_put_f (out, &n, ed->v.ideal_yaw); /* SV_StepDirection / SV_NewChaseDir write this */
+	ctest_phys_put_f (out, &n, ed->v.yaw_speed);
+	ctest_phys_put_f (out, &n, ed->v.solid);
+	ctest_phys_put_f (out, &n, ed->v.flags);
+	ctest_phys_put_f (out, &n, ed->v.waterlevel);
+	ctest_phys_put_f (out, &n, ed->v.watertype);
+	/* groundentity is a byte offset into the arena; report the edict number
+	 * so the comparison survives a different arena base address */
+	ctest_phys_put_i (out, &n, ed->v.groundentity ? NUM_FOR_EDICT (PROG_TO_EDICT ((int)ed->v.groundentity)) : -1);
+	ctest_phys_put_f (out, &n, ed->v.nextthink);
+	ctest_phys_put_f (out, &n, ed->v.ltime);
+	ctest_phys_put_f (out, &n, ed->v.frame);
+	ctest_phys_put_f (out, &n, ed->oldframe);
+	ctest_phys_put_f (out, &n, ed->oldthinktime);
+	ctest_phys_put_f (out, &n, ed->lastthink);
+	ctest_phys_put_v (out, &n, ed->predthinkpos);
+	ctest_phys_put_i (out, &n, ed->sendinterval ? 1 : 0);
+	ctest_phys_put_i (out, &n, ed->sendinterval_default ? 1 : 0);
+	ctest_phys_put_f (out, &n, ed->freetime);
+	ctest_phys_put_i (out, &n, (int)ed->v.think);
+
+	return n;
+}
+
+double ctest_phys_vm_time (void)
+{
+	return qcvm->time;
+}
+
+int ctest_phys_num_edicts (void)
+{
+	return qcvm->num_edicts;
+}
+
+float ctest_phys_force_retouch (void)
+{
+	return pr_global_struct->force_retouch;
+}
+
+/* The sv_speeds report. `_c` reads the c_ref_* storage sv_phys.c writes,
+ * `_plain` (bottom of this file) the copies the Rust port writes. */
+void ctest_phys_speeds_c (double *ms3, int *counts4, int *analytic_frame)
+{
+	ms3[0] = sv_speeds_think_ms; /* every name here is renamed c_ref_* */
+	ms3[1] = sv_speeds_pusher_ms;
+	ms3[2] = sv_speeds_build_ms;
+	counts4[0] = sv_speeds_thinks;
+	counts4[1] = sv_speeds_pushers;
+	counts4[2] = sv_speeds_pushables;
+	counts4[3] = sv_speeds_grid_entries;
+	*analytic_frame = sv_analyticphysics_frame ? 1 : 0;
+}
+
 /* --- the plain-named world cvars ------------------------------------------
  * The Rust port reads the engine's own `sv_fte_*` cvars, which the shipping
  * build defines in world_glue.c -- a Meson-only translation unit that is not
@@ -4538,4 +5446,220 @@ int SV_PointContentsAllBsps (vec3_t p, edict_t *forent)
 void ctest_world_set_rust_link_fns (void)
 {
 	ctest_world_set_link_fns (SV_LinkEdict, SV_UnlinkEdict);
+}
+
+/* --- the plain-named sv_phys.c data (Phase 7 M4) --------------------------
+ * The Rust port reads and writes the engine's own cvars and sv_speeds
+ * counters, which the shipping build defines in Quake/sv_phys_glue.c -- a
+ * Meson-only translation unit that is not one of build.rs's C_SOURCES. The
+ * harness therefore owns them, and has to step around the prelude's rename
+ * macros to spell them plainly. Initialisers copied from sv_phys.c:44-54,
+ * :56, :345-346 and :705.
+ *
+ * DUPLICATE-SYMBOL HAZARD: if sv_phys_glue.c is ever added to build.rs's
+ * C_SOURCES, everything in this block AND every SvPhys_Glue_* helper AND the
+ * nine plain SV_* wrappers below must be removed together. */
+#undef sv_friction
+#undef sv_stopspeed
+#undef sv_gravity
+#undef sv_maxvelocity
+#undef sv_nostep
+#undef sv_freezenonclients
+#undef sv_gameplayfix_spawnbeforethinks
+#undef sv_gameplayfix_bouncedownslopes
+#undef sv_gameplayfix_elevators
+#undef sv_fastpushmove
+#undef sv_pushgrid
+#undef sv_analyticphysics
+#undef sv_analyticphysics_frame
+#undef sv_speeds_think_ms
+#undef sv_speeds_pusher_ms
+#undef sv_speeds_build_ms
+#undef sv_speeds_thinks
+#undef sv_speeds_pushers
+#undef sv_speeds_pushables
+#undef sv_speeds_grid_entries
+
+cvar_t sv_friction = {"sv_friction", "4", CVAR_NOTIFY | CVAR_SERVERINFO};
+cvar_t sv_stopspeed = {"sv_stopspeed", "100", CVAR_NONE};
+cvar_t sv_gravity = {"sv_gravity", "800", CVAR_NOTIFY | CVAR_SERVERINFO};
+cvar_t sv_maxvelocity = {"sv_maxvelocity", "2000", CVAR_NONE};
+cvar_t sv_nostep = {"sv_nostep", "0", CVAR_NONE};
+cvar_t sv_freezenonclients = {"sv_freezenonclients", "0", CVAR_NONE};
+cvar_t sv_gameplayfix_spawnbeforethinks = {"sv_gameplayfix_spawnbeforethinks", "0", CVAR_NONE};
+cvar_t sv_gameplayfix_bouncedownslopes = {"sv_gameplayfix_bouncedownslopes", "1", CVAR_NONE};
+cvar_t sv_fastpushmove = {"sv_fastpushmove", "1", CVAR_NONE};
+cvar_t sv_pushgrid = {"sv_pushgrid", "1", CVAR_NONE};
+cvar_t sv_analyticphysics = {"sv_analyticphysics", "1", CVAR_NONE};
+/* 0=off; 1=legacy DIST_EPSILON nudge, clients only; 2=legacy nudge, all entities; 3=robust pusher contact (default) */
+cvar_t sv_gameplayfix_elevators = {"sv_gameplayfix_elevators", "3", CVAR_NONE};
+
+qboolean sv_analyticphysics_frame = true;
+
+double sv_speeds_think_ms, sv_speeds_pusher_ms, sv_speeds_build_ms;
+int	   sv_speeds_thinks, sv_speeds_pushers, sv_speeds_pushables, sv_speeds_grid_entries;
+
+void ctest_phys_set_plain_cvars (const float *v)
+{
+	sv_friction.value = v[0];
+	sv_stopspeed.value = v[1];
+	sv_gravity.value = v[2];
+	sv_maxvelocity.value = v[3];
+	sv_nostep.value = v[4];
+	sv_freezenonclients.value = v[5];
+	sv_gameplayfix_spawnbeforethinks.value = v[6];
+	sv_gameplayfix_bouncedownslopes.value = v[7];
+	sv_gameplayfix_elevators.value = v[8];
+	sv_fastpushmove.value = v[9];
+	sv_pushgrid.value = v[10];
+	sv_analyticphysics.value = v[11];
+}
+
+void ctest_phys_zero_speeds_plain (void)
+{
+	sv_speeds_think_ms = 0;
+	sv_speeds_pusher_ms = 0;
+	sv_speeds_build_ms = 0;
+	sv_speeds_thinks = 0;
+	sv_speeds_pushers = 0;
+	sv_speeds_pushables = 0;
+	sv_speeds_grid_entries = 0;
+}
+
+void ctest_phys_speeds_plain (double *ms3, int *counts4, int *analytic_frame)
+{
+	ms3[0] = sv_speeds_think_ms;
+	ms3[1] = sv_speeds_pusher_ms;
+	ms3[2] = sv_speeds_build_ms;
+	counts4[0] = sv_speeds_thinks;
+	counts4[1] = sv_speeds_pushers;
+	counts4[2] = sv_speeds_pushables;
+	counts4[3] = sv_speeds_grid_entries;
+	*analytic_frame = sv_analyticphysics_frame ? 1 : 0;
+}
+
+/* --- the raise-capable sv_move.c / sv_phys.c public ABI (Phase 7 M4) ------
+ * ADR-009: nine entry points reach Host_Error, so the Rust port exports them
+ * as quake_rs_* status cores and the shipping build wraps them in
+ * Quake/sv_move_glue.c / Quake/sv_phys_glue.c. Neither glue file is one of
+ * build.rs's C_SOURCES, so the harness owns the wrappers -- same topology,
+ * same names. The tests drive the plain symbols only, so no longjmp unwinds
+ * a Rust frame here any more than it does in the engine.
+ *
+ * SV_FixCheckBottom, SV_CloseEnough and SV_PushGridEntityLinked cannot raise
+ * and are exported plainly by the Rust port, so they get no wrapper.
+ *
+ * The prelude's rename macros are still live in this translation unit and
+ * would rewrite these definitions to c_ref_*, colliding with the real
+ * oracles compiled from sv_move.c/sv_phys.c, so each name is #undef'd. */
+#undef SV_CheckBottom
+#undef SV_movestep
+#undef SV_StepDirection
+#undef SV_NewChaseDir
+#undef SV_MoveToGoal
+#undef SV_CheckAllEnts
+#undef SV_CheckVelocity
+#undef SV_CheckWaterTransition
+#undef SV_Physics
+#undef SV_PushGridEntityLinked
+
+extern int quake_rs_sv_check_bottom (edict_t *ent, qboolean *out);
+extern int quake_rs_sv_movestep (edict_t *ent, vec3_t move, qboolean relink, qboolean *out);
+extern int quake_rs_sv_step_direction (edict_t *ent, float yaw, float dist, qboolean *out);
+extern int quake_rs_sv_new_chase_dir (edict_t *actor, edict_t *enemy, float dist);
+extern int quake_rs_sv_move_to_goal (void);
+extern int quake_rs_sv_check_all_ents (void);
+extern int quake_rs_sv_check_velocity (edict_t *ent);
+extern int quake_rs_sv_check_water_transition (edict_t *ent);
+extern int quake_rs_sv_physics (void);
+
+qboolean SV_CheckBottom (edict_t *ent)
+{
+	qboolean out = false;
+	int		 r = quake_rs_sv_check_bottom (ent, &out);
+	Host_Reraise (r);
+	return out;
+}
+
+qboolean SV_movestep (edict_t *ent, vec3_t move, qboolean relink)
+{
+	qboolean out = false;
+	int		 r = quake_rs_sv_movestep (ent, move, relink, &out);
+	Host_Reraise (r);
+	return out;
+}
+
+qboolean SV_StepDirection (edict_t *ent, float yaw, float dist)
+{
+	qboolean out = false;
+	int		 r = quake_rs_sv_step_direction (ent, yaw, dist, &out);
+	Host_Reraise (r);
+	return out;
+}
+
+void SV_NewChaseDir (edict_t *actor, edict_t *enemy, float dist)
+{
+	Host_Reraise (quake_rs_sv_new_chase_dir (actor, enemy, dist));
+}
+
+void SV_MoveToGoal (void)
+{
+	Host_Reraise (quake_rs_sv_move_to_goal ());
+}
+
+void SV_CheckAllEnts (void)
+{
+	Host_Reraise (quake_rs_sv_check_all_ents ());
+}
+
+void SV_CheckVelocity (edict_t *ent)
+{
+	Host_Reraise (quake_rs_sv_check_velocity (ent));
+}
+
+void SV_CheckWaterTransition (edict_t *ent)
+{
+	Host_Reraise (quake_rs_sv_check_water_transition (ent));
+}
+
+void SV_Physics (void)
+{
+	Host_Reraise (quake_rs_sv_physics ());
+}
+
+/* world_glue.c's thin wrapper, for the Rust side. Through M3 this forwarded
+ * to a stub-owned logger, because sv_phys.c was not in C_SOURCES; it now
+ * forwards to the Rust port's own plain export, exactly as world_glue.c
+ * does in the engine. */
+extern void SV_PushGridEntityLinked (edict_t *ent);
+
+void World_Glue_PushGridEntityLinked (edict_t *ent)
+{
+	SV_PushGridEntityLinked (ent);
+}
+
+/* --- the edict allocator's one hook slot (Phase 7 M4) --------------------
+ *
+ * ADR-006 keeps the edict arena in C, so pr_edict_arena.c is one of build.rs's
+ * C_SOURCES and both ED_Alloc and its hook setter link as c_ref_*. There is
+ * therefore exactly ONE allocator in this process and exactly ONE hook slot,
+ * and c_ref_ED_Alloc is what the fixture's CTEST_WORLD_TOUCH_SPAWN builtin
+ * calls on both sides of every differential.
+ *
+ * The Rust port of sv_phys.c installs SV_Physics_Alloc_Hook for the duration
+ * of a fast-pushmove tick by calling the plain ED_AllocSetHook, which lands
+ * here. Forwarding to c_ref_ED_AllocSetHook -- rather than keeping a private
+ * slot -- is what keeps that coverage real: a store-and-return-previous stub
+ * would link and go green while leaving the Rust side's pushable_ent_cache
+ * blind to mid-tick allocations that the C side's cache picks up. */
+static ED_AllocHook_func ctest_ed_alloc_set_hook (ED_AllocHook_func hook)
+{
+	return ED_AllocSetHook (hook); /* renamed c_ref_ED_AllocSetHook */
+}
+
+#undef ED_AllocSetHook
+
+ED_AllocHook_func ED_AllocSetHook (ED_AllocHook_func hook)
+{
+	return ctest_ed_alloc_set_hook (hook);
 }

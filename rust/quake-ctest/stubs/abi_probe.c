@@ -1190,12 +1190,36 @@ size_t ctest_abi_progs_lookup (const char *key)
  * does include the real server.h -- those macros would rewrite the enum
  * bodies themselves (`SOLID_NOT = 0,` -> `0 = 0,`). Drop them for good:
  * nothing below this point needs the constants, only the struct layouts. */
+#undef MOVETYPE_NONE
+#undef MOVETYPE_ANGLENOCLIP
+#undef MOVETYPE_ANGLECLIP
+#undef MOVETYPE_WALK
+#undef MOVETYPE_STEP
+#undef MOVETYPE_FLY
+#undef MOVETYPE_TOSS
 #undef MOVETYPE_PUSH
+#undef MOVETYPE_NOCLIP
+#undef MOVETYPE_FLYMISSILE
+#undef MOVETYPE_BOUNCE
+#undef MOVETYPE_GIB
 #undef SOLID_NOT
 #undef SOLID_TRIGGER
+#undef SOLID_BBOX
+#undef SOLID_SLIDEBOX
 #undef SOLID_BSP
+#undef FL_FLY
+#undef FL_SWIM
+#undef FL_CONVEYOR
+#undef FL_CLIENT
+#undef FL_INWATER
 #undef FL_MONSTER
+#undef FL_GODMODE
+#undef FL_NOTARGET
 #undef FL_ITEM
+#undef FL_ONGROUND
+#undef FL_PARTIALGROUND
+#undef FL_WATERJUMP
+#undef FL_JUMPRELEASED
 #include "server.h"
 #include "client.h"
 #undef sv

@@ -393,6 +393,24 @@ int quake_rs_sv_clip_move_to_entity(trace_t *out, edict_t *ent, vec3_t start, ve
 int quake_rs_sv_move(trace_t *out, vec3_t start, vec3_t mins, vec3_t maxs, vec3_t end, int type, edict_t *passedict);
 int quake_rs_sv_test_entity_position(edict_t *ent, edict_t **out);
 int quake_rs_sv_point_contents_all_bsps(int *out, vec3_t p, edict_t *forent);
+/* Phase 7 M4: sv_move.c + sv_phys.c. Same ADR-009 topology -- every entry
+ * point whose body can reach Host_Error is a quake_rs_* status core wrapped
+ * by Quake/sv_move_glue.c / Quake/sv_phys_glue.c. The three non-raising
+ * exports keep their engine names; they are declared here as well as by
+ * server.h / world.h so the signature gate diffs them, exactly as the M3
+ * plain exports above. */
+void SV_FixCheckBottom(edict_t *ent);
+qboolean SV_CloseEnough(edict_t *ent, edict_t *goal, float dist);
+void SV_PushGridEntityLinked(edict_t *ent);
+int quake_rs_sv_check_bottom(edict_t *ent, qboolean *out);
+int quake_rs_sv_movestep(edict_t *ent, vec3_t move, qboolean relink, qboolean *out);
+int quake_rs_sv_step_direction(edict_t *ent, float yaw, float dist, qboolean *out);
+int quake_rs_sv_new_chase_dir(edict_t *actor, edict_t *enemy, float dist);
+int quake_rs_sv_move_to_goal(void);
+int quake_rs_sv_check_all_ents(void);
+int quake_rs_sv_check_velocity(edict_t *ent);
+int quake_rs_sv_check_water_transition(edict_t *ent);
+int quake_rs_sv_physics(void);
 #endif
 #ifdef __cplusplus
 } /* extern "C" -- these hand-written declarations sit outside cbindgen's own
@@ -540,6 +558,13 @@ exclude = [
     "quake_rs_sv_link_edict", "quake_rs_sv_hull_for_entity",
     "quake_rs_sv_clip_move_to_entity", "quake_rs_sv_move",
     "quake_rs_sv_test_entity_position", "quake_rs_sv_point_contents_all_bsps",
+    # Phase 7 M4 -- declared by hand above, guarded on world.h
+    "SV_FixCheckBottom", "SV_CloseEnough", "SV_PushGridEntityLinked",
+    "quake_rs_sv_check_bottom", "quake_rs_sv_movestep",
+    "quake_rs_sv_step_direction", "quake_rs_sv_new_chase_dir",
+    "quake_rs_sv_move_to_goal", "quake_rs_sv_check_all_ents",
+    "quake_rs_sv_check_velocity", "quake_rs_sv_check_water_transition",
+    "quake_rs_sv_physics",
     "Trace", "PlaneT", "RhtCtx", "Edict", "EntVars", "AreaNode", "Link",
     "GlobalVars", "QcVm",
 ]

@@ -625,8 +625,9 @@ void GLMesh_DeleteMeshBuffers (aliashdr_t *mainhdr);
  * SV_AreaTriggerEdicts, SV_TouchLinks, SV_SlowRecursiveHullCheck,
  * SV_ClipToLinks, World_ClipToNetwork) need no rename. The two cvars DO:
  * world_glue.c defines them under the plain names for the Rust side.
- * SV_PushGridEntityLinked is NOT renamed -- it is sv_phys.c's, stays
- * stub-owned, and both sides call the one definition. */
+ * SV_PushGridEntityLinked is sv_phys.c's and is renamed with the rest of
+ * that file in the Phase 7 M4 block below (it was stub-owned through M3,
+ * when sv_phys.c was not yet one of build.rs's C_SOURCES). */
 #define sv_fte_recursivehullckeck c_ref_sv_fte_recursivehullckeck
 #define sv_fte_createareanode	  c_ref_sv_fte_createareanode
 #define SV_InitBoxHull			  c_ref_SV_InitBoxHull
@@ -647,6 +648,62 @@ void GLMesh_DeleteMeshBuffers (aliashdr_t *mainhdr);
 #define SV_ClipMoveToEntity		  c_ref_SV_ClipMoveToEntity
 #define SV_MoveBounds			  c_ref_SV_MoveBounds
 #define SV_Move					  c_ref_SV_Move
+
+/* ---- Phase 7 M4: sv_move.c + sv_phys.c, the monster-move / physics oracle --
+ *
+ * Same shape as the M3 world.c block above: every public symbol the two
+ * files *define* is renamed c_ref_*, and the Rust port (quake-capi's `host`
+ * feature) exports the same plain names beside it. The block sits above the
+ * `#include "world.h"` further down, so world.h's
+ * `void SV_PushGridEntityLinked (edict_t *)` declaration -- and world.c's
+ * call to it -- rename together with sv_phys.c's definition.
+ *
+ * sv_move.c's only file-local data is `static int c_yes, c_no;`
+ * (sv_move.c:37); sv_phys.c's file statics (pushable_ent_cache, push_grid_*,
+ * sv_pusher_support*, sv_walk_support_*) likewise. Neither needs a rename.
+ * Everything sv_phys.c defines with *external* linkage does, per this
+ * header's invariant below: the twelve cvars (sv_main.c registers them by
+ * address), sv_analyticphysics_frame (sv_user.c reads it), and the seven
+ * sv_speeds_* counters (host.c reads and zeroes them). In the shipping build
+ * those objects move to Quake/sv_phys_glue.c under the plain names;
+ * sv_phys_glue.c is not one of build.rs's C_SOURCES, so stubs.c owns the
+ * plain-named copies for the Rust side -- exactly as it already does for
+ * world.c's two sv_fte_* cvars.
+ *
+ * `extern cvar_t sv_speeds;` (sv_phys.c:343) is host.c's, not sv_phys.c's,
+ * so it stays stub-owned and shared un-renamed between the two sides. */
+#define SV_CheckBottom					 c_ref_SV_CheckBottom
+#define SV_movestep						 c_ref_SV_movestep
+#define SV_StepDirection				 c_ref_SV_StepDirection
+#define SV_FixCheckBottom				 c_ref_SV_FixCheckBottom
+#define SV_NewChaseDir					 c_ref_SV_NewChaseDir
+#define SV_CloseEnough					 c_ref_SV_CloseEnough
+#define SV_MoveToGoal					 c_ref_SV_MoveToGoal
+#define SV_PushGridEntityLinked			 c_ref_SV_PushGridEntityLinked
+#define SV_CheckAllEnts					 c_ref_SV_CheckAllEnts
+#define SV_CheckVelocity				 c_ref_SV_CheckVelocity
+#define SV_CheckWaterTransition			 c_ref_SV_CheckWaterTransition
+#define SV_Physics						 c_ref_SV_Physics
+#define sv_friction						 c_ref_sv_friction
+#define sv_stopspeed					 c_ref_sv_stopspeed
+#define sv_gravity						 c_ref_sv_gravity
+#define sv_maxvelocity					 c_ref_sv_maxvelocity
+#define sv_nostep						 c_ref_sv_nostep
+#define sv_freezenonclients				 c_ref_sv_freezenonclients
+#define sv_gameplayfix_spawnbeforethinks c_ref_sv_gameplayfix_spawnbeforethinks
+#define sv_gameplayfix_bouncedownslopes	 c_ref_sv_gameplayfix_bouncedownslopes
+#define sv_gameplayfix_elevators		 c_ref_sv_gameplayfix_elevators
+#define sv_fastpushmove					 c_ref_sv_fastpushmove
+#define sv_pushgrid						 c_ref_sv_pushgrid
+#define sv_analyticphysics				 c_ref_sv_analyticphysics
+#define sv_analyticphysics_frame		 c_ref_sv_analyticphysics_frame
+#define sv_speeds_think_ms				 c_ref_sv_speeds_think_ms
+#define sv_speeds_pusher_ms				 c_ref_sv_speeds_pusher_ms
+#define sv_speeds_build_ms				 c_ref_sv_speeds_build_ms
+#define sv_speeds_thinks				 c_ref_sv_speeds_thinks
+#define sv_speeds_pushers				 c_ref_sv_speeds_pushers
+#define sv_speeds_pushables				 c_ref_sv_speeds_pushables
+#define sv_speeds_grid_entries			 c_ref_sv_speeds_grid_entries
 
 #include "protocol.h" /* entity_state_t, which edict_t embeds */
 #include "progs.h"
@@ -817,13 +874,87 @@ FUNC_NORETURN void COM_Assert_Failed (const char *expr, const char *file, int li
  * They are object-like macros rather than an enum so abi_probe.c -- the one
  * TU that #includes the real server.h -- can #undef them out of the way
  * before that include, the same dodge it already uses for sv/svs/cl/cls.
- * Values transcribed from Quake/server.h:234-280. */
-#define MOVETYPE_PUSH 7
-#define SOLID_NOT	  0
-#define SOLID_TRIGGER 1
-#define SOLID_BSP	  4
-#define FL_MONSTER	  32
-#define FL_ITEM		  256
+ * Values transcribed from Quake/server.h:227-285. Phase 7 M4 widened the
+ * slice to everything sv_move.c and sv_phys.c compare against; abi_probe.c
+ * #undef's the whole set. */
+#define MOVETYPE_NONE		0
+#define MOVETYPE_ANGLENOCLIP 1
+#define MOVETYPE_ANGLECLIP	2
+#define MOVETYPE_WALK		3
+#define MOVETYPE_STEP		4
+#define MOVETYPE_FLY		5
+#define MOVETYPE_TOSS		6
+#define MOVETYPE_PUSH		7
+#define MOVETYPE_NOCLIP		8
+#define MOVETYPE_FLYMISSILE 9
+#define MOVETYPE_BOUNCE		10
+#define MOVETYPE_GIB		11
+#define SOLID_NOT			0
+#define SOLID_TRIGGER		1
+#define SOLID_BBOX			2
+#define SOLID_SLIDEBOX		3
+#define SOLID_BSP			4
+#define FL_FLY				1
+#define FL_SWIM				2
+#define FL_CONVEYOR			4
+#define FL_CLIENT			8
+#define FL_INWATER			16
+#define FL_MONSTER			32
+#define FL_GODMODE			64
+#define FL_NOTARGET			128
+#define FL_ITEM				256
+#define FL_ONGROUND			512
+#define FL_PARTIALGROUND	1024
+#define FL_WATERJUMP		2048
+#define FL_JUMPRELEASED		4096
+
+/* quakedef.h:68 -- SV_AddGravity/SV_FinishGravity's analytic half-step
+ * (sv_phys.c:682,693) divides by it, and the comment on that line says the
+ * value must not change. */
+#ifndef MAX_PHYSICS_FREQ
+#define MAX_PHYSICS_FREQ (72.0)
+#endif
+
+/* Phase 7 M4: the three engine seams sv_phys.c reaches that no header in
+ * this slice declares. All three are stub-owned (sv_main.c and host.c are
+ * not in build.rs's C_SOURCES) and shared un-renamed, so the c_ref oracle
+ * and the Rust port drive the same recorder:
+ *   - SV_StartSound  (server.h:338, defined sv_main.c:1274) -- water-entry
+ *     and hit-ground sounds; Host_Error's three ways, hence the guarded
+ *     glue helper in stubs.c
+ *   - Host_EndGame   (quakedef.h:480, defined host.c:185) -- the two
+ *     bad-movetype sites
+ *   - sv_player      (server.h:331, defined sv_main.c) -- SV_WalkMove's
+ *     FL_WATERJUMP test (sv_phys.c:1893) */
+void SV_StartSound (edict_t *entity, float *origin, int channel, const char *sample, int volume, float attenuation);
+FUNC_NORETURN void Host_EndGame (const char *message, ...) FUNC_PRINTF (1, 2);
+extern edict_t *sv_player;
+
+/* Phase 7 M4: sv_phys.c's own public cvars, its per-frame analytic latch and
+ * the sv_speeds counters. server.h:314-329 and host.c declare these in the
+ * engine; this prelude pre-empts server.h, so they come by hand. Every name
+ * here is rewritten to c_ref_* by the M4 rename block above, which is what
+ * lets stubs.c hold a second, plain-named set for the Rust port (the copies
+ * Quake/sv_phys_glue.c owns in the shipping build). */
+extern cvar_t sv_friction;
+extern cvar_t sv_stopspeed;
+extern cvar_t sv_gravity;
+extern cvar_t sv_maxvelocity;
+extern cvar_t sv_nostep;
+extern cvar_t sv_freezenonclients;
+extern cvar_t sv_gameplayfix_spawnbeforethinks;
+extern cvar_t sv_gameplayfix_bouncedownslopes;
+extern cvar_t sv_gameplayfix_elevators;
+extern cvar_t sv_fastpushmove;
+extern cvar_t sv_pushgrid;
+extern cvar_t sv_analyticphysics;
+extern qboolean sv_analyticphysics_frame;
+extern double	sv_speeds_think_ms, sv_speeds_pusher_ms, sv_speeds_build_ms;
+extern int		sv_speeds_thinks, sv_speeds_pushers, sv_speeds_pushables, sv_speeds_grid_entries;
+
+/* host.c:70 -- read by sv_phys.c's timing blocks and NOT renamed: there is
+ * one such cvar in the engine and stubs.c owns the single definition. */
+extern cvar_t sv_speeds;
 
 /* pr_ext.c's extension-enable cvar. world.c branches on it in five places
  * (SV_HullForEntity, SV_CreateAreaNode, SV_LinkEdict, SV_RecursiveHullCheck,
@@ -1024,6 +1155,9 @@ typedef struct client_s
 	qboolean  active;
 	sizebuf_t message;
 	char	  name[32];
+	/* Phase 7 M4: SV_Physics_Client (sv_phys.c:1996-2000) gates on
+	 * svs.clients[num-1].active and .knowntoqc */
+	qboolean knowntoqc;
 } client_t;
 extern client_t *host_client; // valid only while cmd_source == src_client
 

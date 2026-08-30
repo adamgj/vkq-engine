@@ -7,6 +7,9 @@
 
 pub mod libm;
 
+pub mod sv_move;
+pub mod sv_phys;
+
 /// Engine globals whose C types cannot be represented portably in the
 /// committed bindings (platform-dependent array lengths); only the base
 /// address is used from Rust.
