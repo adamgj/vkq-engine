@@ -204,16 +204,17 @@ pub unsafe extern "C" fn quake_rs_sv_check_bottom(ent: *mut Edict, out: *mut boo
 
         // the midpoint must be within 16 of the bottom
         //
-        // COMPAT: ADR-010 -- `0.5` is a double literal; C computes
-        // `mins[i] + maxs[i]` in `float` (both operands already are `float`)
-        // and promotes only that rounded sum for the `* 0.5`. A power-of-two
-        // multiplier commutes with rounding, so widening both operands to
-        // `double` first and narrowing once at the end -- as `world.rs`'s
-        // `SV_CreateAreaNode` already does for the identical `(a + b) * 0.5`
-        // shape -- reproduces the same `float` bit pattern.
-        start[0] = ((f64::from(mins[0]) + f64::from(maxs[0])) * 0.5) as c_float;
+        // COMPAT: ADR-010 -- `0.5` is a double literal, so C promotes for the
+        // multiply, but it adds `mins[i] + maxs[i]` in `float` first (both
+        // operands already are `float`) and promotes only that rounded sum.
+        // The add stays in `f32` here for that reason. Widening both operands
+        // first is value-identical across the normal range -- a power-of-two
+        // multiplier commutes with rounding -- but not when the `float` sum
+        // overflows, where C yields an infinite midpoint and a `double` add
+        // yields a finite one.
+        start[0] = ((mins[0] + maxs[0]) as f64 * 0.5) as c_float;
         stop[0] = start[0];
-        start[1] = ((f64::from(mins[1]) + f64::from(maxs[1])) * 0.5) as c_float;
+        start[1] = ((mins[1] + maxs[1]) as f64 * 0.5) as c_float;
         stop[1] = start[1];
         stop[2] = start[2] - 2.0 * STEPSIZE;
 
@@ -610,6 +611,14 @@ pub unsafe extern "C" fn quake_rs_sv_new_chase_dir(
     unsafe {
         // sv_move.c:289 `float d[3]` uses only indices 1 and 2 in C; named
         // locals here instead of an array with a dead slot 0.
+        // COMPAT: ADR-010 -- C's `(int)` truncates toward zero and is undefined
+        // out of range; Rust's `as` saturates and maps NaN to 0. Left as `as`
+        // deliberately: ADR-010 is per-platform, and on arm64 C lowers to
+        // `fcvtzs`, which saturates and maps NaN to 0 exactly as Rust does, so
+        // emulating x86-64's `cvttss2si` (NaN/out-of-range -> INT_MIN) would
+        // break arm64 parity to fix x86-64's. `ideal_yaw` is mod-settable, so
+        // the two disagree on x86-64 only for a NaN or |yaw| >= 45 * 2^31,
+        // neither of which an `anglemod`-fed yaw reaches.
         let step = (((*actor).v.ideal_yaw / 45.0) as i32).wrapping_mul(45);
         let olddir = m::anglemod(step as c_float);
         let turnaround = m::anglemod(olddir - 180.0);
@@ -660,6 +669,11 @@ pub unsafe extern "C" fn quake_rs_sv_new_chase_dir(
 
         // try other directions -- ericw: explicit int cast to suppress clang
         // suggestion to use fabsf (sv_move.c:323)
+        //
+        // COMPAT: ADR-010 -- see the `ideal_yaw` cast above for why these stay
+        // saturating `as`; the deltas are differences of entity origins,
+        // bounded well inside `i32` for any coordinate a map or `setorigin`
+        // produces.
         if (c::COM_Rand() & 3) & 1 != 0
             || (deltay as i32).wrapping_abs() > (deltax as i32).wrapping_abs()
         {

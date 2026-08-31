@@ -570,9 +570,11 @@ pub unsafe extern "C" fn SV_CreateAreaNode(
         }
 
         let ax = (*anode).axis as usize;
-        // COMPAT: ADR-010 -- `0.5` is a double literal, so the midpoint is
-        // computed in double and narrowed once on the store to `float dist`.
-        (*anode).dist = (0.5f64 * (f64::from(hi[ax]) + f64::from(lo[ax]))) as c_float;
+        // COMPAT: ADR-010 -- `0.5` is a double literal, so the multiply happens
+        // in double and narrows once on the store to `float dist`. The add
+        // itself stays in `float`, matching C's two `float` operands; widening
+        // it would diverge when the sum overflows `float`.
+        (*anode).dist = (0.5f64 * (hi[ax] + lo[ax]) as f64) as c_float;
 
         let mut mins1 = lo;
         let mut mins2 = lo;
