@@ -3405,7 +3405,7 @@ unsafe fn sv_physics_client(ent: *mut Edict, num: c_int) -> Raise {
             if raised != 0 {
                 return raised;
             }
-        } else if (*ent).v.movetype == MOVETYPE_NOCLIP {
+        } else if movetype == MOVETYPE_NOCLIP {
             let mut alive = false;
             let raised = sv_run_think(ent, &mut alive);
             if raised != 0 {
