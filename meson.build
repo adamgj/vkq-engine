@@ -269,6 +269,7 @@ srcs = [
     'Quake/sbar.c',
     'Quake/steam_api.c',
     'Quake/sv_main.c',
+    'Quake/sv_send.c',
     'Quake/sv_user.c',
 	'Quake/sys_sdl.c',
     'Quake/tasks.c',

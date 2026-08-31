@@ -342,9 +342,12 @@ void SV_DropClient (qboolean crash);
 
 void SVFTE_Ack (client_t *client, int sequence);
 void SVFTE_DestroyFrames (client_t *client);
+void SVFTE_SetupFrames (client_t *client);
 void SV_BuildEntityState (edict_t *ent, entity_state_t *state);
 void SV_SendClientMessages (void);
 void SV_ClearDatagram (void);
+void SV_CreateBaseline (void);
+void SV_SendReconnect (void);
 
 int SV_ModelIndex (const char *name);
 
