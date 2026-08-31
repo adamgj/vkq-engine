@@ -794,8 +794,11 @@ static void PREdictDispatch_Raise (int status, int detail, const char *brace, co
 	case PREDD_ERR_FREELIST_OVER_MAX:
 		Host_Error ("ED_AddToFreeList : has more than max_edicts >= %i (qcvm 0x%p)", detail, qcvm);
 	case PREDD_ERR_GUARD:
+		/* a guarded seam's Host_Error/Host_EndGame, re-issued now that the
+		   Rust frame has returned normally (ADR-009 rule 3). detail is known
+		   to name a real jump here, so Host_Reraise must not return. */
 		Host_Reraise (detail);
-		return;
+		Sys_Error ("PREdictDispatch_Raise: Host_Reraise returned");
 	default:
 		Host_Error ("%s: unknown status %i", func, status);
 	}
