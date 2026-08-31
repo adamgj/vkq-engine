@@ -426,3 +426,62 @@ RUST_PF (edict_for_num)
 RUST_PF (strlen)
 RUST_PF (str2chr)
 RUST_PF (strstrofs)
+
+/* Phase 7 M5: the server- and client-coupled builtins. Unlike everything
+   above, these cores live behind quake-capi's progs-host feature, which Meson
+   sets only when use_rust_progs and use_rust_host are both enabled -- so their
+   wrappers must be compiled out otherwise, or a -Duse_rust_progs=enabled
+   -Duse_rust_host=disabled link would go looking for quake_rs_pf_* symbols
+   that were never built. The matching PF_RSH macro in pr_cmds.c / pr_ext.c
+   keeps those table slots on the C originals in exactly the same case. */
+#ifdef USE_RUST_HOST
+
+/* the link/trace/PVS group (progs_builtins_sv.rs) */
+RUST_PF (setorigin)
+RUST_PF (setsize)
+RUST_PF (sv_setmodel)
+RUST_PF (traceline)
+RUST_PF (tracebox)
+RUST_PF (pointcontents)
+RUST_PF (findradius)
+RUST_PF (walkmove)
+RUST_PF (droptofloor)
+RUST_PF (checkbottom)
+RUST_PF (aim)
+RUST_PF (sv_checkclient)
+RUST_PF (checkpvs)
+RUST_PF (sv_walkpathtogoal)
+
+/* the message group (progs_builtins_sv_msg.rs) */
+RUST_PF (stuffcmd)
+RUST_PF (bprint)
+RUST_PF (sprint)
+RUST_PF (centerprint)
+RUST_PF (WriteFloat)
+RUST_PF (WriteDouble)
+RUST_PF (WriteInt)
+RUST_PF (WriteInt64)
+RUST_PF (WriteUInt64)
+RUST_PF (WriteString2)
+
+/* the world-effect group (progs_builtins_sv_fx.rs) */
+RUST_PF (sound)
+RUST_PF (particle)
+RUST_PF (sv_ambientsound)
+RUST_PF (sv_lightstyle)
+RUST_PF (sv_makestatic)
+RUST_PF (sv_setspawnparms)
+RUST_PF (sv_changelevel)
+RUST_PF (sv_precache_sound)
+RUST_PF (sv_precache_model)
+RUST_PF (sv_finalefinished)
+RUST_PF (sv_CheckPlayerEXFlags)
+RUST_PF (sv_localsound)
+
+/* the client group (progs_builtins_cl.rs) */
+RUST_PF (cl_sound)
+RUST_PF (cl_precache_sound)
+RUST_PF (cl_particle)
+RUST_PF (cl_makestatic)
+RUST_PF (cl_ambientsound)
+#endif /* USE_RUST_HOST */

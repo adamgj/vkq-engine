@@ -22,6 +22,10 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 // sv_edict.c -- entity dictionary
 
 #include "quakedef.h"
+#if defined(USE_RUST_HOST) && defined(USE_RUST_PROGS)
+#include "steam.h" // quake_rs.h declares the Phase 2 Steam shims in terms of steamgame_t
+#include "quake_rs.h"
+#endif
 
 const int type_size[NUM_TYPE_SIZES] = {
 	1, // ev_void
@@ -737,11 +741,84 @@ FIXME: need to tag constants, doesn't really work
 ==============================================================================
 */
 
+#if defined(USE_RUST_HOST) && defined(USE_RUST_PROGS)
+/* Phase 7 M5: the ED_Parse* dispatchers flip in place (the PF_changeyaw
+   precedent -- ED_ParseEdict has direct callers in host_cmd.c and pr_ext.c,
+   not just a table slot), and only when both switches are on: their Rust
+   cores live behind quake-capi's progs-host feature, which Meson sets exactly
+   for use_rust_progs and use_rust_host together. The CI build-rs-cprogs leg
+   is -Duse_rust_progs=disabled with host still enabled, so gating on
+   USE_RUST_HOST alone would leave that leg with an unresolved
+   quake_rs_ed_parse_globals.
+
+   Status codes below are shared with
+   rust/quake-capi/src/progs_edict_dispatch.rs (keep in sync). These are the
+   dispatchers' own set -- not pr_cmds_glue.c's PRBI_ERR_* -- because the two
+   functions raise messages no builtin does. */
+#define PREDD_OK					0
+#define PREDD_ERR_EOF				1
+#define PREDD_ERR_CLOSE_NO_DATA		2
+#define PREDD_ERR_EPAIR_PARSE		3
+#define PREDD_ERR_ENTITY_RANGE		4
+#define PREDD_ERR_BAD_EDICT_NUM		5
+#define PREDD_ERR_FREELIST_FULL		6
+#define PREDD_ERR_FREELIST_OVER_MAX 7
+#define PREDD_ERR_GUARD				8
+
+/* ADR-009: the raise lives in a pure C frame, above the Rust core that only
+   ever returns a status.
+
+   `brace` is the prefix for the two brace errors and `func` the prefix for the
+   parse error; they differ only in ED_ParseGlobals, which reports its brace
+   errors as "ED_ParseEntity". That is an upstream copy-paste preserved
+   bug-for-bug -- the message is user-visible in Host_Error output and in
+   demo/console captures. Codes 4-7 pass straight through from the Rust value
+   parser and reuse pr_edict_parse_glue.c:104-111's wording verbatim, since in
+   the C build they are raised by ED_ParseEpair itself. */
+static void PREdictDispatch_Raise (int status, int detail, const char *brace, const char *func)
+{
+	switch (status)
+	{
+	case PREDD_ERR_EOF:
+		Host_Error ("%s: EOF without closing brace", brace);
+	case PREDD_ERR_CLOSE_NO_DATA:
+		Host_Error ("%s: closing brace without data", brace);
+	case PREDD_ERR_EPAIR_PARSE:
+		Host_Error ("%s: parse error", func);
+	case PREDD_ERR_ENTITY_RANGE:
+		Host_Error ("ED_ParseEpair: ev_entity %d too large (max_edicts is %i)", detail, qcvm->max_edicts);
+	case PREDD_ERR_BAD_EDICT_NUM:
+		Host_Error ("EDICT_NUM: bad edict_num %i", detail);
+	case PREDD_ERR_FREELIST_FULL:
+		Host_Error ("ED_AddToFreeList : is full (qcvm 0x%p)", qcvm);
+	case PREDD_ERR_FREELIST_OVER_MAX:
+		Host_Error ("ED_AddToFreeList : has more than max_edicts >= %i (qcvm 0x%p)", detail, qcvm);
+	case PREDD_ERR_GUARD:
+		Host_Reraise (detail);
+		return;
+	default:
+		Host_Error ("%s: unknown status %i", func, status);
+	}
+}
+#endif
+
 /*
 =============
 ED_ParseGlobals
 =============
 */
+#if defined(USE_RUST_HOST) && defined(USE_RUST_PROGS)
+const char *ED_ParseGlobals (const char *data)
+{
+	const char *out = data;
+	int			detail = 0;
+	int			status = quake_rs_ed_parse_globals (data, &out, &detail);
+
+	if (status != PREDD_OK)
+		PREdictDispatch_Raise (status, detail, "ED_ParseEntity", "ED_ParseGlobals");
+	return out;
+}
+#else
 const char *ED_ParseGlobals (const char *data)
 {
 	char	keyname[64];
@@ -778,6 +855,7 @@ const char *ED_ParseGlobals (const char *data)
 	}
 	return data;
 }
+#endif
 
 //============================================================================
 
@@ -790,6 +868,21 @@ ed should be a properly initialized empty edict.
 Used for initial level load and for savegames.
 ====================
 */
+#if defined(USE_RUST_HOST) && defined(USE_RUST_PROGS)
+const char *ED_ParseEdict (const char *data, edict_t *ent)
+{
+	const char *out = data;
+	int			detail = 0;
+	/* NUM_FOR_EDICT_NO_CHECK, matching PRParse_Glue_UnlinkEdict: `ent` is
+	   always a pointer the engine itself just produced, and the checked form
+	   would add a raise the C original does not have here. */
+	int			status = quake_rs_ed_parse_edict (data, NUM_FOR_EDICT_NO_CHECK (ent), &out, &detail);
+
+	if (status != PREDD_OK)
+		PREdictDispatch_Raise (status, detail, "ED_ParseEdict", "ED_ParseEdict");
+	return out;
+}
+#else
 const char *ED_ParseEdict (const char *data, edict_t *ent)
 {
 	ddef_t	*key;
@@ -910,6 +1003,7 @@ const char *ED_ParseEdict (const char *data, edict_t *ent)
 
 	return data;
 }
+#endif
 
 /*
 ================

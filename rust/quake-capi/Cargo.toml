@@ -68,6 +68,16 @@ net = []
 # by Meson when -Duse_rust_progs is enabled, and by quake-ctest for the
 # differential suites
 progs = []
+# the Phase 7 M5 surface: the server- and client-coupled pr_cmds.c/pr_ext.c
+# builtins and the ED_Parse* key dispatchers. These need BOTH strata -- the
+# progs VM for the builtin tables and the host stratum for the sv/cl glue
+# their cores call -- so Meson sets it only when use_rust_progs and
+# use_rust_host are both on, mirroring the C-side
+# `#if defined(USE_RUST_PROGS) && defined(USE_RUST_HOST)` that guards the
+# PF_RSH table rows. quake-ctest sets it without `progs` because the
+# differential suites drive these modules directly against the c_ref_*
+# oracle rather than through the Phase 6 VM shims.
+progs-host = []
 # the Phase 7 cvar/command-registry shims (cvar.c/cmd.c); set by Meson when
 # -Duse_rust_cvar is enabled, and by quake-ctest for the differential suites
 cvar = []

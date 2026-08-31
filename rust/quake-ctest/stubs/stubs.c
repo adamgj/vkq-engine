@@ -3437,9 +3437,15 @@ cvar_t pr_checkextension;
 
 /* world_glue.c owns these two for the Rust side; world.c defines its own
  * pair, renamed c_ref_*. ctest_world_set_cvars writes both so they cannot
- * drift apart mid-test. */
-cvar_t sv_fte_recursivehullckeck;
-cvar_t sv_fte_createareanode;
+ * drift apart mid-test.
+ *
+ * Declared, not defined: world.c:33/35 owns the c_ref_* pair, and the
+ * prelude renames this file's `sv_fte_*` to `c_ref_sv_fte_*` as well, so a
+ * tentative definition here would be a second strong definition of world.c's
+ * under -fno-common (GCC 10+, and rust-lld). MSVC merges the two silently;
+ * GNU/lld rejects them as duplicate symbols. */
+extern cvar_t sv_fte_recursivehullckeck;
+extern cvar_t sv_fte_createareanode;
 
 /* --- the synthetic brush model -------------------------------------------
  *
@@ -5662,4 +5668,1131 @@ static ED_AllocHook_func ctest_ed_alloc_set_hook (ED_AllocHook_func hook)
 ED_AllocHook_func ED_AllocSetHook (ED_AllocHook_func hook)
 {
 	return ctest_ed_alloc_set_hook (hook);
+}
+
+/* --- Phase 7 M5 wave 1: the pr_cmds_sv_glue.c seams -----------------------
+ *
+ * `Quake/pr_cmds_sv_glue.c` is not in build.rs's C_SOURCES (pr_cmds.c and
+ * pr_ext.c are not either -- there is no c_ref_PF_* oracle, by contract), so
+ * the guarded C frame the Rust builtins call through is reproduced here.
+ * Every helper keeps the same shape as the engine's: an argument struct plus
+ * Host_Guard, so a raise never unwinds a Rust frame (ADR-009).
+ *
+ * Two deliberate simplifications, both documented in the M5 report:
+ *  - the engine's "backwards mins/maxs" and "no precache" arms call
+ *    PR_RunError, which walks the progs stack; this harness raises
+ *    Host_Error with the identical message instead, so the tests can assert
+ *    the message through ctest_host_error_message() without needing a live
+ *    interpreter frame.
+ *  - the precache lookup has no SV_Precache_Model fallback: the fixture's
+ *    table is preloaded by the test.
+ */
+
+cvar_t sv_aim = {"sv_aim", "1", CVAR_NONE, 1.0f, NULL, NULL, NULL, NULL};
+cvar_t teamplay = {"teamplay", "0", CVAR_NOTIFY | CVAR_SERVERINFO, 0.0f, NULL, NULL, NULL, NULL};
+
+static unsigned char *ctest_pf_leaf_pvs = NULL;
+
+void ctest_pf_set_leaf_pvs (unsigned char *pvs)
+{
+	ctest_pf_leaf_pvs = pvs;
+}
+
+unsigned char *Mod_LeafPVS (mleaf_t *leaf, qmodel_t *model)
+{
+	(void)leaf;
+	(void)model;
+	return ctest_pf_leaf_pvs;
+}
+
+#define CTEST_PF_MAX_MODELS 8
+static const char *ctest_pf_precache_names[CTEST_PF_MAX_MODELS + 1];
+static void		  *ctest_pf_precache_models[CTEST_PF_MAX_MODELS + 1];
+static int		   ctest_pf_precache_count;
+
+void ctest_pf_reset (void)
+{
+	memset (ctest_pf_precache_names, 0, sizeof (ctest_pf_precache_names));
+	memset (ctest_pf_precache_models, 0, sizeof (ctest_pf_precache_models));
+	ctest_pf_precache_count = 0;
+	ctest_pf_leaf_pvs = NULL;
+	ctest_set_point_leaf (NULL);
+}
+
+void ctest_pf_add_precache (const char *name, void *model)
+{
+	if (ctest_pf_precache_count >= CTEST_PF_MAX_MODELS)
+		return;
+	ctest_pf_precache_names[ctest_pf_precache_count] = name;
+	ctest_pf_precache_models[ctest_pf_precache_count] = model;
+	ctest_pf_precache_count++;
+}
+
+typedef struct
+{
+	int			 handle;
+	const char **out_name;
+	int			*out_index;
+	void	   **out_model;
+} ctest_pf_setmodel_args_t;
+
+static void ctest_pf_invoke_setmodel (void *p)
+{
+	ctest_pf_setmodel_args_t *a = (ctest_pf_setmodel_args_t *)p;
+	const char				 *m = PR_GetString (a->handle); /* c_ref_PR_GetString */
+	const char				**check = ctest_pf_precache_names;
+	int						  i;
+
+	for (i = 0; *check; i++, check++)
+		if (!strcmp (*check, m))
+			break;
+
+	if (!*check)
+		Host_Error ("no precache: %s", m);
+
+	*a->out_name = *check;
+	*a->out_index = i;
+	*a->out_model = ctest_pf_precache_models[i];
+}
+
+int PRBI_SvGlue_SetModelLookup (int handle, const char **out_name, int *out_index, void **out_model)
+{
+	ctest_pf_setmodel_args_t a;
+	a.handle = handle;
+	a.out_name = out_name;
+	a.out_index = out_index;
+	a.out_model = out_model;
+	return Host_Guard (ctest_pf_invoke_setmodel, &a);
+}
+
+static void ctest_pf_invoke_backwards (void *p)
+{
+	(void)p;
+	Host_Error ("backwards mins/maxs");
+}
+
+int PRBI_SvGlue_RunErrorBackwardsMinsMaxs (void)
+{
+	return Host_Guard (ctest_pf_invoke_backwards, NULL);
+}
+
+typedef struct
+{
+	float	*v1;
+	float	*v2;
+	edict_t *ent;
+} ctest_pf_nan_args_t;
+
+static void ctest_pf_invoke_warnnan (void *p)
+{
+	ctest_pf_nan_args_t *a = (ctest_pf_nan_args_t *)p;
+	Con_Warning (
+		"NAN in traceline:\nv1(%f %f %f) v2(%f %f %f)\nentity %d\n", a->v1[0], a->v1[1], a->v1[2], a->v2[0], a->v2[1], a->v2[2], NUM_FOR_EDICT (a->ent));
+}
+
+int PRBI_SvGlue_WarnNanTrace (float *v1, float *v2, edict_t *ent)
+{
+	ctest_pf_nan_args_t a;
+	a.v1 = v1;
+	a.v2 = v2;
+	a.ent = ent;
+	return Host_Guard (ctest_pf_invoke_warnnan, &a);
+}
+
+/* server.h's sv.lastcheck/sv.lastchecktime (server.h:59-60). The harness's
+ * ctest_server_stub_t does not carry them and c_ref_prelude.h is left alone,
+ * so the round-robin cursor lives in two statics with the same lifetime. */
+static int	  ctest_pf_lastcheck;
+static double ctest_pf_lastchecktime;
+
+int PRBI_SvGlue_SvLastCheck (void)
+{
+	return ctest_pf_lastcheck;
+}
+
+void PRBI_SvGlue_SetSvLastCheck (int value)
+{
+	ctest_pf_lastcheck = value;
+}
+
+double PRBI_SvGlue_SvLastCheckTime (void)
+{
+	return ctest_pf_lastchecktime;
+}
+
+void PRBI_SvGlue_SetSvLastCheckTime (double value)
+{
+	ctest_pf_lastchecktime = value;
+}
+
+static int ctest_pf_set_engine_string (const char *s)
+{
+	return PR_SetEngineString (s); /* c_ref_PR_SetEngineString */
+}
+
+#undef PR_SetEngineString
+
+int PR_SetEngineString (const char *s)
+{
+	return ctest_pf_set_engine_string (s);
+}
+
+/* --- Phase 7 M5 wave 1: generic peek/poke for the builtin differentials ---
+ *
+ * The builtins read their arguments from, and write their results to, the
+ * progs globals block, and they touch entvars fields ctest_phys_edict_set
+ * does not cover (view_ofs, takedamage, team, chain, model). Rather than
+ * grow a bespoke setter per builtin, these expose the two blocks by float
+ * offset, with the offsets themselves resolved from the C compiler's own
+ * layout so the Rust side never hardcodes them. */
+
+int ctest_pf_globals_offset (const char *name)
+{
+	static const struct
+	{
+		const char *name;
+		size_t		byte_ofs;
+	} fields[] = {
+		{"self", offsetof (globalvars_t, self)},
+		{"other", offsetof (globalvars_t, other)},
+		{"time", offsetof (globalvars_t, time)},
+		{"v_forward", offsetof (globalvars_t, v_forward)},
+		{"trace_allsolid", offsetof (globalvars_t, trace_allsolid)},
+		{"trace_startsolid", offsetof (globalvars_t, trace_startsolid)},
+		{"trace_fraction", offsetof (globalvars_t, trace_fraction)},
+		{"trace_endpos", offsetof (globalvars_t, trace_endpos)},
+		{"trace_plane_normal", offsetof (globalvars_t, trace_plane_normal)},
+		{"trace_plane_dist", offsetof (globalvars_t, trace_plane_dist)},
+		{"trace_ent", offsetof (globalvars_t, trace_ent)},
+		{"trace_inopen", offsetof (globalvars_t, trace_inopen)},
+		{"trace_inwater", offsetof (globalvars_t, trace_inwater)},
+	};
+	size_t i;
+
+	for (i = 0; i < sizeof (fields) / sizeof (fields[0]); i++)
+		if (!strcmp (fields[i].name, name))
+			return (int)(fields[i].byte_ofs / sizeof (float));
+	return -1;
+}
+
+int ctest_pf_entvars_offset (const char *name)
+{
+	static const struct
+	{
+		const char *name;
+		size_t		byte_ofs;
+	} fields[] = {
+		{"model", offsetof (entvars_t, model)},
+		{"modelindex", offsetof (entvars_t, modelindex)},
+		{"size", offsetof (entvars_t, size)},
+		{"absmin", offsetof (entvars_t, absmin)},
+		{"absmax", offsetof (entvars_t, absmax)},
+		{"view_ofs", offsetof (entvars_t, view_ofs)},
+		{"takedamage", offsetof (entvars_t, takedamage)},
+		{"team", offsetof (entvars_t, team)},
+		{"health", offsetof (entvars_t, health)},
+		{"chain", offsetof (entvars_t, chain)},
+		{"groundentity", offsetof (entvars_t, groundentity)},
+		{"flags", offsetof (entvars_t, flags)},
+		{"origin", offsetof (entvars_t, origin)},
+		{"mins", offsetof (entvars_t, mins)},
+		{"maxs", offsetof (entvars_t, maxs)},
+		{"solid", offsetof (entvars_t, solid)},
+	};
+	size_t i;
+
+	for (i = 0; i < sizeof (fields) / sizeof (fields[0]); i++)
+		if (!strcmp (fields[i].name, name))
+			return (int)(fields[i].byte_ofs / sizeof (float));
+	return -1;
+}
+
+unsigned ctest_pf_edict_bits (int num, int float_ofs)
+{
+	unsigned bits;
+	memcpy (&bits, ((float *)&EDICT_NUM (num)->v) + float_ofs, sizeof (bits));
+	return bits;
+}
+
+unsigned ctest_pf_global_bits (int float_ofs)
+{
+	unsigned bits;
+	memcpy (&bits, qcvm->globals + float_ofs, sizeof (bits));
+	return bits;
+}
+
+void ctest_pf_set_global_bits (int float_ofs, unsigned bits)
+{
+	memcpy (qcvm->globals + float_ofs, &bits, sizeof (bits));
+}
+
+int ctest_pf_num_globals (void)
+{
+	return qcvm->progs->numglobals;
+}
+
+/* Every global as an exact bit pattern: one call captures OFS_RETURN and the
+ * whole trace_* block at once. */
+int ctest_pf_snapshot_globals (unsigned *out, int max)
+{
+	int n = qcvm->progs->numglobals;
+	if (n > max)
+		n = max;
+	memcpy (out, qcvm->globals, (size_t)n * sizeof (unsigned));
+	return n;
+}
+
+int ctest_pf_edict_prog (int num)
+{
+	return EDICT_TO_PROG (EDICT_NUM (num));
+}
+
+int ctest_pf_prog_to_num (int prog)
+{
+	return NUM_FOR_EDICT (PROG_TO_EDICT (prog));
+}
+
+/* PF_setmodel reads qmodel_t's bounding boxes through quake-types' QModel
+ * mirror; the fixture model is built by C, so these setters/readers let the
+ * differential drive and check both sides of that mirror. */
+void ctest_pf_set_model_boxes (void *model, int type, const float *mins, const float *maxs, const float *clipmins, const float *clipmaxs)
+{
+	qmodel_t *m = (qmodel_t *)model;
+	m->type = (modtype_t)type;
+	VectorCopy (mins, m->mins);
+	VectorCopy (maxs, m->maxs);
+	VectorCopy (clipmins, m->clipmins);
+	VectorCopy (clipmaxs, m->clipmaxs);
+}
+
+/* --- Phase 7 M5 wave 1: the C oracle -------------------------------------
+ *
+ * pr_cmds.c and pr_ext.c are deliberately NOT in build.rs's C_SOURCES (the
+ * M5 contract forbids adding them -- that is a far larger change), so there
+ * is no c_ref_PF_* to diff against. These are hand transcriptions of the
+ * bodies wave 1 ports, statement for statement out of Quake/pr_cmds.c
+ * (:227, :237, :321, :340, :740, :804, :881, :1017, :1288, :1330, :1432,
+ * :1446, :1494, :1853) and Quake/pr_ext.c (:1833, :5369).
+ *
+ * What makes them an oracle rather than a second copy of the port: every
+ * primitive they call is the renamed C original -- SV_Move, SV_LinkEdict,
+ * SV_movestep, SV_CheckBottom, SV_PointContents, VectorNormalize,
+ * PR_GetString -- and the float arithmetic is evaluated by the C compiler,
+ * so the double-promotion sites (`* 0.5`, `yaw * M_PI * 2 / 360`,
+ * `cos (yaw) * dist`) are the C compiler's, not Rust's.
+ *
+ * Transcription notes:
+ *  - PR_RunError becomes Host_Error with the identical message, matching the
+ *    PRBI_SvGlue_* stubs above (this harness has no interpreter frame).
+ *  - PF_setmodel's not-precached arm is Host_Error too: no SV_Precache_Model.
+ *  - checkpvs/checkpvs_capacity are this file's own statics, mirroring the
+ *    pr_cmds.c process globals; sv.lastcheck/sv.lastchecktime are shared with
+ *    the Rust side through ctest_pf_lastcheck/ctest_pf_lastchecktime, exactly
+ *    as both VMs share `sv` in the engine.
+ */
+
+#ifndef DAMAGE_AIM
+#define DAMAGE_AIM 2
+#endif
+
+void ctest_pf_set_developer (float v)
+{
+	developer.value = v;
+}
+
+void ctest_pf_set_sv_aim (float v)
+{
+	sv_aim.value = v;
+}
+
+void ctest_pf_set_teamplay (float v)
+{
+	teamplay.value = v;
+}
+
+void ctest_pf_reset_checkclient (void)
+{
+	ctest_pf_lastcheck = 0;
+	ctest_pf_lastchecktime = 0.0;
+}
+
+/* Mod_PointInLeaf is a settable stub; the fixture's brush model owns five
+ * mleaf_t. `idx` 0 is the solid leaf, so l = (leaf - leafs) - 1 == -1 there,
+ * which is PF_checkclient's negative-index arm. */
+void ctest_pf_set_point_leaf_index (int idx)
+{
+	if (idx < 0)
+		ctest_set_point_leaf (NULL);
+	else
+		ctest_set_point_leaf (qcvm->worldmodel->leafs + idx);
+}
+
+static int ctest_pf_is_nan (float x)
+{
+	unsigned u;
+	memcpy (&u, &x, sizeof (u));
+	return (u & (255u << 23)) == (255u << 23);
+}
+
+/* stubs.c includes world.h (which declares SV_Move/SV_LinkEdict/
+ * SV_PointContents) but not server.h, so the two sv_move.c oracles the
+ * transcriptions below call have no prototype in scope here. Without these
+ * two lines MSVC falls back to "extern returning int" and the qboolean (=
+ * bool) return is read as a full garbage register -- which is a silent,
+ * non-deterministic differential failure, not a link error. */
+qboolean c_ref_SV_CheckBottom (edict_t *ent);
+qboolean c_ref_SV_movestep (edict_t *ent, vec3_t move, qboolean relink);
+
+static void ctest_cref_SetMinMaxSize (edict_t *e, float *minvec, float *maxvec)
+{
+	int i;
+
+	for (i = 0; i < 3; i++)
+		if (minvec[i] > maxvec[i])
+			Host_Error ("backwards mins/maxs"); /* PR_RunError in the engine */
+
+	VectorCopy (minvec, e->v.mins);
+	VectorCopy (maxvec, e->v.maxs);
+	VectorSubtract (maxvec, minvec, e->v.size);
+
+	c_ref_SV_LinkEdict (e, false);
+}
+
+void ctest_cref_pf_setorigin (void)
+{
+	edict_t *e;
+	float	*org;
+
+	e = G_EDICT (OFS_PARM0);
+	org = G_VECTOR (OFS_PARM1);
+	VectorCopy (org, e->v.origin);
+	c_ref_SV_LinkEdict (e, false);
+}
+
+void ctest_cref_pf_setsize (void)
+{
+	edict_t *e;
+	float	*minvec, *maxvec;
+
+	e = G_EDICT (OFS_PARM0);
+	minvec = G_VECTOR (OFS_PARM1);
+	maxvec = G_VECTOR (OFS_PARM2);
+	ctest_cref_SetMinMaxSize (e, minvec, maxvec);
+}
+
+void ctest_cref_pf_setmodel (void)
+{
+	int			 i;
+	const char	*m, **check;
+	qmodel_t	*mod;
+	edict_t		 *e;
+
+	e = G_EDICT (OFS_PARM0);
+	m = PR_GetString (G_INT (OFS_PARM1));
+
+	for (i = 0, check = ctest_pf_precache_names; *check; i++, check++)
+	{
+		if (!strcmp (*check, m))
+			break;
+	}
+
+	if (!*check)
+		Host_Error ("no precache: %s", m);
+
+	e->v.model = PR_SetEngineString (*check);
+	e->v.modelindex = i;
+
+	mod = (qmodel_t *)ctest_pf_precache_models[(int)e->v.modelindex];
+
+	if (mod)
+	{
+		if (mod->type == mod_brush)
+			ctest_cref_SetMinMaxSize (e, mod->clipmins, mod->clipmaxs);
+		else
+			ctest_cref_SetMinMaxSize (e, mod->mins, mod->maxs);
+	}
+	else
+		ctest_cref_SetMinMaxSize (e, vec3_origin, vec3_origin);
+}
+
+static void ctest_cref_trace_common (float *v1, float *mins, float *maxs, float *v2, int nomonsters, edict_t *ent)
+{
+	trace_t trace;
+
+	if (developer.value)
+	{
+		if (ctest_pf_is_nan (v1[0]) || ctest_pf_is_nan (v1[1]) || ctest_pf_is_nan (v1[2]) || ctest_pf_is_nan (v2[0]) || ctest_pf_is_nan (v2[1]) ||
+			ctest_pf_is_nan (v2[2]))
+		{
+			Con_Warning ("NAN in traceline:\nv1(%f %f %f) v2(%f %f %f)\nentity %d\n", v1[0], v1[1], v1[2], v2[0], v2[1], v2[2], NUM_FOR_EDICT (ent));
+		}
+	}
+
+	if (ctest_pf_is_nan (v1[0]) || ctest_pf_is_nan (v1[1]) || ctest_pf_is_nan (v1[2]))
+		v1[0] = v1[1] = v1[2] = 0;
+	if (ctest_pf_is_nan (v2[0]) || ctest_pf_is_nan (v2[1]) || ctest_pf_is_nan (v2[2]))
+		v2[0] = v2[1] = v2[2] = 0;
+
+	trace = c_ref_SV_Move (v1, mins, maxs, v2, nomonsters, ent);
+
+	pr_global_struct->trace_allsolid = trace.allsolid;
+	pr_global_struct->trace_startsolid = trace.startsolid;
+	pr_global_struct->trace_fraction = trace.fraction;
+	pr_global_struct->trace_inwater = trace.inwater;
+	pr_global_struct->trace_inopen = trace.inopen;
+	VectorCopy (trace.endpos, pr_global_struct->trace_endpos);
+	VectorCopy (trace.plane.normal, pr_global_struct->trace_plane_normal);
+	pr_global_struct->trace_plane_dist = trace.plane.dist;
+
+	if (trace.ent)
+		pr_global_struct->trace_ent = EDICT_TO_PROG (trace.ent);
+	else
+		pr_global_struct->trace_ent = EDICT_TO_PROG (qcvm->edicts);
+}
+
+void ctest_cref_pf_traceline (void)
+{
+	ctest_cref_trace_common (G_VECTOR (OFS_PARM0), vec3_origin, vec3_origin, G_VECTOR (OFS_PARM1), (int)G_FLOAT (OFS_PARM2), G_EDICT (OFS_PARM3));
+}
+
+void ctest_cref_pf_tracebox (void)
+{
+	ctest_cref_trace_common (
+		G_VECTOR (OFS_PARM0), G_VECTOR (OFS_PARM1), G_VECTOR (OFS_PARM2), G_VECTOR (OFS_PARM3), (int)G_FLOAT (OFS_PARM4), G_EDICT (OFS_PARM5));
+}
+
+void ctest_cref_pf_findradius (void)
+{
+	edict_t *ent, *chain;
+	float	 rad;
+	float	*org;
+	int		 i;
+
+	chain = (edict_t *)qcvm->edicts;
+
+	org = G_VECTOR (OFS_PARM0);
+	rad = G_FLOAT (OFS_PARM1);
+	rad *= rad;
+
+	ent = NEXT_EDICT (qcvm->edicts);
+	for (i = 1; i < qcvm->num_edicts; i++, ent = NEXT_EDICT (ent))
+	{
+		float d, lensq;
+		if (ent->free)
+			continue;
+		if (ent->v.solid == SOLID_NOT)
+			continue;
+
+		d = org[0] - (ent->v.origin[0] + (ent->v.mins[0] + ent->v.maxs[0]) * 0.5);
+		lensq = d * d;
+		if (lensq > rad)
+			continue;
+		d = org[1] - (ent->v.origin[1] + (ent->v.mins[1] + ent->v.maxs[1]) * 0.5);
+		lensq += d * d;
+		if (lensq > rad)
+			continue;
+		d = org[2] - (ent->v.origin[2] + (ent->v.mins[2] + ent->v.maxs[2]) * 0.5);
+		lensq += d * d;
+		if (lensq > rad)
+			continue;
+
+		ent->v.chain = EDICT_TO_PROG (chain);
+		chain = ent;
+	}
+
+	RETURN_EDICT (chain);
+}
+
+void ctest_cref_pf_walkmove (void)
+{
+	edict_t		*ent;
+	float		 yaw, dist;
+	vec3_t		 move;
+	dfunction_t *oldf;
+	int			 oldself;
+
+	ent = PROG_TO_EDICT (pr_global_struct->self);
+	yaw = G_FLOAT (OFS_PARM0);
+	dist = G_FLOAT (OFS_PARM1);
+
+	if (!((int)ent->v.flags & (FL_ONGROUND | FL_FLY | FL_SWIM)))
+	{
+		G_FLOAT (OFS_RETURN) = 0;
+		return;
+	}
+
+	yaw = yaw * M_PI * 2 / 360;
+
+	move[0] = cos (yaw) * dist;
+	move[1] = sin (yaw) * dist;
+	move[2] = 0;
+
+	/* save program state, because SV_movestep may call other progs */
+	oldf = qcvm->xfunction;
+	oldself = pr_global_struct->self;
+
+	G_FLOAT (OFS_RETURN) = c_ref_SV_movestep (ent, move, true);
+
+	/* restore program state */
+	qcvm->xfunction = oldf;
+	pr_global_struct->self = oldself;
+}
+
+void ctest_cref_pf_droptofloor (void)
+{
+	edict_t *ent;
+	vec3_t	 end;
+	trace_t	 trace;
+
+	ent = PROG_TO_EDICT (pr_global_struct->self);
+
+	VectorCopy (ent->v.origin, end);
+	end[2] -= 256;
+
+	trace = c_ref_SV_Move (ent->v.origin, ent->v.mins, ent->v.maxs, end, false, ent);
+
+	if (trace.fraction == 1 || trace.allsolid)
+		G_FLOAT (OFS_RETURN) = 0;
+	else
+	{
+		VectorCopy (trace.endpos, ent->v.origin);
+		c_ref_SV_LinkEdict (ent, false);
+		ent->v.flags = (int)ent->v.flags | FL_ONGROUND;
+		if (trace.ent)
+			ent->v.groundentity = EDICT_TO_PROG (trace.ent);
+		G_FLOAT (OFS_RETURN) = 1;
+	}
+}
+
+void ctest_cref_pf_checkbottom (void)
+{
+	edict_t *ent;
+
+	ent = G_EDICT (OFS_PARM0);
+
+	G_FLOAT (OFS_RETURN) = c_ref_SV_CheckBottom (ent);
+}
+
+void ctest_cref_pf_pointcontents (void)
+{
+	float *v;
+
+	v = G_VECTOR (OFS_PARM0);
+
+	G_FLOAT (OFS_RETURN) = c_ref_SV_PointContents (v);
+}
+
+void ctest_cref_pf_aim (void)
+{
+	edict_t *ent, *check, *bestent;
+	vec3_t	 start, dir, end, bestdir;
+	int		 i, j;
+	trace_t	 tr;
+	float	 dist, bestdist;
+	float	 speed;
+
+	ent = G_EDICT (OFS_PARM0);
+	speed = G_FLOAT (OFS_PARM1);
+	(void)speed;
+
+	VectorCopy (ent->v.origin, start);
+	start[2] += 20;
+
+	/* try sending a trace straight */
+	VectorCopy (pr_global_struct->v_forward, dir);
+	VectorMA (start, 2048, dir, end);
+	tr = c_ref_SV_Move (start, vec3_origin, vec3_origin, end, false, ent);
+	if (tr.ent && tr.ent->v.takedamage == DAMAGE_AIM && (!teamplay.value || ent->v.team <= 0 || ent->v.team != tr.ent->v.team))
+	{
+		VectorCopy (pr_global_struct->v_forward, G_VECTOR (OFS_RETURN));
+		return;
+	}
+
+	/* try all possible entities */
+	VectorCopy (dir, bestdir);
+	bestdist = sv_aim.value;
+	bestent = NULL;
+
+	check = NEXT_EDICT (qcvm->edicts);
+	for (i = 1; i < qcvm->num_edicts; i++, check = NEXT_EDICT (check))
+	{
+		if (check->v.takedamage != DAMAGE_AIM)
+			continue;
+		if (check == ent)
+			continue;
+		if (teamplay.value && ent->v.team > 0 && ent->v.team == check->v.team)
+			continue; /* don't aim at teammate */
+		for (j = 0; j < 3; j++)
+			end[j] = check->v.origin[j] + 0.5 * (check->v.mins[j] + check->v.maxs[j]);
+		VectorSubtract (end, start, dir);
+		VectorNormalize (dir);
+		dist = DotProduct (dir, pr_global_struct->v_forward);
+		if (dist < bestdist)
+			continue; /* to far to turn */
+		tr = c_ref_SV_Move (start, vec3_origin, vec3_origin, end, false, ent);
+		if (tr.ent == check)
+		{ /* can shoot at this one */
+			bestdist = dist;
+			bestent = check;
+		}
+	}
+
+	if (bestent)
+	{
+		VectorSubtract (bestent->v.origin, ent->v.origin, dir);
+		dist = DotProduct (dir, pr_global_struct->v_forward);
+		VectorScale (pr_global_struct->v_forward, dist, end);
+		end[2] = dir[2];
+		VectorNormalize (end);
+		VectorCopy (end, G_VECTOR (OFS_RETURN));
+	}
+	else
+	{
+		VectorCopy (bestdir, G_VECTOR (OFS_RETURN));
+	}
+}
+
+void ctest_cref_pf_walkpathtogoal (void)
+{
+	G_FLOAT (OFS_RETURN) = 0; /* PATH_ERROR */
+}
+
+static unsigned char *ctest_cref_checkpvs;
+static int			  ctest_cref_checkpvs_capacity;
+
+static int ctest_cref_pf_newcheckclient (int check)
+{
+	int			   i;
+	unsigned char *pvs;
+	edict_t		  *ent;
+	mleaf_t		  *leaf;
+	vec3_t		   org;
+	int			   pvsbytes;
+
+	if (check < 1)
+		check = 1;
+	if (check > svs.maxclients)
+		check = svs.maxclients;
+
+	if (check == svs.maxclients)
+		i = 1;
+	else
+		i = check + 1;
+
+	for (;; i++)
+	{
+		if (i == svs.maxclients + 1)
+			i = 1;
+
+		ent = EDICT_NUM (i);
+
+		if (i == check)
+			break;
+
+		if (ent->free)
+			continue;
+		if (ent->v.health <= 0)
+			continue;
+		if ((int)ent->v.flags & FL_NOTARGET)
+			continue;
+
+		break;
+	}
+
+	VectorAdd (ent->v.origin, ent->v.view_ofs, org);
+	leaf = Mod_PointInLeaf (org, qcvm->worldmodel);
+	pvs = Mod_LeafPVS (leaf, qcvm->worldmodel);
+
+	pvsbytes = (qcvm->worldmodel->numleafs + 31) >> 3;
+	if (ctest_cref_checkpvs == NULL || pvsbytes > ctest_cref_checkpvs_capacity)
+	{
+		ctest_cref_checkpvs_capacity = pvsbytes;
+		ctest_cref_checkpvs = (unsigned char *)Mem_Realloc (ctest_cref_checkpvs, ctest_cref_checkpvs_capacity);
+		if (!ctest_cref_checkpvs)
+			Sys_Error ("PF_newcheckclient: realloc() failed on %d bytes", ctest_cref_checkpvs_capacity);
+	}
+	memcpy (ctest_cref_checkpvs, pvs, pvsbytes);
+
+	return i;
+}
+
+void ctest_cref_pf_checkclient (void)
+{
+	edict_t *ent, *self;
+	mleaf_t *leaf;
+	int		 l;
+	vec3_t	 view;
+
+	if (qcvm->time - ctest_pf_lastchecktime >= 0.1)
+	{
+		ctest_pf_lastcheck = ctest_cref_pf_newcheckclient (ctest_pf_lastcheck);
+		ctest_pf_lastchecktime = qcvm->time;
+	}
+
+	ent = EDICT_NUM (ctest_pf_lastcheck);
+	if (ent->free || ent->v.health <= 0)
+	{
+		RETURN_EDICT (qcvm->edicts);
+		return;
+	}
+
+	self = PROG_TO_EDICT (pr_global_struct->self);
+	VectorAdd (self->v.origin, self->v.view_ofs, view);
+	leaf = Mod_PointInLeaf (view, qcvm->worldmodel);
+	l = (int)(leaf - qcvm->worldmodel->leafs) - 1;
+	if ((l < 0) || !(ctest_cref_checkpvs[l >> 3] & (1 << (l & 7))))
+	{
+		RETURN_EDICT (qcvm->edicts);
+		return;
+	}
+
+	RETURN_EDICT (ent);
+}
+
+void ctest_cref_pf_checkpvs (void)
+{
+	float		  *org = G_VECTOR (OFS_PARM0);
+	edict_t		  *ed = G_EDICT (OFS_PARM1);
+	mleaf_t		  *leaf = Mod_PointInLeaf (org, qcvm->worldmodel);
+	unsigned char *pvs = Mod_LeafPVS (leaf, qcvm->worldmodel);
+	unsigned int   i;
+
+	for (i = 0; i < ed->num_leafs; i++)
+	{
+		if (pvs[ed->leafnums[i] >> 3] & (1 << (ed->leafnums[i] & 7)))
+		{
+			G_FLOAT (OFS_RETURN) = true;
+			return;
+		}
+	}
+
+	G_FLOAT (OFS_RETURN) = false;
+}
+
+/* Two scratch qmodel_t for PF_setmodel's precache table. They are only ever
+ * reached through ctest_pf_set_model_boxes, so nothing else in the model is
+ * populated -- setmodel reads type/mins/maxs/clipmins/clipmaxs and nothing
+ * else. */
+#define CTEST_PF_SCRATCH_MODELS 2
+static qmodel_t ctest_pf_scratch_models[CTEST_PF_SCRATCH_MODELS];
+
+void *ctest_pf_model (int idx)
+{
+	if (idx < 0 || idx >= CTEST_PF_SCRATCH_MODELS)
+		return NULL;
+	memset (&ctest_pf_scratch_models[idx], 0, sizeof (ctest_pf_scratch_models[idx]));
+	return &ctest_pf_scratch_models[idx];
+}
+
+/* The oracle side's raise trap. Kept in C so that a Host_Error longjmp out of
+ * a ctest_cref_pf_* body never unwinds a Rust frame -- the same rule ADR-009
+ * imposes on the port (there the trap is Host_Guard inside PRBI_SvGlue_*). */
+static int ctest_cref_pf_which;
+
+static void ctest_cref_pf_dispatch (void *p)
+{
+	(void)p;
+	switch (ctest_cref_pf_which)
+	{
+	case 0:
+		ctest_cref_pf_setorigin ();
+		break;
+	case 1:
+		ctest_cref_pf_setsize ();
+		break;
+	case 2:
+		ctest_cref_pf_setmodel ();
+		break;
+	case 3:
+		ctest_cref_pf_traceline ();
+		break;
+	case 4:
+		ctest_cref_pf_tracebox ();
+		break;
+	case 5:
+		ctest_cref_pf_findradius ();
+		break;
+	case 6:
+		ctest_cref_pf_walkmove ();
+		break;
+	case 7:
+		ctest_cref_pf_droptofloor ();
+		break;
+	case 8:
+		ctest_cref_pf_checkbottom ();
+		break;
+	case 9:
+		ctest_cref_pf_pointcontents ();
+		break;
+	case 10:
+		ctest_cref_pf_aim ();
+		break;
+	case 11:
+		ctest_cref_pf_walkpathtogoal ();
+		break;
+	case 12:
+		ctest_cref_pf_checkclient ();
+		break;
+	case 13:
+		ctest_cref_pf_checkpvs ();
+		break;
+	default:
+		Sys_Error ("ctest_cref_pf_run: bad index %d", ctest_cref_pf_which);
+	}
+}
+
+int ctest_cref_pf_run (int which)
+{
+	ctest_cref_pf_which = which;
+	return ctest_try_host (ctest_cref_pf_dispatch, NULL);
+}
+
+void ctest_pf_set_edict_bits (int num, int float_ofs, unsigned bits)
+{
+	memcpy (((float *)&EDICT_NUM (num)->v) + float_ofs, &bits, sizeof (bits));
+}
+
+/* ---------------------------------------------------------------------------
+ * Phase 7 M5 T5.2: ED_ParseGlobals / ED_ParseEdict dispatcher test doubles.
+ *
+ * pr_edict.c, pr_edict_dispatch_glue.c, pr_edict_load_glue.c and
+ * pr_edict_parse_glue.c are not in C_SOURCES (rust/quake-ctest/build.rs is
+ * hard-shared -- not edited by this agent), so the handful of symbols the new
+ * Rust dispatcher (quake-capi::progs_edict_dispatch) reaches that no earlier
+ * phase's tests needed are stubbed here instead, mirroring how ED_FindField /
+ * ED_FieldAtOfs above already stand in for pr_edict.c's hash-map versions.
+ *
+ * ED_FindGlobal/ED_FindField/PREdictDispatch_Glue_FindGlobal/FindField mirror
+ * their real bodies exactly (pr_edict.c:94-120, pr_edict_dispatch_glue.c
+ * :56-76) -- a linear search is behaviourally equivalent to the hash-map
+ * lookup for a synthetic def table. PRLoad_Glue_IsServerVM and
+ * PRParse_Glue_UnlinkEdict mirror pr_edict_load_glue.c:150-153 and
+ * pr_edict_parse_glue.c:81-83 (the latter via SV_UnlinkEdict, which is
+ * already the Rust world.c export on this branch). SV_Precache_Model/
+ * SV_Precache_Sound/PF_SV_ForceParticlePrecache are simplified test doubles,
+ * not full ports of pr_cmds.c's precache tables: SV_Precache_Model is
+ * controllable to exercise both the Host_Guard-OK and Host_Guard-raise paths
+ * (Quake/gl_model.c:531's Mod_ForName crash), the other two are leaf
+ * recorders (matching the module doc comment's justification for calling
+ * them unguarded).
+ */
+
+ddef_t *ED_FindGlobal (const char *name)
+{
+	int i;
+	for (i = 0; i < qcvm->progs->numglobaldefs; i++)
+	{
+		ddef_t *def = &qcvm->globaldefs[i];
+		if (!strcmp (PR_GetString (def->s_name), name))
+			return def;
+	}
+	return NULL;
+}
+
+qboolean PREdictDispatch_Glue_FindGlobal (const char *name, unsigned short *out_type, unsigned short *out_ofs, int *out_s_name)
+{
+	ddef_t *def = ED_FindGlobal (name);
+	if (!def)
+		return false;
+	*out_type = def->type;
+	*out_ofs = def->ofs;
+	*out_s_name = def->s_name;
+	return true;
+}
+
+qboolean PREdictDispatch_Glue_FindField (const char *name, unsigned short *out_type, unsigned short *out_ofs, int *out_s_name)
+{
+	ddef_t *def = ED_FindField (name);
+	if (!def)
+		return false;
+	*out_type = def->type;
+	*out_ofs = def->ofs;
+	*out_s_name = def->s_name;
+	return true;
+}
+
+qboolean PREdictDispatch_Glue_ServerLoading (void)
+{
+	return sv.state == ss_loading;
+}
+
+qboolean PRLoad_Glue_IsServerVM (qcvm_t *vm)
+{
+	return vm == &sv.qcvm;
+}
+
+void PRParse_Glue_UnlinkEdict (int edict_num)
+{
+	SV_UnlinkEdict (EDICT_NUM_NO_CHECK (edict_num));
+}
+
+static qboolean ctest_predd_model_should_error;
+static char	 ctest_predd_last_model[256];
+static char	 ctest_predd_last_sound[256];
+static char	 ctest_predd_last_particle[256];
+static int	 ctest_predd_particle_calls;
+
+/* When armed, SV_Precache_Model Host_Errors instead of returning -- the only
+ * seam PREdictDispatch_Glue_PrecacheModel's Host_Guard exists to catch. */
+void ctest_predd_set_model_error (qboolean should_error)
+{
+	ctest_predd_model_should_error = should_error;
+}
+
+int SV_Precache_Model (const char *s)
+{
+	q_strlcpy (ctest_predd_last_model, s ? s : "", sizeof (ctest_predd_last_model));
+	if (ctest_predd_model_should_error)
+		Host_Error ("ctest SV_Precache_Model: model not found: %s", s ? s : "(null)");
+	return 1;
+}
+
+/* Host_Guard-wrapped SV_Precache_Model, mirroring pr_edict_dispatch_glue.c
+ * :87-107 (arg struct + static invoke fn + Host_Guard call) exactly, over
+ * the test double above instead of the real function. */
+typedef struct
+{
+	const char *s;
+	int		   *out;
+} ctest_predd_precache_model_arg_t;
+
+static void ctest_predd_invoke_precache_model (void *p)
+{
+	ctest_predd_precache_model_arg_t *a = (ctest_predd_precache_model_arg_t *)p;
+	*a->out = SV_Precache_Model (a->s);
+}
+
+int PREdictDispatch_Glue_PrecacheModel (const char *s, int *out)
+{
+	ctest_predd_precache_model_arg_t arg;
+
+	arg.s = s;
+	arg.out = out;
+	*out = 0;
+	return Host_Guard (ctest_predd_invoke_precache_model, &arg);
+}
+
+int SV_Precache_Sound (const char *s)
+{
+	q_strlcpy (ctest_predd_last_sound, s ? s : "", sizeof (ctest_predd_last_sound));
+	return 1;
+}
+
+int PF_SV_ForceParticlePrecache (const char *s)
+{
+	ctest_predd_particle_calls++;
+	q_strlcpy (ctest_predd_last_particle, s ? s : "", sizeof (ctest_predd_last_particle));
+	return ctest_predd_particle_calls;
+}
+
+const char *ctest_predd_get_last_model (void) { return ctest_predd_last_model; }
+const char *ctest_predd_get_last_sound (void) { return ctest_predd_last_sound; }
+const char *ctest_predd_get_last_particle (void) { return ctest_predd_last_particle; }
+int			ctest_predd_get_particle_calls (void) { return ctest_predd_particle_calls; }
+
+void ctest_predd_reset_doubles (void)
+{
+	ctest_predd_model_should_error = false;
+	ctest_predd_last_model[0] = '\0';
+	ctest_predd_last_sound[0] = '\0';
+	ctest_predd_last_particle[0] = '\0';
+	ctest_predd_particle_calls = 0;
+}
+
+/* Installs a synthetic def table directly on &sv.qcvm -- PRLoad_Glue_IsServerVM
+ * gates the dispatcher's `_precache_model`/`_precache_sound`/`traileffect`/
+ * `emiteffect` branches on `qcvm == &sv.qcvm` pointer identity (as does
+ * sv_phys.c's own server-only half, per ctest_world_reset's vm_kind==2
+ * comment above), so those branches can only be exercised on the real
+ * instance, not a look-alike. Call after ctest_world_reset(2, ...), which
+ * builds the rest of the fixture (edicts/globals/strings) but does not touch
+ * fielddefs/globaldefs/extfields. Mirrors ctest_progs_set_defs's ownership
+ * contract: the caller keeps ownership of nothing, old tables (if any) are
+ * freed first. */
+void ctest_predd_set_defs (
+	const void *fielddefs, int numfielddefs, const void *globaldefs, int numglobaldefs, int extfields_alpha, int extfields_traileffectnum,
+	int extfields_emiteffectnum)
+{
+	qcvm_t *vm = &sv.qcvm;
+
+	if (vm->fielddefs)
+		Mem_Free (vm->fielddefs);
+	if (vm->globaldefs)
+		Mem_Free (vm->globaldefs);
+
+	vm->fielddefs = (ddef_t *)Mem_Alloc ((size_t)numfielddefs * sizeof (ddef_t));
+	memcpy (vm->fielddefs, fielddefs, (size_t)numfielddefs * sizeof (ddef_t));
+	vm->progs->numfielddefs = numfielddefs;
+
+	vm->globaldefs = (ddef_t *)Mem_Alloc ((size_t)numglobaldefs * sizeof (ddef_t));
+	memcpy (vm->globaldefs, globaldefs, (size_t)numglobaldefs * sizeof (ddef_t));
+	vm->progs->numglobaldefs = numglobaldefs;
+
+	vm->extfields.alpha = extfields_alpha;
+	vm->extfields.traileffectnum = extfields_traileffectnum;
+	vm->extfields.emiteffectnum = extfields_emiteffectnum;
+}
+
+/* ctest_world_reset points &sv.qcvm's strings at the static ctest_world_strings[64]
+ * buffer (not a Mem_Alloc'd one), so ctest_predd_set_defs's fielddef/globaldef
+ * names need somewhere bigger to live than that fixed 64-byte array leaves free.
+ * Swaps in a heap-allocated strings blob the same way ctest_progs_synth_vm does
+ * for the plain fixtures; the caller keeps ownership of nothing. Safe to call
+ * more than once per test (the previous heap buffer, if any, is freed first --
+ * the initial static buffer from ctest_world_reset is never freed). */
+static char *ctest_predd_owned_strings;
+
+void ctest_predd_set_strings (const void *data, int size)
+{
+	qcvm_t *vm = &sv.qcvm;
+
+	if (ctest_predd_owned_strings)
+		Mem_Free (ctest_predd_owned_strings);
+
+	ctest_predd_owned_strings = (char *)Mem_Alloc ((size_t)size);
+	memcpy (ctest_predd_owned_strings, data, (size_t)size);
+	vm->strings = ctest_predd_owned_strings;
+	vm->stringssize = size;
+}
+
+/* quake_rs_ed_parse_globals/quake_rs_ed_parse_edict (the dispatchers under
+ * test) are called directly from the Rust test file via its own `extern "C"`
+ * block, matching progs_parse_differential.rs's precedent for
+ * quake_rs_ed_parse_epair -- no C-side wrapper needed. */
+
+/* The pr_edict_parse.c platform conversions and engine lookups. These mirror
+ * pr_edict_parse_glue.c:39-70 exactly -- ADR-010 makes the platform's own
+ * atof/strtoll rounding the contract, so the oracle must call the same libc
+ * entry points the shipping glue does, not a reimplementation. */
+
+double PRParse_Glue_Atof (const char *s)
+{
+	return atof (s);
+}
+
+int PRParse_Glue_Atoi (const char *s)
+{
+	return atoi (s);
+}
+
+long long PRParse_Glue_Strtoll (const char *s)
+{
+	return strtoll (s, NULL, 0);
+}
+
+unsigned long long PRParse_Glue_Strtoull (const char *s)
+{
+	return strtoull (s, NULL, 0);
+}
+
+int PRParse_Glue_FindFieldOfs (const char *name)
+{
+	ddef_t *def = ED_FindField (name);
+	return def ? (int)def->ofs : -1;
+}
+
+int PRParse_Glue_FindFunction (const char *name)
+{
+	dfunction_t *f = ED_FindFunction (name);
+	return f ? (int)(f - qcvm->functions) : -1;
 }

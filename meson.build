@@ -448,6 +448,13 @@ if use_rust
     if use_rust_host
         rust_feature_list += 'host'
     endif
+    # Phase 7 M5: the server- and client-coupled pr_cmds.c/pr_ext.c builtins
+    # and the ED_Parse* dispatchers straddle both strata -- the builtin tables
+    # are progs, the sv/cl glue their cores call is host -- so the feature that
+    # compiles them tracks the conjunction, mirroring the C-side PF_RSH gate.
+    if use_rust_progs and use_rust_host
+        rust_feature_list += 'progs-host'
+    endif
     # cargo features tracking C defines the fs shims must agree with
     if use_sdl3
         rust_feature_list += 'sdl3'
@@ -576,6 +583,25 @@ if use_rust_host
     srcs += ['Quake/sv_move_glue.c', 'Quake/sv_phys_glue.c']
 else
     srcs += ['Quake/sv_move.c', 'Quake/sv_phys.c']
+endif
+
+# Phase 7 M5: the glue behind the server- and client-coupled pr_cmds.c /
+# pr_ext.c builtins and the ED_Parse* key dispatchers. Pattern C, so unlike M3
+# and M4 there is no whole-file swap here: pr_cmds.c, pr_ext.c and pr_edict.c
+# stay compiled in every configuration and the flip happens slot by slot
+# through PF_RSH, which expands to the Rust export only when USE_RUST_PROGS
+# and USE_RUST_HOST are both defined. These files only *define* the
+# PRBI_*Glue_* / PREdictDispatch_Glue_* trampolines the Rust cores call back
+# into -- they reference no quake_rs_* symbol themselves -- so riding
+# use_rust_host alone is link-safe in all four progs/host combinations.
+if use_rust_host
+    srcs += [
+        'Quake/pr_cmds_sv_glue.c',
+        'Quake/pr_cmds_sv_msg_glue.c',
+        'Quake/pr_cmds_sv_fx_glue.c',
+        'Quake/pr_cmds_cl_glue.c',
+        'Quake/pr_edict_dispatch_glue.c',
+    ]
 endif
 
 if use_rust_snd

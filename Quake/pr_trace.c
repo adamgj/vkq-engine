@@ -31,7 +31,10 @@ void PR_TraceInit (void)
 	int i = COM_CheckParm ("-tracefile");
 	if (!i || i >= com_argc - 1)
 		return;
-	pr_tracefile = Sys_fopen (com_argv[i + 1], "w");
+	/* binary: the trace is a byte-compared artifact (trace_diff.py), so the
+	   MSVCRT text-mode CRLF translation would make Windows traces disagree
+	   with every other platform's and break the header check outright. */
+	pr_tracefile = Sys_fopen (com_argv[i + 1], "wb");
 	if (!pr_tracefile)
 		Sys_Error ("PR_TraceInit: can't open %s", com_argv[i + 1]);
 	fprintf (pr_tracefile, "PRTRACE 1\n");

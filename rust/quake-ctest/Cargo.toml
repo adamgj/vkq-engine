@@ -20,7 +20,7 @@ quake-c-sys = { path = "../quake-c-sys" }
 # Phase 2: the differential suites compare the fs shims against the c_ref_*
 # build of common_fs.c/steam.c, so the fs feature must be on
 # Phase 7 M3: `host` brings in the world.c shims the world differential drives
-quake-capi = { path = "../quake-capi", features = ["fs", "image", "formats", "snd", "net", "codec-wave", "codec-mp3", "codec-umx", "cvar", "host"] }
+quake-capi = { path = "../quake-capi", features = ["fs", "image", "formats", "snd", "net", "codec-wave", "codec-mp3", "codec-umx", "cvar", "host", "progs-host"] }
 quake-fs = { path = "../quake-fs" }
 # Phase 3 M6: threaded_parse asserts the pure parsers' outputs are Send/Sync
 # (ADR-016), so it needs the crates directly, not just through quake-capi

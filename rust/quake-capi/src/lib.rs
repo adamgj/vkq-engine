@@ -49,11 +49,21 @@ pub mod net_main;
 pub mod net_udp;
 #[cfg(feature = "progs")]
 pub mod progs_builtins; // pr_cmds.c
+#[cfg(all(feature = "host", feature = "progs-host"))]
+pub mod progs_builtins_cl; // pr_cmds.c client-coupled builtins (Group F)
+#[cfg(all(feature = "host", feature = "progs-host"))]
+pub mod progs_builtins_sv; // pr_cmds.c / pr_ext.c server-coupled builtins
+#[cfg(all(feature = "host", feature = "progs-host"))]
+pub mod progs_builtins_sv_fx; // pr_cmds.c world-effect builtins (Group E)
+#[cfg(all(feature = "host", feature = "progs-host"))]
+pub mod progs_builtins_sv_msg; // pr_cmds.c / pr_ext.c message builtins
+#[cfg(all(feature = "host", feature = "progs-host"))]
+pub mod progs_edict_dispatch; // pr_edict.c ED_Parse* key dispatchers
 #[cfg(feature = "progs")]
 pub mod progs_exec; // pr_exec.c
 #[cfg(feature = "progs")]
 pub mod progs_load; // pr_edict_load.c
-#[cfg(feature = "progs")]
+#[cfg(any(feature = "progs", feature = "progs-host"))]
 pub mod progs_parse; // pr_edict_parse.c
 #[cfg(feature = "progs")]
 pub mod progs_save; // pr_edict_save.c

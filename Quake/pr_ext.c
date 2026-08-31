@@ -304,8 +304,32 @@ void rust_pf_edict_for_num (void);
 void rust_pf_strlen (void);
 void rust_pf_str2chr (void);
 void rust_pf_strstrofs (void);
+#ifdef USE_RUST_HOST
+/* Phase 7 M5: see the matching block in pr_cmds.c. These slots additionally
+   need the use_rust_host stratum, so they flip only when use_rust_progs and
+   use_rust_host are both enabled. */
+#define PF_RSH(name) rust_pf_##name
+void rust_pf_checkpvs (void);
+void rust_pf_sv_walkpathtogoal (void);
+void rust_pf_tracebox (void);
+void rust_pf_WriteFloat (void);
+void rust_pf_WriteDouble (void);
+void rust_pf_WriteInt (void);
+void rust_pf_WriteInt64 (void);
+void rust_pf_WriteUInt64 (void);
+void rust_pf_WriteString2 (void);
+void rust_pf_bprint (void);
+void rust_pf_sprint (void);
+void rust_pf_centerprint (void);
+void rust_pf_sv_finalefinished (void);
+void rust_pf_sv_CheckPlayerEXFlags (void);
+void rust_pf_sv_localsound (void);
 #else
-#define PF_RS(name) PF_##name
+#define PF_RSH(name) PF_##name
+#endif
+#else
+#define PF_RS(name)	 PF_##name
+#define PF_RSH(name) PF_##name
 #endif
 
 // #define fixme
@@ -5613,7 +5637,7 @@ static struct
 	{"stof",						PF_RS (stof),						PF_RS (stof),						81,		"float(string)"},	//81
 	{"multicast",					PF_multicast,					PF_NoCSQC,						82,		D("#define unicast(pl,reli) do{msg_entity = pl; multicast('0 0 0', reli?MULITCAST_ONE_R:MULTICAST_ONE);}while(0)\n"
 																											"void(vector where, float set)", "Once the MSG_MULTICAST network message buffer has been filled with data, this builtin is used to dispatch it to the given target, filtering by pvs for reduced network bandwidth.")},	//82
-	{"tracebox",					PF_tracebox,					PF_tracebox,					90,		D("void(vector start, vector mins, vector maxs, vector end, float nomonsters, entity ent)", "Exactly like traceline, but a box instead of a uselessly thin point. Acceptable sizes are limited by bsp format, q1bsp has strict acceptable size values.")},
+	{"tracebox",					PF_RSH (tracebox),					PF_RSH (tracebox),					90,		D("void(vector start, vector mins, vector maxs, vector end, float nomonsters, entity ent)", "Exactly like traceline, but a box instead of a uselessly thin point. Acceptable sizes are limited by bsp format, q1bsp has strict acceptable size values.")},
 	{"randomvec",					PF_randomvector,				PF_randomvector,				91,		D("vector()", "Returns a vector with random values. Each axis is independantly a value between -1 and 1 inclusive.")},
 	{"getlight",					PF_sv_getlight,					PF_cl_getlight,					92,		"vector(vector org)"},// (DP_QC_GETLIGHT),
 	{"registercvar",				PF_registercvar,				PF_registercvar,				93,		D("float(string cvarname, string defaultvalue)", "Creates a new cvar on the fly. If it does not already exist, it will be given the specified value. If it does exist, this is a no-op.\nThis builtin has the limitation that it does not apply to configs or commandlines. Such configs will need to use the set or seta command causing this builtin to be a noop.\nIn engines that support it, you will generally find the autocvar feature easier and more efficient to use.")},
@@ -5658,7 +5682,7 @@ static struct
 	{"pointerstat",					PF_pointerstat,					PF_NoCSQC,						0,		D("void(float num, float type, __variant *address)", "Specifies what data to use in order to send various stats, in a non-client-specific way. num and type are as in clientstat, address however, is the address of the variable you would like to use (pass &foo).")},
 	{"isbackbuffered",				PF_isbackbuffered,				PF_NoCSQC,						234,	D("float(entity player)", "Returns if the given player's network buffer will take multiple network frames in order to clear. If this builtin returns non-zero, you should delay or reduce the amount of reliable (and also unreliable) data that you are sending to that client.")},
 	{"te_bloodqw",					PF_sv_te_bloodqw,				NULL,							239,	"void(vector org, float count)"},
-	{"checkpvs",					PF_checkpvs,					PF_checkpvs,					240,	"float(vector viewpos, entity entity)"},
+	{"checkpvs",					PF_RSH (checkpvs),					PF_RSH (checkpvs),					240,	"float(vector viewpos, entity entity)"},
 	{"mod",							PF_RS (mod),							PF_RS (mod),							245,	"float(float a, float n)"},
 	{"stoi",						PF_RS (stoi),						PF_RS (stoi),						259,	D("int(string)", "Converts the given string into a true integer. Base 8, 10, or 16 is determined based upon the format of the string.")},
 	{"itos",						PF_RS (itos),						PF_RS (itos),						260,	D("string(int)", "Converts the passed true integer into a base10 string.")},
@@ -5670,12 +5694,12 @@ static struct
 	{"frameforname",				PF_frameforname,				PF_frameforname,				276,	D("float(float modidx, string framename)", "Looks up a framegroup from a model by name, avoiding the need for hardcoding. Returns -1 on error.")},// (FTE_CSQC_SKELETONOBJECTS)
 	{"frameduration",				PF_frameduration,				PF_frameduration,				277,	D("float(float modidx, float framenum)", "Retrieves the duration (in seconds) of the specified framegroup.")},// (FTE_CSQC_SKELETONOBJECTS)
 	{"touchtriggers",				PF_touchtriggers,				PF_touchtriggers,				279,	D("void(optional entity ent, optional vector neworigin)", "Triggers a touch events between self and every SOLID_TRIGGER entity that it is in contact with. This should typically just be the triggers touch functions. Also optionally updates the origin of the moved entity.")},//
-	{"WriteFloat",					PF_WriteFloat,					PF_NoCSQC,						280,	"void(float buf, float fl)"},
-	{"WriteDouble",					PF_WriteDouble,					PF_NoCSQC,						0,		"void(float buf, __double fl)"},
-	{"WriteInt",					PF_WriteInt,					PF_NoCSQC,						0,		D("void(float buf, int fl)", "Writes all 4 bytes of a 32bit integer without truncating to a float first before converting back to an int (unlike WriteLong does, but otherwise equivelent).")},//
-	{"WriteUInt",					PF_WriteInt,					PF_NoCSQC,						0,		D("void(float buf, __uint fl)", "Writes all 4 bytes of a 32bit integer without truncating to a float first before converting back to an int (unlike WriteLong does, but otherwise equivelent).")},//
-	{"WriteInt64",					PF_WriteInt64,					PF_NoCSQC,						0,		D("void(float buf, __int64 val)", "Writes all 8 bytes of a 64bit integer. This uses variable-length coding and will send only a single byte for any value between -64 and 63.")},//
-	{"WriteUInt64",					PF_WriteUInt64,					PF_NoCSQC,						0,		D("void(float buf, __uint64 val)", "Writes all 8 bytes of a 64bit unsigned integer. Values between 0-127 will be sent in a single byte.")},//
+	{"WriteFloat",					PF_RSH (WriteFloat),					PF_NoCSQC,						280,	"void(float buf, float fl)"},
+	{"WriteDouble",					PF_RSH (WriteDouble),					PF_NoCSQC,						0,		"void(float buf, __double fl)"},
+	{"WriteInt",					PF_RSH (WriteInt),					PF_NoCSQC,						0,		D("void(float buf, int fl)", "Writes all 4 bytes of a 32bit integer without truncating to a float first before converting back to an int (unlike WriteLong does, but otherwise equivelent).")},//
+	{"WriteUInt",					PF_RSH (WriteInt),					PF_NoCSQC,						0,		D("void(float buf, __uint fl)", "Writes all 4 bytes of a 32bit integer without truncating to a float first before converting back to an int (unlike WriteLong does, but otherwise equivelent).")},//
+	{"WriteInt64",					PF_RSH (WriteInt64),					PF_NoCSQC,						0,		D("void(float buf, __int64 val)", "Writes all 8 bytes of a 64bit integer. This uses variable-length coding and will send only a single byte for any value between -64 and 63.")},//
+	{"WriteUInt64",					PF_RSH (WriteUInt64),					PF_NoCSQC,						0,		D("void(float buf, __uint64 val)", "Writes all 8 bytes of a 64bit unsigned integer. Values between 0-127 will be sent in a single byte.")},//
 	{"frametoname",					PF_frametoname,					PF_frametoname,					284,	"string(float modidx, float framenum)"},
 	{"checkcommand",				PF_checkcommand,				PF_checkcommand,				294,	D("float(string name)", "Checks to see if the supplied name is a valid command, cvar, or alias. Returns 0 if it does not exist.")},
 	{"iscachedpic",					PF_NoSSQC,						PF_cl_iscachedpic,				316,	D("float(string name)", "Checks to see if the image is currently loaded. Engines might lie, or cache between maps.")},// (EXT_CSQC)
@@ -5757,7 +5781,7 @@ static struct
 	{"dropclient",					PF_dropclient,					PF_NoCSQC,						453,	"void(entity player)"},//DP_SV_BOTCLIENT
 	{"spawnclient",					PF_spawnclient,					PF_NoCSQC,						454,	"entity()", "Spawns a dummy player entity.\nNote that such dummy players will be carried from one map to the next.\nWarning: DP_SV_CLIENTCOLORS DP_SV_CLIENTNAME are not implemented in quakespasm, so use KRIMZON_SV_PARSECLIENTCOMMAND's clientcommand builtin to change the bot's name/colours/skin/team/etc, in the same way that clients would ask."},//DP_SV_BOTCLIENT
 	{"clienttype",					PF_clienttype,					PF_NoCSQC,						455,	"float(entity client)"},//botclient
-	{"WriteUnterminatedString",		PF_WriteString2,				PF_NoCSQC,						456,	"void(float target, string str)"},	//writestring but without the null terminator. makes things a little nicer.
+	{"WriteUnterminatedString",		PF_RSH (WriteString2),				PF_NoCSQC,						456,	"void(float target, string str)"},	//writestring but without the null terminator. makes things a little nicer.
 	{"edict_num",					PF_RS (edict_for_num),				PF_RS (edict_for_num),				459,	"entity(float entnum)"},//DP_QC_EDICT_NUM
 	{"buf_create",					PF_buf_create,					PF_buf_create,					460,	"strbuf()"},//DP_QC_STRINGBUFFERS
 	{"buf_del",						PF_buf_del,						PF_buf_del,						461,	"void(strbuf bufhandle)"},//DP_QC_STRINGBUFFERS
@@ -5816,13 +5840,13 @@ static struct
 	{"getsurfacetriangle",			PF_getsurfacetriangle,			PF_getsurfacetriangle,			629,	"vector(entity e, float s, float n)"},
 	{"digest_hex",					PF_digest_hex,					PF_digest_hex,					639,	"string(string digest, string data, ...)"},
 	// Quake 2021 rerelease update 3
-	{"ex_centerprint",				PF_centerprint,					PF_NoCSQC,						0,		"void(entity client, string s, ...)"},
-	{"ex_bprint",					PF_bprint,						PF_NoCSQC,						0,		"void(string s, ...)"},
-	{"ex_sprint",					PF_sprint,						PF_NoCSQC,						0,		"void(entity client, string s, ...)"},
-	{"ex_finaleFinished",			PF_sv_finalefinished,			PF_NoCSQC,						0,		"float()"},
-	{"ex_CheckPlayerEXFlags",		PF_sv_CheckPlayerEXFlags,		PF_NoCSQC,						0,		"float(entity playerEnt)"},
-	{"ex_walkpathtogoal",			PF_sv_walkpathtogoal,			PF_NoCSQC,						0,		"float(float movedist, vector goal)"},
-	{"ex_localsound",				PF_sv_localsound,				PF_NoCSQC,						0,		"void(entity client, string sample)"},
+	{"ex_centerprint",				PF_RSH (centerprint),					PF_NoCSQC,						0,		"void(entity client, string s, ...)"},
+	{"ex_bprint",					PF_RSH (bprint),						PF_NoCSQC,						0,		"void(string s, ...)"},
+	{"ex_sprint",					PF_RSH (sprint),						PF_NoCSQC,						0,		"void(entity client, string s, ...)"},
+	{"ex_finaleFinished",			PF_RSH (sv_finalefinished),			PF_NoCSQC,						0,		"float()"},
+	{"ex_CheckPlayerEXFlags",		PF_RSH (sv_CheckPlayerEXFlags),		PF_NoCSQC,						0,		"float(entity playerEnt)"},
+	{"ex_walkpathtogoal",			PF_RSH (sv_walkpathtogoal),			PF_NoCSQC,						0,		"float(float movedist, vector goal)"},
+	{"ex_localsound",				PF_RSH (sv_localsound),				PF_NoCSQC,						0,		"void(entity client, string sample)"},
 	{"ex_draw_point",				PF_Fixme,						PF_NoCSQC,						0,		"void(vector point, float colormap, float lifetime, float depthtest)"},
 	{"ex_draw_line",				PF_Fixme,						PF_NoCSQC,						0,		"void(vector start, vector end, float colormap, float lifetime, float depthtest)"},
 	{"ex_draw_arrow",				PF_Fixme,						PF_NoCSQC,						0,		"void(vector start, vector end, float colormap, float size, float lifetime, float depthtest)"},
@@ -6344,9 +6368,10 @@ first_statement afterwards -- and none of them shows up in an instruction trace
 unless a mod happens to call the affected builtin.
 scripts/harness/builtin_diff.py compares the dump across two builds.
 
-The bound ordinal is found by scanning qcvm->builtins for the entry's own
-function pointer, so it is meaningful within one build; what is compared across
-builds is the name/number/ordinal triple, never the pointer.
+The bound ordinal is the entry's own number when qcvm->builtins holds the
+entry's function pointer there, and -1 otherwise; it is meaningful within one
+build, and what is compared across builds is the name/number/ordinal triple,
+never the pointer.
 ===============
 */
 void PR_DumpBuiltinTable_f (void)
@@ -6356,7 +6381,6 @@ void PR_DumpBuiltinTable_f (void)
 	   internal to the loader and this is a diagnostic. */
 	static const char *const rereleasepatched[] = {"centerprint", "bprint", "sprint"};
 	size_t					 i;
-	unsigned int			 j;
 	const dfunction_t		*f;
 	qboolean				 selected = false;
 
@@ -6383,21 +6407,29 @@ void PR_DumpBuiltinTable_f (void)
 	Con_Printf ("PRBUILTINS-BEGIN %u\n", (unsigned)qcvm->progshash);
 	for (i = 0; i < countof (extensionbuiltins); i++)
 	{
-		builtin_t want = (qcvm == &cl.qcvm) ? extensionbuiltins[i].csqcfunc : extensionbuiltins[i].ssqcfunc;
-		int		  bound = -1;
+		builtin_t	 want = (qcvm == &cl.qcvm) ? extensionbuiltins[i].csqcfunc : extensionbuiltins[i].ssqcfunc;
+		unsigned int num = (unsigned int)extensionbuiltins[i].number;
+		int			 bound = -1;
 		/* an entry whose function *is* PF_Fixme would otherwise "bind" to
-		   slot 0, which is PF_Fixme's own; that is not a binding. */
-		if (want && want != PF_Fixme)
-		{
-			for (j = 0; j < (unsigned int)qcvm->numbuiltins; j++)
-			{
-				if (qcvm->builtins[j] == want)
-				{
-					bound = (int)j;
-					break;
-				}
-			}
-		}
+		   slot 0, which is PF_Fixme's own; that is not a binding.
+
+		   Probe the entry's own number rather than scanning the whole table
+		   for the pointer: every binding path installs ssqcfunc/csqcfunc at
+		   extensionbuiltins[].number (PR_EnableExtensions writes
+		   builtins[documentednumber], and PF_Fixme's lazy path writes
+		   builtins[binum] only when extensionbuiltins[].number == binum), so
+		   no binding is lost -- while a whole-table scan reports a false
+		   ordinal whenever the linker folds identical function bodies
+		   (/OPT:ICF, on by default for lld-link), because several distinct
+		   stubs then share one address. That folding is build-local, so the
+		   scan made the cross-build diff report spurious differences the
+		   moment one of the folded stubs flipped to Rust. What the narrower
+		   probe gives up is the incidental observation that an entry's
+		   function also sits in a fixed core slot under a different number
+		   (ex_finaleFinished aliasing pr_cmds.c's #79) -- an aliasing fact,
+		   not a numbering one, and unrecoverable under folding either way. */
+		if (want && want != PF_Fixme && num < (unsigned int)qcvm->numbuiltins && qcvm->builtins[num] == want)
+			bound = (int)num;
 		Con_Printf ("PRBUILTIN %s %i %i\n", extensionbuiltins[i].name, extensionbuiltins[i].number, bound);
 	}
 

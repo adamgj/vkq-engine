@@ -147,6 +147,9 @@ fn main() {
         "anorms_ref.c",
         "hashers_ref.c",
         "qctype_ref.c",
+        "pf_msg_ref.c",
+        "pf_fx_ref.c",
+        "pf_cl_ref.c",
     ] {
         let path = manifest.join("stubs").join(stub);
         println!("cargo:rerun-if-changed={}", path.display());
