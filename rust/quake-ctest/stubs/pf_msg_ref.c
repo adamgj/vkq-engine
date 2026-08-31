@@ -46,14 +46,18 @@
  *    dev_overflows and realtime are host.c-local statics with no
  *    c_ref_prelude.h slice. This is a cosmetic diagnostic only, never
  *    dispatch/control flow; no test constructs a >255-character result.
- *  - ctest_server_stub_t (c_ref_prelude.h:737-745) has no
- *    reliable_datagram/signon/multicast/datagram sizebuf_t fields (server.h
- *    is not included by the prelude). MSG_ALL/MSG_INIT/MSG_EXT_MULTICAST/
- *    MSG_EXT_ENTITY/MSG_BROADCAST resolve to private static sizebuf_t
- *    fixtures owned by this file instead of `sv.*`, mirroring
- *    pr_cmds_sv_msg_glue.c's own PRBI_MsgWriteDest exactly except for that
- *    substitution. MSG_ONE resolves to the real `svs.clients[n-1].message`,
- *    which the stub struct does carry.
+ *  - the prelude's `sv` used to be a stand-in struct with no
+ *    reliable_datagram/signon/multicast/datagram sizebuf_t fields, so
+ *    MSG_ALL/MSG_INIT/MSG_EXT_MULTICAST/MSG_EXT_ENTITY/MSG_BROADCAST resolve
+ *    to private static sizebuf_t fixtures owned by this file instead of
+ *    `sv.*`, mirroring pr_cmds_sv_msg_glue.c's own PRBI_MsgWriteDest exactly
+ *    except for that substitution. MSG_ONE resolves to the real
+ *    `svs.clients[n-1].message`.
+ *    Phase 7 M6 (T6.0): c_ref_prelude.h includes the real server.h now, so
+ *    every one of those buffers exists on `sv` and the substitution is no
+ *    longer forced. It is kept for this milestone because switching the
+ *    destinations changes what these tests observe -- M6 port work, not
+ *    T6.0's.
  */
 
 #include <stdbool.h>

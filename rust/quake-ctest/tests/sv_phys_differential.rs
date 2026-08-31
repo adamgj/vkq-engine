@@ -128,7 +128,6 @@ extern "C" {
     fn ctest_phys_force_retouch() -> c_float;
     fn ctest_phys_speeds_c(ms3: *mut f64, counts4: *mut c_int, analytic_frame: *mut c_int);
     fn ctest_phys_speeds_plain(ms3: *mut f64, counts4: *mut c_int, analytic_frame: *mut c_int);
-    fn ctest_phys_sound_arm_raise(on: c_int);
     fn ctest_phys_sound_len() -> c_int;
     fn ctest_phys_sound_get(
         i: c_int,
@@ -1065,7 +1064,16 @@ fn check_water_transition_matches() {
             .bbox([-4.0, -4.0, -4.0], [4.0, 4.0, 4.0])
             .waterlevel(waterlevel, watertype)];
         let c = diff(DEFAULTS, &specs, -1, |side| side.check_water_transition(4));
-        splashes += c.sounds.len();
+        // Phase 7 M6: sv_main.c is an oracle source now, so both sides reach
+        // the REAL SV_StartSound instead of the stub recorder, and it returns
+        // early with a Con_Printf on a sample the fixture never precached.
+        // The console log -- which `diff` compares in full -- is therefore
+        // where the splash arm is now visible.
+        splashes += c
+            .con
+            .iter()
+            .filter(|l| l.contains("not precacheed"))
+            .count();
         assert_eq!(
             c.edicts.len(),
             ARENA as usize * EDICT_WORDS,
@@ -1660,32 +1668,36 @@ fn check_velocity_nan_raise_propagates() {
 }
 
 #[test]
-fn check_water_transition_sound_raise_propagates() {
+fn check_water_transition_splash_reaches_sv_startsound() {
     let _g = lock();
 
-    // SV_StartSound Host_Errors on an unprecached sample; the fixture's
-    // recorder can be armed to do the same, which is the only Host_Error
-    // SV_CheckWaterTransition can reach.
+    // Phase 7 M6 (T6.0) replaced a raise test here. It used to arm the
+    // stub-owned SV_StartSound recorder to Host_Error and assert the raise
+    // propagated through SV_CheckWaterTransition. sv_main.c is a ctest oracle
+    // source now, so both sides reach the REAL SV_StartSound -- and the real
+    // one does not raise on an unprecached sample: sv_main.c:307-311
+    // Con_Printf's "SV_StartSound: <sample> not precacheed" and returns. Its
+    // only Host_Error arms are volume < 0, attenuation outside [0,4] and
+    // channel < 0, and SV_CheckWaterTransition passes literal 255 / 1 / 0, so
+    // none of them is reachable from here. The armed raise was a fixture
+    // artifact, not a behaviour the port has to reproduce.
+    //
+    // What survives is the real observable. `diff` already compares the whole
+    // console log between the two sides; this test exists to prove the line is
+    // actually produced, so that the splash arm silently ceasing to fire
+    // cannot pass as two matching empty logs.
     let specs = vec![Spec::blank(4)
         .movetype(MOVETYPE_TOSS)
         .solid(SOLID_BBOX)
         .origin([-160.0, -160.0, -160.0])
         .bbox([-4.0, -4.0, -4.0], [4.0, 4.0, 4.0])
         .waterlevel(0.0, CONTENTS_EMPTY)];
-    run_raise_case(
-        1,
-        DEFAULTS,
-        &specs,
-        -1,
-        || {
-            // SAFETY: plain flag setter on the sound recorder.
-            unsafe { ctest_phys_sound_arm_raise(1) };
-        },
-        "not precached",
-        "SV_CheckWaterTransition splash",
+    let c = diff(DEFAULTS, &specs, -1, |side| side.check_water_transition(4));
+    assert!(
+        c.con.iter().any(|l| l.contains("not precacheed")),
+        "SV_CheckWaterTransition's splash arm never reached SV_StartSound: {:?}",
+        c.con
     );
-    // SAFETY: disarm, so later tests in this binary see a quiet recorder.
-    unsafe { ctest_phys_sound_arm_raise(0) };
 }
 
 #[test]

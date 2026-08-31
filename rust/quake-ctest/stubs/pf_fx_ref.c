@@ -173,6 +173,23 @@ int ctest_fx_edict_to_prog (int num)
 	return EDICT_TO_PROG (EDICT_NUM (num));
 }
 
+/* Phase 7 M6: sv_main.c joined build.rs's C_SOURCES, so c_ref_prelude.h now
+ * renames SV_StartParticle and SV_StartSound to c_ref_*. This file must keep
+ * the plain names: BOTH of its sides -- the PRBI_FxGlue_* entry points the
+ * Rust module links against and the ctest_fx_oracle_pf_* transcriptions --
+ * have to reach the same stub-owned recorder for the differential to compare
+ * anything, and this TU hand-copies pr_cmds.c rather than compiling it, so it
+ * is free to. (sv_phys.c is not: it IS an oracle source, so its SV_StartSound
+ * call renames and both sides of that suite reach the real implementation.)
+ *
+ * The recorders live in stubs.c (SV_StartSound) and below (SV_StartParticle).
+ * Also note: the STATUS comment at the top of this file says svs / client_t /
+ * server_static_t exist nowhere in the fixture. That stopped being true in
+ * M6 -- c_ref_prelude.h includes the real server.h now -- so the five ABORT
+ * stubs it lists are unblocked whenever someone wants to write them. */
+#undef SV_StartParticle
+#undef SV_StartSound
+
 /* ---------------------------------------------------------------------------
  * PF_particle (pr_cmds.c:614-625). No glue: SV_StartParticle never raises
  * and PF_particle uses no G_STRING/G_EDICTNUM, so quake_rs_pf_particle calls

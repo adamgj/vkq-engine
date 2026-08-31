@@ -1981,9 +1981,11 @@ void ctest_reset_logged_cvars (int side)
 	}
 }
 
-/* sv.modelname is the only server state model_parse.c reads
- * (Mod_SetupSubmodels submodel-0 check) */
-ctest_server_stub_t sv;
+/* Phase 7 M6: `sv` (and `svs`, and sv_user.c's `sv_player`) are defined by
+ * the oracle sources now -- sv_main.c:27-28, sv_user.c:26 -- and renamed
+ * c_ref_* by c_ref_prelude.h, so every reference in this file reaches that
+ * one storage. Only the setters stay here. sv.modelname is what
+ * model_parse.c reads (Mod_SetupSubmodels submodel-0 check). */
 
 void ctest_set_sv_modelname (const char *name)
 {
@@ -2643,10 +2645,12 @@ void ctest_resample_ref (int length, int loopstart, int inrate, int inwidth, int
  * defined by the c_ref snd_dma.c (renamed c_ref_* by the prelude); tests
  * reach them via those names. */
 
-ctest_cl_t	cl = {0};
-ctest_svs_t svs = {0};
-keydest_t	key_dest = key_game;
-double		host_frametime = 0.0;
+/* Phase 7 M6: the real client_state_t; cl_main.c is still not an oracle
+ * source, so the instance stays stub-owned and un-renamed. `svs` moved to
+ * sv_main.c with `sv`. */
+client_state_t cl;
+keydest_t	   key_dest = key_game;
+double		   host_frametime = 0.0;
 
 qboolean harness_sndhash = false;
 
@@ -2719,8 +2723,9 @@ void ctest_snd_set_cvars (float sfxvol, float sndspeed_v, float filterquality, f
 	snd_pauselooping.value = pauselooping;
 }
 
-/* Phase 4 M6: the snd_dma.c oracle's remaining seams */
-ctest_cls_stub_t cls = {ca_disconnected, 0, 0};
+/* Phase 4 M6: the snd_dma.c oracle's remaining seams. Phase 7 M6: the real
+ * client_static_t (cl_main.c is not an oracle source, so it stays here). */
+client_static_t cls = {ca_disconnected};
 
 static mleaf_t *ctest_point_leaf = NULL;
 void ctest_set_point_leaf (mleaf_t *leaf)
@@ -4539,9 +4544,6 @@ void ctest_world_arm_bad_classname (int num)
  * None of these live in a build.rs C_SOURCES file, so the harness owns a
  * single shared definition and both sides call it. */
 
-/* sv_main.c:53 -- sv_phys.c:1893 reads sv_player->v.flags */
-edict_t *sv_player;
-
 /* host.c:70 -- deliberately NOT renamed by the prelude: sv_phys.c's timing
  * blocks and host.c's report read one and the same cvar in the engine. */
 cvar_t sv_speeds;
@@ -4631,10 +4633,30 @@ int ctest_phys_endgame_calls (void)
 	return ctest_phys_endgame_count;
 }
 
-/* sv_main.c:1274. sv_phys.c reaches it from SV_CheckWaterTransition
- * (sv_phys.c:2139,2148) and SV_Physics_Step (sv_phys.c:2270). The real one
- * Host_Errors on an unprecached sample, so the recorder can be armed to do
- * the same -- that is what makes the water-transition raise test possible. */
+/* Phase 7 M6: SV_StartSound (sv_main.c:277) used to be a stub-owned recorder
+ * shared by the c_ref oracle and the Rust glue. sv_main.c is an oracle source
+ * now, so both sides reach the real function (c_ref_SV_StartSound) and the
+ * recorder is gone. Its observable moved to the console log, which both sides
+ * already compare: the real function Con_Printf's
+ * "SV_StartSound: <sample> not precacheed" for every call the fixture makes,
+ * because the fixture never populates sv.sound_precache.
+ *
+ * FINDING (reported with T6.0): the M4 comment here claimed the real
+ * SV_StartSound Host_Errors on an unprecached sample. It does not --
+ * sv_main.c:307-311 Con_Printf's and returns. Its three Host_Error arms are
+ * volume < 0, attenuation outside [0,4] and channel < 0, none of which
+ * SV_CheckWaterTransition or SV_Physics_Step can reach (they pass literal
+ * 255 / 1 / 0). SvPhys_Glue_StartSound stays guarded anyway, because the
+ * Rust port may pass QC-derived arguments later. */
+
+/* The pf_fx_ref.c oracle group is the one place where a stub-owned recorder is
+ * still the right seam: that file hand-copies PF_particle/PF_sound rather than
+ * compiling pr_cmds_sv_fx.c, so BOTH its oracle side and the Rust builtin can
+ * be pointed at the same plain-named recorder with a local #undef (see the
+ * #undef block at the top of pf_fx_ref.c). sv_phys.c cannot do that -- it IS
+ * an oracle source, so its call renames to c_ref_SV_StartSound. */
+#undef SV_StartSound
+
 #define CTEST_PHYS_SOUND_MAX 64
 
 typedef struct
@@ -4697,6 +4719,11 @@ void ctest_phys_sound_clear (void)
 	ctest_phys_sound_count = 0;
 	memset (ctest_phys_sounds, 0, sizeof (ctest_phys_sounds));
 }
+
+/* Back to the oracle's name for the rest of this file: SvPhys_Glue_StartSound
+ * below must reach the REAL implementation, because the C side of the sv_phys
+ * differential (sv_phys.c, an oracle source) reaches it too. */
+#define SV_StartSound c_ref_SV_StartSound
 
 /* --- the sv_phys.c glue helpers -------------------------------------------
  * Quake/sv_phys_glue.c is not one of build.rs's C_SOURCES (it only compiles
@@ -5799,9 +5826,13 @@ int PRBI_SvGlue_WarnNanTrace (float *v1, float *v2, edict_t *ent)
 	return Host_Guard (ctest_pf_invoke_warnnan, &a);
 }
 
-/* server.h's sv.lastcheck/sv.lastchecktime (server.h:59-60). The harness's
- * ctest_server_stub_t does not carry them and c_ref_prelude.h is left alone,
- * so the round-robin cursor lives in two statics with the same lifetime. */
+/* server.h's sv.lastcheck/sv.lastchecktime (server.h:59-60). Written when the
+ * prelude's `sv` was a stand-in struct that did not carry them, so the
+ * round-robin cursor lives in two statics with the same lifetime. Phase 7 M6:
+ * `sv` is the real server_t now, so this pair CAN be collapsed onto
+ * sv.lastcheck/sv.lastchecktime -- left alone here only because doing it would
+ * change what the PF_checkclient tests observe, which is M6 port work, not
+ * T6.0's. */
 static int	  ctest_pf_lastcheck;
 static double ctest_pf_lastchecktime;
 
@@ -6795,4 +6826,189 @@ int PRParse_Glue_FindFunction (const char *name)
 {
 	dfunction_t *f = ED_FindFunction (name);
 	return f ? (int)(f - qcvm->functions) : -1;
+}
+
+/* ---------------------------------------------------------------------------
+ * Phase 7 M6: the engine symbols Quake/sv_main.c, Quake/sv_send.c and
+ * Quake/sv_user.c reference but no oracle source defines. Everything here
+ * belongs to a file that is still outside C_SOURCES (host.c, net.c/net_main.c,
+ * gl_model.c, pr_edict.c, view.c, gl_screen.c), so the names stay un-renamed.
+ *
+ * These are link-satisfying doubles, not behaviour: the M6 differential suites
+ * drive the ported functions along paths that do not reach them, and any suite
+ * that needs one is expected to replace it with a recorder the way the M4/M5
+ * groups did. Sys_Error rather than a silent return wherever a wrong answer
+ * would be indistinguishable from a real one.
+ */
+
+double realtime = 0.0;
+int	   current_skill = 0;
+
+cvar_t max_edicts = {"max_edicts", "8192", CVAR_NONE, 8192.0f, NULL, NULL, NULL, NULL};
+cvar_t skill = {"skill", "1", CVAR_NONE, 1.0f, NULL, NULL, NULL, NULL};
+cvar_t deathmatch = {"deathmatch", "0", CVAR_NONE, 0.0f, NULL, NULL, NULL, NULL};
+cvar_t coop = {"coop", "0", CVAR_NONE, 0.0f, NULL, NULL, NULL, NULL};
+cvar_t nomonsters = {"nomonsters", "0", CVAR_NONE, 0.0f, NULL, NULL, NULL, NULL};
+cvar_t r_lerpmove = {"r_lerpmove", "1", CVAR_ARCHIVE, 1.0f, NULL, NULL, NULL, NULL};
+cvar_t devstats = {"devstats", "0", CVAR_NONE, 0.0f, NULL, NULL, NULL, NULL};
+
+devstats_t		dev_stats, dev_peakstats;
+overflowtimes_t dev_overflows;
+
+const builtin_t pr_ssqcbuiltins[1] = {NULL};
+const int		pr_ssqcnumbuiltins = 0;
+
+void Host_Callback_Notify (cvar_t *var)
+{
+	(void)var;
+}
+
+void SCR_CenterPrintClear (void) {}
+
+void Host_ClearMemory (void) {}
+
+void SV_DropClient (qboolean crash)
+{
+	(void)crash;
+	Sys_Error ("ctest: SV_DropClient reached (host.c is not an oracle source)");
+}
+
+float V_CalcRoll (vec3_t angles, vec3_t velocity)
+{
+	(void)angles;
+	(void)velocity;
+	Sys_Error ("ctest: V_CalcRoll reached (view.c is not an oracle source)");
+	return 0.0f;
+}
+
+qmodel_t *Mod_ForName (const char *name, qboolean crash)
+{
+	(void)name;
+	(void)crash;
+	Sys_Error ("ctest: Mod_ForName reached (gl_model.c is not an oracle source)");
+	return NULL;
+}
+
+qboolean PR_LoadProgs (const char *filename, qboolean fatal, unsigned int needcrc, const builtin_t *builtins, size_t numbuiltins)
+{
+	(void)filename;
+	(void)fatal;
+	(void)needcrc;
+	(void)builtins;
+	(void)numbuiltins;
+	Sys_Error ("ctest: PR_LoadProgs reached (pr_edict.c is not an oracle source)");
+	return false;
+}
+
+void ED_LoadFromFile (const char *data)
+{
+	(void)data;
+	Sys_Error ("ctest: ED_LoadFromFile reached (pr_edict.c is not an oracle source)");
+}
+
+/* net.h:53-91. net_main.c is not an oracle source. The "no connection" /
+ * "nothing to send" answers are the only ones a fixture with no qsocket can
+ * honestly give; the two that hand back a buffer Sys_Error instead. */
+struct qsocket_s *NET_CheckNewConnections (void)
+{
+	return NULL;
+}
+
+struct qsocket_s *NET_GetServerMessage (void)
+{
+	return NULL;
+}
+
+const char *NET_QSocketGetTrueAddressString (const struct qsocket_s *sock)
+{
+	(void)sock;
+	return "ctest";
+}
+
+qboolean NET_QSocketGetProQuakeAngleHack (const struct qsocket_s *sock)
+{
+	(void)sock;
+	return false;
+}
+
+int NET_QSocketGetSequenceOut (const struct qsocket_s *sock)
+{
+	(void)sock;
+	return 0;
+}
+
+void NET_QSocketSetMSS (struct qsocket_s *s, int mss)
+{
+	(void)s;
+	(void)mss;
+}
+
+qboolean NET_CanSendMessage (struct qsocket_s *sock)
+{
+	(void)sock;
+	return true;
+}
+
+int NET_SendMessage (struct qsocket_s *sock, sizebuf_t *data)
+{
+	(void)sock;
+	(void)data;
+	return 1;
+}
+
+int NET_SendUnreliableMessage (struct qsocket_s *sock, sizebuf_t *data)
+{
+	(void)sock;
+	(void)data;
+	return 1;
+}
+
+int NET_SendToAll (sizebuf_t *data, double blocktime)
+{
+	(void)data;
+	(void)blocktime;
+	return 0;
+}
+
+/* ---------------------------------------------------------------------------
+ * Phase 7 M6 link proof.
+ *
+ * MSVC pulls an archive member only when something references one of its
+ * symbols, so a clean `cargo build` says nothing about whether sv_user.o,
+ * sv_send.o and sv_main.o can actually be linked into a test binary. This
+ * calls one real entry point from each of the three, chosen so that each one
+ * returns on its first branch and touches no fixture state:
+ *
+ *   sv_main.c:824 SV_ModelIndex   -- `!name || !name[0]` returns 0.
+ *   sv_send.c:2206 SV_CreateBaseline -- loop bound is qcvm->num_edicts, 0 here.
+ *   sv_user.c:417 SV_ClientThink  -- `movetype == MOVETYPE_NONE` returns.
+ *
+ * Returns a bitmask so the Rust side can tell which arms ran; a wrong
+ * SV_ModelIndex answer clears bit 0 rather than being swallowed.
+ */
+int ctest_m6_linkproof (void)
+{
+	static qcvm_t  linkproof_vm;
+	static edict_t linkproof_ent;
+	qcvm_t		  *saved_vm = qcvm;
+	edict_t		  *saved_player = sv_player;
+	int			   result = 0;
+
+	if (SV_ModelIndex (NULL) == 0 && SV_ModelIndex ("") == 0)
+		result |= 1;
+
+	memset (&linkproof_vm, 0, sizeof (linkproof_vm));
+	qcvm = &linkproof_vm;
+	SV_CreateBaseline ();
+	qcvm = saved_vm;
+	result |= 2;
+
+	memset (&linkproof_ent, 0, sizeof (linkproof_ent));
+	linkproof_ent.v.movetype = MOVETYPE_NONE;
+	sv_player = &linkproof_ent;
+	SV_ClientThink ();
+	sv_player = saved_player;
+	result |= 4;
+
+	return result;
 }

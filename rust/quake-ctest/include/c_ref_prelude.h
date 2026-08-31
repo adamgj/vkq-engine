@@ -727,22 +727,11 @@ extern const int	  type_size[NUM_TYPE_SIZES];
 ddef_t				 *ED_FindField (const char *name);
 dfunction_t			 *ED_FindFunction (const char *fn_name);
 
-/* server.h slice: model_parse.c reads sv.modelname; snd_mix.c (Phase 4)
- * reads sv.active */
-typedef enum
-{
-	ss_loading,
-	ss_active
-} server_state_t; /* server.h; pr_exec.c's OP_ADDRESS guard reads it */
-typedef struct
-{
-	char		   modelname[64];
-	qboolean	   active;
-	char		   name[64];  /* Phase 5: net_loop.c's Loop_SearchForHosts */
-	server_state_t state;	  /* Phase 6 M3: pr_exec.c's OP_ADDRESS guard */
-	qcvm_t		   qcvm;	  /* Phase 6 M3: pr_exec.c's PR_Profile_f */
-} ctest_server_stub_t;
-extern ctest_server_stub_t sv;
+/* server_state_t / server_t / `sv` used to be hand-cut stand-ins here.
+ * Phase 7 M6 replaced them with the real Quake/server.h, included at the
+ * bottom of this header (everything server.h needs -- qcvm_t, sizebuf_t,
+ * entity_state_t, usercmd_t, cvar_t, struct qsocket_s -- is only in scope
+ * by then). */
 
 /* wad.c only includes quakedef.h; hand it wad.h, which pulls the real,
  * bindgen-clean common.h for the COM_ and FS_ APIs and fshandle_t */
@@ -870,43 +859,12 @@ FUNC_NORETURN void COM_Assert_Failed (const char *expr, const char *file, int li
 #define assert_always(e) ((e) ? (void)0 : COM_Assert_Failed (#e, __FILE__, __LINE__))
 #endif
 
-/* server.h's movetype/solid/edict-flag enumerators world.c compares against.
- * They are object-like macros rather than an enum so abi_probe.c -- the one
- * TU that #includes the real server.h -- can #undef them out of the way
- * before that include, the same dodge it already uses for sv/svs/cl/cls.
- * Values transcribed from Quake/server.h:227-285. Phase 7 M4 widened the
- * slice to everything sv_move.c and sv_phys.c compare against; abi_probe.c
- * #undef's the whole set. */
-#define MOVETYPE_NONE		0
-#define MOVETYPE_ANGLENOCLIP 1
-#define MOVETYPE_ANGLECLIP	2
-#define MOVETYPE_WALK		3
-#define MOVETYPE_STEP		4
-#define MOVETYPE_FLY		5
-#define MOVETYPE_TOSS		6
-#define MOVETYPE_PUSH		7
-#define MOVETYPE_NOCLIP		8
-#define MOVETYPE_FLYMISSILE 9
-#define MOVETYPE_BOUNCE		10
-#define MOVETYPE_GIB		11
-#define SOLID_NOT			0
-#define SOLID_TRIGGER		1
-#define SOLID_BBOX			2
-#define SOLID_SLIDEBOX		3
-#define SOLID_BSP			4
-#define FL_FLY				1
-#define FL_SWIM				2
-#define FL_CONVEYOR			4
-#define FL_CLIENT			8
-#define FL_INWATER			16
-#define FL_MONSTER			32
-#define FL_GODMODE			64
-#define FL_NOTARGET			128
-#define FL_ITEM				256
-#define FL_ONGROUND			512
-#define FL_PARTIALGROUND	1024
-#define FL_WATERJUMP		2048
-#define FL_JUMPRELEASED		4096
+/* server.h's movetype/solid/edict-flag enumerators used to be transcribed
+ * here as object-like macros, because quakedef.h is neutered and world.c /
+ * sv_move.c / sv_phys.c never saw the real enums. Phase 7 M6 includes the
+ * real server.h at the bottom of this header, so the enumerators themselves
+ * are in scope and the transcription (and abi_probe.c's #undef dodge around
+ * it) is gone. */
 
 /* quakedef.h:68 -- SV_AddGravity/SV_FinishGravity's analytic half-step
  * (sv_phys.c:682,693) divides by it, and the comment on that line says the
@@ -915,20 +873,13 @@ FUNC_NORETURN void COM_Assert_Failed (const char *expr, const char *file, int li
 #define MAX_PHYSICS_FREQ (72.0)
 #endif
 
-/* Phase 7 M4: the three engine seams sv_phys.c reaches that no header in
- * this slice declares. All three are stub-owned (sv_main.c and host.c are
- * not in build.rs's C_SOURCES) and shared un-renamed, so the c_ref oracle
- * and the Rust port drive the same recorder:
- *   - SV_StartSound  (server.h:338, defined sv_main.c:1274) -- water-entry
- *     and hit-ground sounds; Host_Error's three ways, hence the guarded
- *     glue helper in stubs.c
- *   - Host_EndGame   (quakedef.h:480, defined host.c:185) -- the two
- *     bad-movetype sites
- *   - sv_player      (server.h:331, defined sv_main.c) -- SV_WalkMove's
- *     FL_WATERJUMP test (sv_phys.c:1893) */
-void SV_StartSound (edict_t *entity, float *origin, int channel, const char *sample, int volume, float attenuation);
+/* Phase 7 M4/M6: Host_EndGame (quakedef.h:480, defined host.c:185) is the
+ * one seam of sv_phys.c's bad-movetype sites that stays stub-owned -- host.c
+ * is not in build.rs's C_SOURCES. SV_StartSound and sv_player used to be
+ * declared (and stub-defined) here for the same reason; M6 pulled sv_main.c
+ * and sv_user.c into C_SOURCES, so both are now real, renamed c_ref_* below
+ * and declared by the real server.h. */
 FUNC_NORETURN void Host_EndGame (const char *message, ...) FUNC_PRINTF (1, 2);
-extern edict_t *sv_player;
 
 /* Phase 7 M4: sv_phys.c's own public cvars, its per-frame analytic latch and
  * the sv_speeds counters. server.h:314-329 and host.c declare these in the
@@ -1044,22 +995,10 @@ typedef struct entity_s
 
 #include "world.h" /* the renames above are already in effect */
 
-/* the quakedef.h slice snd_mix.c's pause_loops computation reads, plus the
- * three client_state_t members world.c touches: SV_Move's `qcvm == &cl.qcvm`
- * CSQC test and World_ClipToNetwork's cl.entities/cl.num_entities walk. The
- * stub definitions expose setters for the differential tests. */
-typedef struct
-{
-	qboolean  paused;
-	int		  viewentity;
-	qmodel_t *worldmodel;
-	int		  num_entities;
-	entity_t *entities;
-	qcvm_t	  qcvm;
-} ctest_cl_t;
-extern ctest_cl_t cl;
-/* ctest_svs_t (needs client_t, which needs sizebuf_t from net.h) is defined
- * further down, after the net.h include block. */
+/* `cl` used to be a six-field ctest_cl_t stand-in here. Phase 7 M6 replaced
+ * it with the real client_state_t from Quake/client.h, included at the
+ * bottom of this header; cl_main.c is still not in C_SOURCES, so the
+ * instance itself stays stub-owned (stubs.c) and un-renamed. */
 typedef enum
 {
 	key_game,
@@ -1110,14 +1049,7 @@ extern cvar_t snd_pauselooping;
 /* the quakedef.h slice snd_dma.c needs beyond the fs slice above */
 #define MAX_SOUNDS 2048
 #define SIGNONS	   4
-typedef enum
-{
-	ca_dedicated,
-	ca_disconnected,
-	ca_connected
-} cactive_t;
-/* ctest_cls_stub_t is defined further down (needs sizebuf_t from net.h for
- * cls.message). */
+/* cactive_t / client_static_t come from the real client.h, at the bottom. */
 /* ---- Phase 5 M2: net_msg.c wire serialization oracle ---- */
 #include "protocol.h" /* PRFL_* / PEXT2_* flag sets (pulls q_minmax.h's Q_rint) */
 /* Phase 5 M5: net_loop.c oracle needs the net headers (quakedef.h
@@ -1138,50 +1070,212 @@ void					S_CodecInit (void);							/* snd_codec.h; stub no-ops */
 void					S_CodecShutdown (void);
 void					Con_SafePrintf (const char *fmt, ...);
 
-/* Phase 7 M2: the server.h/client.h slice cvar.c's CVAR_SERVERINFO /
- * CVAR_USERINFO replication blocks and cmd.c's Cmd_ExecuteString /
- * Cmd_ForwardToServer read. Stub-owned mirror structs, like ctest_cl_t
- * above; definitions/instances live in stubs.c. */
-/* Named client_t/client_s (not ctest_-prefixed like ctest_svs_t below):
- * cvar.c's own CVAR_SERVERINFO replication block (cvar.c:513) declares a
- * local `client_t *current_client` by that literal name, so the type must
- * exist under this exact name for cvar.c's unmodified source to compile.
- * abi_probe.c separately #includes the real server.h/client.h for its own
- * struct-layout ABI probe further down in that file; it #define/#undef's
- * this name (and svs/sv/cl/cls, same idiom) out of the way for just those
- * two #includes to avoid a duplicate-definition error in that TU. */
-typedef struct client_s
+/* ---- Phase 7 M6: the real Quake/server.h and Quake/client.h --------------
+ *
+ * Through M5 this header carried hand-cut stand-ins under the engine's own
+ * names -- ctest_server_stub_t `sv`, a four-field `client_t`, ctest_svs_t
+ * `svs`, ctest_cl_t `cl`, ctest_cls_stub_t `cls`. M6 puts sv_main.c,
+ * sv_send.c and sv_user.c into build.rs's C_SOURCES, and those three touch
+ * essentially every field of the real structs, so the stand-ins are gone and
+ * the engine's own headers are included here instead. Every earlier oracle's
+ * reader (sv.modelname, sv.active, sv.name, sv.state, sv.qcvm,
+ * svs.maxclients, svs.serverinfo, svs.clients, cls.state, cls.signon, ...)
+ * names a field that exists on the real struct, so they compile unchanged.
+ *
+ * abi_probe.c used to #include these two headers itself, behind a
+ * #define/#undef rename dodge, precisely because this header occupied the
+ * four names. That dodge is gone with the stand-ins; the probe now measures
+ * the same declarations every other oracle TU sees.
+ *
+ * This is the last thing the header does: server.h needs qcvm_t (progs.h),
+ * entity_state_t/usercmd_t (protocol.h), sizebuf_t (common.h), cvar_t
+ * (cvar.h) and struct qsocket_s (net_defs.h); client.h additionally embeds
+ * entity_t (the render.h transcription above) by value in `viewent`, and
+ * needs qfileofs_t (sys.h, via common.h) and FILE.
+ *
+ * quakedef.h constants the two headers expect from their normal
+ * #include "quakedef.h" chain, which this header pre-empts. MAX_SOUNDS,
+ * MAX_LIGHTSTYLES, MAX_DATAGRAM, MAX_MSGLEN, MAX_EDICTS and SIGNONS are
+ * already defined above by the earlier phases' slices;
+ * SERVER_INFO_STRING_SIZE, CLIENT_USER_INFO_STRING_SIZE, NUM_PING_TIMES,
+ * NUM_TOTAL_SPAWN_PARMS, NUM_CSHIFTS, MAX_MAPSTRING, MAX_DEMOS and
+ * MAX_DEMONAME are #define'd by server.h/client.h themselves. The values
+ * below are gated against the real quakedef.h by a _Static_assert in
+ * Quake/harness.c. */
+#include <stdio.h> /* client_static_t::demofile */
+
+#define MAX_MODELS		   8192
+#define MAX_PARTICLETYPES  2048
+#define MAX_STYLESTRING	   64
+#define MAX_SCOREBOARDNAME 32
+#define VID_CBITS		   6
+#define VID_GRADES		   (1 << VID_CBITS)
+
+/* Phase 7 M6 renames. sv_main.c, sv_send.c and sv_user.c are oracle sources
+ * now, so every global they define is c_ref_*; the block has to precede the
+ * two #includes below so server.h's own declarations rename with them.
+ *
+ * `sv`, `svs` and `sv_player` move with their files: stubs.c no longer
+ * defines them, the oracle does, and the Rust-side glue in stubs.c reaches
+ * the same storage through these macros. ADR-007 makes sv/svs Rust-owned at
+ * M6-T6.6; until that storage move lands, the C oracle owns the one copy.
+ *
+ * SV_StartSound is the one M4 seam this flips: it was a stub-owned recorder
+ * shared by both sides, and it is sv_main.c's function, so from M6 it is the
+ * real implementation on the oracle side and for the glue that drives the
+ * Rust side. See stubs.c's ctest_phys_sound_* block. */
+
+/* sv_main.c */
+#define sv					   c_ref_sv
+#define svs					   c_ref_svs
+#define sv_protocol			   c_ref_sv_protocol
+#define sv_protocol_pext1	   c_ref_sv_protocol_pext1
+#define sv_protocol_pext2	   c_ref_sv_protocol_pext2
+#define sv_netsort			   c_ref_sv_netsort
+#define sv_smoothplatformlerps c_ref_sv_smoothplatformlerps
+#define SV_Init				   c_ref_SV_Init
+#define SV_StartParticle	   c_ref_SV_StartParticle
+#define SV_StartSound		   c_ref_SV_StartSound
+#define SV_LocalSound		   c_ref_SV_LocalSound
+#define SV_SendServerinfo	   c_ref_SV_SendServerinfo
+#define SV_ConnectClient	   c_ref_SV_ConnectClient
+#define SV_CheckForNewClients  c_ref_SV_CheckForNewClients
+#define SV_ClearDatagram	   c_ref_SV_ClearDatagram
+#define SV_ModelIndex		   c_ref_SV_ModelIndex
+#define SV_SaveSpawnparms	   c_ref_SV_SaveSpawnparms
+#define SV_ModelForIndex	   c_ref_SV_ModelForIndex
+#define SV_SpawnServer		   c_ref_SV_SpawnServer
+
+/* sv_send.c */
+#define SV_CalcStats					 c_ref_SV_CalcStats
+#define SVFTE_DestroyFrames				 c_ref_SVFTE_DestroyFrames
+#define SVFTE_SetupFrames				 c_ref_SVFTE_SetupFrames
+#define SVFTE_Ack						 c_ref_SVFTE_Ack
+#define SV_BuildEntityState				 c_ref_SV_BuildEntityState
+#define MSG_WriteStaticOrBaseLine		 c_ref_MSG_WriteStaticOrBaseLine
+#define SV_AddToFatPVS					 c_ref_SV_AddToFatPVS
+#define SV_FatPVS						 c_ref_SV_FatPVS
+#define SV_VisibleToClient				 c_ref_SV_VisibleToClient
+#define SV_WriteEntitiesToClient		 c_ref_SV_WriteEntitiesToClient
+#define SV_CleanupEnts					 c_ref_SV_CleanupEnts
+#define SV_WriteDamageToMessage			 c_ref_SV_WriteDamageToMessage
+#define SV_WriteClientdataToMessage		 c_ref_SV_WriteClientdataToMessage
+#define SV_PresendClientDatagram		 c_ref_SV_PresendClientDatagram
+#define SV_SendClientDatagram			 c_ref_SV_SendClientDatagram
+#define SV_UpdateToReliableMessages		 c_ref_SV_UpdateToReliableMessages
+#define SV_SendNop						 c_ref_SV_SendNop
+#define SV_SendPrespawnModelPrecaches	 c_ref_SV_SendPrespawnModelPrecaches
+#define SV_SendPrespawnSoundPrecaches	 c_ref_SV_SendPrespawnSoundPrecaches
+#define SV_SendPrespawnParticlePrecaches c_ref_SV_SendPrespawnParticlePrecaches
+#define SV_SendPrespawnStatics			 c_ref_SV_SendPrespawnStatics
+#define SV_SendAmbientSounds			 c_ref_SV_SendAmbientSounds
+#define SV_SendPrespawnBaselines		 c_ref_SV_SendPrespawnBaselines
+#define SV_SendClientMessages			 c_ref_SV_SendClientMessages
+#define SV_CreateBaseline				 c_ref_SV_CreateBaseline
+#define SV_SendReconnect				 c_ref_SV_SendReconnect
+
+/* sv_user.c */
+#define sv_player			 c_ref_sv_player
+#define sv_edgefriction		 c_ref_sv_edgefriction
+#define sv_idealpitchscale	 c_ref_sv_idealpitchscale
+#define sv_altnoclip		 c_ref_sv_altnoclip
+#define sv_maxspeed			 c_ref_sv_maxspeed
+#define sv_accelerate		 c_ref_sv_accelerate
+#define SV_SetIdealPitch	 c_ref_SV_SetIdealPitch
+#define SV_UserFriction		 c_ref_SV_UserFriction
+#define SV_Accelerate		 c_ref_SV_Accelerate
+#define SV_AirAccelerate	 c_ref_SV_AirAccelerate
+#define DropPunchAngle		 c_ref_DropPunchAngle
+#define SV_WaterMove		 c_ref_SV_WaterMove
+#define SV_WaterJump		 c_ref_SV_WaterJump
+#define SV_NoclipMove		 c_ref_SV_NoclipMove
+#define SV_AirMove			 c_ref_SV_AirMove
+#define SV_ClientThink		 c_ref_SV_ClientThink
+#define SV_ReadClientMove	 c_ref_SV_ReadClientMove
+#define SV_ReadClientMessage c_ref_SV_ReadClientMessage
+#define SV_RunClients		 c_ref_SV_RunClients
+
+/* ---- Phase 7 M6 seam: the quakedef.h / host.c declarations sv_main.c,
+ * sv_send.c and sv_user.c reach that no header in this slice supplies. All
+ * of them belong to files that are not oracle sources (host.c above all), so
+ * they stay un-renamed and stub-owned; stubs.c defines them. ---- */
+#include "quakever.h" /* ENGINE_NAME_AND_VER (sv_main.c:549); self-contained */
+
+void	      Host_Callback_Notify (cvar_t *var);
+extern double realtime;
+extern int    current_skill;
+extern cvar_t max_edicts;
+
+/* quakedef.h:107-134 stat_t, verbatim. It carries MAX_CL_STATS, which
+ * server.h and client.h size arrays with. */
+/* clang-format off */
+typedef enum
 {
-	qboolean  active;
-	sizebuf_t message;
-	char	  name[32];
-	/* Phase 7 M4: SV_Physics_Client (sv_phys.c:1996-2000) gates on
-	 * svs.clients[num-1].active and .knowntoqc */
-	qboolean knowntoqc;
-} client_t;
-extern client_t *host_client; // valid only while cmd_source == src_client
+	MAX_CL_BASE_STATS	= 32,
+	MAX_CL_STATS		= 256,
+
+	STAT_HEALTH			= 0,
+	STAT_FRAGS			= 1,
+	STAT_WEAPON			= 2,
+	STAT_AMMO			= 3,
+	STAT_ARMOR			= 4,
+	STAT_WEAPONFRAME	= 5,
+	STAT_SHELLS			= 6,
+	STAT_NAILS			= 7,
+	STAT_ROCKETS		= 8,
+	STAT_CELLS			= 9,
+	STAT_ACTIVEWEAPON	= 10,
+	STAT_NONCLIENT		= 11,	// first stat not included in svc_clientdata
+	STAT_TOTALSECRETS	= 11,
+	STAT_TOTALMONSTERS	= 12,
+	STAT_SECRETS		= 13,	// bumped on client side by svc_foundsecret
+	STAT_MONSTERS		= 14,	// bumped by svc_killedmonster
+	STAT_ITEMS			= 15,	//replaces clc_clientdata info
+	STAT_VIEWHEIGHT		= 16, // replaces clc_clientdata info
+	STAT_VIEWZOOM		= 21, // DP
+	STAT_IDEALPITCH		= 25, // nq-emu
+	STAT_PUNCHANGLE_X	= 26, // nq-emu
+	STAT_PUNCHANGLE_Y	= 27, // nq-emu
+	STAT_PUNCHANGLE_Z	= 28, // nq-emu
+} stat_t;
+/* clang-format on */
+
+/* glquake.h:601-623 -- sv_send.c's developer packet-size stats. glquake.h is
+ * Vulkan-dependent, so these are transcribed rather than #included; the
+ * instances are stub-owned (gl_screen.c is not an oracle source). */
+typedef struct
+{
+	int packetsize;
+	int edicts;
+	int visedicts;
+	int efrags;
+	int tempents;
+	int beams;
+	int dlights;
+} devstats_t;
+extern devstats_t dev_stats, dev_peakstats;
 
 typedef struct
 {
-	int		  maxclients;
-	char	  serverinfo[512];
-	client_t *clients;
-} ctest_svs_t;
-extern ctest_svs_t svs;
+	double packetsize;
+	double efrags;
+	double beams;
+	double varstring;
+} overflowtimes_t;
+extern overflowtimes_t dev_overflows;
+#define CONSOLE_RESPAM_TIME 3
 
-typedef struct
-{
-	cactive_t state;
-	int		  signon;
-	int		  demonum;
-	qboolean  demoplayback;
-	char	  userinfo[512];
-	sizebuf_t message;
-} ctest_cls_stub_t;
-extern ctest_cls_stub_t cls;
+extern cvar_t devstats;
 
-extern cvar_t cl_name;
-extern cvar_t cl_topcolor;
-extern cvar_t cl_bottomcolor;
+void SCR_CenterPrintClear (void); /* screen.h:34 */
+void Host_ClearMemory (void);	  /* quakedef.h:463 */
+
+#define ON_EPSILON 0.1 /* quakedef.h:64 */
+
+float V_CalcRoll (vec3_t angles, vec3_t velocity); /* view.h:36 */
+/* ---- end Phase 7 M6 seam ---- */
+
+#include "server.h"
+#include "client.h"
 
 #endif /* C_REF_PRELUDE_H */

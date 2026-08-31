@@ -483,12 +483,19 @@ int PRBI_ClGlue_CheckEmptyString (const char *s)
  * transcription of pr_cmds.c:1884's PF_cl_makestatic / pr_cmds_cl_glue.c's
  * PRBI_ClInvokeMakeStatic. The real body needs cl.static_entities /
  * cl.num_statics / cl.max_static_entities / cl.model_precache -- this
- * harness's `ctest_cl_t` stand-in (c_ref_prelude.h) carries only `paused`,
- * `viewentity`, `worldmodel`, `num_entities`, `entities` and `qcvm`, none of
- * the static-entity fields -- plus SV_BuildEntityState and R_AddEfrags,
- * neither of which is compiled into this binary (sv_ents.c / r_efrag.c are
- * not in build.rs's C_SOURCES). Extending the shared ctest_cl_t fixture to
- * carry a full static-entity array is out of Group F's scope.
+ * harness's `cl` was a six-field `ctest_cl_t` stand-in (c_ref_prelude.h)
+ * carrying only `paused`, `viewentity`, `worldmodel`, `num_entities`,
+ * `entities` and `qcvm`, none of the static-entity fields -- plus
+ * SV_BuildEntityState and R_AddEfrags, neither of which is compiled into this
+ * binary (sv_ents.c / r_efrag.c are not in build.rs's C_SOURCES). Extending
+ * the shared fixture to carry a full static-entity array was out of Group F's
+ * scope.
+ *
+ * Phase 7 M6 (T6.0): `cl` is the real client_state_t now, so the field half of
+ * that gap is gone -- cl.static_entities / cl.num_statics /
+ * cl.max_static_entities / cl.model_precache all exist. SV_BuildEntityState
+ * also exists, in sv_send.c. R_AddEfrags still does not. Whoever revisits this
+ * probe should re-measure the gap rather than trusting the paragraph above.
  *
  * What is in scope: quake_rs_pf_cl_makestatic's OWN logic is exactly
  * "G_EDICT (OFS_PARM0), then propagate PRBI_ClGlue_MakeStatic's Host_Guard
