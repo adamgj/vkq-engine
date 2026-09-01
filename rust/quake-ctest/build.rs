@@ -133,6 +133,13 @@ fn main() {
         println!("cargo:rerun-if-changed={}", path.display());
         build.file(path);
     }
+    // host.c and host_cmd.c are not compiled directly: stubs/host_ref.c and
+    // stubs/host_cmd_ref.c #include them behind a per-TU rename block, so the
+    // C_SOURCES loop above never sees them and an edit to either would not
+    // rebuild the oracle. Watch them explicitly.
+    for src in ["Quake/host.c", "Quake/host_cmd.c"] {
+        println!("cargo:rerun-if-changed={}", repo_root.join(src).display());
+    }
     // Phase 5 M7b: the unix UDP landriver oracle (net_wins.c stays C-only
     // and untested here; see the task plan's ADR-017 deferral note)
     if std::env::var_os("CARGO_CFG_UNIX").is_some() {
@@ -170,6 +177,8 @@ fn main() {
         "cl_parse_ref.c",
         "cl_tent_ref.c",
         "view_ref.c",
+        "host_ref.c",
+        "host_cmd_ref.c",
     ] {
         let path = manifest.join("stubs").join(stub);
         println!("cargo:rerun-if-changed={}", path.display());

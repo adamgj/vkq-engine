@@ -517,6 +517,26 @@ static inline void Atomic_StoreUInt32 (volatile atomic_uint32_t *atomic, uint32_
 {
 	atomic->value = desired;
 }
+/* atomics.h:53-56, same single-threaded rationale as the store above. */
+static inline uint32_t Atomic_LoadUInt32 (volatile atomic_uint32_t *atomic)
+{
+	return atomic->value;
+}
+/* atomics.h:157-172, minus the _ReadBarrier/_WriteBarrier intrinsics the
+ * real header pairs them with: this harness is single-threaded, so the
+ * barriers have nothing to order. Same 8-byte layout. */
+typedef struct
+{
+	void *volatile value;
+} atomic_ptr_t;
+static inline void *Atomic_LoadPtr (volatile atomic_ptr_t *atomic)
+{
+	return atomic->value;
+}
+static inline void Atomic_StorePtr (volatile atomic_ptr_t *atomic, void *desired)
+{
+	atomic->value = desired;
+}
 
 /* quakedef.h slice gl_model.h / model_parse.c need. PSET_SCRIPT is
  * unconditional in quakedef.h and changes qmodel_t's layout, so it must be
@@ -1695,6 +1715,135 @@ void MSG_WriteStaticOrBaseLine (
 #include "harness.h"
 #include "view.h"
 /* ---- end Phase 7 M7 seam ---- */
+
+/* ---- Phase 7 M8 seam: the quakedef.h / glquake.h declarations host.c and
+ * host_cmd.c reach that no header in this slice supplies (task T8.1). Both
+ * files become oracle TUs here, composed by stubs/host_ref.c and
+ * stubs/host_cmd_ref.c rather than listed in build.rs's C_SOURCES; the reason
+ * (the ADR-009 trap machinery stubs.c owns under the plain Host_Error /
+ * Host_EndGame / Host_Guard / Host_Reraise names) is written out at the top of
+ * stubs/host_ref.c. Everything below is copied verbatim from the real header
+ * named on each line. ---- */
+
+#define HOST_NETITERVAL_FREQ (71.9990) /* quakedef.h:70 */
+
+/* quakedef.h:475-477. Host_Guard's real result set. stubs.c's substitute
+ * guard returns its own CTEST_GUARD_* values and says so at its definition;
+ * these three are what the REAL Host_Guard (host.c:302), now an oracle
+ * function, returns. */
+#define HOST_GUARD_OK			0
+#define HOST_GUARD_ABORTSERVER	1
+#define HOST_GUARD_SCREEN_ERROR 2
+
+extern qboolean in_update_screen; /* glquake.h:543 */
+
+/* quakedef.h:412-461 verbatim: the file-list stratum host_cmd.c defines and
+ * menu.c consumes. */
+typedef struct filelist_item_s
+{
+	char					name[32];
+	struct filelist_item_s *next;
+} filelist_item_t;
+
+extern filelist_item_t *modlist;
+extern filelist_item_t *extralevels;
+extern filelist_item_t *demolist;
+extern filelist_item_t *savelist;
+
+typedef enum
+{
+	MAPTYPE_CUSTOM_MOD_START,
+	MAPTYPE_CUSTOM_MOD_LEVEL,
+	MAPTYPE_CUSTOM_MOD_END,
+	MAPTYPE_CUSTOM_MOD_DM,
+
+	MAPTYPE_MOD_START,
+	MAPTYPE_MOD_LEVEL,
+	MAPTYPE_MOD_END,
+	MAPTYPE_MOD_DM,
+
+	MAPTYPE_CUSTOM_ID_START,
+	MAPTYPE_CUSTOM_ID_LEVEL,
+	MAPTYPE_CUSTOM_ID_END,
+	MAPTYPE_CUSTOM_ID_DM,
+
+	MAPTYPE_ID_START,
+	MAPTYPE_ID_EP1_LEVEL,
+	MAPTYPE_ID_EP2_LEVEL,
+	MAPTYPE_ID_EP3_LEVEL,
+	MAPTYPE_ID_EP4_LEVEL,
+	MAPTYPE_ID_END,
+	MAPTYPE_ID_DM,
+	MAPTYPE_ID_LEVEL,
+
+	MAPTYPE_BMODEL,
+
+	MAPTYPE_COUNT,
+} maptype_t;
+
+maptype_t	ExtraMaps_GetType (const filelist_item_t *item);
+qboolean	ExtraMaps_IsStart (maptype_t type);
+const char *ExtraMaps_GetMessage (const filelist_item_t *item);
+
+extern filelist_item_t **extralevels_sorted;
+
+const char *Modlist_GetFullName (const filelist_item_t *item);
+
+#define SAVEGAME_COMMENT_LENGTH 39 /* quakedef.h:97 */
+
+/* quakedef.h:173-207 verbatim: the mission-pack item bit sets Host_Give_f
+ * (host_cmd.c:2663) switches on. */
+typedef enum
+{
+	RIT_SHELLS = 128,
+	RIT_NAILS = 256,
+	RIT_ROCKETS = 512,
+	RIT_CELLS = 1024,
+	RIT_AXE = 2048,
+	RIT_LAVA_NAILGUN = 4096,
+	RIT_LAVA_SUPER_NAILGUN = 8192,
+	RIT_MULTI_GRENADE = 16384,
+	RIT_MULTI_ROCKET = 32768,
+	RIT_PLASMA_GUN = 65536,
+	RIT_ARMOR1 = 8388608,
+	RIT_ARMOR2 = 16777216,
+	RIT_ARMOR3 = 33554432,
+	RIT_LAVA_NAILS = 67108864,
+	RIT_PLASMA_AMMO = 134217728,
+	RIT_MULTI_ROCKETS = 268435456,
+	RIT_SHIELD = 536870912,
+	RIT_ANTIGRAV = 1073741824,
+	RIT_SUPERHEALTH = 2147483648,
+} rogueitems_t;
+
+typedef enum
+{
+	HIT_PROXIMITY_GUN_BIT = 16,
+	HIT_MJOLNIR_BIT = 7,
+	HIT_LASER_CANNON_BIT = 23,
+	HIT_PROXIMITY_GUN = (1 << HIT_PROXIMITY_GUN_BIT),
+	HIT_MJOLNIR = (1 << HIT_MJOLNIR_BIT),
+	HIT_LASER_CANNON = (1 << HIT_LASER_CANNON_BIT),
+	HIT_WETSUIT = (1 << (23 + 2)),
+	HIT_EMPATHY_SHIELDS = (1 << (23 + 3)),
+} hipnoticitems_t;
+
+/* quakedef.h:482-497 verbatim: host_cmd.c owns all of these; host.c calls
+ * four of them, so without the declarations host.c's TU falls back to
+ * implicit int. */
+void Host_Quit_f (void);
+void Host_Resetdemos (void);
+
+void ExtraMaps_Init (void);
+void Modlist_Init (void);
+void DemoList_Init (void);
+void SaveList_Init (void);
+
+void ExtraMaps_NewGame (void);
+void ExtraMaps_Clear (void);
+void ExtraMaps_ShutDown (void);
+void DemoList_Rebuild (void);
+void SaveList_Rebuild (void);
 
 #include "server.h"
 #include "client.h"

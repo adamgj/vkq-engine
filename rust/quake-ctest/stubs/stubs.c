@@ -6911,10 +6911,16 @@ int PRParse_Glue_FindFunction (const char *name)
 double realtime = 0.0;
 int	   current_skill = 0;
 
-cvar_t max_edicts = {"max_edicts", "8192", CVAR_NONE, 8192.0f, NULL, NULL, NULL, NULL};
+/* Phase 7 M8 T8.1: max_edicts (host.c:76), deathmatch (host.c:88) and coop
+ * (host.c:89) are now supplied by the real Quake/host.c, composed into the
+ * link by stubs/host_ref.c. They are the three host.c globals whose spelling
+ * collides with a struct member host.c reaches (qcvm->max_edicts,
+ * pr_global_struct->deathmatch, pr_global_struct->coop), so host_ref.c cannot
+ * rename them to c_ref_* and they stay plain for the whole link. The doubles
+ * that used to live here carried pre-seeded .value fields (8192/0/0); the real
+ * objects start at 0 like every unregistered cvar_t, which is why host_ref.c
+ * documents the change. skill keeps its double: it does not collide. */
 cvar_t skill = {"skill", "1", CVAR_NONE, 1.0f, NULL, NULL, NULL, NULL};
-cvar_t deathmatch = {"deathmatch", "0", CVAR_NONE, 0.0f, NULL, NULL, NULL, NULL};
-cvar_t coop = {"coop", "0", CVAR_NONE, 0.0f, NULL, NULL, NULL, NULL};
 cvar_t nomonsters = {"nomonsters", "0", CVAR_NONE, 0.0f, NULL, NULL, NULL, NULL};
 cvar_t r_lerpmove = {"r_lerpmove", "1", CVAR_ARCHIVE, 1.0f, NULL, NULL, NULL, NULL};
 cvar_t devstats = {"devstats", "0", CVAR_NONE, 0.0f, NULL, NULL, NULL, NULL};
@@ -7519,10 +7525,35 @@ void Fog_ParseServerMessage (void)
 	Sys_Error ("ctest: Fog_ParseServerMessage reached (gl_fog.c is not an oracle source)");
 }
 
+/* Phase 7 M8: reached from Host_Savegame_f (host_cmd.c:1685). gl_fog.c is not
+ * an oracle source, so this reproduces Fog_GetFogCommand (gl_fog.c:281)
+ * verbatim -- same branch, same format string -- over fixture-settable module
+ * statics standing in for gl_fog.c's fog_density/fog_red/fog_green/fog_blue.
+ * COMPAT: ADR-005 -- the "%g" here is exactly the one the real function emits,
+ * and it is why a Rust Host_Savegame_f cannot use the Rust float formatter. */
+static float	ctest_fog_values[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+static qboolean ctest_fog_fade_done = false;
+static int		ctest_fog_get_command_calls = 0;
+
+void ctest_set_fog (float density, float red, float green, float blue, int fade_done)
+{
+	ctest_fog_values[0] = density;
+	ctest_fog_values[1] = red;
+	ctest_fog_values[2] = green;
+	ctest_fog_values[3] = blue;
+	ctest_fog_fade_done = fade_done ? true : false;
+}
+
+int ctest_fog_get_command_count (void)
+{
+	return ctest_fog_get_command_calls;
+}
+
 const char *Fog_GetFogCommand (qboolean always)
 {
-	(void)always;
-	Sys_Error ("ctest: Fog_GetFogCommand reached (gl_fog.c is not an oracle source)");
+	ctest_fog_get_command_calls++;
+	if (ctest_fog_fade_done || always)
+		return va ("\nfog %g %g %g %g\n", ctest_fog_values[0], ctest_fog_values[1], ctest_fog_values[2], ctest_fog_values[3]);
 	return NULL;
 }
 
@@ -7542,10 +7573,42 @@ void Sky_LoadSkyBox (const char *name)
 	Sys_Error ("ctest: Sky_LoadSkyBox reached (gl_sky.c is not an oracle source)");
 }
 
+/* Phase 7 M8: reached from Host_Savegame_f (host_cmd.c:1689). Reproduces
+ * Sky_GetSkyCommand (gl_sky.c:541) verbatim over fixture statics standing in
+ * for gl_sky.c's skybox.name/skybox.name_worldspawn/skyfog.
+ * COMPAT: ADR-005 -- the "skyfog %g" is the real format string. */
+static char	 ctest_sky_name[128] = {0};
+static char	 ctest_sky_name_worldspawn[128] = {0};
+static float ctest_skyfog = 0.5f; /* r_skyfog default, gl_sky.c:41 */
+static int	 ctest_sky_get_command_calls = 0;
+
+void ctest_set_sky (const char *name, const char *name_worldspawn, float skyfog_value)
+{
+	q_strlcpy (ctest_sky_name, name, sizeof (ctest_sky_name));
+	q_strlcpy (ctest_sky_name_worldspawn, name_worldspawn, sizeof (ctest_sky_name_worldspawn));
+	ctest_skyfog = skyfog_value;
+}
+
+int ctest_sky_get_command_count (void)
+{
+	return ctest_sky_get_command_calls;
+}
+
 const char *Sky_GetSkyCommand (qboolean always)
 {
-	(void)always;
-	Sys_Error ("ctest: Sky_GetSkyCommand reached (gl_sky.c is not an oracle source)");
+	qboolean need_sky = always || strcmp (ctest_sky_name, ctest_sky_name_worldspawn);
+	qboolean need_skyfog = always;
+
+	ctest_sky_get_command_calls++;
+	if (need_sky || need_skyfog)
+	{
+		char sky[128];
+		char fog[128];
+		q_strlcpy (sky, va ("sky \"%s\"", ctest_sky_name), sizeof (sky));
+		q_strlcpy (fog, va ("skyfog %g", ctest_skyfog), sizeof (fog));
+		return va ("\n%s%s%s\n", need_sky ? sky : "", need_sky && need_skyfog ? "\n" : "", need_skyfog ? fog : "");
+	}
+
 	return NULL;
 }
 
@@ -7559,11 +7622,25 @@ void Con_AddToTabList (const char *name, const char *partial, const char *type)
 	Sys_Error ("ctest: Con_AddToTabList reached (console.c is not an oracle source)");
 }
 
+/* Phase 7 M8: reached from Host_Savegame_f (host_cmd.c:1618). The real
+ * Con_LinkPrintf (console.c:1383) formats into the console exactly like
+ * Con_Printf and additionally registers a clickable link record; the console
+ * text is the part this harness observes, so it lands in the same capture log
+ * under its own tag, and the link target is recorded for inspection. */
+static char ctest_last_link_addr[1024];
+
+const char *ctest_get_last_link_addr (void)
+{
+	return ctest_last_link_addr;
+}
+
 void Con_LinkPrintf (const char *addr, const char *fmt, ...)
 {
-	(void)addr;
-	(void)fmt;
-	Sys_Error ("ctest: Con_LinkPrintf reached (console.c is not an oracle source)");
+	va_list ap;
+	q_strlcpy (ctest_last_link_addr, addr, sizeof (ctest_last_link_addr));
+	va_start (ap, fmt);
+	ctest_con_append ("[link]", fmt, ap);
+	va_end (ap);
 }
 
 void Con_LogCenterPrint (const char *str)
@@ -7590,9 +7667,22 @@ void SCR_BeginLoadingPlaque (void)
 	Sys_Error ("ctest: SCR_BeginLoadingPlaque reached (gl_screen.c is not an oracle source)");
 }
 
+/* Phase 7 M8: reached from Host_Loadgame_f (host_cmd.c:1866). The real
+ * SCR_EndLoadingPlaque (gl_screen.c:993) clears scr_disabled_for_loading and
+ * then the console notify lines. Neither exists in this link -- there is no
+ * renderer, and the console is the ctest capture log -- so the whole of its
+ * observable effect here is that it ran. Counted rather than silent, so a
+ * test can still pin that the loader took this branch. */
+static int ctest_scr_end_loading_plaque_calls;
+
+int ctest_scr_end_loading_plaque_count (void)
+{
+	return ctest_scr_end_loading_plaque_calls;
+}
+
 void SCR_EndLoadingPlaque (void)
 {
-	Sys_Error ("ctest: SCR_EndLoadingPlaque reached (gl_screen.c is not an oracle source)");
+	ctest_scr_end_loading_plaque_calls++;
 }
 
 /* T7.4: cl_main.c:681 calls this from the middle of CL_RelinkEntities, between
@@ -7838,4 +7928,207 @@ int ctest_m7_linkproof (void)
 		result |= 64;
 
 	return result;
+}
+
+/* --- Phase 7 M8: host_cmd.c externals -------------------------------------
+ * host_cmd_ref.c is the first TU in this harness to compile Quake/host_cmd.c,
+ * and it references a batch of engine functions no earlier oracle needed.
+ *
+ * The four savegame parse helpers below are on paths the host_cmd
+ * differential actually walks -- Host_SavegameComment (host_cmd.c:1531) and
+ * Host_Loadgame_f's header parse (host_cmd.c:1875-1893) -- so they are copied
+ * verbatim from Quake/common.c instead of faked. common.c is not an oracle
+ * source in this harness (the Phase 2 fs port took common_fs.c only), which is
+ * why they have to be duplicated here at all.
+ */
+
+/* verbatim from common.c:1253 */
+const char *COM_ParseIntNewline (const char *buffer, int *value)
+{
+	int consumed = 0;
+	sscanf (buffer, "%i\n%n", value, &consumed);
+	return buffer + consumed;
+}
+
+/* verbatim from common.c:1260 */
+const char *COM_ParseFloatNewline (const char *buffer, float *value)
+{
+	int consumed = 0;
+	sscanf (buffer, "%f\n%n", value, &consumed);
+	return buffer + consumed;
+}
+
+/* verbatim from common.c:1267 */
+const char *COM_ParseStringNewline (const char *buffer)
+{
+	int consumed = 0;
+	com_token[0] = '\0';
+	sscanf (buffer, "%1023s\n%n", com_token, &consumed);
+	return buffer + consumed;
+}
+
+/* verbatim from common.c:1275 */
+size_t COM_SanitizeDescriptionString (char *dst, size_t dstsize, const char *src, bool remove_color)
+{
+	int srcpos, dstpos;
+
+	if (!dstsize)
+		return 0;
+
+	for (srcpos = dstpos = 0; src[srcpos] && (size_t)dstpos + 1 < dstsize; srcpos++)
+	{
+		char c = src[srcpos] & (remove_color ? 0x7f : 0xFF); // remove_color
+
+		// When reducing to plain ASCII, also strip control chars: colored glyphs can mask down to
+		// scanf whitespace (e.g. 0x8b -> \v), which would split the savegame comment line on load
+		if (remove_color && !q_isprint (c))
+			c = ' ';
+		else if (c == '\n' || c == '\r') // replace newlines with spaces
+			c = ' ';
+		else if (c == '\\' && src[srcpos + 1] == 'n') // replace '\\' followed by 'n' with space
+		{
+			c = ' ';
+			srcpos++;
+		}
+		// remove leading spaces, replace consecutive spaces with single one
+		if (c != ' ' || (dstpos > 0 && dst[dstpos - 1] != c))
+			dst[dstpos++] = c;
+	}
+	// remove trailing space, if any
+	if (dstpos > 0 && dst[dstpos - 1] == ' ')
+		--dstpos;
+
+	dst[dstpos] = '\0';
+	return dstpos;
+}
+
+/* The rest are only reachable from host_cmd.c commands this milestone does not
+ * drive: the map/changelevel/restart/status/maps/mods commands, the quit
+ * command, and Host_Loadgame_f past the savegame-version check. They abort
+ * instead of returning a plausible value, so a later test that wanders onto
+ * one of those paths fails loudly rather than comparing against a fake. */
+
+FUNC_NORETURN void Sys_Quit (void)
+{
+	Sys_Error ("ctest: Sys_Quit reached (sys_sdl.c is not an oracle source)");
+}
+
+void Info_Print (const char *info)
+{
+	(void)info;
+	Sys_Error ("ctest: Info_Print reached (common.c is not an oracle source)");
+}
+
+char *COM_TintSubstring (const char *in, const char *substr, char *out, size_t outsize)
+{
+	(void)in;
+	(void)substr;
+	(void)out;
+	(void)outsize;
+	Sys_Error ("ctest: COM_TintSubstring reached (common.c is not an oracle source)");
+	return NULL;
+}
+
+void *Mod_Extradata (qmodel_t *mod)
+{
+	(void)mod;
+	Sys_Error ("ctest: Mod_Extradata reached (gl_model.c is not an oracle source)");
+	return NULL;
+}
+
+qboolean Mod_LoadMapDescription (char *desc, size_t maxchars, const char *map)
+{
+	(void)desc;
+	(void)maxchars;
+	(void)map;
+	Sys_Error ("ctest: Mod_LoadMapDescription reached (gl_model.c is not an oracle source)");
+	return false;
+}
+
+void Mod_Print (void)
+{
+	Sys_Error ("ctest: Mod_Print reached (gl_model.c is not an oracle source)");
+}
+
+const char *ED_ParseEdict (const char *data, edict_t *ent)
+{
+	(void)data;
+	(void)ent;
+	Sys_Error ("ctest: ED_ParseEdict reached (pr_edict.c is not an oracle source)");
+	return NULL;
+}
+
+const char *ED_ParseGlobals (const char *data)
+{
+	(void)data;
+	Sys_Error ("ctest: ED_ParseGlobals reached (pr_edict.c is not an oracle source)");
+	return NULL;
+}
+
+qthread_t *QThread_Create (qthread_func_t fn, const char *name, void *data)
+{
+	(void)fn;
+	(void)name;
+	(void)data;
+	Sys_Error ("ctest: QThread_Create reached (the harness is single-threaded)");
+	return NULL;
+}
+
+void QThread_Wait (qthread_t *thread)
+{
+	(void)thread;
+	Sys_Error ("ctest: QThread_Wait reached (the harness is single-threaded)");
+}
+
+double NET_QSocketGetTime (const struct qsocket_s *sock)
+{
+	(void)sock;
+	Sys_Error ("ctest: NET_QSocketGetTime reached (net_main.c is not an oracle source)");
+	return 0.0;
+}
+
+const char *NET_QSocketGetMaskedAddressString (const struct qsocket_s *sock)
+{
+	(void)sock;
+	Sys_Error ("ctest: NET_QSocketGetMaskedAddressString reached (net_main.c is not an oracle source)");
+	return NULL;
+}
+
+int NET_ListAddresses (qhostaddr_t *addresses, int maxaddresses)
+{
+	(void)addresses;
+	(void)maxaddresses;
+	Sys_Error ("ctest: NET_ListAddresses reached (net_main.c is not an oracle source)");
+	return 0;
+}
+
+void IN_Activate (void)
+{
+	Sys_Error ("ctest: IN_Activate reached (in_sdl.c is not an oracle source)");
+}
+
+void M_Menu_Quit_f (void)
+{
+	Sys_Error ("ctest: M_Menu_Quit_f reached (menu.c is not an oracle source)");
+}
+
+void Fog_Update (float density, float red, float green, float blue, float time)
+{
+	(void)density;
+	(void)red;
+	(void)green;
+	(void)blue;
+	(void)time;
+	Sys_Error ("ctest: Fog_Update reached (gl_fog.c is not an oracle source)");
+}
+
+void Fog_ResetFade (void)
+{
+	Sys_Error ("ctest: Fog_ResetFade reached (gl_fog.c is not an oracle source)");
+}
+
+void Sky_SetSkyfog (float value)
+{
+	(void)value;
+	Sys_Error ("ctest: Sky_SetSkyfog reached (gl_sky.c is not an oracle source)");
 }
