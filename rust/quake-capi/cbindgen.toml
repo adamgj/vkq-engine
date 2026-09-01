@@ -412,6 +412,25 @@ int quake_rs_sv_check_velocity(edict_t *ent);
 int quake_rs_sv_check_water_transition(edict_t *ent);
 int quake_rs_sv_physics(void);
 #endif
+/* Phase 7 M7: the client leaves' entry points whose parameters use engine
+ * typedefs with no C spelling in the Rust mirrors (usercmd_t, entity_t,
+ * struct qmodel_s). Guarded on client.h's own include guard, like the world.h
+ * and common.h blocks above; check_capi_signatures.sh compiles a TU with both
+ * and diffs them against client.h:383-433. */
+#ifdef _CLIENT_H_
+/* cl_input.c:61 / :90 / :277 -- external linkage, declared in no header,
+   like V_cshift_f and CL_NewTempEntity below */
+void KeyDown(kbutton_t *b);
+void KeyUp(kbutton_t *b);
+float CL_KeyState(kbutton_t *key);
+void CL_BaseMove(usercmd_t *cmd);
+void CL_FinishMove(usercmd_t *cmd);
+int quake_rs_cl_send_move(const usercmd_t *cmd);
+void CL_UpdateBeam(struct qmodel_s *m, const char *trailname, const char *impactname, int ent, float *start, float *end);
+/* external linkage in cl_tent.c:323 but declared in no header -- kept exported
+ * so the linkage matches the C original exactly */
+entity_t *CL_NewTempEntity(void);
+#endif
 #ifdef __cplusplus
 } /* extern "C" -- these hand-written declarations sit outside cbindgen's own
    * cpp_compat guard, so they carry their own */
@@ -573,4 +592,11 @@ exclude = [
     # C spelling here, so a cbindgen declaration would be both a redeclaration
     # and a syntax error.
     "sv", "svs",
+    # Phase 7 M7 -- declared by hand above, guarded on client.h. UserCmd and
+    # EntityOpaque are ADR-011 mirrors with no C spelling, so cbindgen's own
+    # declarations are syntax errors in every C TU that includes the header.
+    "KeyDown", "KeyUp", "CL_KeyState",
+    "CL_BaseMove", "CL_FinishMove", "quake_rs_cl_send_move",
+    "CL_UpdateBeam", "CL_NewTempEntity",
+    "UserCmd", "EntityOpaque",
 ]

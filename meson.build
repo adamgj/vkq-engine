@@ -216,12 +216,9 @@ endforeach
 
 srcs = [
     'Quake/cd_null.c',
-    'Quake/chase.c',
     'Quake/cl_demo.c',
-    'Quake/cl_input.c',
     'Quake/cl_main.c',
     'Quake/cl_parse.c',
-    'Quake/cl_tent.c',
     'Quake/common.c',
     'Quake/console.c',
     'Quake/gl_draw.c',
@@ -270,7 +267,6 @@ srcs = [
     'Quake/steam_api.c',
 	'Quake/sys_sdl.c',
     'Quake/tasks.c',
-    'Quake/view.c',
 	 run_generate_embedded_pak,
 ]
 
@@ -623,6 +619,28 @@ if use_rust_host
     srcs += ['Quake/sv_main_glue.c', 'Quake/sv_send_glue.c', 'Quake/sv_user_glue.c']
 else
     srcs += ['Quake/sv_main.c', 'Quake/sv_send.c', 'Quake/sv_user.c']
+endif
+
+# Phase 7 M7 T7.2: the client stratum's leaves -- view.c, chase.c, cl_input.c
+# and cl_tent.c -- riding the same use_rust_host switch as M3/M4/M6.
+#
+# Glue ownership follows the sv_user_glue.c pattern: the cvar_t storage stays
+# C-visible because other still-C translation units reach it by plain name.
+# view_glue.c owns view.c's 30 cvars plus v_punchangles/v_blend/cshift_*
+# (gl_screen.c, gl_rmain.c, menu.c and sbar.c read them); chase_glue.c owns the
+# four chase cvars; cl_input_glue.c owns cl_input.c's nine cvars and the 17
+# kbutton_t in_* objects (in_sdl.c and menu.c drive them, and cl_main.c -- C
+# until T7.4 -- is what registers the cvars); cl_tent_glue.c owns cl_beams[],
+# cl_temp_entities[] and num_temp_entities, which cl_demo.c, cl_main.c and
+# host_cmd.c read. cl_tent.c's seven cl_sfx_* handles were file-static and move
+# to Rust.
+#
+# cl and cls stay C-owned here -- that ADR-007 row closes in T7.4 with
+# cl_main.c. The C originals stay the -Duse_rust_host=disabled oracle.
+if use_rust_host
+    srcs += ['Quake/chase_glue.c', 'Quake/cl_input_glue.c', 'Quake/cl_tent_glue.c', 'Quake/view_glue.c']
+else
+    srcs += ['Quake/chase.c', 'Quake/cl_input.c', 'Quake/cl_tent.c', 'Quake/view.c']
 endif
 
 if use_rust_snd

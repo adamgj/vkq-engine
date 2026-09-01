@@ -163,6 +163,10 @@ fn main() {
         "sv_send_ref.c",
         "sv_user_ref.c",
         "sv_main_ref.c",
+        "chase_ref.c",
+        "cl_input_ref.c",
+        "cl_tent_ref.c",
+        "view_ref.c",
     ] {
         let path = manifest.join("stubs").join(stub);
         println!("cargo:rerun-if-changed={}", path.display());

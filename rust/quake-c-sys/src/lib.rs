@@ -7,6 +7,9 @@
 
 pub mod libm;
 
+pub mod chase;
+pub mod cl_input;
+pub mod cl_tent;
 pub mod progs_builtins_cl;
 pub mod progs_builtins_sv;
 pub mod progs_builtins_sv_fx;
@@ -17,6 +20,7 @@ pub mod sv_move;
 pub mod sv_phys;
 pub mod sv_send;
 pub mod sv_user;
+pub mod view;
 
 /// Engine globals whose C types cannot be represented portably in the
 /// committed bindings (platform-dependent array lengths); only the base

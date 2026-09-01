@@ -6914,7 +6914,9 @@ void SV_DropClient (qboolean crash)
  * so itself ("Used by view and sv_user"). The T6.0 abort stub therefore killed
  * every sv_user differential the moment it reached SV_ClientThink.
  *
- * Transcribed verbatim from Quake/view.c:87-108. Phase 7 M7 (T7.0) made view.c
+ * T7.2 ported view.c, so this is no longer a hand transcription: it forwards
+ * to the Rust core, which is exactly what the shipped -Duse_rust_host build
+ * does. Phase 7 M7 (T7.0) made view.c
  * an oracle source, so this is no longer the only V_CalcRoll in the link: the
  * oracle SV_ClientThink now calls c_ref_V_CalcRoll (real view.c) while the Rust
  * SV_ClientThink still calls this one through quake-c-sys/src/sv_user.rs. The
@@ -6937,26 +6939,11 @@ void SV_DropClient (qboolean crash)
 cvar_t cl_rollspeed = {"cl_rollspeed", "200", CVAR_NONE, 200.0f, NULL, NULL, NULL, NULL};
 cvar_t cl_rollangle = {"cl_rollangle", "2.0", CVAR_ARCHIVE, 2.0f, NULL, NULL, NULL, NULL};
 
+extern float quake_rs_v_calc_roll (float *angles, float *velocity);
+
 float V_CalcRoll (vec3_t angles, vec3_t velocity)
 {
-	vec3_t forward, right, up;
-	float  sign;
-	float  side;
-	float  value;
-
-	c_ref_AngleVectors (angles, forward, right, up);
-	side = DotProduct (velocity, right);
-	sign = side < 0 ? -1 : 1;
-	side = fabs (side);
-
-	value = cl_rollangle.value;
-
-	if (side < cl_rollspeed.value)
-		side = side * value / cl_rollspeed.value;
-	else
-		side = value;
-
-	return side * sign;
+	return quake_rs_v_calc_roll (angles, velocity);
 }
 #define cl_rollspeed c_ref_cl_rollspeed
 #define cl_rollangle c_ref_cl_rollangle

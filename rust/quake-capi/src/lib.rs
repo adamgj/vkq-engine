@@ -18,6 +18,12 @@ pub mod alloc;
 #[cfg(feature = "snd")]
 pub mod bgmusic;
 pub mod cfgfile;
+#[cfg(feature = "host")]
+pub mod chase; // chase.c
+#[cfg(feature = "host")]
+pub mod cl_input; // cl_input.c
+#[cfg(feature = "host")]
+pub mod cl_tent; // cl_tent.c
 #[cfg(feature = "cvar")]
 pub mod cmd; // cmd.c
 pub mod crc;
@@ -96,6 +102,8 @@ pub mod sv_phys; // sv_phys.c
 pub mod sv_send; // sv_send.c
 #[cfg(feature = "host")]
 pub mod sv_user; // sv_user.c
+#[cfg(feature = "host")]
+pub mod view; // view.c
 pub mod wad;
 #[cfg(feature = "host")]
 pub mod world; // world.c

@@ -317,6 +317,16 @@ const char *ctest_cl_pscript_typestring_name (void)
 {
 	return ctest_cl_pscript_typestring_log.name;
 }
+/* T7.2b (cl_tent_differential.rs) additions: the recorded coordinate vectors.
+   Every TE_* case in Quake/cl_tent.c hands PScript_RunParticleEffectTypeString
+   the pos[] it just decoded from MSG_ReadCoord, so without these two getters
+   the decoded coordinates are not observable at all and a coordinate-order or
+   protocolflags bug would pass the differential unseen. `i` is reduced mod 3
+   so a caller cannot read out of bounds. */
+float ctest_cl_pscript_typestring_org (int i)
+{
+	return ctest_cl_pscript_typestring_log.org[(unsigned)i % 3u];
+}
 void ctest_cl_pscript_typestring_set_return (int ret)
 {
 	ctest_cl_pscript_typestring_ret = ret;
@@ -410,6 +420,15 @@ int ctest_cl_runparticleeffect_color (void)
 int ctest_cl_runparticleeffect_count (void)
 {
 	return ctest_cl_runparticleeffect_log.count;
+}
+float ctest_cl_runparticleeffect_org (int i)
+{
+	return ctest_cl_runparticleeffect_log.org[(unsigned)i % 3u];
+}
+
+float ctest_cl_runparticleeffect_dir (int i)
+{
+	return ctest_cl_runparticleeffect_log.dir[(unsigned)i % 3u];
 }
 
 /* Resets every recorder log above and every configurable return value back
