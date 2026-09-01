@@ -114,12 +114,13 @@ extern "C" {
     pub fn SvPhys_Glue_DPrintUnstuck();
     pub fn SvPhys_Glue_DPrintPlayerStuck();
 
-    /// `qcvm == &sv.qcvm`; `server_t` has no ADR-011 mirror in Phase 7.
+    /// `qcvm == &sv.qcvm`. Kept as an accessor: sv_phys.c's port predates the
+    /// M6 sv/svs move and reaching the mirror directly is M8's business.
     pub fn SvPhys_Glue_QcvmIsServer() -> c_int;
 
     /// `svs.maxclients` and the two `svs.clients[num - 1]` flags
-    /// (sv_phys.c:1996, :1999); `server_static_t`/`client_t` have no ADR-011
-    /// mirror in Phase 7.
+    /// (sv_phys.c:1996, :1999). Kept as an accessor for the same reason as
+    /// `SvPhys_Glue_QcvmIsServer` above.
     pub fn SvPhys_Glue_MaxClients() -> c_int;
     pub fn SvPhys_Glue_ClientActive(num: c_int) -> c_int;
     pub fn SvPhys_Glue_ClientKnownToQc(num: c_int) -> c_int;

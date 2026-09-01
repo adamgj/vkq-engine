@@ -35,9 +35,10 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 //     over quake_rs_* status cores: SV_CheckAllEnts, SV_CheckVelocity,
 //     SV_CheckWaterTransition and SV_Physics. Host_Reraise is called only
 //     from here.
-//  4. Keep the sv / svs / sv_player reads in C. server_t, server_static_t and
-//     client_t have no ADR-011 mirror in Phase 7, so Rust goes through
-//     accessors instead.
+//  4. Keep the sv / svs / sv_player reads in C. These accessors predate M6,
+//     which moved sv/svs storage into Rust and gave server_t and
+//     server_static_t ADR-011 mirrors; reaching those mirrors directly from
+//     sv_phys is M8's business, so the accessors stay for now.
 
 #include "quakedef.h"
 #include "steam.h" // quake_rs.h declares the Phase 2 Steam shims in terms of steamgame_t
@@ -253,8 +254,9 @@ typedef struct
 } svphys_sound_arg_t;
 
 /* sv_phys.c:2139, :2148 (SV_CheckWaterTransition) and :2270
-   (SV_Physics_Toss). SV_StartSound Host_Errors three ways (sv_main.c:1282,
-   :1290, :1293). All three call sites pass origin NULL. */
+   (SV_Physics_Toss). SV_StartSound Host_Errors three ways (sv_main.c:285,
+   :293, :296 -- renumbered by T6.1's split). All three call sites pass
+   origin NULL. */
 static void SvPhys_InvokeStartSound (void *p)
 {
 	svphys_sound_arg_t *a = (svphys_sound_arg_t *)p;

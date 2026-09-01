@@ -6873,12 +6873,42 @@ void SV_DropClient (qboolean crash)
 	Sys_Error ("ctest: SV_DropClient reached (host.c is not an oracle source)");
 }
 
+/* view.c is not an oracle source, but Quake/sv_user.c:444 calls V_CalcRoll
+ * inside SV_ClientThink -- view.c:84 says so itself ("Used by view and
+ * sv_user"). The T6.0 abort stub therefore killed every sv_user differential
+ * the moment it reached SV_ClientThink.
+ *
+ * Transcribed verbatim from Quake/view.c:87-108. Both sides of every
+ * differential reach this same symbol, so fidelity to view.c is not what makes
+ * the gate sound -- but a degenerate stub would be: cl_rollangle.value is what
+ * scales the result, and cvar_t.value is populated by Cvar_RegisterVariable,
+ * which never runs in the ctest link. Defining the cvars without an explicit
+ * .value would silently return 0 for every input and flatten the ROLL path
+ * that sv_user.c:444 feeds into the client's angle state.
+ */
+cvar_t cl_rollspeed = {"cl_rollspeed", "200", CVAR_NONE, 200.0f, NULL, NULL, NULL, NULL};
+cvar_t cl_rollangle = {"cl_rollangle", "2.0", CVAR_ARCHIVE, 2.0f, NULL, NULL, NULL, NULL};
+
 float V_CalcRoll (vec3_t angles, vec3_t velocity)
 {
-	(void)angles;
-	(void)velocity;
-	Sys_Error ("ctest: V_CalcRoll reached (view.c is not an oracle source)");
-	return 0.0f;
+	vec3_t forward, right, up;
+	float  sign;
+	float  side;
+	float  value;
+
+	c_ref_AngleVectors (angles, forward, right, up);
+	side = DotProduct (velocity, right);
+	sign = side < 0 ? -1 : 1;
+	side = fabs (side);
+
+	value = cl_rollangle.value;
+
+	if (side < cl_rollspeed.value)
+		side = side * value / cl_rollspeed.value;
+	else
+		side = value;
+
+	return side * sign;
 }
 
 qmodel_t *Mod_ForName (const char *name, qboolean crash)
@@ -6949,17 +6979,108 @@ qboolean NET_CanSendMessage (struct qsocket_s *sock)
 	return true;
 }
 
+/* Datagram recorder (Rust migration Phase 7, M6).
+ *
+ * sv_send.c hands every finished client datagram to NET_SendMessage /
+ * NET_SendUnreliableMessage. While these stubs just returned 1, the sv_send
+ * differentials could only compare how many bytes a side *claimed* to send --
+ * so a port emitting the right number of wrong bytes passed. The recorder
+ * keeps the full send log (order, per-call size, reliability, payload) for the
+ * tests to byte-compare.
+ *
+ * Both sides of a differential write through this same recorder by design;
+ * ctest_net_send_reset() between the two runs is the test's responsibility.
+ * These are not c_ref_* oracle symbols -- stubs.c is not in build.rs's
+ * C_SOURCES, so check_ctest_symbols.sh does not police this file.
+ *
+ * Truncation is reported rather than silently absorbed: two sides that both
+ * overflow the log would otherwise compare equal on a prefix.
+ */
+#define CTEST_NET_LOG_CAP	(1 << 20)
+#define CTEST_NET_CALLS_CAP 1024
+
+static byte ctest_net_log[CTEST_NET_LOG_CAP];
+static int	ctest_net_log_len;
+static int	ctest_net_call_len[CTEST_NET_CALLS_CAP];
+static byte ctest_net_call_rel[CTEST_NET_CALLS_CAP];
+static int	ctest_net_calls;
+static int	ctest_net_truncated;
+
+static void ctest_net_record (sizebuf_t *data, int reliable)
+{
+	int len = data ? data->cursize : 0;
+
+	if (ctest_net_calls < CTEST_NET_CALLS_CAP)
+	{
+		ctest_net_call_len[ctest_net_calls] = len;
+		ctest_net_call_rel[ctest_net_calls] = (byte)reliable;
+	}
+	else
+		ctest_net_truncated = 1;
+	ctest_net_calls++;
+
+	if (len <= 0)
+		return;
+	if (ctest_net_log_len + len <= CTEST_NET_LOG_CAP)
+	{
+		memcpy (ctest_net_log + ctest_net_log_len, data->data, (size_t)len);
+		ctest_net_log_len += len;
+	}
+	else
+		ctest_net_truncated = 1;
+}
+
+void ctest_net_send_reset (void)
+{
+	ctest_net_log_len = 0;
+	ctest_net_calls = 0;
+	ctest_net_truncated = 0;
+}
+
+int ctest_net_send_calls (void)
+{
+	return ctest_net_calls;
+}
+
+const unsigned char *ctest_net_send_bytes (int *len)
+{
+	if (len)
+		*len = ctest_net_log_len;
+	return ctest_net_log;
+}
+
+/* -1 for an index past what was retained; the caller must treat that as a
+ * mismatch rather than as "no data". */
+int ctest_net_send_call_len (int i)
+{
+	if (i < 0 || i >= ctest_net_calls || i >= CTEST_NET_CALLS_CAP)
+		return -1;
+	return ctest_net_call_len[i];
+}
+
+int ctest_net_send_call_reliable (int i)
+{
+	if (i < 0 || i >= ctest_net_calls || i >= CTEST_NET_CALLS_CAP)
+		return -1;
+	return ctest_net_call_rel[i];
+}
+
+int ctest_net_send_truncated (void)
+{
+	return ctest_net_truncated;
+}
+
 int NET_SendMessage (struct qsocket_s *sock, sizebuf_t *data)
 {
 	(void)sock;
-	(void)data;
+	ctest_net_record (data, 1);
 	return 1;
 }
 
 int NET_SendUnreliableMessage (struct qsocket_s *sock, sizebuf_t *data)
 {
 	(void)sock;
-	(void)data;
+	ctest_net_record (data, 0);
 	return 1;
 }
 

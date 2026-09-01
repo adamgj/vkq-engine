@@ -268,9 +268,6 @@ srcs = [
     'Quake/r_world.c',
     'Quake/sbar.c',
     'Quake/steam_api.c',
-    'Quake/sv_main.c',
-    'Quake/sv_send.c',
-    'Quake/sv_user.c',
 	'Quake/sys_sdl.c',
     'Quake/tasks.c',
     'Quake/view.c',
@@ -603,6 +600,29 @@ if use_rust_host
         'Quake/pr_cmds_cl_glue.c',
         'Quake/pr_edict_dispatch_glue.c',
     ]
+endif
+
+# Phase 7 M6: sv_main.c, sv_send.c and sv_user.c -- the server simulation's
+# top half. Pattern A whole-file swap on use_rust_host, as M3 and M4 did.
+# T6.1 first split sv_main.c into a connection half (sv_main.c) and an entity
+# send half (sv_send.c); both halves plus sv_user.c port here.
+#
+# Glue ownership: sv_main_glue.c owns sv_protocol/sv_protocol_pext1/pext2 and
+# the SV_ConnectClient reraise; sv_user_glue.c owns the five sv_user.c cvars
+# (sv_edgefriction, sv_idealpitchscale, sv_altnoclip, sv_maxspeed,
+# sv_accelerate), which sv_main.c registers by address; sv_send_glue.c owns no
+# cvars -- sv_send.c declared none -- and exists for the ADR-009 guards alone.
+# server_t sv and server_static_t svs are now Rust-owned (quake-capi
+# sv_main.rs), closing the last ADR-007 sv/svs dual view; server.h's extern
+# declarations are unchanged and 35 C translation units keep reading them.
+#
+# SV_ConnectClient is statusized on Host_Guard's own 0/1/2 set, propagated
+# verbatim -- that is the ADR-009 precondition M9's NET funnel flips depend on.
+# The C originals stay the -Duse_rust_host=disabled oracle.
+if use_rust_host
+    srcs += ['Quake/sv_main_glue.c', 'Quake/sv_send_glue.c', 'Quake/sv_user_glue.c']
+else
+    srcs += ['Quake/sv_main.c', 'Quake/sv_send.c', 'Quake/sv_user.c']
 endif
 
 if use_rust_snd

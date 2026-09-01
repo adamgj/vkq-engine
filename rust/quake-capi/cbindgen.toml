@@ -567,4 +567,10 @@ exclude = [
     "quake_rs_sv_physics",
     "Trace", "PlaneT", "RhtCtx", "Edict", "EntVars", "AreaNode", "Link",
     "GlobalVars", "QcVm",
+    # Phase 7 M6 -- sv and svs became Rust-owned storage at T6.6 (ADR-007 row
+    # closed), but server.h still declares them and every C caller includes it.
+    # Their types are the ADR-011 mirrors Server/ServerStatic, which have no
+    # C spelling here, so a cbindgen declaration would be both a redeclaration
+    # and a syntax error.
+    "sv", "svs",
 ]

@@ -41,7 +41,10 @@ triangles_size
 "
 
 echo "building quake-ctest (oracle objects) ..."
-cargo build --manifest-path rust/Cargo.toml -p quake-ctest --quiet
+# run from rust/ so rustup's upward search finds rust/rust-toolchain.toml;
+# invoked from the repo root it falls back to the default toolchain and dies on
+# "expected a boolean or an integer for key profile.release.debug"
+(cd rust && cargo build -p quake-ctest --quiet)
 
 out_dir=$(ls -dt rust/target/debug/build/quake-ctest-*/out 2>/dev/null | head -1)
 if [ -z "$out_dir" ] || [ ! -d "$out_dir" ]; then

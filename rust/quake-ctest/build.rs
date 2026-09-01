@@ -153,6 +153,9 @@ fn main() {
         "pf_msg_ref.c",
         "pf_fx_ref.c",
         "pf_cl_ref.c",
+        "sv_send_ref.c",
+        "sv_user_ref.c",
+        "sv_main_ref.c",
     ] {
         let path = manifest.join("stubs").join(stub);
         println!("cargo:rerun-if-changed={}", path.display());

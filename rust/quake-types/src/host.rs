@@ -1,11 +1,12 @@
 //! Host/server/client ABI mirrors -- `Quake/server.h`, `Quake/client.h`.
 //!
 //! Compat-critical (Rust migration Phase 7, ADR-011): `sv`/`svs` and
-//! `cl`/`cls` are the process-global server and client state; under the
-//! Phase 7 host/server/client port Rust reads and writes these C-owned
-//! instances directly (dual-view closes per `sv`/`svs` at M6 and `cl`/`cls`
-//! at M7, per `docs/ai/plans/rust-conversion-phase-7.md`), so layout drift
-//! here is silent memory corruption, not a link error.
+//! `cl`/`cls` are the process-global server and client state, read and
+//! written directly from both languages, so layout drift here is silent
+//! memory corruption, not a link error. `sv`/`svs` are now Rust-owned
+//! (`quake-capi`'s `sv_main.rs`), which closed their ADR-007 dual view at
+//! M6; `cl`/`cls` are still C-owned and close at M7, per
+//! `docs/ai/plans/rust-conversion-phase-7.md`.
 //!
 //! Neither `server.h` nor `client.h` is a bindgen-clean root: both pull
 //! `qcvm_t` (`progs.h`) and, via `client_state_t::viewent`, `entity_t`
