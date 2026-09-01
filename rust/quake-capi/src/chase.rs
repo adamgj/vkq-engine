@@ -17,8 +17,8 @@
 //!
 //! ## Shared state
 //!
-//! `cl` and `r_refdef` stay C-owned for the whole of T7.2 (ADR-007: the
-//! `cl`/`cls` dual view closes in T7.4; `r_refdef` belongs to `gl_rmain.c`,
+//! `cl` became Rust-owned in T7.4 (ADR-007 row closed; storage in
+//! `crate::cl_main`), while `r_refdef` belongs to `gl_rmain.c`,
 //! which is Phase 8). Both are reached through `crate::view`'s externs and
 //! its ADR-011-shaped `RefDef`/`Entity` mirrors rather than being duplicated
 //! here.

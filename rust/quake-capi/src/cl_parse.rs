@@ -22,11 +22,11 @@
 //!
 //! ## ADR-007 (dual views)
 //!
-//! `cl` / `cls` stay C-owned for T7.3 (that row closes in T7.4 with
-//! `cl_main.c`), as do `net_message` / `msg_readcount` / `msg_badread` (M9),
-//! `cl_lightstyle`, `vid`, `dev_stats` / `dev_peakstats` / `dev_overflows`,
-//! `con_lastcenterstring`, `v_punchangles*`, `noclip_anglehack` and
-//! `r_trace_line_cache_counter`. `sv` is already Rust-owned (T6.6), so
+//! `cl` / `cls` / `cl_lightstyle` became Rust-owned in T7.4; their storage is
+//! in [`crate::cl_main`]. Still C-owned dual views: `net_message` /
+//! `msg_readcount` / `msg_badread` (row closes M9), `vid`, `dev_stats` /
+//! `dev_peakstats` / `dev_overflows`, `con_lastcenterstring`,
+//! `v_punchangles*`, `noclip_anglehack` and `r_trace_line_cache_counter`. `sv` is already Rust-owned (T6.6), so
 //! `sv.active` / `sv.loadgame` read [`crate::sv_main::sv`] directly.
 //!
 //! ## ADR-010 (determinism)

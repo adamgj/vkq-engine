@@ -70,7 +70,7 @@ macro_rules! raise {
 }
 
 extern "C" {
-    /// `Quake/cl_main.c` -- ADR-007 dual-view row, C-owned until T7.4.
+    /// ADR-007 row closed in T7.4; storage in [`crate::cl_main`].
     static mut cl: ClientState;
     /// `Quake/cl_tent_glue.c` -- `entity_t` is opaque, so the array is
     /// declared here rather than in `quake-c-sys` (which cannot name

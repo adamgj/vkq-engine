@@ -21,7 +21,11 @@ pub mod cfgfile;
 #[cfg(feature = "host")]
 pub mod chase; // chase.c
 #[cfg(feature = "host")]
+pub mod cl_demo; // cl_demo.c
+#[cfg(feature = "host")]
 pub mod cl_input; // cl_input.c
+#[cfg(feature = "host")]
+pub mod cl_main; // cl_main.c
 #[cfg(feature = "host")]
 pub mod cl_parse; // cl_parse.c
 #[cfg(feature = "host")]

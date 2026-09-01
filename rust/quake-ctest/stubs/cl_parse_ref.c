@@ -45,8 +45,9 @@
  * The remaining three -- CL_SignonReply, CL_ClearState and
  * CL_GenerateRandomParticlePrecache -- live in cl_main.c and exist only as
  * c_ref_*. They mutate `cl` / `cls`, and the two sides own different copies of
- * those (ADR-007: cl/cls stay C-owned until T7.4, so the port reads stubs.c's
- * plain pair while the oracle reads cl_main.c's c_ref_ pair). Calling the
+ * those (ADR-007: the cl/cls row closed in T7.4, so the port reads quake-capi's
+ * Rust-owned pair -- stubs.c only externs it -- while the oracle reads
+ * cl_main.c's c_ref_ pair). Calling the
  * oracle's copy from the port's trampoline would write the oracle's state from
  * the Rust run and make every comparison order-dependent, so each gets a
  * hand-transcribed plain twin below, exactly as cl_tent_ref.c did for

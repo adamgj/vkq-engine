@@ -433,8 +433,8 @@ int View_Glue_AddCommands (void)
 	return Host_Guard (View_InvokeAddCommands, NULL);
 }
 
-/* CL_RelinkEntities likewise stays renamed: cl_main.c IS an oracle source and
- * has no plain twin until T7.4. */
+/* CL_RelinkEntities likewise stays renamed: cl_main.c IS an oracle source, and
+ * this fixture predates T7.4's plain twin, so it drives the oracle directly. */
 static void View_InvokeRelinkEntities (void *p)
 {
 	(void)p;

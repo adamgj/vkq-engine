@@ -65,7 +65,7 @@ macro_rules! raise {
 }
 
 extern "C" {
-    /// `Quake/cl_main.c` -- ADR-007 dual-view rows, C-owned until T7.4.
+    /// ADR-007 rows closed in T7.4; storage in [`crate::cl_main`].
     static mut cl: ClientState;
     static mut cls: ClientStatic;
 }

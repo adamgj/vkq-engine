@@ -32,10 +32,10 @@
 //!
 //! ## Ownership (ADR-007 / ADR-011)
 //!
-//! `cl` and `cls` stay C-owned for the whole of T7.2 -- the `cl`/`cls` dual
-//! view closes in T7.4 (`cl_main.c`) -- and `r_refdef` belongs to
-//! `gl_rmain.c`, which stays C until Phase 8. All three are read and written
-//! in place through the externs below.
+//! `cl` and `cls` became Rust-owned in T7.4 (ADR-007 row closed; storage in
+//! `crate::cl_main`), while `r_refdef` belongs to `gl_rmain.c`, which stays C
+//! until Phase 8. All three are read and written in place through the externs
+//! below.
 //!
 //! `quake-types::host` has no `refdef_t` or `entity_t` field mirror:
 //! `ClientState::viewent`/`entities` are the deliberately opaque
@@ -245,9 +245,9 @@ pub struct RefDef {
 extern "C" {
     /// `gl_rmain.c`. Written heavily by `view.c`; stays C-owned until Phase 8.
     pub static mut r_refdef: RefDef;
-    /// `cl_main.c`. ADR-007: C-owned until T7.4.
+    /// ADR-007 row closed in T7.4; storage in [`crate::cl_main`].
     pub static mut cl: ClientState;
-    /// `cl_main.c`. ADR-007: C-owned until T7.4.
+    /// ADR-007 row closed in T7.4; storage in [`crate::cl_main`].
     pub static mut cls: ClientStatic;
 }
 

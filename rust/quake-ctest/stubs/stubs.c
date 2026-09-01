@@ -2712,7 +2712,7 @@ void ctest_resample_ref (int length, int loopstart, int inrate, int inwidth, int
  * everything else already goes through the renamed names.
  * ------------------------------------------------------------------------ */
 #undef cl
-client_state_t cl;
+extern client_state_t cl; /* T7.4: quake-capi/src/cl_main.rs owns the storage */
 #define cl c_ref_cl
 keydest_t	   key_dest = key_game;
 double		   host_frametime = 0.0;
@@ -2791,7 +2791,7 @@ void ctest_snd_set_cvars (float sfxvol, float sndspeed_v, float filterquality, f
 /* Phase 4 M6: the snd_dma.c oracle's remaining seams. Phase 7 M7: the Rust-side
  * client_static_t; see the DUPLICATE-SYMBOL HAZARD block above `cl`. */
 #undef cls
-client_static_t cls = {ca_disconnected};
+extern client_static_t cls; /* T7.4: quake-capi/src/cl_main.rs owns the storage */
 #define cls c_ref_cls
 
 static mleaf_t *ctest_point_leaf = NULL;
@@ -7284,9 +7284,28 @@ void R_AddEfrags (entity_t *ent)
 	Sys_Error ("ctest: R_AddEfrags reached (r_efrag.c is not an oracle source)");
 }
 
+/* T7.4: cl_main.c:935 calls this at the tail of CL_RelinkEntities, so the
+ * SCR_UpdateZoom counting stub above put it back on the live path. The real
+ * gl_rlight.c:421 body early-returns unless vulkan_globals.ray_query and
+ * r_rtshadows >= 2 and r_gpulightmapupdate are all set -- none of which the
+ * ctest link ever sets -- so counting here is behaviourally faithful, not a
+ * shortcut. Counting rather than no-oping keeps the seam observable, per the
+ * R_FreeEntityBLAS precedent. */
+static int ctest_entity_dlight_updates = 0;
+
 void R_UpdateEntityDlights (void)
 {
-	Sys_Error ("ctest: R_UpdateEntityDlights reached (gl_rlight.c is not an oracle source)");
+	ctest_entity_dlight_updates++;
+}
+
+void ctest_entity_dlights_reset (void)
+{
+	ctest_entity_dlight_updates = 0;
+}
+
+int ctest_entity_dlights_count (void)
+{
+	return ctest_entity_dlight_updates;
 }
 
 void R_TranslatePlayerSkin (int playernum)
@@ -7413,16 +7432,30 @@ int PScript_FindParticleType (const char *fullname)
 	return -1;
 }
 
+/* T7.4: cl_main.c:857 and :893 call these from inside the CL_RelinkEntities
+ * entity loop, which the SCR_UpdateZoom counting stub put back on the live
+ * path. As abort stubs they made every entity with a model unreachable past
+ * the lerp, and they are the only place CL_RelinkEntities' clamped frametime
+ * escapes to anything observable -- so recording rather than aborting is what
+ * makes cl_main.c:670 testable at all. gl_pscript.c is not an oracle source,
+ * so BOTH sides call these definitions; the ctest_pscript_* accessors below
+ * are reset per side by the fixtures. Recording, not no-oping, per the
+ * R_FreeEntityBLAS precedent. */
+static int	 ctest_pscript_trail_calls = 0;
+static float ctest_pscript_last_timeinterval = 0.0f;
+static int	 ctest_pscript_state_calls = 0;
+static float ctest_pscript_last_count = 0.0f;
+
 int PScript_ParticleTrail (vec3_t startpos, vec3_t end, int type, float timeinterval, int dlkey, vec3_t axis[3], struct trailstate_s **tsk)
 {
 	(void)startpos;
 	(void)end;
 	(void)type;
-	(void)timeinterval;
 	(void)dlkey;
 	(void)axis;
 	(void)tsk;
-	Sys_Error ("ctest: PScript_ParticleTrail reached (gl_pscript.c is not an oracle source)");
+	ctest_pscript_trail_calls++;
+	ctest_pscript_last_timeinterval = timeinterval;
 	return 1;
 }
 
@@ -7430,11 +7463,34 @@ int PScript_RunParticleEffectState (vec3_t org, vec3_t dir, float count, int typ
 {
 	(void)org;
 	(void)dir;
-	(void)count;
 	(void)typenum;
 	(void)tsk;
-	Sys_Error ("ctest: PScript_RunParticleEffectState reached (gl_pscript.c is not an oracle source)");
+	ctest_pscript_state_calls++;
+	ctest_pscript_last_count = count;
 	return 1;
+}
+
+void ctest_pscript_reset (void)
+{
+	ctest_pscript_trail_calls = 0;
+	ctest_pscript_last_timeinterval = 0.0f;
+	ctest_pscript_state_calls = 0;
+	ctest_pscript_last_count = 0.0f;
+}
+
+int ctest_pscript_trail_count (void)
+{
+	return ctest_pscript_trail_calls;
+}
+
+float ctest_pscript_last_timeinterval_value (void)
+{
+	return ctest_pscript_last_timeinterval;
+}
+
+int ctest_pscript_state_count (void)
+{
+	return ctest_pscript_state_calls;
 }
 
 void PScript_RunParticleWeather (vec3_t minb, vec3_t maxb, vec3_t dir, float count, int colour, const char *efname)
@@ -7539,9 +7595,29 @@ void SCR_EndLoadingPlaque (void)
 	Sys_Error ("ctest: SCR_EndLoadingPlaque reached (gl_screen.c is not an oracle source)");
 }
 
+/* T7.4: cl_main.c:681 calls this from the middle of CL_RelinkEntities, between
+ * the velocity interpolation and the demo angle interpolation, bobjrotate and
+ * the whole entity loop. As a Sys_Error stub it made every one of those
+ * unreachable in the ctest link, which silently hid the teleport threshold and
+ * the frametime clamp from mutation testing. gl_screen.c is not an oracle
+ * source, so BOTH sides call this one definition; counting rather than
+ * no-oping keeps the seam observable, per the R_FreeEntityBLAS precedent
+ * above. */
+static int ctest_scr_zoom_updates = 0;
+
 void SCR_UpdateZoom (void)
 {
-	Sys_Error ("ctest: SCR_UpdateZoom reached (gl_screen.c is not an oracle source)");
+	ctest_scr_zoom_updates++;
+}
+
+void ctest_scr_zoom_reset (void)
+{
+	ctest_scr_zoom_updates = 0;
+}
+
+int ctest_scr_zoom_count (void)
+{
+	return ctest_scr_zoom_updates;
 }
 
 void Key_ClearStates (void)

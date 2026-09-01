@@ -13,8 +13,9 @@
 //! actually registers all nine (registration order is observable in
 //! `config.cfg`, so it stays where it is).
 //!
-//! `cl`/`cls` are ADR-007 dual-view rows that stay C-owned for all of T7.2
-//! (the row closes in T7.4). They are mirror-typed, so -- as
+//! `cl`/`cls` were ADR-007 dual-view rows, C-owned for T7.2; the row closed in
+//! T7.4 and `quake-capi/src/cl_main.rs` now owns the storage. They are
+//! mirror-typed, so -- as
 //! `quake-c-sys/src/sv_user.rs` records -- they are declared in
 //! `quake-capi/src/cl_input.rs`, which can name `quake_types`; this crate has
 //! no `[dependencies]`.

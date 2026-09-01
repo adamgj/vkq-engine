@@ -6,7 +6,7 @@
 //! `Host_Guard` trampolines this port needs (ADR-009).
 //!
 //! `cl`/`cls` are ADR-007 dual-view rows that stay C-owned for all of T7.3
-//! (that row closes in T7.4 with `cl_main.c`). Both are mirror-typed, so they
+//! (that row closed in T7.4; `quake-capi` owns them). Both are mirror-typed, so they
 //! are declared in `quake-capi/src/cl_parse.rs`, which can name
 //! `quake_types`; this crate has no `[dependencies]`. Everything below is
 //! either a primitive-signature function or a flat POD that names no
@@ -236,7 +236,7 @@ extern "C" {
     pub fn NET_QSocketGetSequenceIn(s: *const c_void) -> c_int;
 
     /// `Quake/client.h` -- `extern lightstyle_t cl_lightstyle[MAX_LIGHTSTYLES];`
-    /// (`MAX_LIGHTSTYLES` is 64). `cl_main.c` owns the storage until T7.4.
+    /// (`MAX_LIGHTSTYLES` is 64). `cl_main_glue.c` owns the storage.
     pub static mut cl_lightstyle: [lightstyle_t; 64];
 
     /// `Quake/glquake.h:613` -- `extern devstats_t dev_stats, dev_peakstats;`
@@ -254,7 +254,7 @@ extern "C" {
     pub static mut mod_known: [u8; 0];
     pub static mut mod_numknown: c_int;
 
-    /// `Quake/client.h` -- `extern cvar_t cl_shownet;`. Owned by `cl_main.c`
-    /// until T7.4.
+    /// `Quake/client.h` -- `extern cvar_t cl_shownet;`. Owned by
+    /// `cl_main_glue.c`.
     pub static mut cl_shownet: crate::cvar_t;
 }

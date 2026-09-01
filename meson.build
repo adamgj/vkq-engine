@@ -216,8 +216,6 @@ endforeach
 
 srcs = [
     'Quake/cd_null.c',
-    'Quake/cl_demo.c',
-    'Quake/cl_main.c',
     'Quake/common.c',
     'Quake/console.c',
     'Quake/gl_draw.c',
@@ -628,14 +626,11 @@ endif
 # view_glue.c owns view.c's 30 cvars plus v_punchangles/v_blend/cshift_*
 # (gl_screen.c, gl_rmain.c, menu.c and sbar.c read them); chase_glue.c owns the
 # four chase cvars; cl_input_glue.c owns cl_input.c's nine cvars and the 17
-# kbutton_t in_* objects (in_sdl.c and menu.c drive them, and cl_main.c -- C
-# until T7.4 -- is what registers the cvars); cl_tent_glue.c owns cl_beams[],
+# kbutton_t in_* objects (in_sdl.c and menu.c drive them, and cl_main_glue.c
+# is what registers the cvars); cl_tent_glue.c owns cl_beams[],
 # cl_temp_entities[] and num_temp_entities, which cl_demo.c, cl_main.c and
 # host_cmd.c read. cl_tent.c's seven cl_sfx_* handles were file-static and move
 # to Rust.
-#
-# cl and cls stay C-owned here -- that ADR-007 row closes in T7.4 with
-# cl_main.c. The C originals stay the -Duse_rust_host=disabled oracle.
 if use_rust_host
     srcs += ['Quake/chase_glue.c', 'Quake/cl_input_glue.c', 'Quake/cl_tent_glue.c', 'Quake/view_glue.c']
 else
@@ -661,12 +656,37 @@ endif
 # externals, and r_part_fte.c:156 re-declares CL_EntityNum locally and calls it
 # at :4458, :5961 and :7251, so the plain name stays a real C function.
 #
-# cl and cls stay C-owned here -- that ADR-007 row closes in T7.4 with
-# cl_main.c. The C original stays the -Duse_rust_host=disabled oracle.
+# The cl/cls ADR-007 row closed in T7.4: their storage now lives in
+# rust/quake-capi/src/cl_main.rs. The C originals stay the
+# -Duse_rust_host=disabled oracle.
 if use_rust_host
     srcs += ['Quake/cl_parse_glue.c']
 else
     srcs += ['Quake/cl_parse.c']
+endif
+
+# Phase 7 M7 T7.4: cl_main.c + cl_demo.c -- the client entry points, lerp and
+# relink, and demo record/playback. Pattern A whole-file swap on the same
+# use_rust_host switch as M3/M4/M6/T7.2/T7.3. This closes the ADR-007 cl/cls
+# row: their storage moves to rust/quake-capi/src/cl_main.rs.
+#
+# cl_main.c has three live raise sites (:232, :983, :1108); cl_demo.c has none
+# and exits only through Sys_Error, which aborts rather than longjmps.
+#
+# cl_main.c owns cl/cls and ~20 cvars; cl_maxpitch, cl_minpitch, cl_confirmquit,
+# needs_relink and CL_GenerateRandomParticlePrecache are header-less externals
+# that other TUs (cl_input.c, in_sdl.c, menu.c, view.c, cl_parse_glue.c) resolve
+# by local re-declaration, so those stay real C objects in the glue.
+if use_rust_host
+    srcs += ['Quake/cl_main_glue.c']
+else
+    srcs += ['Quake/cl_main.c']
+endif
+
+if use_rust_host
+    srcs += ['Quake/cl_demo_glue.c']
+else
+    srcs += ['Quake/cl_demo.c']
 endif
 
 if use_rust_snd
