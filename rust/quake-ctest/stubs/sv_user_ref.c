@@ -110,6 +110,40 @@ extern server_static_t svs;
 /* sv/svs stay undef'd (bare name == plain/T6.5 copy) for the rest of this
  * file; oracle access always spells c_ref_* by hand. */
 
+/* --------------------------------------------------------------------------
+ * Phase 7 M7 (T7.0): cl_main.c and view.c became oracle sources, so `cls`,
+ * `cl_rollangle` and `cl_rollspeed` now exist twice in the link -- the oracle's
+ * c_ref_* copies (cl_main.c / view.c) and the plain copies the Rust port reads
+ * (stubs.c). See the DUPLICATE-SYMBOL HAZARD block in stubs.c.
+ *
+ * Both matter to this fixture:
+ *   - c_ref_SV_ReadClientMove reads cls.netcon (sv_user.c's ProQuake angle
+ *     hack); quake-capi/src/sv_user.rs:73 reads the plain `cls` for the same
+ *     branch. Seeding only one side would make the two disagree for a reason
+ *     that has nothing to do with SV_ReadClientMove.
+ *   - c_ref_SV_ClientThink reaches c_ref_V_CalcRoll (real view.c), which scales
+ *     by c_ref_cl_rollangle.value / c_ref_cl_rollspeed.value. view.c defines
+ *     that pair with no explicit `.value` (Cvar_RegisterVariable fills it in,
+ *     and never runs in this link), so without the seeding below the oracle's
+ *     roll would be a flat 0 while the Rust side's stubs.c copy returned the
+ *     real value -- and, worse, a `0` result is exactly the degenerate answer a
+ *     bit-exact comparison would accept if the Rust side ever regressed the
+ *     same way. The plain copies are set to the same literals so the shared
+ *     input stays symmetric by construction rather than by static-initializer
+ *     coincidence in stubs.c.
+ * c_ref_cls is already declared: client.h is force-included through the prelude
+ * with the rename in effect. The two cvars have no header at all.
+ */
+extern cvar_t c_ref_cl_rollangle;
+extern cvar_t c_ref_cl_rollspeed;
+
+#undef cls
+#undef cl_rollangle
+#undef cl_rollspeed
+extern client_static_t cls;
+extern cvar_t		   cl_rollangle;
+extern cvar_t		   cl_rollspeed;
+
 #undef sv_idealpitchscale
 #undef sv_altnoclip
 #undef sv_maxspeed
@@ -333,7 +367,15 @@ void ctest_svuser_reset (int num_edicts, int maxclients, double frametime, doubl
 	svs.clients = ctest_svuser_clients;
 
 	host_client = maxclients > 0 ? &ctest_svuser_clients[0] : NULL;
+
+	/* Both copies -- see the Phase 7 M7 note at the top of this file. */
 	cls.netcon = NULL;
+	c_ref_cls.netcon = NULL;
+	cl_rollangle.value = 2.0f;
+	cl_rollspeed.value = 200.0f;
+	c_ref_cl_rollangle.value = 2.0f;
+	c_ref_cl_rollspeed.value = 200.0f;
+
 	key_dest = key_game;
 }
 

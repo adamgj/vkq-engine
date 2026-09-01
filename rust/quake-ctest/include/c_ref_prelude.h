@@ -999,15 +999,10 @@ typedef struct entity_s
  * it with the real client_state_t from Quake/client.h, included at the
  * bottom of this header; cl_main.c is still not in C_SOURCES, so the
  * instance itself stays stub-owned (stubs.c) and un-renamed. */
-typedef enum
-{
-	key_game,
-	key_console,
-	key_message,
-	key_menu
-} keydest_t;
-extern keydest_t key_dest;
-extern double	 host_frametime;
+/* keydest_t and key_dest used to be transcribed here; Phase 7 M7 includes
+ * the real Quake/keys.h below (cl_input.c and cl_main.c need the rest of it
+ * anyway), so this is just host_frametime now. */
+extern double host_frametime;
 
 /* file-internal in the engine build; snd_mem.c un-statics it for this
  * oracle build (the rename above applies) */
@@ -1274,6 +1269,432 @@ void Host_ClearMemory (void);	  /* quakedef.h:463 */
 
 float V_CalcRoll (vec3_t angles, vec3_t velocity); /* view.h:36 */
 /* ---- end Phase 7 M6 seam ---- */
+
+/* ---- Phase 7 M7 seam: the client stratum's declarations ------------------
+ *
+ * chase.c, cl_demo.c, cl_input.c, cl_main.c, cl_parse.c, cl_tent.c and
+ * view.c become oracle sources here (task T7.0), one layer up from what T6.0
+ * did for the server stratum, and under the same rule: include the REAL
+ * engine header wherever it is free of SDL/Vulkan, transcribe only where it
+ * is not, and say why.
+ *
+ * Included below as-is: console.h, screen.h, keys.h, input.h, cdaudio.h,
+ * view.h and vid.h carry no #include lines at all, and every type they name
+ * is already in scope by this point; harness.h includes only q_types.h.
+ *
+ * Transcribed here instead, each for a stated reason:
+ *  - render.h #includes tasks.h -> q_stdinc.h -> SDL.h, which this build must
+ *    stay clear of. Its efrag_t and entity_t are already transcribed above
+ *    for exactly that reason; refdef_t and the R_* prototypes the client
+ *    calls follow the same way, copied verbatim from Quake/render.h.
+ *  - glquake.h #includes tasks.h and is Vulkan-typed throughout.
+ *  - quakedef.h is what this whole prelude replaces (it reaches SDL through
+ *    q_stdinc.h), so its client-visible slice comes by hand, as every earlier
+ *    phase's quakedef.h slice in this header does.
+ */
+
+typedef uint64_t task_handle_t; /* tasks.h:32; render.h/view.h take it by value */
+
+#include "vid.h" /* vrect_t (refdef_t embeds two), viddef_t and `vid` */
+
+/* render.h:140-169 refdef_t, verbatim. */
+typedef struct
+{
+	vrect_t vrect;							   // subwindow in video for refresh
+											   // FIXME: not need vrect next field here?
+	vrect_t aliasvrect;						   // scaled Alias version
+	int		vrectright, vrectbottom;		   // right & bottom screen coords
+	int		aliasvrectright, aliasvrectbottom; // scaled Alias versions
+	float	vrectrightedge;					   // rightmost right edge we care about,
+											   //  for use in edge list
+	float	fvrectx, fvrecty;				   // for floating-point compares
+	float	fvrectx_adj, fvrecty_adj;		   // left and top edges, for clamping
+	int		vrect_x_adj_shift20;			   // (vrect.x + 0.5 - epsilon) << 20
+	int		vrectright_adj_shift20;			   // (vrectright + 0.5 - epsilon) << 20
+	float	fvrectright_adj, fvrectbottom_adj;
+	// right and bottom edges, for clamping
+	float	fvrectright;		   // rightmost edge, for Alias clamping
+	float	fvrectbottom;		   // bottommost edge, for Alias clamping
+	float	horizontalFieldOfView; // at Z = 1.0, this many X is visible
+								   // 2.0 = 90 degrees
+	float	xOrigin;			   // should probably allways be 0.5
+	float	yOrigin;			   // between be around 0.3 to 0.5
+
+	vec3_t vieworg;
+	vec3_t viewangles;
+
+	float basefov;
+	float fov_x, fov_y;
+
+	int ambientlight;
+} refdef_t;
+
+/* render.h:200-201 and the render.h prototypes the seven files call. */
+extern refdef_t r_refdef;
+extern vec3_t	r_origin, vpn, vright, vup;
+
+void R_RenderView (
+	qboolean use_tasks, task_handle_t begin_rendering_task, task_handle_t setup_frame_task, task_handle_t draw_done_task); // must set r_refdef first
+void R_CheckEfrags (void);
+void R_AddEfrags (entity_t *ent);
+void R_NewMap (void);
+void R_ParseParticleEffect (void);
+void R_RunParticleEffect (vec3_t org, vec3_t dir, int color, int count);
+void R_RocketTrail (vec3_t start, vec3_t end, int type);
+void R_EntityParticles (entity_t *ent);
+void R_BlobExplosion (vec3_t org);
+void R_ParticleExplosion (vec3_t org);
+void R_ParticleExplosion2 (vec3_t org, int colorStart, int colorLength);
+void R_LavaSplash (vec3_t org);
+void R_TeleportSplash (vec3_t org);
+
+/* glquake.h's client-visible slice. PSET_SCRIPT is defined above (it is
+ * unconditional in quakedef.h), so this is glquake.h's PSET_SCRIPT arm:
+ * glquake.h:110-135, :542-545, :705-738, :780-781, :810-814. */
+void PScript_Shutdown (void);
+struct trailstate_s;
+int	 PScript_ParticleTrail (vec3_t startpos, vec3_t end, int type, float timeinterval, int dlkey, vec3_t axis[3], struct trailstate_s **tsk);
+int	 PScript_RunParticleEffectState (vec3_t org, vec3_t dir, float count, int typenum, struct trailstate_s **tsk);
+void PScript_RunParticleWeather (vec3_t minb, vec3_t maxb, vec3_t dir, float count, int colour, const char *efname);
+int	 PScript_FindParticleType (const char *fullname);
+int	 PScript_RunParticleEffectTypeString (vec3_t org, vec3_t dir, float count, const char *name);
+int	 PScript_EntParticleTrail (vec3_t oldorg, entity_t *ent, const char *name);
+void PScript_DelinkTrailstate (struct trailstate_s **tsk);
+void PScript_ClearParticles (qboolean load);
+
+extern int r_trace_line_cache_counter;
+#define InvalidateTraceLineCache()    \
+	do                                \
+	{                                 \
+		++r_trace_line_cache_counter; \
+	} while (0);
+
+extern qboolean render_warp;
+extern int		render_scale;
+
+void		Fog_ParseServerMessage (void);
+const char *Fog_GetFogCommand (qboolean always);
+void		Fog_NewMap (void);
+void		Sky_NewMap (void);
+void		Sky_LoadSkyBox (const char *name);
+const char *Sky_GetSkyCommand (qboolean always);
+
+void R_UpdateEntityDlights (void);
+void R_ClearParticles (void);
+void R_TranslatePlayerSkin (int playernum);
+void R_TranslateNewPlayerSkin (int playernum);
+void R_AllocateEntityBLAS (entity_t *e);
+void R_FreeEntityBLAS (entity_t *e);
+
+/* quakedef.h's client-visible slice: :136-167 items_t (view.c's cshift
+ * powerup arms), :214 MAX_SCOREBOARD, :392, :408, :484, :496. */
+/* clang-format off */
+typedef enum
+{
+	IT_SHOTGUN			= 1,
+	IT_SUPER_SHOTGUN	= 2,
+	IT_NAILGUN			= 4,
+	IT_SUPER_NAILGUN	= 8,
+	IT_GRENADE_LAUNCHER	= 16,
+	IT_ROCKET_LAUNCHER	= 32,
+	IT_LIGHTNING		= 64,
+	IT_SUPER_LIGHTNING	= 128,
+	IT_SHELLS			= 256,
+	IT_NAILS			= 512,
+	IT_ROCKETS			= 1024,
+	IT_CELLS			= 2048,
+	IT_AXE				= 4096,
+	IT_ARMOR1			= 8192,
+	IT_ARMOR2			= 16384,
+	IT_ARMOR3			= 32768,
+	IT_SUPERHEALTH		= 65536,
+	IT_KEY1				= 131072,
+	IT_KEY2				= 262144,
+	IT_INVISIBILITY		= 524288,
+	IT_INVULNERABILITY	= 1048576,
+	IT_SUIT				= 2097152,
+	IT_QUAD				= 4194304,
+	IT_SIGIL1			= (1<<28),
+	IT_SIGIL2			= (1<<29),
+	IT_SIGIL3			= (1<<30),
+	IT_SIGIL4			= (1<<31),
+} items_t;
+/* clang-format on */
+
+#define MAX_SCOREBOARD 16
+
+extern qboolean noclip_anglehack;
+extern int		host_framecount;
+void			Host_ShutdownServer (qboolean crash);
+void			DemoList_Rebuild (void);
+
+/* cl_main.c:1168 is the one SDL call in the client stratum (the `copy` of a
+ * console link). SDL3's own header is off-limits here, so the prototype is
+ * spelled out and stubs.c owns the symbol. */
+int SDL_SetClipboardText (const char *text);
+/* common.h:169 declares MSG_WriteStaticOrBaseLine, but this header includes
+ * common.h (line 845) well before the M6 rename block, so cl_demo.c:395,407
+ * would see only the plain declaration and call an undeclared c_ref_ name.
+ * Redeclared here, where the rename macro is in effect. */
+void MSG_WriteStaticOrBaseLine (
+	sizebuf_t *buf, int idx, struct entity_state_s *state, unsigned int protocol_pext2, unsigned int protocol, unsigned int protocolflags);
+
+/* The engine's own client-side headers. None of these seven has a single
+ * #include line of its own except harness.h (q_types.h), and every type they
+ * name is in scope by now, so they come in whole rather than transcribed --
+ * the T6.0 rule. view.h must sit after the rename block above: it declares
+ * view.c's own entry points and v_blend/vid_gamma/vid_contrast, which are
+ * oracle symbols now. */
+/* ---- Phase 7 M7 renames --------------------------------------------------
+ * chase.c, cl_demo.c, cl_input.c, cl_main.c, cl_parse.c, cl_tent.c and view.c
+ * are oracle sources from Phase 7 M7 (T7.0). Every non-static symbol they
+ * define is renamed here so the C reference and the Rust port can coexist in
+ * one link, the same way the M6 block above does for the sv_* stratum.
+ *
+ * The list was taken from `llvm-nm --defined-only` on the seven objects, not
+ * from reading the sources, so it cannot drift silently;
+ * scripts/harness/check_ctest_symbols.sh is the gate that keeps it complete.
+ *
+ * This block must sit before the client-stratum headers included below
+ * (client.h, view.h, ...): those declare the very symbols being renamed, and a
+ * declaration that escapes the macro would leave an un-renamed prototype for
+ * an object that no longer exists under that name.
+ */
+
+/* chase.c */
+#define chase_active           c_ref_chase_active
+#define chase_back             c_ref_chase_back
+#define Chase_Init             c_ref_Chase_Init
+#define chase_right            c_ref_chase_right
+#define chase_up               c_ref_chase_up
+#define Chase_UpdateForClient  c_ref_Chase_UpdateForClient
+#define Chase_UpdateForDrawing c_ref_Chase_UpdateForDrawing
+#define TraceLine              c_ref_TraceLine
+
+/* cl_demo.c */
+#define CL_GetMessage    c_ref_CL_GetMessage
+#define CL_PlayDemo_f    c_ref_CL_PlayDemo_f
+#define CL_Record_f      c_ref_CL_Record_f
+#define CL_Resume_Record c_ref_CL_Resume_Record
+#define CL_Seek_f        c_ref_CL_Seek_f
+#define CL_Stop_f        c_ref_CL_Stop_f
+#define CL_StopPlayback  c_ref_CL_StopPlayback
+#define CL_TimeDemo_f    c_ref_CL_TimeDemo_f
+
+/* cl_input.c */
+#define CL_AdjustAngles  c_ref_CL_AdjustAngles
+#define cl_alwaysrun     c_ref_cl_alwaysrun
+#define CL_AngleLocked   c_ref_CL_AngleLocked
+#define cl_anglespeedkey c_ref_cl_anglespeedkey
+#define cl_backspeed     c_ref_cl_backspeed
+#define CL_BaseMove      c_ref_CL_BaseMove
+#define CL_FinishMove    c_ref_CL_FinishMove
+#define cl_forwardspeed  c_ref_cl_forwardspeed
+#define CL_InitInput     c_ref_CL_InitInput
+#define CL_KeyState      c_ref_CL_KeyState
+#define cl_movespeedkey  c_ref_cl_movespeedkey
+#define cl_pitchspeed    c_ref_cl_pitchspeed
+#define CL_SendMove      c_ref_CL_SendMove
+#define cl_sidespeed     c_ref_cl_sidespeed
+#define cl_upspeed       c_ref_cl_upspeed
+#define cl_yawspeed      c_ref_cl_yawspeed
+#define in_attack        c_ref_in_attack
+#define IN_AttackDown    c_ref_IN_AttackDown
+#define IN_AttackUp      c_ref_IN_AttackUp
+#define in_back          c_ref_in_back
+#define IN_BackDown      c_ref_IN_BackDown
+#define IN_BackUp        c_ref_IN_BackUp
+#define in_down          c_ref_in_down
+#define IN_DownDown      c_ref_IN_DownDown
+#define IN_DownUp        c_ref_IN_DownUp
+#define in_forward       c_ref_in_forward
+#define IN_ForwardDown   c_ref_IN_ForwardDown
+#define IN_ForwardUp     c_ref_IN_ForwardUp
+#define IN_Impulse       c_ref_IN_Impulse
+#define in_impulse       c_ref_in_impulse
+#define in_jump          c_ref_in_jump
+#define IN_JumpDown      c_ref_IN_JumpDown
+#define IN_JumpUp        c_ref_IN_JumpUp
+#define in_klook         c_ref_in_klook
+#define IN_KLookDown     c_ref_IN_KLookDown
+#define IN_KLookUp       c_ref_IN_KLookUp
+#define in_left          c_ref_in_left
+#define IN_LeftDown      c_ref_IN_LeftDown
+#define IN_LeftUp        c_ref_IN_LeftUp
+#define in_lookdown      c_ref_in_lookdown
+#define IN_LookdownDown  c_ref_IN_LookdownDown
+#define IN_LookdownUp    c_ref_IN_LookdownUp
+#define in_lookup        c_ref_in_lookup
+#define IN_LookupDown    c_ref_IN_LookupDown
+#define IN_LookupUp      c_ref_IN_LookupUp
+#define in_mlook         c_ref_in_mlook
+#define IN_MLookDown     c_ref_IN_MLookDown
+#define IN_MLookUp       c_ref_IN_MLookUp
+#define in_moveleft      c_ref_in_moveleft
+#define IN_MoveleftDown  c_ref_IN_MoveleftDown
+#define IN_MoveleftUp    c_ref_IN_MoveleftUp
+#define in_moveright     c_ref_in_moveright
+#define IN_MoverightDown c_ref_IN_MoverightDown
+#define IN_MoverightUp   c_ref_IN_MoverightUp
+#define in_right         c_ref_in_right
+#define IN_RightDown     c_ref_IN_RightDown
+#define IN_RightUp       c_ref_IN_RightUp
+#define in_speed         c_ref_in_speed
+#define IN_SpeedDown     c_ref_IN_SpeedDown
+#define IN_SpeedUp       c_ref_IN_SpeedUp
+#define in_strafe        c_ref_in_strafe
+#define IN_StrafeDown    c_ref_IN_StrafeDown
+#define IN_StrafeUp      c_ref_IN_StrafeUp
+#define in_up            c_ref_in_up
+#define IN_UpDown        c_ref_IN_UpDown
+#define IN_UpUp          c_ref_IN_UpUp
+#define in_use           c_ref_in_use
+#define IN_UseDown       c_ref_IN_UseDown
+#define IN_UseUp         c_ref_IN_UseUp
+#define KeyDown          c_ref_KeyDown
+#define KeyUp            c_ref_KeyUp
+
+/* cl_main.c -- `cl` and `cls` included; see the DUPLICATE-SYMBOL
+ * HAZARD note in stubs.c for the storage split they create. */
+#define cfg_unbindall                     c_ref_cfg_unbindall
+#define cl                                c_ref_cl
+#define CL_AccumulateCmd                  c_ref_CL_AccumulateCmd
+#define CL_AllocDlight                    c_ref_CL_AllocDlight
+#define cl_bottomcolor                    c_ref_cl_bottomcolor
+#define CL_ClearState                     c_ref_CL_ClearState
+#define CL_ClearTrailStates               c_ref_CL_ClearTrailStates
+#define cl_confirmquit                    c_ref_cl_confirmquit
+#define CL_DecayLights                    c_ref_CL_DecayLights
+#define CL_Disconnect                     c_ref_CL_Disconnect
+#define CL_Disconnect_f                   c_ref_CL_Disconnect_f
+#define cl_dlights                        c_ref_cl_dlights
+#define CL_EstablishConnection            c_ref_CL_EstablishConnection
+#define CL_FreeState                      c_ref_CL_FreeState
+#define CL_GenerateRandomParticlePrecache c_ref_CL_GenerateRandomParticlePrecache
+#define CL_Init                           c_ref_CL_Init
+#define CL_LerpPoint                      c_ref_CL_LerpPoint
+#define cl_lightstyle                     c_ref_cl_lightstyle
+#define cl_maxpitch                       c_ref_cl_maxpitch
+#define cl_maxvisedicts                   c_ref_cl_maxvisedicts
+#define cl_minpitch                       c_ref_cl_minpitch
+#define cl_name                           c_ref_cl_name
+#define CL_NextDemo                       c_ref_CL_NextDemo
+#define cl_nolerp                         c_ref_cl_nolerp
+#define cl_numvisedicts                   c_ref_cl_numvisedicts
+#define cl_numvisedicts_alpha_overwater   c_ref_cl_numvisedicts_alpha_overwater
+#define cl_numvisedicts_alpha_underwater  c_ref_cl_numvisedicts_alpha_underwater
+#define CL_PrintEntities_f                c_ref_CL_PrintEntities_f
+#define CL_ReadFromServer                 c_ref_CL_ReadFromServer
+#define CL_RelinkEntities                 c_ref_CL_RelinkEntities
+#define CL_SendCmd                        c_ref_CL_SendCmd
+#define CL_SendInitialUserinfo            c_ref_CL_SendInitialUserinfo
+#define cl_shownet                        c_ref_cl_shownet
+#define CL_SignonReply                    c_ref_CL_SignonReply
+#define cl_startdemos                     c_ref_cl_startdemos
+#define cl_topcolor                       c_ref_cl_topcolor
+#define CL_Tracepos_f                     c_ref_CL_Tracepos_f
+#define CL_Viewpos_f                      c_ref_CL_Viewpos_f
+#define cl_visedicts                      c_ref_cl_visedicts
+#define cl_visedicts_alpha                c_ref_cl_visedicts_alpha
+#define cls                               c_ref_cls
+#define lookspring                        c_ref_lookspring
+#define lookstrafe                        c_ref_lookstrafe
+#define m_forward                         c_ref_m_forward
+#define m_pitch                           c_ref_m_pitch
+#define m_side                            c_ref_m_side
+#define m_yaw                             c_ref_m_yaw
+#define needs_relink                      c_ref_needs_relink
+#define sensitivity                       c_ref_sensitivity
+#define SV_UpdateInfo                     c_ref_SV_UpdateInfo
+
+/* cl_parse.c */
+#define CL_EntityNum          c_ref_CL_EntityNum
+#define CL_NewTranslation     c_ref_CL_NewTranslation
+#define CL_ParseLocalSound    c_ref_CL_ParseLocalSound
+#define CL_ParseServerMessage c_ref_CL_ParseServerMessage
+#define CL_RegisterParticles  c_ref_CL_RegisterParticles
+#define svc_strings           c_ref_svc_strings
+
+/* cl_tent.c */
+#define cl_beams          c_ref_cl_beams
+#define CL_InitTEnts      c_ref_CL_InitTEnts
+#define CL_NewTempEntity  c_ref_CL_NewTempEntity
+#define CL_ParseTEnt      c_ref_CL_ParseTEnt
+#define cl_temp_entities  c_ref_cl_temp_entities
+#define CL_UpdateBeam     c_ref_CL_UpdateBeam
+#define CL_UpdateTEnts    c_ref_CL_UpdateTEnts
+#define num_temp_entities c_ref_num_temp_entities
+
+/* view.c */
+#define angledelta                c_ref_angledelta
+#define CalcGunAngle              c_ref_CalcGunAngle
+#define cl_bob                    c_ref_cl_bob
+#define cl_bobcycle               c_ref_cl_bobcycle
+#define cl_bobup                  c_ref_cl_bobup
+#define cl_rollangle              c_ref_cl_rollangle
+#define cl_rollspeed              c_ref_cl_rollspeed
+#define crosshair                 c_ref_crosshair
+#define crosshair_def             c_ref_crosshair_def
+#define cshift_lava               c_ref_cshift_lava
+#define cshift_slime              c_ref_cshift_slime
+#define cshift_water              c_ref_cshift_water
+#define gl_cshiftpercent          c_ref_gl_cshiftpercent
+#define gl_cshiftpercent_bonus    c_ref_gl_cshiftpercent_bonus
+#define gl_cshiftpercent_contents c_ref_gl_cshiftpercent_contents
+#define gl_cshiftpercent_damage   c_ref_gl_cshiftpercent_damage
+#define gl_cshiftpercent_powerup  c_ref_gl_cshiftpercent_powerup
+#define r_viewmodel_quake         c_ref_r_viewmodel_quake
+#define scr_ofsx                  c_ref_scr_ofsx
+#define scr_ofsy                  c_ref_scr_ofsy
+#define scr_ofsz                  c_ref_scr_ofsz
+#define V_AddIdle                 c_ref_V_AddIdle
+#define v_autopitch               c_ref_v_autopitch
+#define v_blend                   c_ref_v_blend
+#define V_BonusFlash_f            c_ref_V_BonusFlash_f
+#define V_BoundOffsets            c_ref_V_BoundOffsets
+#define V_CalcBlend               c_ref_V_CalcBlend
+#define V_CalcBob                 c_ref_V_CalcBob
+#define V_CalcIntermissionRefdef  c_ref_V_CalcIntermissionRefdef
+#define V_CalcPowerupCshift       c_ref_V_CalcPowerupCshift
+#define V_CalcRefdef              c_ref_V_CalcRefdef
+#define V_CalcRoll                c_ref_V_CalcRoll
+#define V_CalcViewRoll            c_ref_V_CalcViewRoll
+#define v_centermove              c_ref_v_centermove
+#define v_centerspeed             c_ref_v_centerspeed
+#define V_cshift_f                c_ref_V_cshift_f
+#define V_DriftPitch              c_ref_V_DriftPitch
+#define v_gunkick                 c_ref_v_gunkick
+#define v_idlescale               c_ref_v_idlescale
+#define V_Init                    c_ref_V_Init
+#define v_ipitch_cycle            c_ref_v_ipitch_cycle
+#define v_ipitch_level            c_ref_v_ipitch_level
+#define v_iroll_cycle             c_ref_v_iroll_cycle
+#define v_iroll_level             c_ref_v_iroll_level
+#define v_iyaw_cycle              c_ref_v_iyaw_cycle
+#define v_iyaw_level              c_ref_v_iyaw_level
+#define v_kickpitch               c_ref_v_kickpitch
+#define v_kickroll                c_ref_v_kickroll
+#define v_kicktime                c_ref_v_kicktime
+#define V_ParseDamage             c_ref_V_ParseDamage
+#define v_punchangles             c_ref_v_punchangles
+#define v_punchangles_times       c_ref_v_punchangles_times
+#define V_RenderView              c_ref_V_RenderView
+#define V_ResetBlend              c_ref_V_ResetBlend
+#define V_RestoreAngles           c_ref_V_RestoreAngles
+#define V_SetContentsColor        c_ref_V_SetContentsColor
+#define V_SetupFrame              c_ref_V_SetupFrame
+#define V_StartPitchDrift         c_ref_V_StartPitchDrift
+#define V_StopPitchDrift          c_ref_V_StopPitchDrift
+/* ---- end Phase 7 M7 renames ---- */
+
+#include "console.h"
+#include "screen.h"
+#include "keys.h"
+#include "input.h"
+#include "cdaudio.h"
+#include "harness.h"
+#include "view.h"
+/* ---- end Phase 7 M7 seam ---- */
 
 #include "server.h"
 #include "client.h"

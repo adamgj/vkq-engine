@@ -823,10 +823,17 @@ cvar_t registered = {"registered", "1", CVAR_ROM, 1.0f, NULL, NULL, NULL, NULL};
 cvar_t cmdline = {"cmdline", "", CVAR_ROM, 0.0f, NULL, NULL, NULL, NULL};
 cvar_t developer = {"developer", "0", CVAR_NONE, 0.0f, NULL, NULL, NULL, NULL};
 /* Phase 7 M2: cvar.c's CVAR_USERINFO replication special-cases these three
- * by address (Cvar_SetQuick's "name"/"color" legacy setinfo hacks). */
-cvar_t cl_name = {"_cl_name", "player", CVAR_ARCHIVE | CVAR_USERINFO, 0.0f, NULL, NULL, NULL, NULL};
-cvar_t cl_topcolor = {"_cl_topcolor", "0", CVAR_ARCHIVE | CVAR_USERINFO, 0.0f, NULL, NULL, NULL, NULL};
-cvar_t cl_bottomcolor = {"_cl_bottomcolor", "0", CVAR_ARCHIVE | CVAR_USERINFO, 0.0f, NULL, NULL, NULL, NULL};
+ * by address (Cvar_SetQuick's "name"/"color" legacy setinfo hacks). Phase 7 M7
+ * (T7.0) made cl_main.c an oracle source, so it defines cl_name/cl_topcolor/
+ * cl_bottomcolor (renamed c_ref_*) itself and the stand-ins that used to live
+ * here would be duplicate definitions. The `#define cl_name c_ref_cl_name`
+ * family in c_ref_prelude.h repoints the address comparisons in
+ * ctest_invoke_userinfo_changed below at cl_main.c's objects -- which is what
+ * the gate wants, because cvar.c (the oracle side of the same comparison) has
+ * always compared against whatever `cl_name` resolved to in its own TU.
+ * The real names differ from the old stand-ins: cl_main.c:33-34 register
+ * "topcolor"/"bottomcolor", not "_cl_topcolor"/"_cl_bottomcolor".
+ */
 
 /* Phase 7 M2: records the argv of whichever side's Cmd_ExecuteString/direct
  * call last ran a probe command, so cvar_cmd_differential.rs can compare the
@@ -2645,10 +2652,38 @@ void ctest_resample_ref (int length, int loopstart, int inrate, int inwidth, int
  * defined by the c_ref snd_dma.c (renamed c_ref_* by the prelude); tests
  * reach them via those names. */
 
-/* Phase 7 M6: the real client_state_t; cl_main.c is still not an oracle
- * source, so the instance stays stub-owned and un-renamed. `svs` moved to
- * sv_main.c with `sv`. */
+/* ---------------------------------------------------------------------------
+ * DUPLICATE-SYMBOL HAZARD -- `cl` and `cls`
+ *
+ * Phase 7 M7 (T7.0) made cl_main.c an oracle source. cl_main.c defines `cl` and
+ * `cls`, which c_ref_prelude.h renames to `c_ref_cl` / `c_ref_cls`, so the two
+ * definitions below are NOT duplicates of them -- they are the Rust-side
+ * storage, and the `#undef` is what keeps them un-renamed. Removing either
+ * `#undef` produces a second definition of `c_ref_cl` / `c_ref_cls` in the same
+ * link (link.exe LNK2005; ld64 and rust-lld would instead silently drop the
+ * archive member and take the oracle's, which is worse -- the differential
+ * would then compare the oracle against itself).
+ *
+ * Every *reader* in the stubs stays renamed on purpose: the readers here are
+ * ctest glue that must observe the same objects the oracle sources observe
+ * (world.c walks `cl.entities`, cvar.c writes `cls.message`, sv_send.c reads
+ * `cls.demorecording`). Only the two definitions are exempted.
+ *
+ * The Rust side reaches the un-renamed objects through plain externs:
+ * quake-capi/src/sv_main.rs:105,107 (`SV_Pext_f`), sv_send.rs:125 and
+ * sv_user.rs:73 (`cls.netcon`). Any fixture that seeds a field those paths
+ * read must seed BOTH copies -- see ctest_svuser_reset in sv_user_ref.c, and
+ * the identical rule M6 established for `sv`/`svs`.
+ *
+ * T7.4 closes the ADR-007 row for `cl`/`cls` by moving this storage into
+ * quake-capi exactly as T6.6 did for `sv`/`svs`. When it lands, these two
+ * definitions become `extern` declarations (`extern client_state_t cl;`) and
+ * the `#undef`s stay; nothing else in this file has to change, because
+ * everything else already goes through the renamed names.
+ * ------------------------------------------------------------------------ */
+#undef cl
 client_state_t cl;
+#define cl c_ref_cl
 keydest_t	   key_dest = key_game;
 double		   host_frametime = 0.0;
 
@@ -2723,9 +2758,11 @@ void ctest_snd_set_cvars (float sfxvol, float sndspeed_v, float filterquality, f
 	snd_pauselooping.value = pauselooping;
 }
 
-/* Phase 4 M6: the snd_dma.c oracle's remaining seams. Phase 7 M6: the real
- * client_static_t (cl_main.c is not an oracle source, so it stays here). */
+/* Phase 4 M6: the snd_dma.c oracle's remaining seams. Phase 7 M7: the Rust-side
+ * client_static_t; see the DUPLICATE-SYMBOL HAZARD block above `cl`. */
+#undef cls
 client_static_t cls = {ca_disconnected};
+#define cls c_ref_cls
 
 static mleaf_t *ctest_point_leaf = NULL;
 void ctest_set_point_leaf (mleaf_t *leaf)
@@ -6873,19 +6910,30 @@ void SV_DropClient (qboolean crash)
 	Sys_Error ("ctest: SV_DropClient reached (host.c is not an oracle source)");
 }
 
-/* view.c is not an oracle source, but Quake/sv_user.c:444 calls V_CalcRoll
- * inside SV_ClientThink -- view.c:84 says so itself ("Used by view and
- * sv_user"). The T6.0 abort stub therefore killed every sv_user differential
- * the moment it reached SV_ClientThink.
+/* Quake/sv_user.c:444 calls V_CalcRoll inside SV_ClientThink -- view.c:84 says
+ * so itself ("Used by view and sv_user"). The T6.0 abort stub therefore killed
+ * every sv_user differential the moment it reached SV_ClientThink.
  *
- * Transcribed verbatim from Quake/view.c:87-108. Both sides of every
- * differential reach this same symbol, so fidelity to view.c is not what makes
- * the gate sound -- but a degenerate stub would be: cl_rollangle.value is what
- * scales the result, and cvar_t.value is populated by Cvar_RegisterVariable,
- * which never runs in the ctest link. Defining the cvars without an explicit
- * .value would silently return 0 for every input and flatten the ROLL path
- * that sv_user.c:444 feeds into the client's angle state.
+ * Transcribed verbatim from Quake/view.c:87-108. Phase 7 M7 (T7.0) made view.c
+ * an oracle source, so this is no longer the only V_CalcRoll in the link: the
+ * oracle SV_ClientThink now calls c_ref_V_CalcRoll (real view.c) while the Rust
+ * SV_ClientThink still calls this one through quake-c-sys/src/sv_user.rs. The
+ * `#undef`s below are what keep this copy un-renamed; without them it would be
+ * a second definition of c_ref_V_CalcRoll / c_ref_cl_rollspeed /
+ * c_ref_cl_rollangle. This copy goes away when view.c itself is ported.
+ *
+ * A degenerate stub is the hazard here: cl_rollangle.value scales the result,
+ * and cvar_t.value is populated by Cvar_RegisterVariable, which never runs in
+ * the ctest link. Defining the cvars without an explicit .value would silently
+ * return 0 for every input and flatten the ROLL path that sv_user.c:444 feeds
+ * into the client's angle state. view.c declares its pair WITHOUT an explicit
+ * .value (the engine fills it in at registration), so the c_ref copies are
+ * seeded by ctest_svuser_reset (sv_user_ref.c) instead -- otherwise the two
+ * sides would differ for a reason that has nothing to do with SV_ClientThink.
  */
+#undef cl_rollspeed
+#undef cl_rollangle
+#undef V_CalcRoll
 cvar_t cl_rollspeed = {"cl_rollspeed", "200", CVAR_NONE, 200.0f, NULL, NULL, NULL, NULL};
 cvar_t cl_rollangle = {"cl_rollangle", "2.0", CVAR_ARCHIVE, 2.0f, NULL, NULL, NULL, NULL};
 
@@ -6910,6 +6958,9 @@ float V_CalcRoll (vec3_t angles, vec3_t velocity)
 
 	return side * sign;
 }
+#define cl_rollspeed c_ref_cl_rollspeed
+#define cl_rollangle c_ref_cl_rollangle
+#define V_CalcRoll	 c_ref_V_CalcRoll
 
 qmodel_t *Mod_ForName (const char *name, qboolean crash)
 {
@@ -7130,6 +7181,549 @@ int ctest_m6_linkproof (void)
 	SV_ClientThink ();
 	sv_player = saved_player;
 	result |= 4;
+
+	return result;
+}
+
+/* ===========================================================================
+ * Phase 7 M7 (T7.0): the client stratum's outward seam.
+ *
+ * chase.c, cl_demo.c, cl_input.c, cl_main.c, cl_parse.c, cl_tent.c and view.c
+ * became oracle sources. Everything below is a symbol THEY reference that no
+ * oracle source and no existing stub defines -- the renderer, the particle
+ * script, the sky/fog layer, the CD player, the loading plaque, the net
+ * transport, and a handful of engine globals owned by files that are still not
+ * compiled here. The list is exactly link.exe's LNK2019/LNK2001 set for the
+ * seven new objects, not a guess.
+ *
+ * None of these names is renamed: the files that define them for real
+ * (gl_rmain.c, r_part.c, gl_screen.c, console.c, net_main.c, ...) are not
+ * oracle sources, so there is one plain copy and both sides of every
+ * differential reach it -- the same arrangement M4/M6 use for sv_friction and
+ * friends.
+ *
+ * The functions abort rather than returning a plausible value. A silent no-op
+ * here is the vacuous-gate shape this milestone has already been bitten by
+ * twice: a differential that reaches one of these would compare two identical
+ * nothings and pass. A later M7 task that needs one of these paths must
+ * replace the abort with a fixture that both sides observe, not delete it.
+ * ======================================================================== */
+
+/* --- engine globals -------------------------------------------------------
+ * cvar_t .value is normally filled in by Cvar_RegisterVariable, which never
+ * runs for these in the ctest link, so each one carries its real default
+ * explicitly -- a zeroed .value would flatten the branch that reads it on BOTH
+ * sides at once (r_lerpmodels/r_lerpturn gate CL_RelinkEntities' lerp path;
+ * scr_viewsize gates view.c's gun-offset math). */
+refdef_t r_refdef;
+viddef_t vid;
+vec3_t	 vpn;
+
+int		 host_framecount;
+float	 host_netinterval; /* host.c; cl_main.c:71 declares it float, not cvar_t */
+float	 scr_clock_off;	   /* gl_screen.c; cl_demo.c:213 declares it float */
+qboolean noclip_anglehack;
+qboolean con_forcedup;
+char	 con_lastcenterstring[1024]; /* console.c:63 */
+int		 r_trace_line_cache_counter;
+int		 render_scale;
+qboolean render_warp;
+
+cvar_t r_lerpmodels = {"r_lerpmodels", "1", CVAR_ARCHIVE, 1.0f, NULL, NULL, NULL, NULL};
+cvar_t r_lerpturn = {"r_lerpturn", "1", CVAR_ARCHIVE, 1.0f, NULL, NULL, NULL, NULL};
+cvar_t scr_viewsize = {"viewsize", "100", CVAR_ARCHIVE, 100.0f, NULL, NULL, NULL, NULL};
+
+/* gl_model.c:52-53. cl_parse.c:1673-1674 declares mod_known as an incomplete
+ * array and only ever walks [0, mod_numknown), so the extent here is a harness
+ * choice, not gl_model.c's MAX_MODELS (8192 qmodel_t is ~megabytes of BSS for
+ * an array no ctest path populates). mod_numknown stays 0; a later task that
+ * wants CL_RegisterParticles to iterate must raise BOTH together. */
+qmodel_t mod_known[4];
+int		 mod_numknown = 0;
+
+/* --- renderer (gl_rmain.c / r_part.c / gl_sky.c / gl_fog.c) --------------- */
+void R_RenderView (qboolean use_tasks, task_handle_t begin_rendering_task, task_handle_t setup_frame_task, task_handle_t draw_done_task)
+{
+	(void)use_tasks;
+	(void)begin_rendering_task;
+	(void)setup_frame_task;
+	(void)draw_done_task;
+	Sys_Error ("ctest: R_RenderView reached (gl_rmain.c is not an oracle source)");
+}
+
+void R_NewMap (void)
+{
+	Sys_Error ("ctest: R_NewMap reached (gl_rmain.c is not an oracle source)");
+}
+
+void R_CheckEfrags (void)
+{
+	Sys_Error ("ctest: R_CheckEfrags reached (r_efrag.c is not an oracle source)");
+}
+
+void R_AddEfrags (entity_t *ent)
+{
+	(void)ent;
+	Sys_Error ("ctest: R_AddEfrags reached (r_efrag.c is not an oracle source)");
+}
+
+void R_UpdateEntityDlights (void)
+{
+	Sys_Error ("ctest: R_UpdateEntityDlights reached (gl_rlight.c is not an oracle source)");
+}
+
+void R_TranslatePlayerSkin (int playernum)
+{
+	(void)playernum;
+	Sys_Error ("ctest: R_TranslatePlayerSkin reached (gl_rmisc.c is not an oracle source)");
+}
+
+void R_TranslateNewPlayerSkin (int playernum)
+{
+	(void)playernum;
+	Sys_Error ("ctest: R_TranslateNewPlayerSkin reached (gl_rmisc.c is not an oracle source)");
+}
+
+void R_AllocateEntityBLAS (entity_t *e)
+{
+	(void)e;
+	Sys_Error ("ctest: R_AllocateEntityBLAS reached (gl_rmisc.c is not an oracle source)");
+}
+
+void R_FreeEntityBLAS (entity_t *e)
+{
+	(void)e;
+	Sys_Error ("ctest: R_FreeEntityBLAS reached (gl_rmisc.c is not an oracle source)");
+}
+
+void R_ClearParticles (void)
+{
+	Sys_Error ("ctest: R_ClearParticles reached (r_part.c is not an oracle source)");
+}
+
+void R_ParseParticleEffect (void)
+{
+	Sys_Error ("ctest: R_ParseParticleEffect reached (r_part.c is not an oracle source)");
+}
+
+void R_EntityParticles (entity_t *ent)
+{
+	(void)ent;
+	Sys_Error ("ctest: R_EntityParticles reached (r_part.c is not an oracle source)");
+}
+
+void R_BlobExplosion (vec3_t org)
+{
+	(void)org;
+	Sys_Error ("ctest: R_BlobExplosion reached (r_part.c is not an oracle source)");
+}
+
+void R_ParticleExplosion (vec3_t org)
+{
+	(void)org;
+	Sys_Error ("ctest: R_ParticleExplosion reached (r_part.c is not an oracle source)");
+}
+
+void R_ParticleExplosion2 (vec3_t org, int colorStart, int colorLength)
+{
+	(void)org;
+	(void)colorStart;
+	(void)colorLength;
+	Sys_Error ("ctest: R_ParticleExplosion2 reached (r_part.c is not an oracle source)");
+}
+
+void R_LavaSplash (vec3_t org)
+{
+	(void)org;
+	Sys_Error ("ctest: R_LavaSplash reached (r_part.c is not an oracle source)");
+}
+
+void R_TeleportSplash (vec3_t org)
+{
+	(void)org;
+	Sys_Error ("ctest: R_TeleportSplash reached (r_part.c is not an oracle source)");
+}
+
+void R_RocketTrail (vec3_t start, vec3_t end, int type)
+{
+	(void)start;
+	(void)end;
+	(void)type;
+	Sys_Error ("ctest: R_RocketTrail reached (r_part.c is not an oracle source)");
+}
+
+/* --- PScript (gl_pscript.c, the PSET_SCRIPT arm of glquake.h) ------------- */
+void PScript_Shutdown (void)
+{
+	Sys_Error ("ctest: PScript_Shutdown reached (gl_pscript.c is not an oracle source)");
+}
+
+void PScript_ClearParticles (qboolean load)
+{
+	(void)load;
+	Sys_Error ("ctest: PScript_ClearParticles reached (gl_pscript.c is not an oracle source)");
+}
+
+void PScript_DelinkTrailstate (struct trailstate_s **tsk)
+{
+	(void)tsk;
+	Sys_Error ("ctest: PScript_DelinkTrailstate reached (gl_pscript.c is not an oracle source)");
+}
+
+int PScript_FindParticleType (const char *fullname)
+{
+	(void)fullname;
+	Sys_Error ("ctest: PScript_FindParticleType reached (gl_pscript.c is not an oracle source)");
+	return -1;
+}
+
+int PScript_ParticleTrail (vec3_t startpos, vec3_t end, int type, float timeinterval, int dlkey, vec3_t axis[3], struct trailstate_s **tsk)
+{
+	(void)startpos;
+	(void)end;
+	(void)type;
+	(void)timeinterval;
+	(void)dlkey;
+	(void)axis;
+	(void)tsk;
+	Sys_Error ("ctest: PScript_ParticleTrail reached (gl_pscript.c is not an oracle source)");
+	return 1;
+}
+
+int PScript_RunParticleEffectState (vec3_t org, vec3_t dir, float count, int typenum, struct trailstate_s **tsk)
+{
+	(void)org;
+	(void)dir;
+	(void)count;
+	(void)typenum;
+	(void)tsk;
+	Sys_Error ("ctest: PScript_RunParticleEffectState reached (gl_pscript.c is not an oracle source)");
+	return 1;
+}
+
+void PScript_RunParticleWeather (vec3_t minb, vec3_t maxb, vec3_t dir, float count, int colour, const char *efname)
+{
+	(void)minb;
+	(void)maxb;
+	(void)dir;
+	(void)count;
+	(void)colour;
+	(void)efname;
+	Sys_Error ("ctest: PScript_RunParticleWeather reached (gl_pscript.c is not an oracle source)");
+}
+
+int PScript_EntParticleTrail (vec3_t oldorg, entity_t *ent, const char *name)
+{
+	(void)oldorg;
+	(void)ent;
+	(void)name;
+	Sys_Error ("ctest: PScript_EntParticleTrail reached (gl_pscript.c is not an oracle source)");
+	return 1;
+}
+
+/* --- sky / fog (gl_sky.c, gl_fog.c) -------------------------------------- */
+void Fog_ParseServerMessage (void)
+{
+	Sys_Error ("ctest: Fog_ParseServerMessage reached (gl_fog.c is not an oracle source)");
+}
+
+const char *Fog_GetFogCommand (qboolean always)
+{
+	(void)always;
+	Sys_Error ("ctest: Fog_GetFogCommand reached (gl_fog.c is not an oracle source)");
+	return NULL;
+}
+
+void Fog_NewMap (void)
+{
+	Sys_Error ("ctest: Fog_NewMap reached (gl_fog.c is not an oracle source)");
+}
+
+void Sky_NewMap (void)
+{
+	Sys_Error ("ctest: Sky_NewMap reached (gl_sky.c is not an oracle source)");
+}
+
+void Sky_LoadSkyBox (const char *name)
+{
+	(void)name;
+	Sys_Error ("ctest: Sky_LoadSkyBox reached (gl_sky.c is not an oracle source)");
+}
+
+const char *Sky_GetSkyCommand (qboolean always)
+{
+	(void)always;
+	Sys_Error ("ctest: Sky_GetSkyCommand reached (gl_sky.c is not an oracle source)");
+	return NULL;
+}
+
+/* --- console / screen / keys / input / cd (console.c, gl_screen.c, keys.c,
+ * in_sdl.c, cd_sdl.c) ------------------------------------------------------ */
+void Con_AddToTabList (const char *name, const char *partial, const char *type)
+{
+	(void)name;
+	(void)partial;
+	(void)type;
+	Sys_Error ("ctest: Con_AddToTabList reached (console.c is not an oracle source)");
+}
+
+void Con_LinkPrintf (const char *addr, const char *fmt, ...)
+{
+	(void)addr;
+	(void)fmt;
+	Sys_Error ("ctest: Con_LinkPrintf reached (console.c is not an oracle source)");
+}
+
+void Con_LogCenterPrint (const char *str)
+{
+	(void)str;
+	Sys_Error ("ctest: Con_LogCenterPrint reached (console.c is not an oracle source)");
+}
+
+const char *Con_Quakebar (int len)
+{
+	(void)len;
+	Sys_Error ("ctest: Con_Quakebar reached (console.c is not an oracle source)");
+	return NULL;
+}
+
+void SCR_CenterPrint (const char *str)
+{
+	(void)str;
+	Sys_Error ("ctest: SCR_CenterPrint reached (gl_screen.c is not an oracle source)");
+}
+
+void SCR_BeginLoadingPlaque (void)
+{
+	Sys_Error ("ctest: SCR_BeginLoadingPlaque reached (gl_screen.c is not an oracle source)");
+}
+
+void SCR_EndLoadingPlaque (void)
+{
+	Sys_Error ("ctest: SCR_EndLoadingPlaque reached (gl_screen.c is not an oracle source)");
+}
+
+void SCR_UpdateZoom (void)
+{
+	Sys_Error ("ctest: SCR_UpdateZoom reached (gl_screen.c is not an oracle source)");
+}
+
+void Key_ClearStates (void)
+{
+	Sys_Error ("ctest: Key_ClearStates reached (keys.c is not an oracle source)");
+}
+
+void Key_EndChat (void)
+{
+	Sys_Error ("ctest: Key_EndChat reached (keys.c is not an oracle source)");
+}
+
+void IN_ClearStates (void)
+{
+	Sys_Error ("ctest: IN_ClearStates reached (in_sdl.c is not an oracle source)");
+}
+
+void IN_Move (usercmd_t *cmd)
+{
+	(void)cmd;
+	Sys_Error ("ctest: IN_Move reached (in_sdl.c is not an oracle source)");
+}
+
+void CDAudio_Pause (void)
+{
+	Sys_Error ("ctest: CDAudio_Pause reached (cd_sdl.c is not an oracle source)");
+}
+
+void CDAudio_Resume (void)
+{
+	Sys_Error ("ctest: CDAudio_Resume reached (cd_sdl.c is not an oracle source)");
+}
+
+void CDAudio_Stop (void)
+{
+	Sys_Error ("ctest: CDAudio_Stop reached (cd_sdl.c is not an oracle source)");
+}
+
+/* --- host / world / net / progs / platform ------------------------------- */
+void Host_ShutdownServer (qboolean crash)
+{
+	(void)crash;
+	Sys_Error ("ctest: Host_ShutdownServer reached (host.c is not an oracle source)");
+}
+
+void DemoList_Rebuild (void)
+{
+	Sys_Error ("ctest: DemoList_Rebuild reached (host_cmd.c's demo list is not an oracle source)");
+}
+
+void Harness_DemoEnded (void)
+{
+	Sys_Error ("ctest: Harness_DemoEnded reached (harness.c is not an oracle source)");
+}
+
+float CL_TraceLine (vec3_t start, vec3_t end, vec3_t impact, vec3_t normal, int *ent)
+{
+	(void)start;
+	(void)end;
+	(void)impact;
+	(void)normal;
+	(void)ent;
+	Sys_Error ("ctest: CL_TraceLine reached (world.c's client trace is not an oracle source)");
+	return 0.0f;
+}
+
+void Mod_TouchModel (const char *name)
+{
+	(void)name;
+	Sys_Error ("ctest: Mod_TouchModel reached (gl_model.c is not an oracle source)");
+}
+
+void PR_ClearProgs (qcvm_t *vm)
+{
+	(void)vm;
+	Sys_Error ("ctest: PR_ClearProgs reached (pr_edict.c's loader is not an oracle source)");
+}
+
+const char *Info_GetKey (const char *info, const char *key, char *out, size_t outsize)
+{
+	(void)info;
+	(void)key;
+	(void)out;
+	(void)outsize;
+	Sys_Error ("ctest: Info_GetKey reached (common.c's info layer is not an oracle source)");
+	return NULL;
+}
+
+void Info_Enumerate (const char *info, void (*cb) (void *ctx, const char *key, const char *value), void *cbctx)
+{
+	(void)info;
+	(void)cb;
+	(void)cbctx;
+	Sys_Error ("ctest: Info_Enumerate reached (common.c's info layer is not an oracle source)");
+}
+
+struct qsocket_s *NET_Connect (const char *host)
+{
+	(void)host;
+	Sys_Error ("ctest: NET_Connect reached (net_main.c is not an oracle source)");
+	return NULL;
+}
+
+void NET_Close (struct qsocket_s *sock)
+{
+	(void)sock;
+	Sys_Error ("ctest: NET_Close reached (net_main.c is not an oracle source)");
+}
+
+int NET_GetMessage (struct qsocket_s *sock)
+{
+	(void)sock;
+	Sys_Error ("ctest: NET_GetMessage reached (net_main.c is not an oracle source)");
+	return -1;
+}
+
+int NET_QSocketGetSequenceIn (const struct qsocket_s *sock)
+{
+	(void)sock;
+	Sys_Error ("ctest: NET_QSocketGetSequenceIn reached (net_main.c is not an oracle source)");
+	return 0;
+}
+
+qboolean Steam_SetAchievement (const char *name)
+{
+	(void)name;
+	Sys_Error ("ctest: Steam_SetAchievement reached (steam.c is not an oracle source)");
+	return false;
+}
+
+int SDL_SetClipboardText (const char *text)
+{
+	(void)text;
+	Sys_Error ("ctest: SDL_SetClipboardText reached (SDL is not linked into the ctest harness)");
+	return -1;
+}
+
+/* ---------------------------------------------------------------------------
+ * Phase 7 M7 (T7.0) link proof -- see rust/quake-ctest/tests/
+ * cl_stratum_linkproof.rs and the M6 twin above. One real entry point per new
+ * oracle translation unit, each OR-ing a distinct bit, so a green
+ * `cargo build --tests` is not mistaken for evidence that the seven objects
+ * actually made it into the binary.
+ * ------------------------------------------------------------------------ */
+/* These five have no header in the engine (chase.c, cl_tent.c and view.c
+ * declare them locally where they are used), so the c_ref_* twins are
+ * declared by hand -- the rename macros are in effect, so the bare names
+ * below expand to the oracle's. */
+extern cvar_t chase_back;
+extern cvar_t chase_up;
+extern int	  num_temp_entities;
+extern cvar_t cl_rollangle;
+extern cvar_t cl_rollspeed;
+
+/* client.h declares Chase_Init/CL_Stop_f/CL_AllocDlight/CL_UpdateTEnts but
+ * not these two (cl_parse.c and cl_input.c use them file-locally). Without
+ * the declarations MSVC assumes int-returning (C4013) and the proof reads a
+ * garbage eax instead of the real pointer/float return -- which is exactly
+ * how the CL_EntityNum arm first failed. */
+extern entity_t *CL_EntityNum (int num);
+extern float	 CL_KeyState (kbutton_t *key);
+
+int ctest_m7_linkproof (void)
+{
+	static entity_t	 linkproof_cl_entities[2];
+	static kbutton_t linkproof_button;
+	vec3_t			 linkproof_angles = {0.0f, 0.0f, 0.0f};
+	vec3_t			 linkproof_velocity = {0.0f, 200.0f, 0.0f};
+	entity_t		*saved_entities = cl.entities;
+	int				 saved_num_entities = cl.num_entities;
+	int				 saved_max_edicts = cl.max_edicts;
+	int				 result = 0;
+
+	/* chase.c */
+	Chase_Init ();
+	if (chase_back.value == 100.0f && chase_up.value == 16.0f)
+		result |= 1;
+
+	/* cl_demo.c -- cls.demorecording is false, so this is the "Not recording a
+	 * demo." early return; nothing observable, same as the M6 proof's
+	 * SV_CreateBaseline arm. */
+	CL_Stop_f ();
+	result |= 2;
+
+	/* cl_input.c */
+	memset (&linkproof_button, 0, sizeof (linkproof_button));
+	linkproof_button.state = 1; /* down, no impulses -> held the entire frame */
+	if (CL_KeyState (&linkproof_button) == 1.0f)
+		result |= 4;
+
+	/* cl_main.c */
+	if (CL_AllocDlight (7)->key == 7)
+		result |= 8;
+
+	/* cl_parse.c */
+	memset (linkproof_cl_entities, 0, sizeof (linkproof_cl_entities));
+	cl.entities = linkproof_cl_entities;
+	cl.num_entities = 0;
+	cl.max_edicts = 2;
+	if (CL_EntityNum (1) == &linkproof_cl_entities[1] && cl.num_entities == 2)
+		result |= 16;
+	cl.entities = saved_entities;
+	cl.num_entities = saved_num_entities;
+	cl.max_edicts = saved_max_edicts;
+
+	/* cl_tent.c -- every beam has a NULL model, so the only observable effect
+	 * is the unconditional num_temp_entities reset at the top. */
+	num_temp_entities = 99;
+	CL_UpdateTEnts ();
+	if (num_temp_entities == 0)
+		result |= 32;
+
+	/* view.c -- the c_ref cvars have no registered .value in this link (see the
+	 * V_CalcRoll note above), so seed them here too. */
+	cl_rollangle.value = 2.0f;
+	cl_rollspeed.value = 200.0f;
+	if (V_CalcRoll (linkproof_angles, linkproof_velocity) == -2.0f)
+		result |= 64;
 
 	return result;
 }

@@ -102,6 +102,20 @@ extern unsigned int	   c_ref_sv_protocol_pext2;
 extern int			   c_ref_net_activeconnections;
 
 /* -------------------------------------------------------------------------
+ * Phase 7 M7 (T7.0): `cl`/`cls` split in two the same way `sv`/`svs` did at
+ * T6.5. cl_main.c is an oracle source now, so client.h's declarations reach
+ * c_ref_cl / c_ref_cls through the prelude rename, and stubs.c keeps the plain
+ * (Rust-read) copies -- see the DUPLICATE-SYMBOL HAZARD block there.
+ * SV_Pext_f's console arm reads all three fields seeded in ctest_svmain_reset
+ * below, from c_ref_cl/c_ref_cls on the oracle side and from these plain ones
+ * on the Rust side (quake-capi/src/sv_main.rs:105,107).
+ */
+#undef cl
+#undef cls
+extern client_state_t  cl;
+extern client_static_t cls;
+
+/* -------------------------------------------------------------------------
  * Plain (== Rust) cvar/cmd entry points. The prelude renamed these onto the
  * oracle; the glue trampolines below must reach the Rust ones, exactly as
  * sv_main_glue.c does under -Duse_rust_cvar.
@@ -731,6 +745,22 @@ void ctest_svmain_reset (int protocol, unsigned int protocolflags, int maxclient
 	c_ref_sv_protocol_pext2 = PEXT2_SUPPORTED_SERVER;
 
 	c_ref_net_activeconnections = 0;
+
+	/* Both copies of the SV_Pext_f console-arm inputs -- see the Phase 7 M7 note
+	 * at the top of this file. cl_main.c defines `cls` with no initializer
+	 * (state == ca_dedicated) while stubs.c's plain copy starts at
+	 * ca_disconnected, so leaving either unseeded makes the two sides read two
+	 * different fixtures: that asymmetry, not a port bug, is what broke
+	 * pext_f_from_the_console_prints_the_client_side_report the moment
+	 * cl_main.c joined C_SOURCES. ca_disconnected is the value the test has
+	 * always exercised (the "Current Protocols:" branch). */
+	cls.state = ca_disconnected;
+	c_ref_cls.state = ca_disconnected;
+	cl.protocol = 0;
+	c_ref_cl.protocol = 0;
+	cl.protocol_pext2 = 0;
+	c_ref_cl.protocol_pext2 = 0;
+
 	ctest_set_host_client (NULL);
 	ctest_clear_con_log ();
 }

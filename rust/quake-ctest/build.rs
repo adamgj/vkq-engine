@@ -7,6 +7,12 @@ use std::path::PathBuf;
 
 const C_SOURCES: &[&str] = &[
     "Quake/cfgfile.c",
+    "Quake/chase.c",
+    "Quake/cl_demo.c",
+    "Quake/cl_input.c",
+    "Quake/cl_main.c",
+    "Quake/cl_parse.c",
+    "Quake/cl_tent.c",
     "Quake/cmd.c",
     "Quake/common_fs.c",
     "Quake/cvar.c",
@@ -40,6 +46,7 @@ const C_SOURCES: &[&str] = &[
     "Quake/sv_phys.c",
     "Quake/sv_send.c",
     "Quake/sv_user.c",
+    "Quake/view.c",
     "Quake/wad.c",
     "Quake/world.c",
 ];
