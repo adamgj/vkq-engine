@@ -218,7 +218,6 @@ srcs = [
     'Quake/cd_null.c',
     'Quake/cl_demo.c',
     'Quake/cl_main.c',
-    'Quake/cl_parse.c',
     'Quake/common.c',
     'Quake/console.c',
     'Quake/gl_draw.c',
@@ -641,6 +640,33 @@ if use_rust_host
     srcs += ['Quake/chase_glue.c', 'Quake/cl_input_glue.c', 'Quake/cl_tent_glue.c', 'Quake/view_glue.c']
 else
     srcs += ['Quake/chase.c', 'Quake/cl_input.c', 'Quake/cl_tent.c', 'Quake/view.c']
+endif
+
+# Phase 7 M7 T7.3: cl_parse.c -- the server-message parser, and the phase's
+# largest ADR-009 surface. Pattern A whole-file swap on the same use_rust_host
+# switch as M3/M4/M6/T7.2.
+#
+# cl_parse.c has 38 Host_Error/Host_EndGame sites, of which 34 are live: the
+# three at :886/:890/:894 sit inside the #if 0 CL_KeepaliveMessage (:852-:915,
+# no callers) and the UF_UNUSED2 Host_EndGame at :439 is unreachable because
+# protocol.h:33 defines LERP_BANDAID unconditionally. cl_parse_glue.c mirrors
+# the 34 live sites as CLPARSE_* status codes and re-issues each raise verbatim
+# from ClParse_Raise, the PRBI_Raise pattern from pr_cmds_glue.c:309; the Rust
+# core returns status and never jumps.
+#
+# Glue ownership: cl_parse_glue.c owns svc_strings[128] (cl_parse.c:30-88),
+# external linkage in the original but declared in no header, and supplies the
+# 21 Host_Guard trampolines. The five entry points keep their exact C
+# signatures; CL_EntityNum and CL_ParseLocalSound are likewise header-less
+# externals, and r_part_fte.c:156 re-declares CL_EntityNum locally and calls it
+# at :4458, :5961 and :7251, so the plain name stays a real C function.
+#
+# cl and cls stay C-owned here -- that ADR-007 row closes in T7.4 with
+# cl_main.c. The C original stays the -Duse_rust_host=disabled oracle.
+if use_rust_host
+    srcs += ['Quake/cl_parse_glue.c']
+else
+    srcs += ['Quake/cl_parse.c']
 endif
 
 if use_rust_snd

@@ -23,6 +23,8 @@ pub mod chase; // chase.c
 #[cfg(feature = "host")]
 pub mod cl_input; // cl_input.c
 #[cfg(feature = "host")]
+pub mod cl_parse; // cl_parse.c
+#[cfg(feature = "host")]
 pub mod cl_tent; // cl_tent.c
 #[cfg(feature = "cvar")]
 pub mod cmd; // cmd.c

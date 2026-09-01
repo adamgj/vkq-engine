@@ -9,6 +9,7 @@ pub mod libm;
 
 pub mod chase;
 pub mod cl_input;
+pub mod cl_parse;
 pub mod cl_tent;
 pub mod progs_builtins_cl;
 pub mod progs_builtins_sv;

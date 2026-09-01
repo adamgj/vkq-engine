@@ -165,6 +165,7 @@ fn main() {
         "sv_main_ref.c",
         "chase_ref.c",
         "cl_input_ref.c",
+        "cl_parse_ref.c",
         "cl_tent_ref.c",
         "view_ref.c",
     ] {

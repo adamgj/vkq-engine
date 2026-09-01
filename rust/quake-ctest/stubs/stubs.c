@@ -2535,9 +2535,39 @@ int q_strncasecmp (const char *s1, const char *s2, size_t n)
 	return (int)(c1 - c2);
 }
 
+/* Phase 7 M7 (T7.3): the body stays a no-op -- gl_pscript.c is not an oracle
+ * source and the harness has no particle system -- but this is the only call
+ * CL_RegisterParticles's second loop makes, so with a bare no-op the loop is
+ * completely unobservable and a differential over it passes while executing
+ * nothing. Counting the calls and remembering the last model keeps the loop
+ * bound and the iteration order visible. Both sides share this one definition,
+ * so the counter is reset between the two runs. */
+static int	ctest_pscript_model_effects = 0;
+static char ctest_pscript_last_model[64];
+
 void PScript_UpdateModelEffects (qmodel_t *mod)
 {
-	(void)mod;
+	ctest_pscript_model_effects++;
+	if (mod)
+		q_strlcpy (ctest_pscript_last_model, mod->name, sizeof (ctest_pscript_last_model));
+	else
+		ctest_pscript_last_model[0] = '\0';
+}
+
+void ctest_pscript_model_effects_reset (void)
+{
+	ctest_pscript_model_effects = 0;
+	ctest_pscript_last_model[0] = '\0';
+}
+
+int ctest_pscript_model_effects_count (void)
+{
+	return ctest_pscript_model_effects;
+}
+
+const char *ctest_pscript_last_model_name (void)
+{
+	return ctest_pscript_last_model;
 }
 
 #ifndef THREAD_LOCAL
@@ -7277,10 +7307,29 @@ void R_AllocateEntityBLAS (entity_t *e)
 	Sys_Error ("ctest: R_AllocateEntityBLAS reached (gl_rmisc.c is not an oracle source)");
 }
 
+/* Phase 7 M7 (T7.3): this was an abort stub, which made every model change in
+ * CL_ParseUpdate / CL_ParseBaseline unreachable -- the two largest functions
+ * in cl_parse.c could not be compared past their first model swap. gl_rmisc.c
+ * is not an oracle source, so BOTH sides call this one definition; counting
+ * the calls keeps the seam observable (a port that skipped the free would
+ * show a different count) without inventing GPU state the harness has none
+ * of. Nothing else in the link reaches it. */
+static int ctest_blas_frees = 0;
+
 void R_FreeEntityBLAS (entity_t *e)
 {
 	(void)e;
-	Sys_Error ("ctest: R_FreeEntityBLAS reached (gl_rmisc.c is not an oracle source)");
+	ctest_blas_frees++;
+}
+
+void ctest_blas_free_reset (void)
+{
+	ctest_blas_frees = 0;
+}
+
+int ctest_blas_free_count (void)
+{
+	return ctest_blas_frees;
 }
 
 void R_ClearParticles (void)
