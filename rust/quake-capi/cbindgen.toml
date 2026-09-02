@@ -684,6 +684,11 @@ exclude = [
     # redeclaration; net_message's type is quake_c_sys's bindgen sizebuf_t,
     # which has no spelling in this header at all.
     "net_message", "msg_readcount", "msg_badread",
+    # Phase 7 M9g -- the ambient VM pointers became Rust-owned storage
+    # (ADR-007 qcvm row closed). progs.h:433-435 declares both and every C
+    # reader includes it, so a cbindgen declaration would be a redeclaration;
+    # pr_global_struct's globalvars_t has no spelling in this header at all.
+    "qcvm", "pr_global_struct",
     # Phase 7 M7 -- declared by hand above, guarded on client.h. UserCmd and
     # EntityOpaque are ADR-011 mirrors with no C spelling, so cbindgen's own
     # declarations are syntax errors in every C TU that includes the header.

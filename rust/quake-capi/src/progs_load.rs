@@ -1,9 +1,13 @@
 //! C-ABI shim for the progs loader (`pr_edict_load.c` → `quake-progs`).
 //!
-//! `Quake/pr_edict_load_glue.c` keeps the storage every other translation unit
-//! reads — `qcvm`, `pr_global_struct` and `PR_SwitchQCVM` — plus the engine
+//! `Quake/pr_edict_load_glue.c` keeps `PR_SwitchQCVM` — the selector every
+//! other translation unit reaches the ambient VM through — plus the engine
 //! lookups and `va` that the loader must call rather than reimplement, and the
 //! four `Host_Error` raises (ADR-009).
+//!
+//! M9g: the two pointers that selector assigns, `qcvm` and `pr_global_struct`,
+//! are Rust-owned storage, defined below as `#[no_mangle] static mut` exactly
+//! as `net.rs` defines the net reader globals (ADR-007 qcvm row closed).
 
 use core::ffi::{c_char, c_int, c_void, CStr};
 
@@ -11,6 +15,33 @@ use quake_c_sys as c;
 use quake_progs::image::{ProgsImage, VmLoad};
 use quake_progs::load::{self, LoadError, LoadSys};
 use quake_types::progs::{BuiltinT, DDef, QcVm};
+
+// ---------------------------------------------------------------------------
+// ADR-007 qcvm row: the two ambient VM pointers, Rust-owned from Phase 7 M9g.
+//
+// `progs.h:433-435` keeps declaring both, so the 14 files outside the progs
+// sources that dereference them resolve to the definitions below without a
+// source change, and `Quake/pr_edict_load_glue.c` still writes them through
+// `PR_SwitchQCVM`/`PRLoad_Glue_DeselectQCVM`/`PRLoad_Glue_SetPrGlobalStruct`
+// exactly as before. `Quake/pr_edict_load.c` keeps its own copies for the
+// -Duse_rust_progs=disabled oracle leg; that file and this module are never
+// compiled into the same binary.
+
+/// `pr_edict_load.c:34` -- `qcvm_t *qcvm;`, the ambient VM (ADR-008).
+///
+/// SAFETY: a null pointer is the C definition's own initial value, and
+/// `PR_SwitchQCVM (NULL)` restores it; every reader on both sides already
+/// treats null as "no VM selected".
+#[no_mangle]
+pub static mut qcvm: *mut c::qcvm_s = core::ptr::null_mut();
+
+/// `pr_edict_load.c:35` -- `globalvars_t *pr_global_struct;`.
+///
+/// `globalvars_t` has no bindgen mirror, so this is typed the way
+/// `quake_c_sys::sv_main` already declares it: an opaque pointer. C's
+/// `progs.h:433` declaration is the authoritative type for every C reader.
+#[no_mangle]
+pub static mut pr_global_struct: *mut c_void = core::ptr::null_mut();
 
 /// Status codes shared with `Quake/pr_edict_load_glue.c` (keep in sync).
 const PRLOAD_OK: c_int = 0;
