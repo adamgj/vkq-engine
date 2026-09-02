@@ -66,10 +66,10 @@ extern void ctest_phys_set_cvars (const float *v);
  * Plain (Rust-reading) storage this wave owns: sv_player (sv_user.c:26) and
  * the net_message/msg_readcount/msg_badread trio SV_ReadClientMove and
  * SV_ReadClientMessage consume through quake-capi::net's plain MSG_Read*
- * exports (Quake/net_main.c / Quake/net_msg_glue.c own these in the real
- * engine; neither file is compiled here, so the harness owns them -- same
- * shape as stubs.c's own "net_message itself lives in net_main.c (not
- * compiled here)" c_ref copy, just the unrenamed twin of it).
+ * exports. Phase 7 M9e made that trio Rust-owned storage
+ * (rust/quake-capi/src/net.rs, ADR-007 net row closed), and this link
+ * enables quake-capi's `net` feature, so they are DECLARED here and
+ * defined by Rust -- defining them again would be a duplicate symbol.
  */
 #undef sv_player
 edict_t *sv_player;
@@ -77,9 +77,9 @@ edict_t *sv_player;
 #undef net_message
 #undef msg_readcount
 #undef msg_badread
-sizebuf_t net_message;
-int		  msg_readcount;
-qboolean  msg_badread;
+extern sizebuf_t net_message;
+extern int		 msg_readcount;
+extern qboolean  msg_badread;
 
 /* --------------------------------------------------------------------------
  * T6.5-owned plain storage (Quake/sv_main.c wave): sv/svs only. Declared,

@@ -651,6 +651,12 @@ exclude = [
     # which have no C spelling here, so a cbindgen declaration would be both a
     # redeclaration and a syntax error.
     "cl", "cls",
+    # Phase 7 M9e -- the net reader globals became Rust-owned storage
+    # (ADR-007 net row closed). net.h:44 and common.h still declare them and
+    # every C reader includes those, so a cbindgen declaration would be a
+    # redeclaration; net_message's type is quake_c_sys's bindgen sizebuf_t,
+    # which has no spelling in this header at all.
+    "net_message", "msg_readcount", "msg_badread",
     # Phase 7 M7 -- declared by hand above, guarded on client.h. UserCmd and
     # EntityOpaque are ADR-011 mirrors with no C spelling, so cbindgen's own
     # declarations are syntax errors in every C TU that includes the header.

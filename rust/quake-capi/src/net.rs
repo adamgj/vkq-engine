@@ -4,15 +4,48 @@
 //! export the exact C names; writers and the SZ functions that can
 //! `Host_Error`/`Sys_Error` export as `quake_rs_*` status functions that
 //! `Quake/net_msg_glue.c` wraps, re-raising in a C frame (ADR-009 -- a
-//! longjmp must never unwind a Rust frame). The reader globals
-//! (`net_message`, `msg_readcount`, `msg_badread`) stay C-owned (ADR-007
-//! net row); this module marshals them around the pure `quake_net` core.
+//! longjmp must never unwind a Rust frame).
+//!
+//! M9e: the reader globals (`net_message`, `msg_readcount`, `msg_badread`)
+//! are Rust-owned storage, defined below as `#[no_mangle] static mut`
+//! exactly as `sv_main.rs` defines `sv`/`svs` (ADR-007 net row closed).
+//! C still declares them in `net.h`/`common.h` and every C reader reaches
+//! them unchanged; this module marshals them around the pure `quake_net`
+//! core.
 
 use core::ffi::{c_char, c_int, c_uint};
 
 use quake_c_sys as c;
 use quake_net::msg::{self, MsgReader};
 use quake_net::sizebuf::{SizeBuf, WireError};
+
+// ---------------------------------------------------------------------------
+// ADR-007 net row: the reader globals, Rust-owned from Phase 7 M9e.
+//
+// `net.h:44` and `common.h` keep declaring these, so every C reader
+// (cl_parse.c, cl_demo.c, harness.c, net_dgrm.c, net_loop.c, net_main.c,
+// sv_user.c, ...) resolves to the definitions below without a source change.
+// `Quake/net_main.c:77` and `Quake/net_msg_glue.c` no longer define them
+// under -Duse_rust_net; the -Duse_rust_net=disabled oracle leg keeps its own
+// copies in net_main.c and net_msg.c.
+
+/// `net_main.c:77` -- `sizebuf_t net_message;`.
+///
+/// SAFETY: every field is a `bool`, a raw pointer or an `int`, so all-zero
+/// is a valid value; C's own definition is a plain tentative definition and
+/// is zero-initialised too. `NET_Init` still calls `SZ_Alloc` on it, so the
+/// `data`/`maxsize` fields are filled in from C exactly as before.
+#[no_mangle]
+pub static mut net_message: c::sizebuf_t = unsafe { core::mem::zeroed() };
+
+/// `net_msg.c:230` -- `int msg_readcount;`.
+#[no_mangle]
+pub static mut msg_readcount: c_int = 0;
+
+/// `net_msg.c:231` -- `qboolean msg_badread;` (`qboolean` is `bool`,
+/// q_types.h:122).
+#[no_mangle]
+pub static mut msg_badread: bool = false;
 
 /// status codes shared with net_msg_glue.c (keep in sync with the glue)
 const SZ_OK: c_int = 0;

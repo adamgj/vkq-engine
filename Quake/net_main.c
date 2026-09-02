@@ -74,8 +74,13 @@ static PollProcedure slistSendProcedure = {NULL, 0.0, Slist_Send};
 static PollProcedure slistPollProcedure = {NULL, 0.0, Slist_Poll};
 #endif
 
+#ifndef USE_RUST_NET
+// Phase 7 M9e: Rust-owned storage under -Duse_rust_net (ADR-007 net row);
+// rust/quake-capi/src/net.rs defines it. net.h keeps the declaration, so every
+// reader here and elsewhere is unchanged.
 sizebuf_t net_message;
-int		  net_activeconnections = 0;
+#endif
+int net_activeconnections = 0;
 
 int messagesSent = 0;
 int messagesReceived = 0;
