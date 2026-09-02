@@ -3040,6 +3040,77 @@ void ctest_dgrm_reset_c (void)
 }
 
 /* ---------------------------------------------------------------------------
+ * Phase 7 M9b (T9.2): the ambient net_main.c / menu.c / console.c symbols the
+ * Rust net_dgrm.c orchestration half (quake-capi/src/net_dgrm_orch.rs) reads
+ * through quake-c-sys. In the shipping build every one of these belongs to a
+ * file that is still C and outside this harness -- net_main.c, menu.c and
+ * console.c are not oracle sources and net_bsd.c / net_win.c are not compiled
+ * here at all -- so the definitions below exist purely to close the link, the
+ * same arrangement the Phase 5 net globals above use. The glue-owned half of
+ * the same contract lives in stubs/net_dgrm_orch_glue_ref.c.
+ */
+
+/* quake-capi/src/net_main.rs:93 -- the Rust body net_main.c:95-100 forwards to
+ * under -DUSE_RUST_NET. No header in this slice declares it. */
+extern double rust_net_SetNetTime (void);
+
+/* net_main.c:77, :79 (net_defs.h:245, :247). The receive-side counters are
+ * defined with the Phase 5 block above; these are their send-side twins. */
+int messagesSent;
+int unreliableMessagesSent;
+
+/* net_main.c:82-83. Never registered here -- nothing in this link runs
+ * NET_Init -- so .value stays 0.0f, exactly as in the shipping build until
+ * Cvar_RegisterVariable runs. */
+cvar_t net_messagetimeout = {"net_messagetimeout", "300", CVAR_NONE};
+cvar_t net_connecttimeout = {"net_connecttimeout", "10", CVAR_NONE};
+
+/* net_bsd.c:165 / net_win.c (net_defs.h:215). Derived from the stub
+ * net_landrivers[3] above so the Rust landriver walk sees a consistent bound
+ * and a matching vtable array. */
+const int net_numlandrivers = (int)(sizeof (net_landrivers) / sizeof (net_landrivers[0]));
+
+/* net_main.c:62 (net.h:108). */
+enum slistScope_e slist_scope = SLIST_LOOP;
+
+/* menu.c:29, :91-93. menu.h is not part of the c_ref_prelude.h slice, so the
+ * two enum objects are defined as int: enum m_state_e has no negative or
+ * out-of-range enumerator, so every compiler this project builds with gives it
+ * int as its compatible type and the ABI matches the real definitions. Only
+ * the rcon path (m_return_onerror / m_return_reason) is written by the Rust
+ * port; the other two are read. */
+int		 m_state;
+int		 m_return_state;
+qboolean m_return_onerror;
+char	 m_return_reason[32];
+
+/* net_main.c:95-100 (net_defs.h:252). Under -DUSE_RUST_NET the real body is
+ * exactly this forward, and Sys_DoubleTime above is a fixed 0.0 clock, so
+ * net_time stays pinned for the tests. */
+double SetNetTime (void)
+{
+	return rust_net_SetNetTime ();
+}
+
+/* net_main.c:1093 (net_defs.h:280). The poll list is net_main.c-private and
+ * unported; scheduling into it from this harness would leave nothing to run
+ * it, so the stub drops the request. */
+void SchedulePollProcedure (PollProcedure *pp, double timeOffset)
+{
+	(void)pp;
+	(void)timeOffset;
+}
+
+/* console.h:53. console.c is not an oracle source and the redirect buffer is
+ * file-private there; the rcon differential lives in the shipping build, not
+ * here, so this stub only satisfies the link. */
+void Con_Redirect (void (*flush) (const char *text))
+{
+	(void)flush;
+}
+
+
+/* ---------------------------------------------------------------------------
  * Phase 5 M4 (review follow-up): fscanf oracle for the demo forcetrack
  * header parse. This is the exact C idiom CL_PlayDemo_f used --
  * fscanf ("%i") then an explicit fgetc == '\n' -- run over a memory buffer

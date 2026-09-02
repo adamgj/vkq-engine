@@ -181,6 +181,7 @@ fn main() {
         "host_glue_ref.c",
         "host_cmd_ref.c",
         "host_cmd_glue_ref.c",
+        "net_dgrm_orch_glue_ref.c",
     ] {
         let path = manifest.join("stubs").join(stub);
         println!("cargo:rerun-if-changed={}", path.display());

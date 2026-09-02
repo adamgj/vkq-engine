@@ -304,6 +304,16 @@ const char *rust_net_SlistPrintServerName(size_t idx);
 void rust_net_Close(qsocket_t *sock);
 qsocket_t *rust_net_CheckNewConnections(void);
 int rust_net_ListAddresses(qhostaddr_t *addresses, int maxaddresses);
+/* Phase 7 M9b: the net_dgrm.c orchestration half. Only the entry points whose
+ * signatures name net_defs.h types are declared here; the rest of the
+ * quake_rs_dgrm_* set uses plain C types and cbindgen emits it unguarded. */
+int quake_rs_dgrm_get_any_message(qsocket_t **out);
+void quake_rs_dgrm_close(qsocket_t *sock);
+void quake_rs_dgrm_listen(qboolean state);
+int quake_rs_dgrm_check_new_connections(qsocket_t **out);
+qboolean quake_rs_dgrm_search_for_hosts(qboolean xmit);
+int quake_rs_dgrm_connect(const char *host, qsocket_t **out);
+int quake_rs_dgrm_query_addresses(qhostaddr_t *addresses, int maxaddresses);
 #endif
 /* Phase 7 M2: the cvar registry. The non-raising API keeps its cvar.h names;
  * everything that can reach a callback, PR_AutoCvarChanged, or the
@@ -587,6 +597,11 @@ exclude = [
     "rust_net_SlistPrintServer", "rust_net_SlistPrintServerName",
     "rust_net_Close", "rust_net_CheckNewConnections",
     "rust_net_ListAddresses",
+    # Phase 7 M9b -- declared by hand above, guarded on net_defs.h
+    "quake_rs_dgrm_get_any_message", "quake_rs_dgrm_close",
+    "quake_rs_dgrm_listen", "quake_rs_dgrm_check_new_connections",
+    "quake_rs_dgrm_search_for_hosts", "quake_rs_dgrm_connect",
+    "quake_rs_dgrm_query_addresses",
     # Phase 7 M3 -- declared by hand above, guarded on world.h
     "SV_InitBoxHull", "SV_HullForBox", "SV_CreateAreaNode",
     "SV_ClearWorld", "SV_UnlinkEdict", "SV_FindTouchedLeafs",

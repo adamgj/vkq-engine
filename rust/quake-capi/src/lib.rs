@@ -58,6 +58,8 @@ pub mod net;
 #[cfg(feature = "net")]
 pub mod net_dgrm;
 #[cfg(feature = "net")]
+pub mod net_dgrm_orch; // net_dgrm.c orchestration half
+#[cfg(feature = "net")]
 pub mod net_loop;
 #[cfg(feature = "net")]
 pub mod net_main;
