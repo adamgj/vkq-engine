@@ -235,7 +235,6 @@ srcs = [
     'Quake/harness.c',
     'Quake/q_thread_sdl.c',
     'Quake/pr_trace.c',
-    'Quake/host_cmd.c',
     'Quake/image.c',
     'Quake/image_stb.c',
     'Quake/in_sdl.c',
@@ -703,6 +702,18 @@ if use_rust_host
     srcs += ['Quake/host_glue.c']
 else
     srcs += ['Quake/host.c']
+endif
+
+# Phase 7 M8 T8.3: host_cmd.c -> quake-capi (Pattern A whole-file swap).
+#
+# Like T8.2, no ADR-007 row opens or closes: current_skill, the four filelist
+# heads plus extralevels_sorted, and noclip_anglehack all keep C storage in the
+# glue, and the ExtraMaps_* parsing thread stays C behind named seams
+# (ADR-016).
+if use_rust_host
+    srcs += ['Quake/host_cmd_glue.c']
+else
+    srcs += ['Quake/host_cmd.c']
 endif
 
 if use_rust_snd
