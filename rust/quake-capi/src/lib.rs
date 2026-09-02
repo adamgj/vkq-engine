@@ -72,11 +72,21 @@ pub mod progs_builtins; // pr_cmds.c
 #[cfg(all(feature = "host", feature = "progs-host"))]
 pub mod progs_builtins_cl; // pr_cmds.c client-coupled builtins (Group F)
 #[cfg(all(feature = "host", feature = "progs-host"))]
+pub mod progs_builtins_filebuf; // pr_ext.c FRIK_FILE + strbuf builtins (M9f group C)
+#[cfg(all(feature = "host", feature = "progs-host"))]
+pub mod progs_builtins_particles; // pr_ext.c particle builtins (M9f group E)
+#[cfg(all(feature = "host", feature = "progs-host"))]
+pub mod progs_builtins_sprintf; // pr_ext.c sprintf group (M9f group A)
+#[cfg(all(feature = "host", feature = "progs-host"))]
+pub mod progs_builtins_strext; // pr_ext.c strconv/tokenizer/info group (M9f group B)
+#[cfg(all(feature = "host", feature = "progs-host"))]
 pub mod progs_builtins_sv; // pr_cmds.c / pr_ext.c server-coupled builtins
 #[cfg(all(feature = "host", feature = "progs-host"))]
 pub mod progs_builtins_sv_fx; // pr_cmds.c world-effect builtins (Group E)
 #[cfg(all(feature = "host", feature = "progs-host"))]
 pub mod progs_builtins_sv_msg; // pr_cmds.c / pr_ext.c message builtins
+#[cfg(all(feature = "host", feature = "progs-host"))]
+pub mod progs_builtins_te; // pr_ext.c temp-entity builtins (M9f group D)
 #[cfg(all(feature = "host", feature = "progs-host"))]
 pub mod progs_builtins_zone; // pr_ext.c strzone/strunzone + knownzone
 #[cfg(all(feature = "host", feature = "progs-host"))]
