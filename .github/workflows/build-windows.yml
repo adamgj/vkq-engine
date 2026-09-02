@@ -184,3 +184,18 @@ jobs:
         if ($LASTEXITCODE -ne 0) { throw "save diff failed" }
         python scripts/harness/save_diff.py --vkquake build-c/vkqr-engine.exe --vkquake-b build-rs-cfs/vkqr-engine.exe
         if ($LASTEXITCODE -ne 0) { throw "save diff (C fs) failed" }
+    # Phase 7 M10 (ADR-019 gate 4): the console/keys byte gates. condump
+    # covers console.c's ring geometry plus keys.c's `bindlist`; config
+    # covers Key_WriteBindings and Cvar_WriteVariables through the ADR-005
+    # formatter. Neither surface emits network traffic, so capture_diff
+    # cannot observe either one.
+    - name: Console dump byte-diff (C-only vs mixed)
+      run: |
+        $env:QUAKE_GAME_DATA = "$PWD\shareware-data"
+        python scripts/harness/condump_diff.py --vkquake build-c/vkqr-engine.exe --vkquake-b build-rs/vkqr-engine.exe
+        if ($LASTEXITCODE -ne 0) { throw "condump diff failed" }
+    - name: Config byte-diff (C-only vs mixed)
+      run: |
+        $env:QUAKE_GAME_DATA = "$PWD\shareware-data"
+        python scripts/harness/config_diff.py --vkquake build-c/vkqr-engine.exe --vkquake-b build-rs/vkqr-engine.exe
+        if ($LASTEXITCODE -ne 0) { throw "config diff failed" }

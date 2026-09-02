@@ -240,7 +240,6 @@ srcs = [
     'Quake/in_sdl.c',
     'Quake/in_sdl2.c',
     'Quake/in_sdl3.c',
-    'Quake/keys.c',
     'Quake/main_sdl.c',
     'Quake/mem.c',
     'Quake/menu.c',
@@ -719,6 +718,27 @@ if use_rust_host
     srcs += ['Quake/host_cmd_glue.c']
 else
     srcs += ['Quake/host_cmd.c']
+endif
+
+# Phase 7 M10b: keys.c -> quake-capi (Pattern A whole-file swap), on the same
+# use_rust_host switch as M3/M4/M6/M7/M8.
+#
+# Quake/keys_glue.c keeps every C-visible object keys.c defined -- the
+# key_lines edit line, key_linepos/key_insert/key_blinktime, edit_line,
+# history_line, key_dest, keybindings[], consolekeys[], menubound[],
+# keydown[], key_tabhint[], chat_team and the keynames[] table -- because
+# console.c, menu.c, sbar.c, in_sdl.c and the net/host code all resolve them
+# by plain name. Only keys.c's six file-statics (the chat buffer and its
+# length, key_inputgrab, and the three function-statics) move to Rust.
+#
+# The glue also carries the eleven ADR-009 Host_Guard trampolines the port
+# needs (SCR_UpdateScreen, the six Con_* console entry points, M_Keydown,
+# M_Charinput, M_ToggleMenu_f and VID_Toggle) and the Host_Reraise frames for
+# the eight raise-capable entry points.
+if use_rust_host
+    srcs += ['Quake/keys_glue.c']
+else
+    srcs += ['Quake/keys.c']
 endif
 
 if use_rust_snd

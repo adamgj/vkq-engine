@@ -233,6 +233,21 @@ jobs:
         python3 scripts/harness/save_diff.py --vkquake build-c/vkqr-engine --vkquake-b build-rs/vkqr-engine
         python3 scripts/harness/save_diff.py --vkquake build-c/vkqr-engine --vkquake-b build-rs-cfs/vkqr-engine
         python3 scripts/harness/save_diff.py --vkquake build-c/vkqr-engine --vkquake-b build-rs-cnet/vkqr-engine
+    # Phase 7 M10 (ADR-019 gate 4): the console/keys byte gates. condump
+    # covers console.c's ring geometry plus keys.c's `bindlist`; config
+    # covers Key_WriteBindings and Cvar_WriteVariables through the ADR-005
+    # formatter. Neither surface emits network traffic, so capture_diff
+    # cannot observe either one.
+    - name: Console dump byte-diff (C-only vs mixed)
+      run: |
+        export QUAKE_GAME_DATA="$PWD/shareware-data"
+        python3 scripts/harness/condump_diff.py --vkquake build-c/vkqr-engine --vkquake-b build-rs/vkqr-engine
+        python3 scripts/harness/condump_diff.py --vkquake build-c/vkqr-engine --vkquake-b build-rs-chost/vkqr-engine
+    - name: Config byte-diff (C-only vs mixed)
+      run: |
+        export QUAKE_GAME_DATA="$PWD/shareware-data"
+        python3 scripts/harness/config_diff.py --vkquake build-c/vkqr-engine --vkquake-b build-rs/vkqr-engine
+        python3 scripts/harness/config_diff.py --vkquake build-c/vkqr-engine --vkquake-b build-rs-chost/vkqr-engine
     # Phase 5 (ADR-019 gate 4): -netcapture smoke over a live localhost
     # session on the C build, then the structural differ in self-compare mode
     # (parser sanity). Cross-build capture comparisons begin at the M5/M7

@@ -7801,15 +7801,10 @@ int ctest_scr_zoom_count (void)
 	return ctest_scr_zoom_updates;
 }
 
-void Key_ClearStates (void)
-{
-	Sys_Error ("ctest: Key_ClearStates reached (keys.c is not an oracle source)");
-}
-
-void Key_EndChat (void)
-{
-	Sys_Error ("ctest: Key_EndChat reached (keys.c is not an oracle source)");
-}
+/* Phase 7 M10b: Key_ClearStates and Key_EndChat used to abort here, because
+ * keys.c was not an oracle source. It is one now (stubs/keys_ref.c), so both
+ * plain names belong to quake-capi's port and the aborting doubles are gone.
+ */
 
 void IN_ClearStates (void)
 {
@@ -8193,10 +8188,9 @@ int NET_ListAddresses (qhostaddr_t *addresses, int maxaddresses)
 	return 0;
 }
 
-void IN_Activate (void)
-{
-	Sys_Error ("ctest: IN_Activate reached (in_sdl.c is not an oracle source)");
-}
+/* Phase 7 M10b: IN_Activate moved to stubs/keys_ref.c, which records the call
+ * instead of aborting -- keys.c:1310 reaches it on a path the keys suite
+ * drives, and both sides call the same recorder. */
 
 void M_Menu_Quit_f (void)
 {

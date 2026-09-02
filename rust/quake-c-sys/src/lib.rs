@@ -15,6 +15,7 @@ pub mod cl_parse;
 pub mod cl_tent;
 pub mod host;
 pub mod host_cmd;
+pub mod keys;
 pub mod net_dgrm_orch;
 pub mod net_main;
 pub mod pr_edict_arena;

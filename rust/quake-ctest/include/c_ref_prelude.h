@@ -2012,4 +2012,26 @@ void SaveList_Rebuild (void);
 #include "server.h"
 #include "client.h"
 
+/* ---- Phase 7 M10b seam: the menu.h / platform.h declarations keys.c reaches
+ * (task M10b). keys.c becomes an oracle TU here, composed by stubs/keys_ref.c
+ * rather than listed in build.rs's C_SOURCES; the reason (host.c's link
+ * doubles for Key_Init / Key_UpdateForDest / History_Shutdown /
+ * Key_WriteBindings, and the two host_differential.rs tests that assert on
+ * them) is written out at the top of stubs/keys_ref.c.
+ *
+ * menu.h is NOT included as-is: it declares M_Print/M_Draw over cb_context_t,
+ * which is Vulkan-typed (gl_context.h). platform.h is include-clean but is
+ * otherwise entirely SDL-facing, so only the one entry point keys.c calls is
+ * taken. Both groups are copied verbatim from the line named on each. ---- */
+
+extern qboolean m_is_quitting; /* menu.h:58 */
+
+void	 M_Keydown (int key);			 /* menu.h:65 */
+void	 M_Charinput (int key);			 /* menu.h:66 */
+qboolean M_TextEntry (void);			 /* menu.h:67 */
+qboolean M_WaitingForKeyBinding (void);	 /* menu.h:68 */
+void	 M_ToggleMenu_f (void);			 /* menu.h:69 */
+
+char *PL_GetClipboardData (void); /* platform.h:34 */
+
 #endif /* C_REF_PRELUDE_H */

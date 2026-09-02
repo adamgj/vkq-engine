@@ -494,6 +494,14 @@ int quake_rs_pf_bufstr_set(int *detail);
 int quake_rs_pf_bufstr_add(int *detail);
 int quake_rs_pf_bufstr_free(int *detail);
 int quake_rs_pf_buf_cvarlist(int *detail);
+/* Phase 7 M10b: keys.c's config-writer core. Its FILE * parameter has no
+ * spelling in the Rust mirrors (quake-c-sys models FILE as an opaque struct
+ * and parse_deps is off), so it is declared by hand like Cvar_WriteVariables
+ * above; Quake/keys_glue.c's Key_WriteBindings forwards to it. Guarded on
+ * keys.h's own include guard. */
+#ifdef _QUAKE_KEYS_H
+void quake_rs_key_write_bindings(FILE *f);
+#endif
 #ifdef __cplusplus
 } /* extern "C" -- these hand-written declarations sit outside cbindgen's own
    * cpp_compat guard, so they carry their own */
@@ -561,6 +569,8 @@ exclude = [
     "Mod_LoadMD3Model", "Mod_LoadMD3SkinDefinitions", "Mod_LoadMD3SurfaceSkins",
     "Mod_LoadMD5MeshModel", "Mod_LoadMD5SurfaceSkins", "GLMesh_DeleteMeshBuffers",
     "strtoull", "strtol",
+    # Phase 7 M10b -- declared by hand above, guarded on keys.h
+    "quake_rs_key_write_bindings",
     # Phase 7 M9f -- libc and engine functions the pr_ext port modules import;
     # the CRT headers and pr_ext.c already declare them (same reason as fread/
     # fclose/strtoull/strtol above).

@@ -133,12 +133,18 @@ fn main() {
         println!("cargo:rerun-if-changed={}", path.display());
         build.file(path);
     }
-    // host.c, host_cmd.c and pr_ext.c are not compiled directly: stubs/
-    // host_ref.c, stubs/host_cmd_ref.c and stubs/pr_ext_ref.c #include them
+    // host.c, host_cmd.c, pr_ext.c and keys.c are not compiled directly:
+    // stubs/host_ref.c, stubs/host_cmd_ref.c, stubs/pr_ext_ref.c and
+    // stubs/keys_ref.c #include them
     // behind a per-TU rename block, so the C_SOURCES loop above never sees
     // them and an edit to any of them would not rebuild the oracle. Watch them
     // explicitly.
-    for src in ["Quake/host.c", "Quake/host_cmd.c", "Quake/pr_ext.c"] {
+    for src in [
+        "Quake/host.c",
+        "Quake/host_cmd.c",
+        "Quake/pr_ext.c",
+        "Quake/keys.c",
+    ] {
         println!("cargo:rerun-if-changed={}", repo_root.join(src).display());
     }
     // Phase 5 M7b: the unix UDP landriver oracle (net_wins.c stays C-only
@@ -186,6 +192,7 @@ fn main() {
         "net_main_glue_ref.c",
         "pr_edict_arena_glue_ref.c",
         "pr_ext_ref.c",
+        "keys_ref.c",
     ] {
         let path = manifest.join("stubs").join(stub);
         println!("cargo:rerun-if-changed={}", path.display());

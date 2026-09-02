@@ -132,6 +132,18 @@
 #define Host_Init				c_ref_Host_Init
 #define Host_Shutdown			c_ref_Host_Shutdown
 
+/* Phase 7 M10b: keys.c is now an oracle TU of its own (stubs/keys_ref.c), so
+ * the plain Key_* / History_Shutdown / IN_UpdateInputMode names below belong
+ * to the port. These five doubles are deliberately kept -- host.c's own calls
+ * must stay counted (Key_WriteBindings) or unreached (the rest), which is what
+ * tests/host_differential.rs asserts -- so they move to TU-local names here
+ * and host.c's calls follow them. */
+#define Key_Init				ctest_host_Key_Init
+#define Key_UpdateForDest		ctest_host_Key_UpdateForDest
+#define History_Shutdown		ctest_host_History_Shutdown
+#define IN_UpdateInputMode		ctest_host_IN_UpdateInputMode
+#define Key_WriteBindings		ctest_host_Key_WriteBindings
+
 /* server.h:361-362 and server.h's Host_ShutdownServer declaration were already
  * seen by the preprocessor under their plain names (the prelude force-includes
  * them), so the renamed definitions below have no visible prototype and
@@ -193,10 +205,16 @@ const char *Sys_ConsoleInput (void)
 
 /* keys.h:173. The real Key_WriteBindings (keys.c) emits one bind line per
  * bound key and nothing at all for an empty binding table; the harness never
- * binds a key, so writing nothing is what the real function would do here.
- * The call is still counted so Host_WriteConfiguration's ordering is
- * observable. */
-static int ctest_key_write_bindings_calls = 0;
+ * binds a key in this test binary, so writing nothing is what the real
+ * function would do here. The call is still counted so
+ * Host_WriteConfiguration's ordering is observable.
+ *
+ * This is the TU-local double host.c's own calls land on (renamed above). The
+ * counter is not static, because stubs/keys_ref.c's plain Key_WriteBindings --
+ * the one the port reaches through host_glue_ref.c:347's HOST_GUARD_PTR --
+ * bumps the same tally, which is what
+ * tests/host_differential.rs:1251 compares across the two sides. */
+int ctest_key_write_bindings_calls = 0;
 
 void Key_WriteBindings (FILE *f)
 {

@@ -47,6 +47,8 @@ pub mod host_cmd; // host_cmd.c
 #[cfg(feature = "image")]
 pub mod image_decode;
 pub mod json;
+#[cfg(feature = "host")]
+pub mod keys; // keys.c
 #[cfg(feature = "fs")]
 pub mod loc;
 pub mod mathlib;
