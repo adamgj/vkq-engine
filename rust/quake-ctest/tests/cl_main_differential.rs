@@ -215,6 +215,19 @@ extern "C" {
     fn ctest_sys_error_message() -> *const c_char;
     fn ctest_host_error_message() -> *const c_char;
     fn ctest_clear_con_log();
+    // stubs/console_ref.c -- console.c became an oracle source at Phase 7
+    // M10c, so Con_AddToTabList is the real port now and the completion
+    // list itself is the observation.
+    fn ctest_console_reset(side: c_int);
+    fn ctest_console_tablist_count(side: c_int) -> c_int;
+    fn ctest_console_tablist_entry(
+        side: c_int,
+        idx: c_int,
+        name: *mut c_char,
+        namecap: c_int,
+        ty: *mut c_char,
+        typecap: c_int,
+    ) -> c_int;
     fn ctest_con_log_len() -> c_int;
     fn ctest_con_log_get(i: c_int) -> *const c_char;
 }
@@ -1893,25 +1906,43 @@ fn rust_only_viewpos_completion_returns_early_unless_argc_is_two() {
 #[test]
 fn rust_only_viewpos_completion_offers_copy_at_argc_two() {
     let _g = lock();
-    // Con_AddToTabList is a stubs.c abort stub (console.c is not an oracle
-    // source), so reaching it IS the observation: the port must call it at
-    // argc 2 rather than return early.
     // SAFETY: fixture seeding; guarded by TEST_LOCK.
     unsafe {
         ctest_clmain_reset();
         ctest_clear_con_log();
+        // Con_AddToTabList appends to the real console port's list now, so
+        // start from an empty one.
+        ctest_console_reset(0);
     }
     tokenize("viewpos c");
     let partial = CString::new("c").unwrap();
     // SAFETY: fixture driver.
     let g = unsafe { ctest_clmain_rust_viewpos_completion(partial.as_ptr()) };
+    assert_eq!(g, GUARD_OK, "{}", guard_message(g));
+    // SAFETY: fixture read-back.
+    let count = unsafe { ctest_console_tablist_count(0) };
     assert_eq!(
-        g, GUARD_SYS_ERROR,
-        "expected the Con_AddToTabList abort stub"
+        count, 1,
+        "the port must offer exactly one completion at argc 2"
     );
-    assert!(
-        guard_message(g).contains("Con_AddToTabList"),
-        "unexpected abort: {}",
-        guard_message(g)
-    );
+    let mut name = [0u8; 64];
+    let mut ty = [0u8; 64];
+    // SAFETY: both buffers are live and their capacities are passed alongside.
+    unsafe {
+        ctest_console_tablist_entry(
+            0,
+            0,
+            name.as_mut_ptr().cast::<c_char>(),
+            name.len() as c_int,
+            ty.as_mut_ptr().cast::<c_char>(),
+            ty.len() as c_int,
+        )
+    };
+    let name = core::ffi::CStr::from_bytes_until_nul(&name)
+        .unwrap()
+        .to_str()
+        .unwrap();
+    assert_eq!(name, "copy");
+    // SAFETY: hand the list back before the next test in this binary runs.
+    unsafe { ctest_console_reset(0) };
 }

@@ -2034,4 +2034,55 @@ void	 M_ToggleMenu_f (void);			 /* menu.h:69 */
 
 char *PL_GetClipboardData (void); /* platform.h:34 */
 
+/* ---- Phase 7 M10c seam: the draw.h / quakedef.h / tasks.h / sys.h / menu.h
+ * declarations console.c reaches (task M10c). console.c becomes an oracle TU
+ * here, composed by stubs/console_ref.c rather than listed in build.rs's
+ * C_SOURCES; the reason (stubs/stubs.c's CON_STUB capture doubles for
+ * Con_Printf and friends, which ~1100 existing assertions read back) is
+ * written out at the top of stubs/console_ref.c.
+ *
+ * draw.h is NOT included as-is: it declares the whole Vulkan-facing 2D API
+ * over gl_context.h types. Only the seven entry points and the one constant
+ * console.c draws through are taken, copied verbatim from the line named on
+ * each. Likewise tasks.h and menu.h reach SDL through q_stdinc.h. ---- */
+
+#define CHARACTER_SIZE 8 /* draw.h:26 */
+
+/* quakedef.h:238-251 */
+typedef enum
+{
+	CANVAS_NONE,
+	CANVAS_DEFAULT,
+	CANVAS_CONSOLE,
+	CANVAS_MENU,
+	CANVAS_SBAR,
+	CANVAS_WARPIMAGE,
+	CANVAS_CROSSHAIR,
+	CANVAS_BOTTOMLEFT,
+	CANVAS_TOPLEFT,
+	CANVAS_BOTTOMRIGHT,
+	CANVAS_TOPRIGHT,
+	CANVAS_CSQC,
+	CANVAS_INVALID = -1
+} canvastype;
+
+void Draw_Character (cb_context_t *cbx, float x, float y, int num);						 /* draw.h:46 */
+void Draw_ConsoleBackground (cb_context_t *cbx);										 /* draw.h:50 */
+void Draw_Pic (cb_context_t *cbx, float x, float y, qpic_t *pic, float alpha, qboolean alpha_blend); /* draw.h:47 */
+void Draw_Fill (cb_context_t *cbx, float x, float y, float w, float h, int c, float alpha); /* draw.h:52 */
+void Draw_String (cb_context_t *cbx, float x, float y, const char *str);				 /* draw.h:54 */
+void GL_SetCanvas (cb_context_t *cbx, canvastype newcanvas);							 /* draw.h:64 */
+void GL_SetCanvasColor (float r, float g, float b, float a);							 /* draw.h:65 */
+
+extern double host_rawframetime; /* quakedef.h:406 */
+
+qboolean Tasks_IsWorker (void); /* tasks.h:38 */
+
+qboolean Sys_Explore (const char *path); /* sys.h:100 */
+void	 Sys_Sleep (unsigned long msecs); /* sys.h:159 */
+
+void M_Menu_Main_f (void); /* menu.h:74 */
+
+void S_LocalSound (const char *name); /* q_sound.h:184 */
+
 #endif /* C_REF_PRELUDE_H */

@@ -144,6 +144,16 @@
 #define IN_UpdateInputMode		ctest_host_IN_UpdateInputMode
 #define Key_WriteBindings		ctest_host_Key_WriteBindings
 
+/* Phase 7 M10c: console.c is an oracle TU of its own (stubs/console_ref.c)
+ * now, so the plain Con_Init / Con_UpdateMouseState / LOG_Init / LOG_Close
+ * names belong to the port. host.c's calls to them must stay unreached --
+ * this suite never drives Host_Init or Host_Shutdown -- so the four doubles
+ * follow the same pattern as the five above. */
+#define Con_Init				ctest_host_Con_Init
+#define Con_UpdateMouseState	ctest_host_Con_UpdateMouseState
+#define LOG_Init				ctest_host_LOG_Init
+#define LOG_Close				ctest_host_LOG_Close
+
 /* server.h:361-362 and server.h's Host_ShutdownServer declaration were already
  * seen by the preprocessor under their plain names (the prelude force-includes
  * them), so the renamed definitions below have no visible prototype and
@@ -305,7 +315,8 @@ void Steam_SetStatus_Multiplayer (int players, int maxplayers, const char *map)
 const builtin_t pr_csqcbuiltins[1] = {NULL};
 const int		pr_csqcnumbuiltins = 0;
 vec3_t			r_origin, vup, vright;
-qboolean		con_initialized = false;
+/* con_initialized moved to stubs/console_ref.c with the rest of the con_*
+ * objects Quake/console_glue.c owns (Phase 7 M10c). */
 qboolean		scr_disabled_for_loading = false;
 qboolean		no_rendering = true;
 qboolean		in_update_screen = false;

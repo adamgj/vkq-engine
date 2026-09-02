@@ -124,7 +124,27 @@ const char *ctest_con_log_get (int i)
 		va_end (ap);                         \
 	}
 
-CON_STUB (Con_Printf, "[con]")
+/* Con_Printf is NOT here any more. Phase 7 M10c made console.c an oracle TU
+ * (stubs/console_ref.c), so the plain name belongs to the port's C frame, the
+ * mirror of Quake/console_glue.c. It still appends exactly one "[con]" line
+ * per call, through ctest_con_appendf below, so every assertion written
+ * against this stub still reads the same log. Con_SafePrintf, Con_LinkPrintf,
+ * Con_CenterPrintf, Con_Redirect, Con_AddToTabList, Con_LogCenterPrint,
+ * Con_Quakebar, con_forcedup, con_lastcenterstring and SDL_SetClipboardText
+ * moved there for the same reason. Con_DPrintf, Con_DPrintf2, Con_Warning and
+ * Con_DWarning stay: Quake/console_glue.c keeps all four in C, so there is no
+ * ported half to compare them against. */
+
+/* console_ref.c's Con_Printf is a C variadic that has already formatted its
+ * message, so it needs a non-static, non-va_list door into the capture log. */
+void ctest_con_appendf (const char *tag, const char *fmt, ...)
+{
+	va_list ap;
+	va_start (ap, fmt);
+	ctest_con_append (tag, fmt, ap);
+	va_end (ap);
+}
+
 CON_STUB (Con_DPrintf, "[dcon]")
 CON_STUB (Con_DPrintf2, "[dcon2]")
 CON_STUB (Con_Warning, "[warn]")
@@ -2813,7 +2833,8 @@ mleaf_t *Mod_PointInLeaf (float *p, qmodel_t *model)
  * quake_rs::cmd::Cmd_Argc/Cmd_Argv (quake-capi's `cvar` feature) for callers
  * that link the Rust shim. */
 
-CON_STUB (Con_SafePrintf, "[safe]")
+/* Con_SafePrintf moved to stubs/console_ref.c with Con_Printf (Phase 7
+ * M10c); it still appends one "[safe]" line per call. */
 
 qboolean SNDDMA_Init (dma_t *dma)
 {
@@ -3101,13 +3122,8 @@ void SchedulePollProcedure (PollProcedure *pp, double timeOffset)
 	(void)timeOffset;
 }
 
-/* console.h:53. console.c is not an oracle source and the redirect buffer is
- * file-private there; the rcon differential lives in the shipping build, not
- * here, so this stub only satisfies the link. */
-void Con_Redirect (void (*flush) (const char *text))
-{
-	(void)flush;
-}
+/* Con_Redirect is the console port's now (Phase 7 M10c); the rcon redirect
+ * buffer is real in this link and stubs/console_ref.c compares it. */
 
 
 /* ---------------------------------------------------------------------------
@@ -7329,8 +7345,8 @@ int		 host_framecount;
 float	 host_netinterval; /* host.c; cl_main.c:71 declares it float, not cvar_t */
 float	 scr_clock_off;	   /* gl_screen.c; cl_demo.c:213 declares it float */
 qboolean noclip_anglehack;
-qboolean con_forcedup;
-char	 con_lastcenterstring[1024]; /* console.c:63 */
+/* con_forcedup and con_lastcenterstring moved to stubs/console_ref.c, which
+ * owns every con_* object Quake/console_glue.c owns (Phase 7 M10c). */
 int		 r_trace_line_cache_counter;
 int		 render_scale;
 qboolean render_warp;
@@ -7705,47 +7721,12 @@ const char *Sky_GetSkyCommand (qboolean always)
 
 /* --- console / screen / keys / input / cd (console.c, gl_screen.c, keys.c,
  * in_sdl.c, cd_sdl.c) ------------------------------------------------------ */
-void Con_AddToTabList (const char *name, const char *partial, const char *type)
-{
-	(void)name;
-	(void)partial;
-	(void)type;
-	Sys_Error ("ctest: Con_AddToTabList reached (console.c is not an oracle source)");
-}
-
-/* Phase 7 M8: reached from Host_Savegame_f (host_cmd.c:1618). The real
- * Con_LinkPrintf (console.c:1383) formats into the console exactly like
- * Con_Printf and additionally registers a clickable link record; the console
- * text is the part this harness observes, so it lands in the same capture log
- * under its own tag, and the link target is recorded for inspection. */
-static char ctest_last_link_addr[1024];
-
-const char *ctest_get_last_link_addr (void)
-{
-	return ctest_last_link_addr;
-}
-
-void Con_LinkPrintf (const char *addr, const char *fmt, ...)
-{
-	va_list ap;
-	q_strlcpy (ctest_last_link_addr, addr, sizeof (ctest_last_link_addr));
-	va_start (ap, fmt);
-	ctest_con_append ("[link]", fmt, ap);
-	va_end (ap);
-}
-
-void Con_LogCenterPrint (const char *str)
-{
-	(void)str;
-	Sys_Error ("ctest: Con_LogCenterPrint reached (console.c is not an oracle source)");
-}
-
-const char *Con_Quakebar (int len)
-{
-	(void)len;
-	Sys_Error ("ctest: Con_Quakebar reached (console.c is not an oracle source)");
-	return NULL;
-}
+/* Con_AddToTabList, Con_LinkPrintf, ctest_get_last_link_addr,
+ * Con_LogCenterPrint and Con_Quakebar all moved to stubs/console_ref.c in
+ * Phase 7 M10c: console.c IS an oracle source now, so the three that used
+ * to abort here are the real thing on both sides, and the link recorder
+ * tests/host_cmd_differential.rs reads back lives next to the
+ * Quake/console_glue.c mirror that fills it. */
 
 void SCR_CenterPrint (const char *str)
 {
@@ -7924,12 +7905,8 @@ qboolean Steam_SetAchievement (const char *name)
 	return false;
 }
 
-int SDL_SetClipboardText (const char *text)
-{
-	(void)text;
-	Sys_Error ("ctest: SDL_SetClipboardText reached (SDL is not linked into the ctest harness)");
-	return -1;
-}
+/* SDL_SetClipboardText is a recorder in stubs/console_ref.c now: both halves
+ * of Con_CopySelectionToClipboard reach it (Phase 7 M10c). */
 
 /* ---------------------------------------------------------------------------
  * Phase 7 M7 (T7.0) link proof -- see rust/quake-ctest/tests/
@@ -8105,14 +8082,26 @@ void Info_Print (const char *info)
 	Sys_Error ("ctest: Info_Print reached (common.c is not an oracle source)");
 }
 
+/* COM_TintSubstring copied verbatim from Quake/common.c, for the same reason
+ * q_strcasestr above it is: common.c is not an oracle source, and both halves
+ * of the console oracle reach it through Con_FormatTabMatch (console.c:1919).
+ * It is a pure string transform, so one shared copy is correct for both. */
 char *COM_TintSubstring (const char *in, const char *substr, char *out, size_t outsize)
 {
-	(void)in;
-	(void)substr;
-	(void)out;
-	(void)outsize;
-	Sys_Error ("ctest: COM_TintSubstring reached (common.c is not an oracle source)");
-	return NULL;
+	int	  l;
+	char *m = out;
+	q_strlcpy (out, in, outsize);
+	if (*substr)
+	{
+		while ((m = q_strcasestr (m, substr)))
+		{
+			for (l = 0; substr[l]; l++)
+				if (m[l] > ' ')
+					m[l] |= 0x80;
+			m += l;
+		}
+	}
+	return out;
 }
 
 void *Mod_Extradata (qmodel_t *mod)

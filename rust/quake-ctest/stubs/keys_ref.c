@@ -681,21 +681,13 @@ char *PL_GetClipboardData (void)
 	return out;
 }
 
-/* console.c state the console edit line reads (console.h:29-31 for the last
- * three; keys.c:245-246 re-declares the first four itself). con_forcedup
- * already has one at stubs.c:7332 and is left alone; glheight (gl_vidsdl.c)
- * and m_is_quitting (menu.c:114) have none anywhere in this link, so they are
- * defined here next to the console block keys.c reads them with. */
+/* glheight (gl_vidsdl.c) and m_is_quitting (menu.c:114) have no definition
+ * anywhere else in this link, so they are defined here. The con_* block that
+ * used to sit alongside them moved to stubs/console_ref.c at Phase 7 M10c --
+ * console.c is an oracle TU of its own now and owns those objects, so keys.c
+ * and the Rust keys port both read the real console state. */
 int		 glheight = 0;
 qboolean m_is_quitting = false;
-
-char *con_text = NULL;
-char  key_tabpartial[MAXCMDLINE];
-int	  con_current = 0;
-int	  con_linewidth = 0;
-int	  con_vislines = 0;
-int	  con_totallines = 0;
-int	  con_backscroll = 0;
 
 /* =========================================================================
  * THE FIXTURE

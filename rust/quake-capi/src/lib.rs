@@ -32,6 +32,8 @@ pub mod cl_parse; // cl_parse.c
 pub mod cl_tent; // cl_tent.c
 #[cfg(feature = "cvar")]
 pub mod cmd; // cmd.c
+#[cfg(feature = "host")]
+pub mod console; // console.c
 pub mod crc;
 #[cfg(feature = "cvar")]
 pub mod cvar; // cvar.c

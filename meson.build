@@ -217,7 +217,6 @@ endforeach
 srcs = [
     'Quake/cd_null.c',
     'Quake/common.c',
-    'Quake/console.c',
     'Quake/gl_draw.c',
     'Quake/gl_fog.c',
     'Quake/gl_heap.c',
@@ -739,6 +738,27 @@ if use_rust_host
     srcs += ['Quake/keys_glue.c']
 else
     srcs += ['Quake/keys.c']
+endif
+
+# Phase 7 M10c: console.c -> quake-capi (Pattern A whole-file swap), on the
+# same use_rust_host switch as M3/M4/M6/M7/M8/M10b.
+#
+# Quake/console_glue.c keeps every C-visible object console.c defined -- the
+# scrollback buffer and its geometry, the six con_* cvars, the notify ring,
+# con_lastcenterstring, the rcon redirect buffer, con_mutex and
+# key_tabpartial -- because keys.c, gl_screen.c, host.c and the net code
+# resolve them by plain name.
+#
+# It also keeps the eight C-variadic entry points (Con_Printf and friends) so
+# libc still formats console output byte for byte, Con_Printf's
+# SCR_UpdateScreen tail (which reaches Mod_LoadModel -> Host_Error),
+# Con_NotifyBox, the three ADR-009 Host_Guard trampolines (M_Menu_Main_f and
+# the two tab-completion callbacks) and the Host_Reraise frames for
+# Con_ToggleConsole_f and Con_TabComplete.
+if use_rust_host
+    srcs += ['Quake/console_glue.c']
+else
+    srcs += ['Quake/console.c']
 endif
 
 if use_rust_snd

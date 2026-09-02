@@ -13,6 +13,7 @@ pub mod cl_input;
 pub mod cl_main;
 pub mod cl_parse;
 pub mod cl_tent;
+pub mod console;
 pub mod host;
 pub mod host_cmd;
 pub mod keys;
