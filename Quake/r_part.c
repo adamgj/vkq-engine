@@ -903,6 +903,53 @@ void CL_RunParticles (void)
 
 /*
 ===============
+Harness_HashParticles
+
+The classic simulator's contribution to the client state hash. CL_RunParticles
+is called unconditionally from _Host_Frame (host.c:1203), before Harness_Frame
+(host.c:1231), so this observes post-advance state -- and it observes it under
+-headless too, unlike the r_part_fte.c simulator, which is driven only from the
+renderer frame (gl_rmain.c:1209-1295) and therefore never advances here.
+
+Hashed in active-list traversal order, which is deterministic: the allocator is
+strictly LIFO (spawn takes free_particles and pushes onto active_particles) and
+CL_RunParticles unlinks expired particles in place, so the list is always in
+reverse spawn order. The pool index goes into the hash as well: it is an index,
+not an address, and reproducing the free-list recycling order is part of the
+bug-for-bug contract.
+
+Excluded: `next` and the three list heads (addresses), and R_RocketTrail's
+function-local `tracercount` (r_part.c:702), which is unreachable from here and
+whose only effect -- alternating tracer direction -- is already visible in the
+`vel` of the particles it spawns.
+===============
+*/
+uint64_t Harness_HashParticles (uint64_t h)
+{
+	particle_t *p;
+	int			count = 0;
+
+	if (!particles)
+		return h;
+
+	for (p = active_particles; p; p = p->next)
+	{
+		int index = (int)(p - particles);
+		h = Harness_Hash64 (h, &index, sizeof (index));
+		h = Harness_Hash64 (h, p->org, sizeof (p->org));
+		h = Harness_Hash64 (h, p->vel, sizeof (p->vel));
+		h = Harness_Hash64 (h, &p->color, sizeof (p->color));
+		h = Harness_Hash64 (h, &p->ramp, sizeof (p->ramp));
+		h = Harness_Hash64 (h, &p->die, sizeof (p->die));
+		h = Harness_Hash64 (h, &p->type, sizeof (p->type));
+		count++;
+	}
+	h = Harness_Hash64 (h, &count, sizeof (count));
+	return h;
+}
+
+/*
+===============
 R_DrawParticlesFaces
 ===============
 */

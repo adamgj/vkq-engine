@@ -308,6 +308,8 @@ static uint64_t Harness_HashClient (uint64_t h)
 	   progs == NULL and cannot be half-hashed. */
 	if (cl.qcvm.progs)
 		h = Harness_HashVM (h, &cl.qcvm);
+
+	h = Harness_HashParticles (h);
 	return h;
 }
 

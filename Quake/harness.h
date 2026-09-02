@@ -105,4 +105,9 @@ void Harness_SndPaint (int painted, int end, const void *paintbuf, const volatil
 
 uint64_t Harness_Hash64 (uint64_t h, const void *data, size_t len);
 
+/* fold the classic particle simulator's active list into the client hash.
+   Defined in r_part.c, which owns the statics; a no-op before
+   R_InitParticles (dedicated servers never call it). */
+uint64_t Harness_HashParticles (uint64_t h);
+
 #endif /* QUAKE_HARNESS_H */
