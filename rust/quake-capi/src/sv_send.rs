@@ -856,8 +856,8 @@ unsafe fn sv_calc_stats(
         let ent = (*client).edict;
         let val = ph::GetEdictFieldValue(ent.cast::<c_void>(), (*vm).extfields.items2);
         let items: c_int = if !val.is_null() {
-            // COMPAT: ADR-010 rule 8 -- C's float-to-unsigned conversion is
-            // undefined out of range; Rust's `as` saturates.
+            // COMPAT: ADR-010 (Phase 7 amendment) -- C's float-to-unsigned
+            // conversion is undefined out of range; Rust's `as` saturates.
             ((*ent).v.items as u32 | ((ev_float(val) as u32) << 23)) as c_int
         } else {
             ((*ent).v.items as u32 | (((*globals()).serverflags as u32) << 28)) as c_int
@@ -1775,7 +1775,7 @@ const MAX_ENT_LEAFS: c_uint = 32;
 /// `(ent->v.nextthink - qcvm->time) * 1000` computes in *double* because
 /// `qcvm->time` is `double`, then `Q_rint` adds another `double` 0.5. Every
 /// float-to-integer store here is undefined in C when out of range and
-/// saturating in Rust (ADR-010 rule 8).
+/// saturating in Rust (ADR-010, Phase 7 amendment).
 unsafe fn sv_build_entity_state(ent: *mut Edict, state: *mut EntityState) -> Raise {
     // SAFETY: `ent` is a live edict and `state` a live `entity_state_t`.
     unsafe {
@@ -2301,6 +2301,11 @@ unsafe fn sv_write_entities_to_client(
                     raise!(get_string((*ent).v.model, &mut model));
                     nomodel = *model == 0;
                 }
+                // COMPAT: ADR-010 (Phase 7 amendment) -- this is the one cast in
+                // this file whose saturation changes control flow rather than a
+                // stored byte: a QC-assigned negative `.modelindex` reads as
+                // 0xffffffff under x86-64 C (entity skipped) and as 0 here
+                // (entity sent). Unreachable from engine code; see the ADR.
                 if nomodel || (*ent).v.modelindex as c_uint >= (*client).limit_models {
                     e += 1;
                     ent = next_edict(vm, ent);

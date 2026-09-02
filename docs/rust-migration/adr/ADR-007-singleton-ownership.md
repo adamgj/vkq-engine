@@ -17,8 +17,8 @@ The engine is anchored on global singletons read/written across modules: `cl`/`c
 | Singleton | C-owned until | Dual-view window | Rust-owned from |
 |---|---|---|---|
 | `com_searchpaths` etc. (fs) | P2 | P2 only | P2 |
-| `sv`/`svs` | P7 | P6–P7 (qcvm field) | P7 (closes at **M6**, sv_user.c + sv_main.c) |
-| `cl`/`cls` | P7 | P6–P7 (qcvm field) | P7 (closes at **M7**, the client stratum) |
+| `sv`/`svs` | P7 | P6 – P7 M6 (qcvm field) | P7 (**closed at M6**, sv_user.c + sv_main.c; storage is now `rust/quake-capi/src/sv_main.rs`) |
+| `cl`/`cls` | P7 | P6 – P7 M7 (qcvm field) | P7 (**closed at M7**, the client stratum; storage is now `rust/quake-capi/src/cl_main.rs`) |
 | `vid`, `r_refdef` | P8 | P8 sub-slices | P8 |
 | `vulkan_globals` | P8 | P8 sub-slices (C-layout view) | P8 |
 | `mod_known[]` | P3 (data) / P8 (vk members) | P3–P8 | P8 |
@@ -30,7 +30,7 @@ The engine is anchored on global singletons read/written across modules: `cl`/`c
 | progs VM internals (interpreter locals, arena field-offset handles, loader scratch, the reverse-built symbol maps' Rust-side views) | — | none: Rust-owned from each flip milestone, never visible to C | P6 |
 | driver internals (loopback buffers, dgrm packet buffer/state machine, UDP socket state) | — | none: Rust-owned module state from each driver's flip milestone, never visible to C | P5 |
 
-The four rows whose "Rust-owned from" column names a Phase 7 milestone (**M6**, **M7**, **M9**) are the phase's open dual-view windows; the milestone letters index `docs/ai/plans/rust-conversion-phase-7.md`. Phase 7 exits only with all four closed.
+Four rows name a Phase 7 milestone in their "Rust-owned from" column; the milestone letters index `docs/ai/plans/rust-conversion-phase-7.md`. **M6** (`sv`/`svs`) and **M7** (`cl`/`cls`) have landed, so those two windows are closed. The two **M9** rows — the net message globals and the ambient `qcvm`/`pr_global_struct`/edict array — are the phase's remaining open dual-view windows. Phase 7 exits only with all four closed.
 
 **End state (Phase 9/10):** singletons become fields of a `Host` struct created in `main()` and passed by `&mut` (split-borrowed into subsystem structs). Remaining `static` state exists only where a C remnant requires it, listed in the Phase-10 unsafe inventory.
 

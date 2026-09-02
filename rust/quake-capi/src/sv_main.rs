@@ -1541,6 +1541,9 @@ pub unsafe extern "C" fn quake_rs_sv_spawn_server(server: *const c_char) -> Rais
             ));
         }
         // C promotes skill.value to double before adding the 0.5 literal.
+        // COMPAT: ADR-010 (Phase 7 amendment) -- the float-to-int conversion
+        // is undefined in C out of range and saturating here, so a `skill`
+        // beyond INT_MAX clamps to 3 rather than to 0. Deliberate.
         let skill_now = ((cvar_value(ptr::addr_of!(g::skill)) as f64 + 0.5) as c_int).clamp(0, 3);
         ptr::addr_of_mut!(g::current_skill).write(skill_now);
 
@@ -1573,6 +1576,8 @@ pub unsafe extern "C" fn quake_rs_sv_spawn_server(server: *const c_char) -> Rais
         g::PR_SwitchQCVM(saved_vm.cast());
         raise!(g::SvMain_Glue_LoadProgs());
 
+        // COMPAT: ADR-010 (Phase 7 amendment) -- saturating float-to-int, so a
+        // `max_edicts` beyond INT_MAX clamps to MAX_EDICTS, not MIN_EDICTS.
         let max_edicts_value = cvar_value(ptr::addr_of!(g::max_edicts)) as c_int;
         (*vm()).max_edicts = max_edicts_value.clamp(MIN_EDICTS, MAX_EDICTS);
         let bytes = (*vm()).max_edicts.wrapping_mul((*vm()).edict_size) as usize;
@@ -1656,6 +1661,14 @@ pub unsafe extern "C" fn quake_rs_sv_spawn_server(server: *const c_char) -> Rais
             (*sv_p()).active = false;
             return 0;
         }
+        // COMPAT: the guard above is `>` not `>=`, so `numsubmodels ==
+        // MAX_MODELS` reaches the loop and its last iteration addresses index
+        // MAX_MODELS in two `[MAX_MODELS]` arrays -- a latent off-by-one in
+        // sv_main.c:1019. C writes one element past each array silently; the
+        // indexed places below are bounds-checked, so this build aborts
+        // instead. Not reproduced: matching C would mean an out-of-bounds
+        // write, which is UB in Rust too. Needs a BSP with exactly 8192
+        // submodels to reach.
         let localmodels = ptr::addr_of_mut!(LOCALMODELS).cast::<[c_char; 8]>();
         for i in 1..(*world).numsubmodels {
             let name = (*localmodels.add(i as usize)).as_ptr();

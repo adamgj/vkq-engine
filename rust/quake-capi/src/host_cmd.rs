@@ -4175,15 +4175,8 @@ unsafe fn Host_PreSpawn_f() -> Raise {
 // ---------------------------------------------------------------------------
 // host_cmd.c:2481-2544
 //
-// TEMP-STUB (chunk C owns `Send_Spawn_Info`, `host_cmd.c:1714`). `host_cmd.c`
-// declares it `static`, so once every chunk lands in the same
-// `rust/quake-capi/src/host_cmd.rs` file, chunk C's real port -- a private
-// `fn Send_Spawn_Info(client: *mut Client, loadgame: bool) -> Raise` in that
-// same module -- becomes callable here directly (same-module privacy, no
-// seam needed). This stub exists only so chunk D's own isolated
-// `--features host` build links; delete it the moment chunk C's definition
-// merges into this file, since two `fn Send_Spawn_Info` in one module is a
-// duplicate-definition error.
+// `Send_Spawn_Info` is `static` in `host_cmd.c` and is ported once, above, as
+// a private fn in this module; the call below reaches it directly.
 unsafe fn Host_Spawn_f() -> Raise {
     // SAFETY: `host_client`, `sv`, `qcvm`/`pr_global_struct` and `sv_player`
     // are live engine globals for the duration of console-command dispatch,

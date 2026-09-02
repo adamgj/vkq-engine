@@ -142,3 +142,45 @@ list stays honest:
 
 If either function ever acquires a simulation-side caller, this exception must
 come down along with the `RotationMatrix` one above.
+
+## Amended (Phase 7, 2026-09-02): float-to-integer conversion saturates; C's is undefined
+
+C's float-to-integer conversion is *undefined behaviour* when the value is
+outside the destination range (C99 6.3.1.4); Rust's `as` is *defined* to
+saturate at the destination's bounds (NaN maps to 0). Every transliterated
+`(int)`/`(unsigned)` cast therefore agrees with C exactly for in-range values
+-- which is every value the engine's own code produces -- and can disagree only
+where the C build's behaviour was already undefined.
+
+**Decision: take the saturating result. Do not emulate the C build's observed
+UB.** Emulating it would mean encoding one target's instruction semantics
+(x86-64 `cvttsd2si` yields `INT_MIN`; arm64 `fcvtzs` saturates like Rust) into
+portable code, which would pin the Rust build to x86 behaviour and *create* the
+cross-platform divergence this ADR's per-platform scope exists to avoid. The
+C build is not self-consistent across targets here, so there is no single
+"C behaviour" to be faithful to.
+
+Consequences, stated so they are not rediscovered as defects:
+
+- Sites are marked `// COMPAT: ADR-010` (**not** "ADR-010 rule 8" -- this ADR
+  has never had numbered rules; the two annotations that said so are corrected).
+  Where a module converts repeatedly, the marker sits on a shared shim
+  (`as_int` in `progs_builtins_sv.rs`, `progs_builtins_cl.rs`,
+  `progs_builtins_sv_fx.rs`, `sv_phys.rs`) rather than at every call.
+- Most such casts only change a *stored* value in an already-degenerate case.
+  A few change *control flow*, and those are the ones that could move a demo
+  or state hash. The Phase 7 STOP B review found three; the list is what that
+  review reached, not a proof of exhaustiveness:
+  - `rust/quake-capi/src/sv_send.rs:2304` -- `modelindex as c_uint >=
+    limit_models`. A QC-assigned negative `.modelindex` is `0xFFFFFFFF` on
+    x86-64 C (entity skipped) and `0` in Rust (entity sent).
+  - `rust/quake-capi/src/sv_main.rs:1544` -- `current_skill` from
+    `(int)(skill.value + 0.5)` clamped to 0..3. `skill 1e30` clamps to 0 on
+    x86-64 C and 3 in Rust, i.e. a different monster set.
+  - `rust/quake-capi/src/sv_main.rs:1576` -- `max_edicts` clamped to
+    `MIN_EDICTS..MAX_EDICTS`; `max_edicts 1e30` gives 256 on x86-64 C and
+    32000 in Rust.
+- All three need a cvar or QC field set to a value around 1e10 or larger, or
+  negative where the engine never writes one. None is reachable from the
+  engine's own code paths, which is why the differential and soak gates are
+  green; the divergence is only a hazard for a deliberately hostile mod.
