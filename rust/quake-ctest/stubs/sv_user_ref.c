@@ -217,6 +217,24 @@ int SvUser_Glue_DropClient (qboolean crash)
 	return Host_Guard (SvUser_InvokeDropClient, &crash);
 }
 
+/* M9: mirrors Quake/sv_user_glue.c's SvUser_InvokeGetServerMessage /
+ * SvUser_Glue_GetServerMessage. NET_GetServerMessage is not renamed by
+ * c_ref_prelude.h (only NET_NewQSocket/NET_FreeQSocket are), so the plain
+ * name here is stubs.c:7021's definition, which always returns NULL -- the
+ * guard's raise path is therefore unobservable in this harness, exactly like
+ * SvUser_Glue_DropClient's. It exists so the Rust port's
+ * quake_c_sys::sv_user::SvUser_Glue_GetServerMessage extern resolves. */
+static void SvUser_InvokeGetServerMessage (void *p)
+{
+	*(struct qsocket_s **)p = NET_GetServerMessage ();
+}
+
+int SvUser_Glue_GetServerMessage (struct qsocket_s **out)
+{
+	*out = NULL;
+	return Host_Guard (SvUser_InvokeGetServerMessage, out);
+}
+
 /* --------------------------------------------------------------------------
  * Plain-named Rust-side drivers, mirroring Quake/sv_user_glue.c exactly.
  * quake_rs_sv_set_ideal_pitch/quake_rs_sv_client_think/quake_rs_sv_run_clients

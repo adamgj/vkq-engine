@@ -36,7 +36,9 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 //     here.
 //  4. Keep the MSG_Read*/key_dest/V_CalcRoll/SVFTE_Ack/net accessors reached
 //     as ordinary C externs; none of those can raise, so no guard is needed
-//     for them.
+//     for them. NET_GetServerMessage is the one exception and is guarded
+//     below (M9): it is not an accessor -- it drives the datagram driver's
+//     QGetAnyMessage, which reaches SV_ConnectClient and SV_DropClient.
 
 #include "quakedef.h"
 #include "steam.h" // quake_rs.h declares the Phase 2 Steam shims in terms of steamgame_t
@@ -104,6 +106,25 @@ static void SvUser_InvokeDropClient (void *p)
 int SvUser_Glue_DropClient (qboolean crash)
 {
 	return Host_Guard (SvUser_InvokeDropClient, &crash);
+}
+
+/* sv_user.c:628 -- NET_GetServerMessage (), called from SV_RunClients.
+   Missed by the T6.4 audit, which classed it with the non-raising net
+   accessors. It is not one: net_main.c:768 dispatches to the driver's
+   QGetAnyMessage, and the datagram implementation (net_dgrm.c:138) calls
+   _Datagram_ServerControlPacket -> SV_ConnectClient (sv_main_glue.c:495,
+   a Host_Reraise) on a connection request and SV_DropClient
+   (net_dgrm.c:212) on a timeout. Both longjmp, and without this guard both
+   unwind the Rust SV_RunClients frame (ADR-009 rule 3). */
+static void SvUser_InvokeGetServerMessage (void *p)
+{
+	*(struct qsocket_s **)p = NET_GetServerMessage ();
+}
+
+int SvUser_Glue_GetServerMessage (struct qsocket_s **out)
+{
+	*out = NULL;
+	return Host_Guard (SvUser_InvokeGetServerMessage, out);
 }
 
 /* ---------------------------------------------------------------------------

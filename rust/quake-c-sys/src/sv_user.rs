@@ -72,6 +72,20 @@ extern "C" {
     /// (pr_global_struct->ClientDisconnect)`.
     pub fn SvUser_Glue_DropClient(crash: qboolean) -> c_int;
 
+    /// Wraps `NET_GetServerMessage ()` (`sv_user.c:628`, called from
+    /// `SV_RunClients`). Phase 7 M9: the T6.4 audit filed this with the
+    /// non-raising net accessors, which it is not. `net_main.c:768`
+    /// dispatches to the driver's `QGetAnyMessage`, and the datagram
+    /// implementation (`net_dgrm.c:138`) reaches `SV_ConnectClient`
+    /// (`sv_main_glue.c:495`, a `Host_Reraise`) through
+    /// `_Datagram_ServerControlPacket` and `SV_DropClient`
+    /// (`net_dgrm.c:212`) on a socket timeout. Calling it unguarded let
+    /// either longjmp unwind this Rust frame (ADR-009 rule 3).
+    ///
+    /// `*out` is set to NULL before the guarded call, so it is defined on
+    /// every non-zero return.
+    pub fn SvUser_Glue_GetServerMessage(out: *mut *mut c_void) -> c_int;
+
     /* Engine C symbols sv_user.c calls directly; none of these can raise. */
 
     /// `Quake/common.h` -- resets the read cursor before a client message is
@@ -102,8 +116,6 @@ extern "C" {
     /// anywhere in its body; safe to call unguarded.
     pub fn SVFTE_Ack(client: *mut c_void, sequence: c_int);
 
-    /// `Quake/net.h` -- `struct qsocket_s *NET_GetServerMessage (void);`.
-    pub fn NET_GetServerMessage() -> *mut c_void;
     /// `Quake/net.h` (`net_main.c`) -- reads a per-socket flag only.
     pub fn NET_QSocketGetProQuakeAngleHack(s: *const c_void) -> qboolean;
 }

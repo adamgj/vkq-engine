@@ -860,7 +860,15 @@ fn sv_run_clients() -> Raise {
     unsafe {
         // receive from clients first
         loop {
-            let sock = cu::NET_GetServerMessage();
+            // ADR-009: guarded, not a bare extern call. The datagram
+            // driver's QGetAnyMessage reaches SV_ConnectClient and
+            // SV_DropClient beneath this, and both longjmp
+            // (Quake/sv_user_glue.c documents the chain).
+            let mut sock: *mut c_void = ptr::null_mut();
+            let r = cu::SvUser_Glue_GetServerMessage(&mut sock);
+            if r != 0 {
+                return r;
+            }
             if sock.is_null() {
                 break; // no more this frame
             }
