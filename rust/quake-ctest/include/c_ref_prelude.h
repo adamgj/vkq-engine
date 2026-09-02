@@ -585,6 +585,7 @@ enum srcformat
 	SRC_RGBA_CUBEMAP,
 	SRC_INDEXED_PALETTE,
 };
+#define TEXPREF_MIPMAP	 0x0001
 #define TEXPREF_ALPHA	 0x0008
 #define TEXPREF_PAD		 0x0010
 #define TEXPREF_NOPICMIP 0x0080
@@ -1381,6 +1382,169 @@ int	 PScript_RunParticleEffectTypeString (vec3_t org, vec3_t dir, float count, c
 int	 PScript_EntParticleTrail (vec3_t oldorg, entity_t *ent, const char *name);
 void PScript_DelinkTrailstate (struct trailstate_s **tsk);
 void PScript_ClearParticles (qboolean load);
+
+/* ---- Phase 7 M9f (T9f.0): the pr_ext.c oracle's renderer-facing slice ----
+ *
+ * stubs/pr_ext_ref.c composes Quake/pr_ext.c into this link (the composing-TU
+ * pattern; see that file's header). pr_ext.c reaches a handful of glquake.h /
+ * draw.h declarations the real headers cannot supply here, because glquake.h
+ * pulls vulkan/vulkan.h and tasks.h. Two kinds of declaration follow, and they
+ * are labelled individually:
+ *
+ *   FAITHFUL   -- character-for-character the real declaration; a Phase 8 port
+ *                 can trust it.
+ *   COMPILE-ONLY -- a minimal stand-in with the right *spelling* but not the
+ *                 real layout. Every consumer of one is Phase 8 renderer code
+ *                 (PF_cl_draw*, DrawQC_CharacterQuad, PF_getsurface*) that no
+ *                 differential drives and that nothing in this link calls, and
+ *                 nothing here takes sizeof() of a COMPILE-ONLY struct.
+ *
+ * Definitions for the objects declared here live in stubs/pr_ext_ref.c as link
+ * doubles, not in a real renderer TU.
+ */
+
+/* FAITHFUL: glquake.h:41, :107, :636, :639 */
+extern int glwidth, glheight;
+#define P_INVALID	   -1
+#define LMBLOCK_WIDTH  1024
+#define LMBLOCK_HEIGHT 1024
+
+/* COMPILE-ONLY: the Vulkan handles and renderer structs DrawQC_CharacterQuad
+ * (pr_ext.c:4885) and PF_cl_drawfill (pr_ext.c:5133) name. The handle types are
+ * opaque pointers as vulkan.h defines them; the structs carry only the members
+ * pr_ext.c actually touches, in the real spelling. */
+typedef uint64_t				 VkDeviceSize;
+typedef struct VkBuffer_T		*VkBuffer;
+typedef struct VkCommandBuffer_T *VkCommandBuffer;
+typedef struct VkPipeline_T		*VkPipeline;
+typedef struct VkPipelineLayout_T *VkPipelineLayout;
+typedef struct VkRenderPass_T	 *VkRenderPass;
+typedef struct VkDescriptorSet_T *VkDescriptorSet;
+typedef int						 VkPipelineBindPoint;
+#define VK_PIPELINE_BIND_POINT_GRAPHICS 0
+typedef struct
+{
+	int32_t x, y;
+} VkOffset2D;
+typedef struct
+{
+	uint32_t width, height;
+} VkExtent2D;
+typedef struct
+{
+	VkOffset2D offset;
+	VkExtent2D extent;
+} VkRect2D;
+typedef uint32_t VkShaderStageFlags;
+typedef struct
+{
+	VkShaderStageFlags stageFlags;
+	uint32_t		   offset;
+	uint32_t		   size;
+} VkPushConstantRange;
+
+/* FAITHFUL: glquake.h:152-163 */
+typedef struct vulkan_pipeline_layout_s
+{
+	VkPipelineLayout	handle;
+	VkPushConstantRange push_constant_range;
+	int					mboit_input_attachment_set;
+} vulkan_pipeline_layout_t;
+typedef struct vulkan_pipeline_s
+{
+	VkPipeline				 handle;
+	vulkan_pipeline_layout_t layout;
+} vulkan_pipeline_t;
+
+/* COMPILE-ONLY: glquake.h:221-239 secondary_cb_contexts_t and :283-... the
+ * render_pass_index_t enum, cut down to the members pr_ext.c indexes with.
+ * SCBX_GUI's real numeric value is NOT reproduced -- nothing in this link
+ * indexes a real context array. */
+typedef enum
+{
+	SCBX_GUI,
+	SCBX_NUM
+} secondary_cb_contexts_t;
+typedef enum
+{
+	RENDER_PASS_INDEX_MAIN,
+	RENDER_PASS_INDEX_UI,
+	RENDER_PASS_INDEX_COUNT
+} render_pass_index_t;
+
+/* COMPILE-ONLY: glquake.h:339-349. pr_ext.c only ever dereferences `cb`; the
+ * real struct also carries `canvastype current_canvas`, `uint32_t
+ * vbo_indices[MAX_BATCH_SIZE]` and `unsigned int num_vbo_indices`, which are
+ * omitted because MAX_BATCH_SIZE and canvastype are renderer-private and
+ * nothing here takes sizeof (cb_context_t). */
+typedef struct cb_context_s
+{
+	VkCommandBuffer	  cb;
+	VkRenderPass	  render_pass;
+	int				  render_pass_index;
+	int				  subpass;
+	vulkan_pipeline_t current_pipeline;
+} cb_context_t;
+
+/* COMPILE-ONLY: glquake.h:351-... vulkanglobals_t has ~100 members; only the
+ * seven pr_ext.c:4940-4947 / :5180-5184 name are mirrored, so this struct's
+ * layout is NOT the real one. */
+typedef struct
+{
+	cb_context_t *secondary_cb_contexts[SCBX_NUM];
+	void (*vk_cmd_bind_descriptor_sets) (
+		VkCommandBuffer, VkPipelineBindPoint, VkPipelineLayout, uint32_t, uint32_t, const VkDescriptorSet *, uint32_t, const uint32_t *);
+	void (*vk_cmd_bind_vertex_buffers) (VkCommandBuffer, uint32_t, uint32_t, const VkBuffer *, const VkDeviceSize *);
+	void (*vk_cmd_draw) (VkCommandBuffer, uint32_t, uint32_t, uint32_t, uint32_t);
+	vulkan_pipeline_t		 basic_alphatest_pipeline[RENDER_PASS_INDEX_COUNT];
+	vulkan_pipeline_t		 basic_blend_pipeline[RENDER_PASS_INDEX_COUNT];
+	vulkan_pipeline_t		 basic_notex_blend_pipeline[RENDER_PASS_INDEX_COUNT];
+	vulkan_pipeline_layout_t basic_pipeline_layout;
+} vulkanglobals_t;
+extern vulkanglobals_t vulkan_globals;
+
+/* COMPILE-ONLY: gl_texmgr.h's gltexture_s is completed here with just the one
+ * member pr_ext.c:4945 reads off char_texture. The real struct has ~20 more. */
+struct gltexture_s
+{
+	VkDescriptorSet descriptor_set;
+};
+
+/* FAITHFUL: glquake.h:625-630 */
+typedef struct
+{
+	float position[3];
+	float texcoord[2];
+	byte  color[4];
+} basicvertex_t;
+
+/* FAITHFUL: glquake.h:790 and the two renderer entry points DrawQC_
+ * CharacterQuad calls; vkCmdSetScissor is Vulkan's own. */
+byte *R_VertexAllocate (int size, VkBuffer *buffer, VkDeviceSize *buffer_offset);
+void  R_BindPipeline (cb_context_t *cbx, VkPipelineBindPoint bind_point, vulkan_pipeline_t pipeline);
+void  vkCmdSetScissor (VkCommandBuffer cb, uint32_t first, uint32_t count, const VkRect2D *scissors);
+int	  R_LightPoint (vec3_t p, float ofs, lightcache_t *cache, vec3_t *lightcolor);
+
+/* FAITHFUL: Quake/draw.h:32-42's picflags_t and the Draw_* entry points
+ * pr_ext.c's PF_cl_drawpic / PF_cl_drawsubpic / PF_cl_getimagesize reach
+ * (draw.h itself is not includable here: every prototype takes cb_context_t).
+ * gl_texmgr.c:63's palette table comes along for PF_cl_drawcharacter's colour
+ * lookup. */
+typedef enum
+{
+	PICFLAG_AUTO = 0,
+	PICFLAG_WAD = (1u << 0),
+	PICFLAG_WRAP = (1u << 2),
+	PICFLAG_MIPMAP = (1u << 3),
+	PICFLAG_NOLOAD = (1u << 31)
+} picflags_t;
+qpic_t *Draw_PicFromWad2 (const char *name, unsigned int texflags, int picflags);
+qpic_t *Draw_GetCachedPic (const char *path);
+qpic_t *Draw_TryCachePic (const char *path, unsigned int texflags, int picflags);
+void	Draw_Pic (cb_context_t *cbx, float x, float y, qpic_t *pic, float alpha, qboolean alpha_blend);
+void	Draw_SubPic (
+	   cb_context_t *cbx, float x, float y, float w, float h, qpic_t *pic, float s1, float t1, float s2, float t2, float *rgb, float alpha);
+extern unsigned int d_8to24table[256];
 
 extern int r_trace_line_cache_counter;
 #define InvalidateTraceLineCache()    \
