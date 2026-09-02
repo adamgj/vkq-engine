@@ -42,6 +42,8 @@ pub mod fs_stdio;
 pub mod hash_map;
 #[cfg(feature = "host")]
 pub mod host; // host.c
+#[cfg(feature = "host")]
+pub mod host_cmd; // host_cmd.c
 #[cfg(feature = "image")]
 pub mod image_decode;
 pub mod json;
