@@ -33,16 +33,19 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include "quake_rs.h"
 
 /* status codes shared with rust/quake-capi/src/progs_builtins.rs */
-#define PRBI_OK						  0
-#define PRBI_ERR_FIND_BAD_STRING	  1
-#define PRBI_ERR_NO_STRING			  2
+#define PRBI_OK								   0
+#define PRBI_ERR_FIND_BAD_STRING			   1
+#define PRBI_ERR_NO_STRING					   2
 /* a guarded seam raised: detail is Host_Guard's result, re-issued below */
-#define PRBI_ERR_GUARD				  3
-#define PRBI_ERR_PROGRAM_ERROR		  4
-#define PRBI_ERR_WRITEDEST_NOT_CLIENT 5
-#define PRBI_ERR_WRITEDEST_BAD_DEST	  6
-#define PRBI_ERR_BAD_EDICT_POINTER	  7
-#define PRBI_ERR_BAD_EDICT_NUM		  8
+#define PRBI_ERR_GUARD						   3
+#define PRBI_ERR_PROGRAM_ERROR				   4
+#define PRBI_ERR_WRITEDEST_NOT_CLIENT		   5
+#define PRBI_ERR_WRITEDEST_BAD_DEST			   6
+#define PRBI_ERR_BAD_EDICT_POINTER			   7
+#define PRBI_ERR_BAD_EDICT_NUM				   8
+/* Phase 7 M9f group E (progs_builtins_particles.rs) */
+#define PRBI_ERR_SV_PARTICLEEFFECTNUM_OVERFLOW 9
+#define PRBI_ERR_CL_PARTICLEEFFECTNUM_OVERFLOW 10
 
 /* ---- engine seams. Every one of these is a leaf, or reaches only
    Sys_Error/Con_* -- none can Host_Error, which is the rule that decides
@@ -332,6 +335,10 @@ FUNC_NORETURN static void PRBI_Raise (int status, int detail, const char *name)
 		Host_Error ("NUM_FOR_EDICT: bad pointer");
 	case PRBI_ERR_BAD_EDICT_NUM:
 		Host_Error ("EDICT_NUM: bad edict_num %i", detail);
+	case PRBI_ERR_SV_PARTICLEEFFECTNUM_OVERFLOW:
+		PR_RunError ("PF_sv_particleeffectnum: overflow");
+	case PRBI_ERR_CL_PARTICLEEFFECTNUM_OVERFLOW:
+		PR_RunError ("PF_cl_particleeffectnum: overflow");
 	default:
 		PR_RunError ("PF_%s: unknown status %i", name, status);
 	}
@@ -499,4 +506,119 @@ void rust_pr_UnzoneAll (void)
 	if (status != PRBI_OK)
 		PRBI_Raise (status, detail, "UnzoneAll");
 }
+
+/* the particle group (progs_builtins_particles.rs, Phase 7 M9f group E) */
+RUST_PF (sv_particleeffectnum)
+RUST_PF (sv_trailparticles)
+RUST_PF (sv_pointparticles)
+RUST_PF (cl_particleeffectnum)
+RUST_PF (cl_trailparticles)
+RUST_PF (cl_pointparticles)
+
+/* pr_ext.c's per-map warning counter moved to Rust with the two builtins that
+   bump it, so PR_ShutdownExtensions resets it through here. Cannot raise. */
+void rust_pr_ResetParticleWarnCount (void)
+{
+	quake_rs_pr_reset_particle_warn_count ();
+}
+
+/* the string-extension group (progs_builtins_strext.rs, Phase 7 M9f group B) */
+RUST_PF (strconv)
+RUST_PF (infoadd)
+RUST_PF (infoget)
+RUST_PF (Tokenize)
+RUST_PF (tokenize_console)
+RUST_PF (tokenizebyseparator)
+RUST_PF (ArgC)
+RUST_PF (ArgV)
+RUST_PF (argv_start_index)
+RUST_PF (argv_end_index)
+RUST_PF (strftime)
+RUST_PF (stov)
+
+/* pr_ext.c tokenize_flush is not a builtin_t slot -- PR_ShutdownExtensions
+   calls it directly -- so it gets its frame by hand. Nothing in it can raise,
+   but it keeps the status/detail convention so PRBI_Raise stays the only
+   place a Rust-reported failure turns back into a C error. */
+void rust_pr_tokenize_flush (void)
+{
+	int detail = 0;
+	int status = quake_rs_pr_tokenize_flush (&detail);
+	if (status != PRBI_OK)
+		PRBI_Raise (status, detail, "tokenize_flush");
+}
+
+/* the FRIK_FILE + string-buffer group (progs_builtins_filebuf.rs, Phase 7 M9f
+   group C) */
+RUST_PF (fopen)
+RUST_PF (fgets)
+RUST_PF (fputs)
+RUST_PF (fclose)
+RUST_PF (fseek)
+RUST_PF (whichpack)
+RUST_PF (buf_create)
+RUST_PF (buf_del)
+RUST_PF (buf_getsize)
+RUST_PF (buf_copy)
+RUST_PF (buf_sort)
+RUST_PF (buf_implode)
+RUST_PF (bufstr_get)
+RUST_PF (bufstr_set)
+RUST_PF (bufstr_add)
+RUST_PF (bufstr_free)
+RUST_PF (buf_cvarlist)
+
+/* PF_frikfile_shutdown and PF_buf_shutdown are not builtin_t slots either;
+   PR_ShutdownExtensions calls both directly. Same hand-written frame. */
+void rust_pr_frikfile_shutdown (void)
+{
+	int detail = 0;
+	int status = quake_rs_pr_frikfile_shutdown (&detail);
+	if (status != PRBI_OK)
+		PRBI_Raise (status, detail, "frikfile_shutdown");
+}
+
+void rust_pr_buf_shutdown (void)
+{
+	int detail = 0;
+	int status = quake_rs_pr_buf_shutdown (&detail);
+	if (status != PRBI_OK)
+		PRBI_Raise (status, detail, "buf_shutdown");
+}
+
+/* the temp-entity group (progs_builtins_te.rs, Phase 7 M9f group D) */
+RUST_PF (sv_te_blooddp)
+RUST_PF (sv_te_bloodqw)
+RUST_PF (sv_te_lightningblood)
+RUST_PF (sv_te_spike)
+RUST_PF (cl_te_spike)
+RUST_PF (sv_te_superspike)
+RUST_PF (cl_te_superspike)
+RUST_PF (sv_te_gunshot)
+RUST_PF (cl_te_gunshot)
+RUST_PF (sv_te_explosion)
+RUST_PF (cl_te_explosion)
+RUST_PF (sv_te_tarexplosion)
+RUST_PF (cl_te_tarexplosion)
+RUST_PF (sv_te_lightning1)
+RUST_PF (cl_te_lightning1)
+RUST_PF (sv_te_lightning2)
+RUST_PF (cl_te_lightning2)
+RUST_PF (sv_te_wizspike)
+RUST_PF (cl_te_wizspike)
+RUST_PF (sv_te_knightspike)
+RUST_PF (cl_te_knightspike)
+RUST_PF (sv_te_lightning3)
+RUST_PF (cl_te_lightning3)
+RUST_PF (sv_te_lavasplash)
+RUST_PF (cl_te_lavasplash)
+RUST_PF (sv_te_teleport)
+RUST_PF (cl_te_teleport)
+RUST_PF (sv_te_explosion2)
+RUST_PF (cl_te_explosion2)
+RUST_PF (sv_te_beam)
+RUST_PF (cl_te_beam)
+RUST_PF (sv_te_particlerain)
+RUST_PF (sv_te_particlesnow)
+
 #endif /* USE_RUST_HOST */

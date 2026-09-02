@@ -472,6 +472,28 @@ unsigned int quake_rs_hostcmd_extra_maps_get_type(const filelist_item_t *item);
 const char *quake_rs_hostcmd_extra_maps_get_message(const filelist_item_t *item);
 const char *quake_rs_hostcmd_modlist_get_full_name(const filelist_item_t *item);
 #endif
+/* Phase 7 M9f group C: progs_builtins_filebuf.rs declares its seventeen
+ * builtin entry points through the filebuf_entry! macro, and cbindgen parses
+ * source syntactically, so it never sees them. They all share one signature,
+ * so they are declared by hand here; the other four M9f groups use plain
+ * `fn` items and are generated normally. */
+int quake_rs_pf_fopen(int *detail);
+int quake_rs_pf_fgets(int *detail);
+int quake_rs_pf_fputs(int *detail);
+int quake_rs_pf_fclose(int *detail);
+int quake_rs_pf_fseek(int *detail);
+int quake_rs_pf_whichpack(int *detail);
+int quake_rs_pf_buf_create(int *detail);
+int quake_rs_pf_buf_del(int *detail);
+int quake_rs_pf_buf_getsize(int *detail);
+int quake_rs_pf_buf_copy(int *detail);
+int quake_rs_pf_buf_sort(int *detail);
+int quake_rs_pf_buf_implode(int *detail);
+int quake_rs_pf_bufstr_get(int *detail);
+int quake_rs_pf_bufstr_set(int *detail);
+int quake_rs_pf_bufstr_add(int *detail);
+int quake_rs_pf_bufstr_free(int *detail);
+int quake_rs_pf_buf_cvarlist(int *detail);
 #ifdef __cplusplus
 } /* extern "C" -- these hand-written declarations sit outside cbindgen's own
    * cpp_compat guard, so they carry their own */
@@ -539,6 +561,11 @@ exclude = [
     "Mod_LoadMD3Model", "Mod_LoadMD3SkinDefinitions", "Mod_LoadMD3SurfaceSkins",
     "Mod_LoadMD5MeshModel", "Mod_LoadMD5SurfaceSkins", "GLMesh_DeleteMeshBuffers",
     "strtoull", "strtol",
+    # Phase 7 M9f -- libc and engine functions the pr_ext port modules import;
+    # the CRT headers and pr_ext.c already declare them (same reason as fread/
+    # fclose/strtoull/strtol above).
+    "qsort", "strncmp", "fputs", "time", "gmtime", "localtime", "strftime",
+    "PR_GetTempString", "PF_VarString", "wildcmp",
     "S_LoadSound", "GetWavinfo", "Sfx", "SfxCache", "WavInfo", "SamplePair",
     "Channel", "Dma", "S_PaintChannels", "SND_InitScaletable",
     "S_Init", "S_Startup", "S_Shutdown", "S_StartSound", "S_StaticSound",

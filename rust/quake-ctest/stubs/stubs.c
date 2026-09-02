@@ -7582,6 +7582,14 @@ int ctest_pscript_state_count (void)
 	return ctest_pscript_state_calls;
 }
 
+/* M9f group E: PF_cl_pointparticles's count argument -- (argc < 4) ? 1 :
+ * (int)G_FLOAT(OFS_PARM3), so this is the only observable of that default
+ * and of the float-to-int truncation. */
+float ctest_pscript_last_count_value (void)
+{
+	return ctest_pscript_last_count;
+}
+
 void PScript_RunParticleWeather (vec3_t minb, vec3_t maxb, vec3_t dir, float count, int colour, const char *efname)
 {
 	(void)minb;

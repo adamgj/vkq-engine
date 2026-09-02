@@ -518,6 +518,12 @@ static void ClMain_InvokeParticleTrail (void *p)
 	vec3_t				 s, e, ax[3];
 	VectorCopy (a->start, s);
 	VectorCopy (a->end, e);
+	/* pr_ext.c:4928 passes a NULL axis; r_part_fte.c accepts it. */
+	if (!a->axis)
+	{
+		PScript_ParticleTrail (s, e, a->type, a->timeinterval, a->dlkey, NULL, (struct trailstate_s **)a->tsk);
+		return;
+	}
 	VectorCopy (a->axis + 0, ax[0]);
 	VectorCopy (a->axis + 3, ax[1]);
 	VectorCopy (a->axis + 6, ax[2]);

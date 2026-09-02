@@ -332,14 +332,121 @@ void rust_pf_strzone (void);
 void rust_pf_strunzone (void);
 void rust_pr_UnzoneAll (void);
 #define PR_RSH_UnzoneAll rust_pr_UnzoneAll
+/* Phase 7 M9f group E: the particle group (progs_builtins_particles.rs). The
+   per-map warning counter moves to Rust with the builtins that bump it, so
+   PR_ShutdownExtensions resets it through a macro rather than by assignment.
+   Function-like in all three arms: the fallbacks expand to an expression. */
+void rust_pf_sv_particleeffectnum (void);
+void rust_pf_sv_trailparticles (void);
+void rust_pf_sv_pointparticles (void);
+void rust_pf_cl_particleeffectnum (void);
+void rust_pf_cl_trailparticles (void);
+void rust_pf_cl_pointparticles (void);
+void rust_pr_ResetParticleWarnCount (void);
+#define PR_RSH_ResetParticleWarnCount() rust_pr_ResetParticleWarnCount ()
+/* Phase 7 M9f group A: the sprintf group (progs_builtins_sprintf.rs). Declared
+   only -- the builtin_t row below deliberately still names PF_sprintf. The port
+   cannot format %o/%e/%E/%g/%G/%v/%V, because quake-util's ADR-005 formatter
+   implements neither octal nor the exponent conversions, so flipping the row
+   would turn those QC-reachable format strings into a PR_RunError. See the
+   ADR-005 audit at the top of progs_builtins_sprintf.rs. */
+void rust_pf_sprintf (void);
+/* Phase 7 M9f group B: the string-extension group (progs_builtins_strext.rs).
+   tokenize_flush is not a builtin_t slot, but it owns the qctoken table that
+   the tokenizer builtins fill, so the Rust port has to own both; like
+   PR_UnzoneAll it gets its frame by hand in pr_cmds_glue.c and is flipped at
+   its one call site in PR_ShutdownExtensions below. */
+void rust_pf_strconv (void);
+void rust_pf_infoadd (void);
+void rust_pf_infoget (void);
+void rust_pf_Tokenize (void);
+void rust_pf_tokenize_console (void);
+void rust_pf_tokenizebyseparator (void);
+void rust_pf_ArgC (void);
+void rust_pf_ArgV (void);
+void rust_pf_argv_start_index (void);
+void rust_pf_argv_end_index (void);
+void rust_pf_strftime (void);
+void rust_pf_stov (void);
+void rust_pr_tokenize_flush (void);
+#define PR_RSH_tokenize_flush rust_pr_tokenize_flush
+/* Phase 7 M9f group C: the FRIK_FILE + string-buffer group
+   (progs_builtins_filebuf.rs). PF_frikfile_shutdown and PF_buf_shutdown are
+   not builtin_t slots, so like PR_UnzoneAll they get their frames by hand in
+   pr_cmds_glue.c and are flipped at their call sites in PR_ShutdownExtensions
+   below. */
+void rust_pf_fopen (void);
+void rust_pf_fgets (void);
+void rust_pf_fputs (void);
+void rust_pf_fclose (void);
+void rust_pf_fseek (void);
+void rust_pf_whichpack (void);
+void rust_pf_buf_create (void);
+void rust_pf_buf_del (void);
+void rust_pf_buf_getsize (void);
+void rust_pf_buf_copy (void);
+void rust_pf_buf_sort (void);
+void rust_pf_buf_implode (void);
+void rust_pf_bufstr_get (void);
+void rust_pf_bufstr_set (void);
+void rust_pf_bufstr_add (void);
+void rust_pf_bufstr_free (void);
+void rust_pf_buf_cvarlist (void);
+void rust_pr_frikfile_shutdown (void);
+void rust_pr_buf_shutdown (void);
+#define PR_RSH_frikfile_shutdown rust_pr_frikfile_shutdown
+#define PR_RSH_buf_shutdown		 rust_pr_buf_shutdown
+/* Phase 7 M9f group D: the temp-entity group (progs_builtins_te.rs). Every
+   slot is an sv/cl pair; the sv halves write to Rust-owned sv/svs storage. */
+void rust_pf_sv_te_blooddp (void);
+void rust_pf_sv_te_bloodqw (void);
+void rust_pf_sv_te_lightningblood (void);
+void rust_pf_sv_te_spike (void);
+void rust_pf_cl_te_spike (void);
+void rust_pf_sv_te_superspike (void);
+void rust_pf_cl_te_superspike (void);
+void rust_pf_sv_te_gunshot (void);
+void rust_pf_cl_te_gunshot (void);
+void rust_pf_sv_te_explosion (void);
+void rust_pf_cl_te_explosion (void);
+void rust_pf_sv_te_tarexplosion (void);
+void rust_pf_cl_te_tarexplosion (void);
+void rust_pf_sv_te_lightning1 (void);
+void rust_pf_cl_te_lightning1 (void);
+void rust_pf_sv_te_lightning2 (void);
+void rust_pf_cl_te_lightning2 (void);
+void rust_pf_sv_te_wizspike (void);
+void rust_pf_cl_te_wizspike (void);
+void rust_pf_sv_te_knightspike (void);
+void rust_pf_cl_te_knightspike (void);
+void rust_pf_sv_te_lightning3 (void);
+void rust_pf_cl_te_lightning3 (void);
+void rust_pf_sv_te_lavasplash (void);
+void rust_pf_cl_te_lavasplash (void);
+void rust_pf_sv_te_teleport (void);
+void rust_pf_cl_te_teleport (void);
+void rust_pf_sv_te_explosion2 (void);
+void rust_pf_cl_te_explosion2 (void);
+void rust_pf_sv_te_beam (void);
+void rust_pf_cl_te_beam (void);
+void rust_pf_sv_te_particlerain (void);
+void rust_pf_sv_te_particlesnow (void);
 #else
-#define PF_RSH(name)	 PF_##name
-#define PR_RSH_UnzoneAll PR_UnzoneAll
+#define PF_RSH(name)					PF_##name
+#define PR_RSH_UnzoneAll				PR_UnzoneAll
+#define PR_RSH_ResetParticleWarnCount() (pr_ext_warned_particleeffectnum = 0)
+#define PR_RSH_tokenize_flush			tokenize_flush
+#define PR_RSH_frikfile_shutdown		PF_frikfile_shutdown
+#define PR_RSH_buf_shutdown				PF_buf_shutdown
 #endif
 #else
-#define PF_RS(name)		 PF_##name
-#define PF_RSH(name)	 PF_##name
-#define PR_RSH_UnzoneAll PR_UnzoneAll
+#define PF_RS(name)						PF_##name
+#define PF_RSH(name)					PF_##name
+#define PR_RSH_UnzoneAll				PR_UnzoneAll
+#define PR_RSH_ResetParticleWarnCount() (pr_ext_warned_particleeffectnum = 0)
+#define PR_RSH_tokenize_flush			tokenize_flush
+#define PR_RSH_frikfile_shutdown		PF_frikfile_shutdown
+#define PR_RSH_buf_shutdown				PF_buf_shutdown
 #endif
 
 // #define fixme
@@ -4258,6 +4365,36 @@ static void SV_Multicast (multicast_t to, float *org, int msg_entity, unsigned i
 	}
 	SZ_Clear (&sv.multicast);
 }
+#ifdef USE_RUST_HOST
+/* Phase 7 M9f: ADR-009 rule 3 seam for the Rust ports of this file's builtins.
+   SV_Multicast is static here, so a Rust frame cannot reach it at all without a
+   trampoline in this translation unit -- and it must not reach it unguarded
+   either: every arm ends in SZ_Write, which Host_Errors on a full sizebuf
+   (net_msg_glue.c:71). Shared by the particle and temp-entity groups. */
+typedef struct
+{
+	int			 to;
+	float		*org;
+	int			 msg_entity;
+	unsigned int requireext2;
+} prext_multicast_arg_t;
+
+static void PRExt_InvokeSVMulticast (void *p)
+{
+	prext_multicast_arg_t *a = (prext_multicast_arg_t *)p;
+	SV_Multicast ((multicast_t)a->to, a->org, a->msg_entity, a->requireext2);
+}
+
+int PRExt_Glue_SVMulticast (int to, float *org, int msg_entity, unsigned int requireext2)
+{
+	prext_multicast_arg_t a;
+	a.to = to;
+	a.org = org;
+	a.msg_entity = msg_entity;
+	a.requireext2 = requireext2;
+	return Host_Guard (PRExt_InvokeSVMulticast, &a);
+}
+#endif
 static void PF_multicast (void)
 {
 	float	   *org = G_VECTOR (OFS_PARM0);
@@ -4564,6 +4701,22 @@ int PF_SV_ForceParticlePrecache (const char *s)
 	}
 	return 0;
 }
+#ifdef USE_RUST_HOST
+/* Phase 7 M9f group E: COM_Effectinfo_Enumerate reads a file and, through the
+   callback above, reaches MSG_Write* and SV_Multicast -- all Host_Error-capable
+   (ADR-009 rule 3). The callback itself stays C under its exact name:
+   pr_edict.c:978 and quake-capi/src/progs_edict_dispatch.rs both call it. */
+static void PRExt_InvokeEffectinfoEnumerate (void *p)
+{
+	(void)p;
+	COM_Effectinfo_Enumerate (PF_SV_ForceParticlePrecache);
+}
+
+int PRExt_Glue_EffectinfoEnumerate (void)
+{
+	return Host_Guard (PRExt_InvokeEffectinfoEnumerate, NULL);
+}
+#endif
 static void PF_sv_particleeffectnum (void)
 {
 	const char	 *s;
@@ -5660,29 +5813,29 @@ static struct
 	{"checkbuiltin",				PF_checkbuiltin,				PF_checkbuiltin,				0,		D("float(__variant funcref)", "Checks to see if the specified builtin is supported/mapped. This is intended as a way to check for #0 functions, allowing for simple single-builtin functions.")},
 	{"builtin_find",				PF_builtinsupported,			PF_builtinsupported,			100,	D("float(string builtinname)", "Looks to see if the named builtin is valid, and returns the builtin number it exists at.")},	// #100	//per builtin system.
 	{"anglemod",					PF_RS (anglemod),					PF_RS (anglemod),					102,	"float(float value)"},	//telejano
-	{"fopen",						PF_fopen,						PF_fopen,						110,	D("filestream(string filename, float mode, optional float mmapminsize)", "Opens a file, typically prefixed with \"data/\", for either read or write access.")},	// (FRIK_FILE)
-	{"fclose",						PF_fclose,						PF_fclose,						111,	"void(filestream fhandle)"},	// (FRIK_FILE)
-	{"fgets",						PF_fgets,						PF_fgets,						112,	D("string(filestream fhandle)", "Reads a single line out of the file. The new line character is not returned as part of the string. Returns the null string on EOF (use if not(string) to easily test for this, which distinguishes it from the empty string which is returned if the line being read is blank")},	// (FRIK_FILE)
-	{"fputs",						PF_fputs,						PF_fputs,						113,	D("void(filestream fhandle, string s, optional string s2, optional string s3, optional string s4, optional string s5, optional string s6, optional string s7)", "Writes the given string(s) into the file. For compatibility with fgets, you should ensure that the string is terminated with a \\n - this will not otherwise be done for you. It is up to the engine whether dos or unix line endings are actually written.")},	// (FRIK_FILE)
-	{"fseek",						PF_fseek,						PF_fseek,						0,		D("#define ftell fseek //c-compat\nint(filestream fhandle, optional int newoffset)", "Changes the current position of the file, if specified. Returns prior position, in bytes.")},
+	{"fopen",					PF_RSH (fopen),						PF_RSH (fopen),						110,	D("filestream(string filename, float mode, optional float mmapminsize)", "Opens a file, typically prefixed with \"data/\", for either read or write access.")},	// (FRIK_FILE)
+	{"fclose",					PF_RSH (fclose),					PF_RSH (fclose),					111,	"void(filestream fhandle)"},	// (FRIK_FILE)
+	{"fgets",					PF_RSH (fgets),						PF_RSH (fgets),						112,	D("string(filestream fhandle)", "Reads a single line out of the file. The new line character is not returned as part of the string. Returns the null string on EOF (use if not(string) to easily test for this, which distinguishes it from the empty string which is returned if the line being read is blank")},	// (FRIK_FILE)
+	{"fputs",					PF_RSH (fputs),						PF_RSH (fputs),						113,	D("void(filestream fhandle, string s, optional string s2, optional string s3, optional string s4, optional string s5, optional string s6, optional string s7)", "Writes the given string(s) into the file. For compatibility with fgets, you should ensure that the string is terminated with a \\n - this will not otherwise be done for you. It is up to the engine whether dos or unix line endings are actually written.")},	// (FRIK_FILE)
+	{"fseek",					PF_RSH (fseek),						PF_RSH (fseek),						0,		D("#define ftell fseek //c-compat\nint(filestream fhandle, optional int newoffset)", "Changes the current position of the file, if specified. Returns prior position, in bytes.")},
 	{"strlen",						PF_RS (strlen),						PF_RS (strlen),						114,	"float(string s)"},	// (FRIK_FILE)
 	{"strcat",						PF_RS (strcat),						PF_RS (strcat),						115,	"string(string s1, optional string s2, optional string s3, optional string s4, optional string s5, optional string s6, optional string s7, optional string s8)"},	// (FRIK_FILE)
 	{"substring",					PF_RS (substring),					PF_RS (substring),					116,	"string(string s, float start, float length)"},	// (FRIK_FILE)
-	{"stov",						PF_stov,						PF_stov,						117,	"vector(string s)"},	// (FRIK_FILE)
+	{"stov",					PF_RSH (stov),						PF_RSH (stov),						117,	"vector(string s)"},	// (FRIK_FILE)
 	{"strzone",						PF_RSH (strzone),					PF_RSH (strzone),					118,	D("string(string s, ...)", "Create a semi-permanent copy of a string that only becomes invalid once strunzone is called on the string (instead of when the engine assumes your string has left scope).")},	// (FRIK_FILE)
 	{"strunzone",					PF_RSH (strunzone),					PF_RSH (strunzone),					119,	D("void(string s)", "Destroys a string that was allocated by strunzone. Further references to the string MAY crash the game.")},	// (FRIK_FILE)
-	{"tokenize_menuqc",				PF_Tokenize,					PF_Tokenize,					0,		"float(string s)"},
+	{"tokenize_menuqc",			PF_RSH (Tokenize),					PF_RSH (Tokenize),					0,		"float(string s)"},
 	{"localsound",					PF_NoSSQC,						PF_cl_localsound,				177,	D("void(string soundname, optional float channel, optional float volume)", "Plays a sound... locally... probably best not to call this from ssqc. Also disables reverb.")},//	#177
 	{"forceinfokey",	            PF_sv_forceinfokey,	            PF_NoCSQC,			            213,	D("void(entity player, string key, string value)", "Directly changes a user's info without pinging off the client. Also allows explicitly setting * keys, including *spectator. Does not affect the user's config or other servers.")}, // #213
 	{"bitshift",					PF_RS (bitshift),					PF_RS (bitshift),					218,	"float(float number, float quantity)"},
-	{"te_lightningblood",			PF_sv_te_lightningblood,		NULL,							219,	"void(vector org)"},
+	{"te_lightningblood",		PF_RSH (sv_te_lightningblood),		NULL,								219,	"void(vector org)"},
 	{"strstrofs",					PF_RS (strstrofs),					PF_RS (strstrofs),					221,	D("float(string s1, string sub, optional float startidx)", "Returns the 0-based offset of sub within the s1 string, or -1 if sub is not in s1.\nIf startidx is set, this builtin will ignore matches before that 0-based offset.")},
 	{"str2chr",						PF_RS (str2chr),						PF_RS (str2chr),						222,	D("float(string str, float index)", "Retrieves the character value at offset 'index'.")},
 	{"chr2str",						PF_RS (chr2str),						PF_RS (chr2str),						223,	D("string(float chr, ...)", "The input floats are considered character values, and are concatenated.")},
-	{"strconv",						PF_strconv,						PF_strconv,						224,	D("string(float ccase, float redalpha, float redchars, string str, ...)", "Converts quake chars in the input string amongst different representations.\nccase specifies the new case for letters.\n 0: not changed.\n 1: forced to lower case.\n 2: forced to upper case.\nredalpha and redchars switch between colour ranges.\n 0: no change.\n 1: Forced white.\n 2: Forced red.\n 3: Forced gold(low) (numbers only).\n 4: Forced gold (high) (numbers only).\n 5+6: Forced to white and red alternately.\nYou should not use this builtin in combination with UTF-8.")},
+	{"strconv",					PF_RSH (strconv),					PF_RSH (strconv),					224,	D("string(float ccase, float redalpha, float redchars, string str, ...)", "Converts quake chars in the input string amongst different representations.\nccase specifies the new case for letters.\n 0: not changed.\n 1: forced to lower case.\n 2: forced to upper case.\nredalpha and redchars switch between colour ranges.\n 0: no change.\n 1: Forced white.\n 2: Forced red.\n 3: Forced gold(low) (numbers only).\n 4: Forced gold (high) (numbers only).\n 5+6: Forced to white and red alternately.\nYou should not use this builtin in combination with UTF-8.")},
 	{"strpad",						PF_RS (strpad),						PF_RS (strpad),						225,	D("string(float pad, string str1, ...)", "Pads the string with spaces, to ensure its a specific length (so long as a fixed-width font is used, anyway). If pad is negative, the spaces are added on the left. If positive the padding is on the right.")},	//will be moved
-	{"infoadd",						PF_infoadd,						PF_infoadd,						226,	D("string(infostring old, string key, string value)", "Returns a new tempstring infostring with the named value changed (or added if it was previously unspecified). Key and value may not contain the \\ character.")},
-	{"infoget",						PF_infoget,						PF_infoget,						227,	D("string(infostring info, string key)", "Reads a named value from an infostring. The returned value is a tempstring")},
+	{"infoadd",					PF_RSH (infoadd),					PF_RSH (infoadd),					226,	D("string(infostring old, string key, string value)", "Returns a new tempstring infostring with the named value changed (or added if it was previously unspecified). Key and value may not contain the \\ character.")},
+	{"infoget",					PF_RSH (infoget),					PF_RSH (infoget),					227,	D("string(infostring info, string key)", "Reads a named value from an infostring. The returned value is a tempstring")},
 	{"strncmp",						PF_RS (strncmp),						PF_RS (strncmp),						228,	D("#define strcmp strncmp\nfloat(string s1, string s2, optional float len, optional float s1ofs, optional float s2ofs)", "Compares up to 'len' chars in the two strings. s1ofs allows you to treat s2 as a substring to compare against, or should be 0.\nReturns 0 if the two strings are equal, a negative value if s1 appears numerically lower, and positive if s1 appears numerically higher.")},
 	{"strcasecmp",					PF_RS (strncasecmp),					PF_RS (strncasecmp),					229,	D("float(string s1, string s2)",  "Compares the two strings without case sensitivity.\nReturns 0 if they are equal. The sign of the return value may be significant, but should not be depended upon.")},
 	{"strncasecmp",					PF_RS (strncasecmp),					PF_RS (strncasecmp),					230,	D("float(string s1, string s2, float len, optional float s1ofs, optional float s2ofs)", "Compares up to 'len' chars in the two strings without case sensitivity. s1ofs allows you to treat s2 as a substring to compare against, or should be 0.\nReturns 0 if they are equal. The sign of the return value may be significant, but should not be depended upon.")},
@@ -5691,7 +5844,7 @@ static struct
 	{"globalstat",					PF_globalstat,					PF_NoCSQC,						233,	D("void(float num, float type, string name)", "Specifies what data to use in order to send various stats, in a non-client-specific way. num and type are as in clientstat, name however, is the name of the global to read in the form of a string (pass \"foo\").")},	//EXT_CSQC_1 actually
 	{"pointerstat",					PF_pointerstat,					PF_NoCSQC,						0,		D("void(float num, float type, __variant *address)", "Specifies what data to use in order to send various stats, in a non-client-specific way. num and type are as in clientstat, address however, is the address of the variable you would like to use (pass &foo).")},
 	{"isbackbuffered",				PF_isbackbuffered,				PF_NoCSQC,						234,	D("float(entity player)", "Returns if the given player's network buffer will take multiple network frames in order to clear. If this builtin returns non-zero, you should delay or reduce the amount of reliable (and also unreliable) data that you are sending to that client.")},
-	{"te_bloodqw",					PF_sv_te_bloodqw,				NULL,							239,	"void(vector org, float count)"},
+	{"te_bloodqw",				PF_RSH (sv_te_bloodqw),				NULL,								239,	"void(vector org, float count)"},
 	{"checkpvs",					PF_RSH (checkpvs),					PF_RSH (checkpvs),					240,	"float(vector viewpos, entity entity)"},
 	{"mod",							PF_RS (mod),							PF_RS (mod),							245,	"float(float a, float n)"},
 	{"stoi",						PF_RS (stoi),						PF_RS (stoi),						259,	D("int(string)", "Converts the given string into a true integer. Base 8, 10, or 16 is determined based upon the format of the string.")},
@@ -5729,9 +5882,9 @@ static struct
 	{"getstats",					PF_NoSSQC,						PF_cl_getstat_string,			332,	D("string(float stnum)", "Retrieves the value of the given EV_STRING stat, as a tempstring.\nString stats use a separate pool of stats from numeric ones.\n")},
 	{"setmodelindex",				PF_sv_setmodelindex,			PF_cl_setmodelindex,			333,	D("void(entity e, float mdlindex)", "Sets a model by precache index instead of by name. Otherwise identical to setmodel.")},//
 	{"modelnameforindex",			PF_modelnameforidx,				PF_modelnameforidx,				334,	D("string(float mdlindex)", "Retrieves the name of the model based upon a precache index. This can be used to reduce csqc network traffic by enabling model matching.")},//
-	{"particleeffectnum",			PF_sv_particleeffectnum,		PF_cl_particleeffectnum,		335,	D("float(string effectname)", "Precaches the named particle effect. If your effect name is of the form 'foo.bar' then particles/foo.cfg will be loaded by the client if foo.bar was not already defined.\nDifferent engines will have different particle systems, this specifies the QC API only.")},// (EXT_CSQC)
-	{"trailparticles",				PF_sv_trailparticles,			PF_cl_trailparticles,			336,	D("void(float effectnum, entity ent, vector start, vector end)", "Draws the given effect between the two named points. If ent is not world, distances will be cached in the entity in order to avoid framerate dependancies. The entity is not otherwise used.")},// (EXT_CSQC),
-	{"pointparticles",				PF_sv_pointparticles,			PF_cl_pointparticles,			337,	D("void(float effectnum, vector origin, optional vector dir, optional float count)", "Spawn a load of particles from the given effect at the given point traveling or aiming along the direction specified. The number of particles are scaled by the count argument.")},// (EXT_CSQC)
+	{"particleeffectnum",			PF_RSH (sv_particleeffectnum),		PF_RSH (cl_particleeffectnum),		335,	D("float(string effectname)", "Precaches the named particle effect. If your effect name is of the form 'foo.bar' then particles/foo.cfg will be loaded by the client if foo.bar was not already defined.\nDifferent engines will have different particle systems, this specifies the QC API only.")},// (EXT_CSQC)
+	{"trailparticles",				PF_RSH (sv_trailparticles),			PF_RSH (cl_trailparticles),			336,	D("void(float effectnum, entity ent, vector start, vector end)", "Draws the given effect between the two named points. If ent is not world, distances will be cached in the entity in order to avoid framerate dependancies. The entity is not otherwise used.")},// (EXT_CSQC),
+	{"pointparticles",				PF_RSH (sv_pointparticles),			PF_RSH (cl_pointparticles),			337,	D("void(float effectnum, vector origin, optional vector dir, optional float count)", "Spawn a load of particles from the given effect at the given point traveling or aiming along the direction specified. The number of particles are scaled by the count argument.")},// (EXT_CSQC)
 	{"print",						PF_print,						PF_print,						339,	D("void(string s, ...)", "Unconditionally print on the local system's console, even in ssqc (doesn't care about the value of the developer cvar).")},//(EXT_CSQC)
 	{"getplayerkeyvalue",			PF_NoSSQC,						PF_cl_playerkey_s,				348,	D("string(float playernum, string keyname)", "Look up a player's userinfo, to discover things like their name, topcolor, bottomcolor, skin, team, *ver.\nAlso includes scoreboard info like frags, ping, pl, userid, entertime, as well as voipspeaking and voiploudness.")},// (EXT_CSQC)
 	{"getplayerkeyfloat",			PF_NoSSQC,						PF_cl_playerkey_f,				0,		D("float(float playernum, string keyname, optional float assumevalue)", "Cheaper version of getplayerkeyvalue that avoids the need for so many tempstrings.")},
@@ -5756,23 +5909,23 @@ static struct
 	{"copyentity",					PF_copyentity,					PF_copyentity,					400,	D("entity(entity from, optional entity to)", "Copies all fields from one entity to another.")},// (DP_QC_COPYENTITY)
 	{"findchain",					PF_findchain,					PF_findchain,					402,	"entity(.string field, string match, optional .entity chainfield)"},// (DP_QC_FINDCHAIN)
 	{"findchainfloat",				PF_findchainfloat,				PF_findchainfloat,				403,	"entity(.float fld, float match, optional .entity chainfield)"},// (DP_QC_FINDCHAINFLOAT)
-	{"te_blood",					PF_sv_te_blooddp,				NULL,							405,	"void(vector org, vector dir, float count)"},// #405 te_blood
-	{"te_particlerain",				PF_sv_te_particlerain,			NULL,							409,	"void(vector mincorner, vector maxcorner, vector vel, float howmany, float color)"},// (DP_TE_PARTICLERAIN)
-	{"te_particlesnow",				PF_sv_te_particlesnow,			NULL,							410,	"void(vector mincorner, vector maxcorner, vector vel, float howmany, float color)"},// (DP_TE_PARTICLESNOW)
-	{"te_gunshot",					PF_sv_te_gunshot,				PF_cl_te_gunshot,				418,	"void(vector org, optional float count)"},// #418 te_gunshot
-	{"te_spike",					PF_sv_te_spike,					PF_cl_te_spike,					419,	"void(vector org)"},// #419 te_spike
-	{"te_superspike",				PF_sv_te_superspike,			PF_cl_te_superspike,			420,	"void(vector org)"},// #420 te_superspike
-	{"te_explosion",				PF_sv_te_explosion,				PF_cl_te_explosion,				421,	"void(vector org)"},// #421 te_explosion
-	{"te_tarexplosion",				PF_sv_te_tarexplosion,			PF_cl_te_tarexplosion,			422,	"void(vector org)"},// #422 te_tarexplosion
-	{"te_wizspike",					PF_sv_te_wizspike,				PF_cl_te_wizspike,				423,	"void(vector org)"},// #423 te_wizspike
-	{"te_knightspike",				PF_sv_te_knightspike,			PF_cl_te_knightspike,			424,	"void(vector org)"},// #424 te_knightspike
-	{"te_lavasplash",				PF_sv_te_lavasplash,			PF_cl_te_lavasplash,			425,	"void(vector org)"},// #425 te_lavasplash
-	{"te_teleport",					PF_sv_te_teleport,				PF_cl_te_teleport,				426,	"void(vector org)"},// #426 te_teleport
-	{"te_explosion2",				PF_sv_te_explosion2,			PF_cl_te_explosion2,			427,	"void(vector org, float color, float colorlength)"},// #427 te_explosion2
-	{"te_lightning1",				PF_sv_te_lightning1,			PF_cl_te_lightning1,			428,	"void(entity own, vector start, vector end)"},// #428 te_lightning1
-	{"te_lightning2",				PF_sv_te_lightning2,			PF_cl_te_lightning2,			429,	"void(entity own, vector start, vector end)"},// #429 te_lightning2
-	{"te_lightning3",				PF_sv_te_lightning3,			PF_cl_te_lightning3,			430,	"void(entity own, vector start, vector end)"},// #430 te_lightning3
-	{"te_beam",						PF_sv_te_beam,					PF_cl_te_beam,					431,	"void(entity own, vector start, vector end)"},// #431 te_beam
+	{"te_blood",				PF_RSH (sv_te_blooddp),				NULL,								405,	"void(vector org, vector dir, float count)"},// #405 te_blood
+	{"te_particlerain",			PF_RSH (sv_te_particlerain),		NULL,								409,	"void(vector mincorner, vector maxcorner, vector vel, float howmany, float color)"},// (DP_TE_PARTICLERAIN)
+	{"te_particlesnow",			PF_RSH (sv_te_particlesnow),		NULL,								410,	"void(vector mincorner, vector maxcorner, vector vel, float howmany, float color)"},// (DP_TE_PARTICLESNOW)
+	{"te_gunshot",				PF_RSH (sv_te_gunshot),				PF_RSH (cl_te_gunshot),				418,	"void(vector org, optional float count)"},// #418 te_gunshot
+	{"te_spike",				PF_RSH (sv_te_spike),				PF_RSH (cl_te_spike),				419,	"void(vector org)"},// #419 te_spike
+	{"te_superspike",			PF_RSH (sv_te_superspike),			PF_RSH (cl_te_superspike),			420,	"void(vector org)"},// #420 te_superspike
+	{"te_explosion",			PF_RSH (sv_te_explosion),			PF_RSH (cl_te_explosion),			421,	"void(vector org)"},// #421 te_explosion
+	{"te_tarexplosion",			PF_RSH (sv_te_tarexplosion),		PF_RSH (cl_te_tarexplosion),		422,	"void(vector org)"},// #422 te_tarexplosion
+	{"te_wizspike",				PF_RSH (sv_te_wizspike),			PF_RSH (cl_te_wizspike),			423,	"void(vector org)"},// #423 te_wizspike
+	{"te_knightspike",			PF_RSH (sv_te_knightspike),			PF_RSH (cl_te_knightspike),			424,	"void(vector org)"},// #424 te_knightspike
+	{"te_lavasplash",			PF_RSH (sv_te_lavasplash),			PF_RSH (cl_te_lavasplash),			425,	"void(vector org)"},// #425 te_lavasplash
+	{"te_teleport",				PF_RSH (sv_te_teleport),			PF_RSH (cl_te_teleport),			426,	"void(vector org)"},// #426 te_teleport
+	{"te_explosion2",			PF_RSH (sv_te_explosion2),			PF_RSH (cl_te_explosion2),			427,	"void(vector org, float color, float colorlength)"},// #427 te_explosion2
+	{"te_lightning1",			PF_RSH (sv_te_lightning1),			PF_RSH (cl_te_lightning1),			428,	"void(entity own, vector start, vector end)"},// #428 te_lightning1
+	{"te_lightning2",			PF_RSH (sv_te_lightning2),			PF_RSH (cl_te_lightning2),			429,	"void(entity own, vector start, vector end)"},// #429 te_lightning2
+	{"te_lightning3",			PF_RSH (sv_te_lightning3),			PF_RSH (cl_te_lightning3),			430,	"void(entity own, vector start, vector end)"},// #430 te_lightning3
+	{"te_beam",					PF_RSH (sv_te_beam),				PF_RSH (cl_te_beam),				431,	"void(entity own, vector start, vector end)"},// #431 te_beam
 	{"vectorvectors",				PF_RS (vectorvectors),				PF_RS (vectorvectors),				432,	"void(vector dir)"},// (DP_QC_VECTORVECTORS)
 	{"getsurfacenumpoints",			PF_getsurfacenumpoints,			PF_getsurfacenumpoints,			434,	"float(entity e, float s)"},// (DP_QC_GETSURFACE)
 	{"getsurfacepoint",				PF_getsurfacepoint,				PF_getsurfacepoint,				435,	"vector(entity e, float s, float n)"},// (DP_QC_GETSURFACE)
@@ -5781,9 +5934,9 @@ static struct
 	{"getsurfacenearpoint",			PF_getsurfacenearpoint,			PF_getsurfacenearpoint,			438,	"float(entity e, vector p)"},// (DP_QC_GETSURFACE)
 	{"getsurfaceclippedpoint",		PF_getsurfaceclippedpoint,		PF_getsurfaceclippedpoint,		439,	"vector(entity e, float s, vector p)"},// (DP_QC_GETSURFACE)
 	{"clientcommand",				PF_clientcommand,				PF_NoCSQC,						440,	"void(entity e, string s)"},// (KRIMZON_SV_PARSECLIENTCOMMAND)
-	{"tokenize",					PF_Tokenize,					PF_Tokenize,					441,	"float(string s)"},// (KRIMZON_SV_PARSECLIENTCOMMAND)
-	{"argv",						PF_ArgV,						PF_ArgV,						442,	"string(float n)"},// (KRIMZON_SV_PARSECLIENTCOMMAND
-	{"argc",						PF_ArgC,						PF_ArgC,						0,		"float()"},
+	{"tokenize",				PF_RSH (Tokenize),					PF_RSH (Tokenize),					441,	"float(string s)"},// (KRIMZON_SV_PARSECLIENTCOMMAND)
+	{"argv",					PF_RSH (ArgV),						PF_RSH (ArgV),						442,	"string(float n)"},// (KRIMZON_SV_PARSECLIENTCOMMAND
+	{"argc",					PF_RSH (ArgC),						PF_RSH (ArgC),						0,		"float()"},
 	{"setattachment",				PF_setattachment,				PF_setattachment,				443,	"void(entity e, entity tagentity, string tagname)", ""},// (DP_GFX_QUAKE3MODELTAGS)
 	{"cvar_string",					PF_cvar_string,					PF_cvar_string,					448,	 "string(string cvarname)"},//DP_QC_CVAR_STRING
 	{"findflags",					PF_findflags,					PF_findflags,					449,	"entity(entity start, .float fld, float match)"},//DP_QC_FINDFLAGS
@@ -5793,16 +5946,16 @@ static struct
 	{"clienttype",					PF_clienttype,					PF_NoCSQC,						455,	"float(entity client)"},//botclient
 	{"WriteUnterminatedString",		PF_RSH (WriteString2),				PF_NoCSQC,						456,	"void(float target, string str)"},	//writestring but without the null terminator. makes things a little nicer.
 	{"edict_num",					PF_RS (edict_for_num),				PF_RS (edict_for_num),				459,	"entity(float entnum)"},//DP_QC_EDICT_NUM
-	{"buf_create",					PF_buf_create,					PF_buf_create,					460,	"strbuf()"},//DP_QC_STRINGBUFFERS
-	{"buf_del",						PF_buf_del,						PF_buf_del,						461,	"void(strbuf bufhandle)"},//DP_QC_STRINGBUFFERS
-	{"buf_getsize",					PF_buf_getsize,					PF_buf_getsize,					462,	"float(strbuf bufhandle)"},//DP_QC_STRINGBUFFERS
-	{"buf_copy",					PF_buf_copy,					PF_buf_copy,					463,	"void(strbuf bufhandle_from, strbuf bufhandle_to)"},//DP_QC_STRINGBUFFERS
-	{"buf_sort",					PF_buf_sort,					PF_buf_sort,					464,	"void(strbuf bufhandle, float sortprefixlen, float backward)"},//DP_QC_STRINGBUFFERS
-	{"buf_implode",					PF_buf_implode,					PF_buf_implode,					465,	"string(strbuf bufhandle, string glue)"},//DP_QC_STRINGBUFFERS
-	{"bufstr_get",					PF_bufstr_get,					PF_bufstr_get,					466,	"string(strbuf bufhandle, float string_index)"},//DP_QC_STRINGBUFFERS
-	{"bufstr_set",					PF_bufstr_set,					PF_bufstr_set,					467,	"void(strbuf bufhandle, float string_index, string str)"},//DP_QC_STRINGBUFFERS
-	{"bufstr_add",					PF_bufstr_add,					PF_bufstr_add,					468,	"float(strbuf bufhandle, string str, float order)"},//DP_QC_STRINGBUFFERS
-	{"bufstr_free",					PF_bufstr_free,					PF_bufstr_free,					469,	"void(strbuf bufhandle, float string_index)"},//DP_QC_STRINGBUFFERS
+	{"buf_create",				PF_RSH (buf_create),				PF_RSH (buf_create),				460,	"strbuf()"},//DP_QC_STRINGBUFFERS
+	{"buf_del",					PF_RSH (buf_del),					PF_RSH (buf_del),					461,	"void(strbuf bufhandle)"},//DP_QC_STRINGBUFFERS
+	{"buf_getsize",				PF_RSH (buf_getsize),				PF_RSH (buf_getsize),				462,	"float(strbuf bufhandle)"},//DP_QC_STRINGBUFFERS
+	{"buf_copy",				PF_RSH (buf_copy),					PF_RSH (buf_copy),					463,	"void(strbuf bufhandle_from, strbuf bufhandle_to)"},//DP_QC_STRINGBUFFERS
+	{"buf_sort",				PF_RSH (buf_sort),					PF_RSH (buf_sort),					464,	"void(strbuf bufhandle, float sortprefixlen, float backward)"},//DP_QC_STRINGBUFFERS
+	{"buf_implode",				PF_RSH (buf_implode),				PF_RSH (buf_implode),				465,	"string(strbuf bufhandle, string glue)"},//DP_QC_STRINGBUFFERS
+	{"bufstr_get",				PF_RSH (bufstr_get),				PF_RSH (bufstr_get),				466,	"string(strbuf bufhandle, float string_index)"},//DP_QC_STRINGBUFFERS
+	{"bufstr_set",				PF_RSH (bufstr_set),				PF_RSH (bufstr_set),				467,	"void(strbuf bufhandle, float string_index, string str)"},//DP_QC_STRINGBUFFERS
+	{"bufstr_add",				PF_RSH (bufstr_add),				PF_RSH (bufstr_add),				468,	"float(strbuf bufhandle, string str, float order)"},//DP_QC_STRINGBUFFERS
+	{"bufstr_free",				PF_RSH (bufstr_free),				PF_RSH (bufstr_free),				469,	"void(strbuf bufhandle, float string_index)"},//DP_QC_STRINGBUFFERS
 	{"asin",						PF_RS (asin),						PF_RS (asin),						471,	"float(float s)"},//DP_QC_ASINACOSATANATAN2TAN
 	{"acos",						PF_RS (acos),						PF_RS (acos),						472,	"float(float c)"},//DP_QC_ASINACOSATANATAN2TAN
 	{"atan",						PF_RS (atan),						PF_RS (atan),						473,	"float(float t)"},//DP_QC_ASINACOSATANATAN2TAN
@@ -5810,8 +5963,8 @@ static struct
 	{"tan",							PF_RS (tan),							PF_RS (tan),							475,	"float(float a)"},//DP_QC_ASINACOSATANATAN2TAN
 	{"strlennocol",					PF_strlennocol,					PF_strlennocol,					476,	D("float(string s)", "Returns the number of characters in the string after any colour codes or other markup has been parsed.")},//DP_QC_STRINGCOLORFUNCTIONS
 	{"strdecolorize",				PF_strdecolorize,				PF_strdecolorize,				477,	D("string(string s)", "Flattens any markup/colours, removing them from the string.")},//DP_QC_STRINGCOLORFUNCTIONS
-	{"strftime",					PF_strftime,					PF_strftime,					478,	"string(float uselocaltime, string format, ...)"},	//DP_QC_STRFTIME
-	{"tokenizebyseparator",			PF_tokenizebyseparator,			PF_tokenizebyseparator,			479,	"float(string s, string separator1, ...)"},	//DP_QC_TOKENIZEBYSEPARATOR
+	{"strftime",				PF_RSH (strftime),					PF_RSH (strftime),					478,	"string(float uselocaltime, string format, ...)"},	//DP_QC_STRFTIME
+	{"tokenizebyseparator",		PF_RSH (tokenizebyseparator),		PF_RSH (tokenizebyseparator),		479,	"float(string s, string separator1, ...)"},	//DP_QC_TOKENIZEBYSEPARATOR
 	{"strtolower",					PF_RS (strtolower),					PF_RS (strtolower),					480,	"string(string s)"},	//DP_QC_STRING_CASE_FUNCTIONS
 	{"strtoupper",					PF_RS (strtoupper),					PF_RS (strtoupper),					481,	"string(string s)"},	//DP_QC_STRING_CASE_FUNCTIONS
 	{"cvar_defstring",				PF_cvar_defstring,				PF_cvar_defstring,				482,	"string(string s)"},	//DP_QC_CVAR_DEFSTRING
@@ -5828,16 +5981,16 @@ static struct
 	{"entityfieldtype",				PF_entityfieldtype,				PF_entityfieldtype,				498,	D("float(float fieldnum)", "Provides information about the type of the field specified by the field num. Returns one of the EV_ values.")},//DP_QC_ENTITYDATA
 	{"getentityfieldstring",		PF_getentfldstr,				PF_getentfldstr,				499,	"string(float fieldnum, entity ent)"},//DP_QC_ENTITYDATA
 	{"putentityfieldstring",		PF_putentfldstr,				PF_putentfldstr,				500,	"float(float fieldnum, entity ent, string s)"},//DP_QC_ENTITYDATA
-	{"whichpack",					PF_whichpack,					PF_whichpack,					503,	D("string(string filename, optional float makereferenced)", "Returns the pak file name that contains the file specified. progs/player.mdl will generally return something like 'pak0.pak'. If makereferenced is true, clients will automatically be told that the returned package should be pre-downloaded and used, even if allow_download_refpackages is not set.")},//DP_QC_WHICHPACK
+	{"whichpack",				PF_RSH (whichpack),					PF_RSH (whichpack),					503,	D("string(string filename, optional float makereferenced)", "Returns the pak file name that contains the file specified. progs/player.mdl will generally return something like 'pak0.pak'. If makereferenced is true, clients will automatically be told that the returned package should be pre-downloaded and used, even if allow_download_refpackages is not set.")},//DP_QC_WHICHPACK
 	{"getentity",					PF_NoSSQC,						PF_cl_getrenderentity,			504,	D("__variant(float entnum, float fieldnum)", "Looks up fields from non-csqc-visible entities. The entity will need to be within the player's pvs. fieldnum should be one of the GE_ constants.")},//DP_CSQC_QUERYRENDERENTITY
 	{"uri_escape",					PF_uri_escape,					PF_uri_escape,					510,	"string(string in)"},//DP_QC_URI_ESCAPE
 	{"uri_unescape",				PF_uri_unescape,				PF_uri_unescape,				511,	"string(string in)"},//DP_QC_URI_ESCAPE
 	{"num_for_edict",				PF_RS (num_for_edict),				PF_RS (num_for_edict),				512,	"float(entity ent)"},//DP_QC_NUM_FOR_EDICT
 	{"uri_get",						PF_uri_get,						PF_uri_get,						513,	"float(string uril, float id, optional string postmimetype, optional string postdata)", "stub."},//DP_QC_URI_GET
-	{"tokenize_console",			PF_tokenize_console,			PF_tokenize_console,			514,	D("float(string str)", "Tokenize a string exactly as the console's tokenizer would do so. The regular tokenize builtin became bastardized for convienient string parsing, which resulted in a large disparity that can be exploited to bypass checks implemented in a naive SV_ParseClientCommand function, therefore you can use this builtin to make sure it exactly matches.")},
-	{"argv_start_index",			PF_argv_start_index,			PF_argv_start_index,			515,	D("float(float idx)", "Returns the character index that the tokenized arg started at.")},
-	{"argv_end_index",				PF_argv_end_index,				PF_argv_end_index,				516,	D("float(float idx)", "Returns the character index that the tokenized arg stopped at.")},
-	{"buf_cvarlist",				PF_buf_cvarlist,				PF_buf_cvarlist,				517,	D("void(strbuf strbuf, string pattern, string antipattern)", "Populates the strbuf with a list of known cvar names.")},
+	{"tokenize_console",		PF_RSH (tokenize_console),			PF_RSH (tokenize_console),			514,	D("float(string str)", "Tokenize a string exactly as the console's tokenizer would do so. The regular tokenize builtin became bastardized for convienient string parsing, which resulted in a large disparity that can be exploited to bypass checks implemented in a naive SV_ParseClientCommand function, therefore you can use this builtin to make sure it exactly matches.")},
+	{"argv_start_index",		PF_RSH (argv_start_index),			PF_RSH (argv_start_index),			515,	D("float(float idx)", "Returns the character index that the tokenized arg started at.")},
+	{"argv_end_index",			PF_RSH (argv_end_index),			PF_RSH (argv_end_index),			516,	D("float(float idx)", "Returns the character index that the tokenized arg stopped at.")},
+	{"buf_cvarlist",			PF_RSH (buf_cvarlist),				PF_RSH (buf_cvarlist),				517,	D("void(strbuf strbuf, string pattern, string antipattern)", "Populates the strbuf with a list of known cvar names.")},
 	{"cvar_description",			PF_cvar_description,			PF_cvar_description,			518,	D("string(string cvarname)", "Retrieves the description of a cvar, which might be useful for tooltips or help files. This may still not be useful.")},
 	{"gettime",						PF_gettime,						PF_gettime,						519,	"float(optional float timetype)"},
 	{"log",							PF_RS (Logarithm),					PF_RS (Logarithm),					532,	D("float(float v, optional float base)", "Determines the logarithm of the input value according to the specified base. This can be used to calculate how much something was shifted by.")},
@@ -6177,10 +6330,10 @@ void PF_Fixme (void)
 void PR_ShutdownExtensions (void)
 {
 	PR_RSH_UnzoneAll ();
-	PF_frikfile_shutdown ();
-	PF_buf_shutdown ();
-	tokenize_flush ();
-	pr_ext_warned_particleeffectnum = 0;
+	PR_RSH_frikfile_shutdown ();
+	PR_RSH_buf_shutdown ();
+	PR_RSH_tokenize_flush ();
+	PR_RSH_ResetParticleWarnCount ();
 }
 
 func_t PR_FindExtFunction (const char *entryname)
