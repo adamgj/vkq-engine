@@ -183,6 +183,7 @@ fn main() {
         "host_cmd_glue_ref.c",
         "net_dgrm_orch_glue_ref.c",
         "net_main_glue_ref.c",
+        "pr_edict_arena_glue_ref.c",
     ] {
         let path = manifest.join("stubs").join(stub);
         println!("cargo:rerun-if-changed={}", path.display());

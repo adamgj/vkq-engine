@@ -484,4 +484,19 @@ RUST_PF (cl_precache_sound)
 RUST_PF (cl_particle)
 RUST_PF (cl_makestatic)
 RUST_PF (cl_ambientsound)
+
+/* the zoned-string group (progs_builtins_zone.rs, Phase 7 M9d) */
+RUST_PF (strzone)
+RUST_PF (strunzone)
+
+/* pr_ext.c PR_UnzoneAll is not a builtin_t slot -- PR_ShutdownExtensions calls
+   it directly -- so it gets the same frame by hand rather than through
+   RUST_PF. Its one raise is PR_GetString's, reported as PRBI_ERR_NO_STRING. */
+void rust_pr_UnzoneAll (void)
+{
+	int detail = 0;
+	int status = quake_rs_pr_unzone_all (&detail);
+	if (status != PRBI_OK)
+		PRBI_Raise (status, detail, "UnzoneAll");
+}
 #endif /* USE_RUST_HOST */

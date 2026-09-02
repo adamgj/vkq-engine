@@ -249,7 +249,6 @@ srcs = [
     'Quake/palette.c',
     'Quake/pr_cmds.c',
     'Quake/pr_edict.c',
-    'Quake/pr_edict_arena.c',
     'Quake/pr_ext.c',
     'Quake/r_alias.c',
     'Quake/r_brush.c',
@@ -522,10 +521,17 @@ if use_rust_progs
         'Quake/pr_edict_save_glue.c',
         'Quake/pr_edict_parse_glue.c',
         'Quake/pr_edict_load_glue.c',
+        'Quake/pr_edict_arena_glue.c',
         'Quake/pr_cmds_glue.c',
     ]
 else
-    srcs += ['Quake/pr_exec.c', 'Quake/pr_edict_save.c', 'Quake/pr_edict_parse.c', 'Quake/pr_edict_load.c']
+    srcs += [
+        'Quake/pr_exec.c',
+        'Quake/pr_edict_save.c',
+        'Quake/pr_edict_parse.c',
+        'Quake/pr_edict_load.c',
+        'Quake/pr_edict_arena.c',
+    ]
 endif
 
 # Phase 7 M2: the cvar/command registry. Whole-file Pattern A swap: the Rust

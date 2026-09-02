@@ -324,12 +324,22 @@ void rust_pf_centerprint (void);
 void rust_pf_sv_finalefinished (void);
 void rust_pf_sv_CheckPlayerEXFlags (void);
 void rust_pf_sv_localsound (void);
+/* Phase 7 M9d: the zoned-string group (progs_builtins_zone.rs). PR_UnzoneAll
+   is not a builtin_t slot, so it gets its frame by hand in pr_cmds_glue.c
+   rather than through RUST_PF, and is flipped at its one call site in
+   PR_ShutdownExtensions below. */
+void rust_pf_strzone (void);
+void rust_pf_strunzone (void);
+void rust_pr_UnzoneAll (void);
+#define PR_RSH_UnzoneAll rust_pr_UnzoneAll
 #else
-#define PF_RSH(name) PF_##name
+#define PF_RSH(name)	 PF_##name
+#define PR_RSH_UnzoneAll PR_UnzoneAll
 #endif
 #else
-#define PF_RS(name)	 PF_##name
-#define PF_RSH(name) PF_##name
+#define PF_RS(name)		 PF_##name
+#define PF_RSH(name)	 PF_##name
+#define PR_RSH_UnzoneAll PR_UnzoneAll
 #endif
 
 // #define fixme
@@ -5659,8 +5669,8 @@ static struct
 	{"strcat",						PF_RS (strcat),						PF_RS (strcat),						115,	"string(string s1, optional string s2, optional string s3, optional string s4, optional string s5, optional string s6, optional string s7, optional string s8)"},	// (FRIK_FILE)
 	{"substring",					PF_RS (substring),					PF_RS (substring),					116,	"string(string s, float start, float length)"},	// (FRIK_FILE)
 	{"stov",						PF_stov,						PF_stov,						117,	"vector(string s)"},	// (FRIK_FILE)
-	{"strzone",						PF_strzone,						PF_strzone,						118,	D("string(string s, ...)", "Create a semi-permanent copy of a string that only becomes invalid once strunzone is called on the string (instead of when the engine assumes your string has left scope).")},	// (FRIK_FILE)
-	{"strunzone",					PF_strunzone,					PF_strunzone,					119,	D("void(string s)", "Destroys a string that was allocated by strunzone. Further references to the string MAY crash the game.")},	// (FRIK_FILE)
+	{"strzone",						PF_RSH (strzone),					PF_RSH (strzone),					118,	D("string(string s, ...)", "Create a semi-permanent copy of a string that only becomes invalid once strunzone is called on the string (instead of when the engine assumes your string has left scope).")},	// (FRIK_FILE)
+	{"strunzone",					PF_RSH (strunzone),					PF_RSH (strunzone),					119,	D("void(string s)", "Destroys a string that was allocated by strunzone. Further references to the string MAY crash the game.")},	// (FRIK_FILE)
 	{"tokenize_menuqc",				PF_Tokenize,					PF_Tokenize,					0,		"float(string s)"},
 	{"localsound",					PF_NoSSQC,						PF_cl_localsound,				177,	D("void(string soundname, optional float channel, optional float volume)", "Plays a sound... locally... probably best not to call this from ssqc. Also disables reverb.")},//	#177
 	{"forceinfokey",	            PF_sv_forceinfokey,	            PF_NoCSQC,			            213,	D("void(entity player, string key, string value)", "Directly changes a user's info without pinging off the client. Also allows explicitly setting * keys, including *spectator. Does not affect the user's config or other servers.")}, // #213
@@ -6166,7 +6176,7 @@ void PF_Fixme (void)
 // called at map end
 void PR_ShutdownExtensions (void)
 {
-	PR_UnzoneAll ();
+	PR_RSH_UnzoneAll ();
 	PF_frikfile_shutdown ();
 	PF_buf_shutdown ();
 	tokenize_flush ();

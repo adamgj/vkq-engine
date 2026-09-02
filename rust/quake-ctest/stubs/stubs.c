@@ -6006,6 +6006,18 @@ int PR_SetEngineString (const char *s)
 	return ctest_pf_set_engine_string (s);
 }
 
+static void ctest_pf_clear_engine_string (int num)
+{
+	PR_ClearEngineString (num); /* c_ref_PR_ClearEngineString */
+}
+
+#undef PR_ClearEngineString
+
+void PR_ClearEngineString (int num)
+{
+	ctest_pf_clear_engine_string (num);
+}
+
 /* --- Phase 7 M5 wave 1: generic peek/poke for the builtin differentials ---
  *
  * The builtins read their arguments from, and write their results to, the

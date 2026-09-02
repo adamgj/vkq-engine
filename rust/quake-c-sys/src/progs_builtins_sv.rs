@@ -36,6 +36,12 @@ extern "C" {
     /// it needs no guard.
     pub fn PR_SetEngineString(s: *const c_char) -> c_int;
 
+    /// C: `void PR_ClearEngineString (int num)` (`Quake/pr_edict_arena.c:328`).
+    /// A known-strings table write plus `Mem_Free`; it cannot raise. Used by
+    /// `progs_builtins_zone` (Phase 7 M9d) for `PF_strunzone` /
+    /// `PR_UnzoneAll`.
+    pub fn PR_ClearEngineString(num: c_int);
+
     /// C: `mleaf_t *Mod_PointInLeaf (float *p, qmodel_t *model)`
     /// (`Quake/gl_model.h:740`).
     pub fn Mod_PointInLeaf(p: *mut c_float, model: *mut c_void) -> *mut c_void;

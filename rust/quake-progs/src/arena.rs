@@ -1177,6 +1177,53 @@ impl VmRaw {
         }
     }
 
+    /// `qcvm->knownzone[id >> 3] & (1u << (id & 7))` with no size test.
+    ///
+    /// `PR_UnzoneAll` (`pr_ext.c`) walks the bitmap top-down with `id` already
+    /// equal to the post-decrement `knownzonesize`, so [`knownzone_test`]'s
+    /// `id < knownzonesize` guard -- which `PF_strunzone` and
+    /// `ED_RezoneString` do apply -- would reject every live bit there.
+    ///
+    /// [`knownzone_test`]: Self::knownzone_test
+    #[must_use]
+    pub fn knownzone_test_raw(&self, id: usize) -> bool {
+        // SAFETY: the caller keeps `id` inside the bitmap; `PR_UnzoneAll`'s
+        // loop only ever reaches ids below the size the map was grown to.
+        unsafe { ((*self.vm).knownzone.add(id >> 3).read() & (1u8 << (id & 7))) != 0 }
+    }
+
+    /// One step of `PR_UnzoneAll`'s `while (qcvm->knownzonesize-- > 0)`:
+    /// the size is always decremented, and the body's `id` (the new size) is
+    /// returned only when the old size was non-zero.
+    ///
+    /// COMPAT: the final test decrements a zero `size_t` to `SIZE_MAX`, which
+    /// is what C leaves behind until the tail assignment in
+    /// [`knownzone_release`] resets it; `wrapping_sub` reproduces that instead
+    /// of panicking.
+    ///
+    /// [`knownzone_release`]: Self::knownzone_release
+    pub fn knownzone_pop(&mut self) -> Option<usize> {
+        // SAFETY: a plain field read/write of the live qcvm_t.
+        unsafe {
+            let old = (*self.vm).knownzonesize;
+            (*self.vm).knownzonesize = old.wrapping_sub(1);
+            (old > 0).then(|| old - 1)
+        }
+    }
+
+    /// `PR_UnzoneAll`'s tail: free the bitmap if it exists and reset both
+    /// fields.
+    pub fn knownzone_release(&mut self, mem: &mut dyn Mem) {
+        // SAFETY: `knownzone` is null or a Mem_Alloc'd block of this VM's.
+        unsafe {
+            if !(*self.vm).knownzone.is_null() {
+                mem.free((*self.vm).knownzone);
+            }
+            (*self.vm).knownzonesize = 0;
+            (*self.vm).knownzone = core::ptr::null_mut();
+        }
+    }
+
     /// The VM's string table, built from the live `qcvm_t`'s own fields.
     ///
     /// Takes `&mut self` so it cannot coexist with another mutable view of

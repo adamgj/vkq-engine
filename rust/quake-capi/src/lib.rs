@@ -65,6 +65,8 @@ pub mod net_loop;
 pub mod net_main;
 #[cfg(feature = "net")]
 pub mod net_udp;
+#[cfg(any(feature = "progs", feature = "progs-host"))]
+pub mod pr_edict_arena; // pr_edict_arena.c (edict arena + progs string table)
 #[cfg(feature = "progs")]
 pub mod progs_builtins; // pr_cmds.c
 #[cfg(all(feature = "host", feature = "progs-host"))]
@@ -75,6 +77,8 @@ pub mod progs_builtins_sv; // pr_cmds.c / pr_ext.c server-coupled builtins
 pub mod progs_builtins_sv_fx; // pr_cmds.c world-effect builtins (Group E)
 #[cfg(all(feature = "host", feature = "progs-host"))]
 pub mod progs_builtins_sv_msg; // pr_cmds.c / pr_ext.c message builtins
+#[cfg(all(feature = "host", feature = "progs-host"))]
+pub mod progs_builtins_zone; // pr_ext.c strzone/strunzone + knownzone
 #[cfg(all(feature = "host", feature = "progs-host"))]
 pub mod progs_edict_dispatch; // pr_edict.c ED_Parse* key dispatchers
 #[cfg(feature = "progs")]
