@@ -1,7 +1,18 @@
-//! Characterization gate for `Quake/host.c`. Rust migration Phase 7, M8
-//! (task T8.1); the port itself is a later task, so there is no Rust side to
-//! diff against yet and every test below pins the C reference against an
-//! independently written expectation.
+//! Two-sided differential gate for `Quake/host.c` and its Rust port. Rust
+//! migration Phase 7, M8: T8.1 pinned the C reference against an independently
+//! written expectation, T8.2 added the Rust half, so every subject below is now
+//! driven on both sides and compared.
+//!
+//! The port side is `quake-capi/src/host.rs`, reached through the
+//! `ctest_host_rs_*` drivers in section 4 of `stubs/host_glue_ref.c`. Because
+//! `host_ref.c` renames host.c's file-scope objects to `c_ref_*` -- and
+//! `c_ref_prelude.h` renames `sv`/`svs`/`cl`/`cls` the same way -- while the
+//! port reads the plain objects `host_glue_ref.c`, `stubs.c` and quake-capi's
+//! own `#[no_mangle]` statics define, the two implementations hold independent
+//! state in one process. That is the differential setup: identical inputs go in
+//! on each side and the observables are compared bit for bit. The C side keeps
+//! its T8.1 pin as well, so a shared misreading of host.c cannot make both
+//! sides agree on the wrong answer.
 //!
 //! The oracle side is `stubs/host_ref.c`, which composes `Quake/host.c` into
 //! its own translation unit behind a per-TU rename layer (see that file's
@@ -32,6 +43,16 @@
 //!  - `Host_WriteConfiguration` is driven with an empty cvar list, so it pins
 //!    the guard ladder, the `Key_WriteBindings` call and the two trailing
 //!    commands, not `Cvar_WriteVariables`' output (that is `cvar.c`'s gate).
+//!  - `Max_Fps_f` and `Phys_Ticrate_f` stay C-ONLY. The port's counterparts
+//!    (`host.rs:462` and `host.rs:491`) are file-private `extern "C"` callbacks
+//!    with no `#[no_mangle]` export, so nothing in this link can take their
+//!    address without first running `quake_rs_host_init_local`, which reaches
+//!    `Host_Glue_Host_InitCommands` -> `host_ref.c:295`'s aborting
+//!    `Host_InitCommands` double and `Sys_Error`s. Driving them two-sided needs
+//!    an export the port does not have, so the six tests below them remain
+//!    single-sided pins of the C oracle rather than being faked.
+//!  - `Host_Version_f` has no C-side test to pair with, so T8.2 added no Rust
+//!    one either; its output is `__TIME__`/`__DATE__`-stamped.
 
 use core::ffi::{c_char, c_float, c_int, c_uint, CStr};
 use std::ffi::CString;
@@ -56,6 +77,8 @@ const HOST_NETITERVAL_FREQ: f32 = 71.9990;
 const MAX_PHYSICS_FREQ: f32 = 72.0;
 // client.h:104-106: ca_dedicated, ca_disconnected, ca_connected
 const CA_DISCONNECTED: c_int = 1;
+// host_glue.c -- a `Host_Guard` status of "returned normally".
+const HOST_GUARD_OK: c_int = 0;
 
 extern "C" {
     fn ctest_host_reset_time(realtime: f64, oldrealtime: f64);
@@ -103,6 +126,39 @@ extern "C" {
     fn ctest_clear_con_log();
     fn ctest_con_log_len() -> c_int;
     fn ctest_con_log_get(i: c_int) -> *const c_char;
+
+    // stubs/host_glue_ref.c section 4 -- the same accessors over the plain
+    // (Rust-read) state, one per `ctest_host_*` above.
+    fn ctest_host_rs_reset_time(realtime: f64, oldrealtime: f64);
+    fn ctest_host_rs_set_maxfps(value: c_float);
+    fn ctest_host_rs_set_timescale(value: c_float);
+    fn ctest_host_rs_set_framerate(value: c_float);
+    fn ctest_host_rs_set_demo(demoplayback: c_int, demospeed: c_float, timedemo: c_int);
+    fn ctest_host_rs_filter_time(time: c_float) -> c_int;
+    fn ctest_host_rs_get_realtime() -> f64;
+    fn ctest_host_rs_get_oldrealtime() -> f64;
+    fn ctest_host_rs_get_frametime() -> f64;
+    fn ctest_host_rs_get_rawframetime() -> f64;
+    fn ctest_host_rs_reset_clients(maxclients: c_int);
+    fn ctest_host_rs_set_client_state(index: c_int, active: c_int, spawned: c_int);
+    fn ctest_host_rs_client_msg_len(index: c_int) -> c_int;
+    fn ctest_host_rs_client_msg_byte(index: c_int, offset: c_int) -> c_int;
+    fn ctest_host_rs_set_host_client(index: c_int);
+    fn ctest_host_rs_sv_client_printf(text: *const c_char) -> c_int;
+    fn ctest_host_rs_sv_broadcast_printf(text: *const c_char) -> c_int;
+    fn ctest_host_rs_client_commands(text: *const c_char) -> c_int;
+    fn ctest_host_rs_set_sv_active(value: c_int);
+    fn ctest_host_rs_callback_notify(var: *mut CvarMirror) -> c_int;
+    fn ctest_host_rs_set_maxclients(value: c_int);
+    fn ctest_host_rs_get_maxclients() -> c_int;
+    fn ctest_host_rs_set_cls_state(value: c_int);
+    fn ctest_host_rs_get_cls_state() -> c_int;
+    fn ctest_host_rs_set_deathmatch(value: *const c_char);
+    fn ctest_host_rs_find_max_clients() -> c_int;
+    fn ctest_host_rs_set_gamedir(dir: *const c_char);
+    fn ctest_host_rs_set_initialized(value: c_int);
+    fn ctest_host_rs_set_parms(errstate: c_int);
+    fn ctest_host_rs_write_configuration() -> c_int;
 }
 
 /// ADR-011 `#[repr(C)]` mirror of `cvar_t` (`Quake/cvar.h`). Only `name` and
@@ -149,6 +205,28 @@ fn client_msg(index: c_int) -> Vec<u8> {
         (0..ctest_host_client_msg_len(index))
             .map(|o| ctest_host_client_msg_byte(index, o) as u8)
             .collect()
+    }
+}
+
+fn rs_client_msg(index: c_int) -> Vec<u8> {
+    // SAFETY: ADR-004. Reads the port-side fixture host_glue_ref.c owns.
+    unsafe {
+        (0..ctest_host_rs_client_msg_len(index))
+            .map(|o| ctest_host_rs_client_msg_byte(index, o) as u8)
+            .collect()
+    }
+}
+
+/// Compares every slot of the two client fixtures. The Rust side's buffers
+/// start empty and only the port can fill them, so an empty-bodied
+/// `quake_rs_host_*` fails this against any C side that wrote a byte.
+fn assert_client_msgs_match(label: &str) {
+    for i in 0..4 {
+        assert_eq!(
+            rs_client_msg(i),
+            client_msg(i),
+            "{label}: client {i} diverged (left = Rust port, right = C oracle)"
+        );
     }
 }
 
@@ -274,10 +352,42 @@ fn run_filter_time(i: FilterIn) -> FilterOut {
     }
 }
 
+fn run_filter_time_rs(i: FilterIn) -> FilterOut {
+    // SAFETY: ADR-004. Seeds the plain timing state quake-capi's host.rs reads and calls
+    // quake_rs_host_filter_time over it; TEST_LOCK is held by the caller.
+    unsafe {
+        ctest_host_rs_reset_time(i.realtime, i.oldrealtime);
+        ctest_host_rs_set_maxfps(i.maxfps);
+        ctest_host_rs_set_timescale(i.timescale);
+        ctest_host_rs_set_framerate(i.framerate);
+        ctest_host_rs_set_demo(i.demoplayback as c_int, i.demospeed, i.timedemo as c_int);
+        // SDL_Delay is host_ref.c's one recorder and both sides reach it, so
+        // the counter is reset immediately before each run.
+        ctest_host_sdl_delay_reset();
+        let ret = ctest_host_rs_filter_time(i.time);
+        FilterOut {
+            ret,
+            realtime: ctest_host_rs_get_realtime().to_bits(),
+            oldrealtime: ctest_host_rs_get_oldrealtime().to_bits(),
+            frametime: ctest_host_rs_get_frametime().to_bits(),
+            rawframetime: ctest_host_rs_get_rawframetime().to_bits(),
+            delay_calls: ctest_host_sdl_delay_calls(),
+        }
+    }
+}
+
+/// Runs one `Host_FilterTime` input through both implementations. The C side
+/// keeps its T8.1 pin against the transcribed expectation; the Rust side is
+/// then compared against the C side, every field through `to_bits`.
 fn check(label: &str, i: FilterIn) -> FilterOut {
     let got = run_filter_time(i);
     let want = expected_filter_time(i);
     assert_eq!(got, want, "{label}: input {i:?}");
+    let rs = run_filter_time_rs(i);
+    assert_eq!(
+        rs, got,
+        "{label}: Rust port diverged from the C oracle (left = Rust, right = C), input {i:?}"
+    );
     got
 }
 
@@ -566,6 +676,62 @@ fn filter_time_accumulates_across_calls() {
     }
 }
 
+#[test]
+fn filter_time_accumulates_across_calls_identically_in_the_port() {
+    let _g = lock();
+    // The same two-frame sequence as above, run against the port and compared
+    // to the oracle after each call. The state carried between calls is the
+    // point: a port that failed to advance `oldrealtime` would still get frame
+    // one right and frame two's frametime wrong.
+    // SAFETY: ADR-004. Drives both sides over their own file-scope state, TEST_LOCK held.
+    unsafe {
+        ctest_host_reset_time(0.0, 0.0);
+        ctest_host_set_maxfps(0.0);
+        ctest_host_set_timescale(0.0);
+        ctest_host_set_framerate(0.0);
+        ctest_host_set_demo(0, 1.0, 0);
+
+        ctest_host_rs_reset_time(0.0, 0.0);
+        ctest_host_rs_set_maxfps(0.0);
+        ctest_host_rs_set_timescale(0.0);
+        ctest_host_rs_set_framerate(0.0);
+        ctest_host_rs_set_demo(0, 1.0, 0);
+
+        for step in [0.25f32, 0.5f32] {
+            let c_ret = ctest_host_filter_time(step);
+            let rs_ret = ctest_host_rs_filter_time(step);
+            assert_eq!(rs_ret, c_ret, "step {step}: return value");
+            assert_eq!(
+                ctest_host_rs_get_realtime().to_bits(),
+                ctest_host_get_realtime().to_bits(),
+                "step {step}: realtime"
+            );
+            assert_eq!(
+                ctest_host_rs_get_oldrealtime().to_bits(),
+                ctest_host_get_oldrealtime().to_bits(),
+                "step {step}: oldrealtime"
+            );
+            assert_eq!(
+                ctest_host_rs_get_frametime().to_bits(),
+                ctest_host_get_frametime().to_bits(),
+                "step {step}: host_frametime"
+            );
+            assert_eq!(
+                ctest_host_rs_get_rawframetime().to_bits(),
+                ctest_host_get_rawframetime().to_bits(),
+                "step {step}: host_rawframetime"
+            );
+        }
+        // ...and the shared expectation, so "both agree" cannot mean "both did
+        // nothing".
+        assert_eq!(ctest_host_rs_get_realtime().to_bits(), 0.75f64.to_bits());
+        assert_eq!(
+            ctest_host_rs_get_frametime().to_bits(),
+            (0.5f32 as f64).to_bits()
+        );
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Max_Fps_f (host.c:131) / Phys_Ticrate_f (host.c:162)
 
@@ -710,69 +876,99 @@ fn expect_string_message(bytes: &[u8], tag: u8, text: &str) {
 #[test]
 fn sv_client_printf_writes_svc_print_to_the_current_client_only() {
     let _g = lock();
-    // SAFETY: ADR-004. Drives the C oracle over its file-scope state, TEST_LOCK held.
+    let text = CString::new("hello world").unwrap();
+    // SAFETY: ADR-004. Drives each side over its own client fixture, TEST_LOCK held.
     unsafe {
         ctest_host_reset_clients(4);
         ctest_host_set_host_client(2);
-        let text = CString::new("hello world").unwrap();
         ctest_host_sv_client_printf(text.as_ptr());
+
+        ctest_host_rs_reset_clients(4);
+        ctest_host_rs_set_host_client(2);
+        assert_eq!(
+            ctest_host_rs_sv_client_printf(text.as_ptr()),
+            HOST_GUARD_OK,
+            "the port must return normally"
+        );
     }
     expect_string_message(&client_msg(2), SVC_PRINT, "hello world");
     for i in [0, 1, 3] {
         assert!(client_msg(i).is_empty(), "client {i} must be untouched");
     }
+    assert_client_msgs_match("sv_client_printf");
 }
 
 #[test]
 fn host_client_commands_writes_svc_stufftext() {
     let _g = lock();
-    // SAFETY: ADR-004. Drives the C oracle over its file-scope state, TEST_LOCK held.
+    let text = CString::new("bf\n").unwrap();
+    // SAFETY: ADR-004. Drives each side over its own client fixture, TEST_LOCK held.
     unsafe {
         ctest_host_reset_clients(4);
         ctest_host_set_host_client(0);
-        let text = CString::new("bf\n").unwrap();
         ctest_host_client_commands(text.as_ptr());
+
+        ctest_host_rs_reset_clients(4);
+        ctest_host_rs_set_host_client(0);
+        assert_eq!(ctest_host_rs_client_commands(text.as_ptr()), HOST_GUARD_OK);
     }
     expect_string_message(&client_msg(0), SVC_STUFFTEXT, "bf\n");
+    assert_client_msgs_match("host_client_commands");
 }
 
 #[test]
 fn sv_broadcast_printf_skips_inactive_and_unspawned_clients() {
     let _g = lock();
-    // SAFETY: ADR-004. Drives the C oracle over its file-scope state, TEST_LOCK held.
+    let text = CString::new("everyone").unwrap();
+    // SAFETY: ADR-004. Drives each side over its own client fixture, TEST_LOCK held.
     unsafe {
         ctest_host_reset_clients(3);
         ctest_host_set_client_state(1, 0, 1); // inactive
         ctest_host_set_client_state(2, 1, 0); // active but not spawned
-        let text = CString::new("everyone").unwrap();
         ctest_host_sv_broadcast_printf(text.as_ptr());
+
+        ctest_host_rs_reset_clients(3);
+        ctest_host_rs_set_client_state(1, 0, 1);
+        ctest_host_rs_set_client_state(2, 1, 0);
+        assert_eq!(
+            ctest_host_rs_sv_broadcast_printf(text.as_ptr()),
+            HOST_GUARD_OK
+        );
     }
     expect_string_message(&client_msg(0), SVC_PRINT, "everyone");
     assert!(client_msg(1).is_empty());
     assert!(client_msg(2).is_empty());
     // index 3 is inside the fixture array but outside svs.maxclients
     assert!(client_msg(3).is_empty());
+    assert_client_msgs_match("sv_broadcast_printf skip");
 }
 
 #[test]
 fn sv_broadcast_printf_honours_maxclients_not_the_array_length() {
     let _g = lock();
-    // SAFETY: ADR-004. Drives the C oracle over its file-scope state, TEST_LOCK held.
+    let text = CString::new("two").unwrap();
+    // SAFETY: ADR-004. Drives each side over its own client fixture, TEST_LOCK held.
     unsafe {
         ctest_host_reset_clients(2);
-        let text = CString::new("two").unwrap();
         ctest_host_sv_broadcast_printf(text.as_ptr());
+
+        ctest_host_rs_reset_clients(2);
+        assert_eq!(
+            ctest_host_rs_sv_broadcast_printf(text.as_ptr()),
+            HOST_GUARD_OK
+        );
     }
     expect_string_message(&client_msg(0), SVC_PRINT, "two");
     expect_string_message(&client_msg(1), SVC_PRINT, "two");
     assert!(client_msg(2).is_empty());
     assert!(client_msg(3).is_empty());
+    assert_client_msgs_match("sv_broadcast_printf maxclients");
 }
 
 // ---------------------------------------------------------------------------
 // Host_Callback_Notify (host.c:417)
 
-fn notify(name: &str, string: &str) {
+fn with_cvar_mirror<R>(name: &str, string: &str, f: impl FnOnce(*mut CvarMirror) -> R) -> R {
     let n = CString::new(name).unwrap();
     let s = CString::new(string).unwrap();
     let mut var = CvarMirror {
@@ -784,110 +980,191 @@ fn notify(name: &str, string: &str) {
         callback: None,
         next: core::ptr::null_mut(),
     };
+    f(&mut var)
+}
+
+fn notify(name: &str, string: &str) {
     // SAFETY: ADR-004. Drives the C oracle over its file-scope state, TEST_LOCK held.
-    unsafe { ctest_host_callback_notify(&mut var) };
+    with_cvar_mirror(name, string, |var| unsafe {
+        ctest_host_callback_notify(var)
+    });
+}
+
+fn notify_rs(name: &str, string: &str) -> c_int {
+    // SAFETY: ADR-004. Drives the Rust port over the plain state, TEST_LOCK held.
+    with_cvar_mirror(name, string, |var| unsafe {
+        ctest_host_rs_callback_notify(var)
+    })
 }
 
 #[test]
 fn callback_notify_is_silent_without_an_active_server() {
     let _g = lock();
-    // SAFETY: ADR-004. Drives the C oracle over its file-scope state, TEST_LOCK held.
+    // SAFETY: ADR-004. Drives each side over its own file-scope state, TEST_LOCK held.
     unsafe {
         ctest_host_reset_clients(2);
         ctest_host_set_sv_active(0);
+        ctest_host_rs_reset_clients(2);
+        ctest_host_rs_set_sv_active(0);
     }
     notify("teamplay", "1");
+    assert_eq!(notify_rs("teamplay", "1"), HOST_GUARD_OK);
     assert!(client_msg(0).is_empty());
     assert!(client_msg(1).is_empty());
+    assert_client_msgs_match("callback_notify inactive");
+
+    // "both sides stayed empty" is what a port that does nothing at all also
+    // produces, so the gate is proved by opening it over the same fixture: the
+    // port has to fill the buffers it just left alone.
+    // SAFETY: ADR-004. Flips only the port's sv.active, TEST_LOCK held.
+    unsafe { ctest_host_rs_set_sv_active(1) };
+    assert_eq!(notify_rs("teamplay", "1"), HOST_GUARD_OK);
+    // SAFETY: ADR-004. Restores the port's sv.active for the next test.
+    unsafe { ctest_host_rs_set_sv_active(0) };
+    assert!(
+        !rs_client_msg(0).is_empty() && !rs_client_msg(1).is_empty(),
+        "with sv.active set the port must write to the same buffers"
+    );
 }
 
 #[test]
 fn callback_notify_broadcasts_the_cvar_name_and_string() {
     let _g = lock();
-    // SAFETY: ADR-004. Drives the C oracle over its file-scope state, TEST_LOCK held.
+    // SAFETY: ADR-004. Drives each side over its own file-scope state, TEST_LOCK held.
     unsafe {
         ctest_host_reset_clients(2);
         ctest_host_set_sv_active(1);
+        ctest_host_rs_reset_clients(2);
+        ctest_host_rs_set_sv_active(1);
     }
     notify("teamplay", "1");
-    // SAFETY: ADR-004. Drives the C oracle over its file-scope state, TEST_LOCK held.
-    unsafe { ctest_host_set_sv_active(0) };
+    // The port formats the message itself (host.rs:632-639 rebuilds what
+    // `SV_BroadcastPrintf`'s q_vsnprintf produced), so the compared bytes cover
+    // the quoting and the trailing newline, not just the broadcast fan-out.
+    assert_eq!(notify_rs("teamplay", "1"), HOST_GUARD_OK);
+    // SAFETY: ADR-004. Restores both sides' sv.active for the next test.
+    unsafe {
+        ctest_host_set_sv_active(0);
+        ctest_host_rs_set_sv_active(0);
+    }
     expect_string_message(&client_msg(0), SVC_PRINT, "\"teamplay\" changed to \"1\"\n");
     expect_string_message(&client_msg(1), SVC_PRINT, "\"teamplay\" changed to \"1\"\n");
+    assert_client_msgs_match("callback_notify active");
 }
 
 // ---------------------------------------------------------------------------
 // Host_FindMaxClients (host.c:357)
 
+#[derive(Debug, PartialEq, Eq)]
+struct MaxClientsOut {
+    maxclients: c_int,
+    cls_state: c_int,
+    deathmatch_bits: u32,
+    deathmatch_string: String,
+}
+
+/// Sets the command line, runs both implementations over it, and returns the
+/// (agreed) result.
+///
+/// `com_argc`/`com_argv`/`COM_CheckParm` and the `deathmatch` cvar are
+/// unrenamed, so both sides read one command line and write one cvar; only
+/// `svs.maxclients` and `cls.state` are per-side. The oracle runs first and its
+/// four observables are captured, then all three writable ones are overwritten
+/// with values neither implementation can produce (-12345 clients, cls.state 99,
+/// deathmatch "7") before the port runs. A `quake_rs_host_find_max_clients` with
+/// an empty body would leave those sentinels in place and fail the comparison on
+/// every one of the four cases below.
+fn find_max_clients_both(label: &str, args: [Option<&str>; 3]) -> MaxClientsOut {
+    let owned: Vec<Option<CString>> = args
+        .iter()
+        .map(|a| a.map(|s| CString::new(s).unwrap()))
+        .collect();
+    let ptr = |i: usize| {
+        owned[i]
+            .as_ref()
+            .map_or(core::ptr::null(), |s| s.as_ptr() as *const c_char)
+    };
+    let sentinel = CString::new("7").unwrap();
+
+    // SAFETY: ADR-004. Drives each side over its own svs/cls, TEST_LOCK held.
+    let (c_out, rs_out) = unsafe {
+        ctest_host_register_deathmatch();
+        ctest_host_set_cmdline(ptr(0), ptr(1), ptr(2));
+
+        ctest_host_find_max_clients();
+        let c_out = MaxClientsOut {
+            maxclients: ctest_host_get_maxclients(),
+            cls_state: ctest_host_get_cls_state(),
+            deathmatch_bits: ctest_host_get_deathmatch().to_bits(),
+            deathmatch_string: deathmatch_string(),
+        };
+
+        ctest_host_rs_set_maxclients(-12345);
+        ctest_host_rs_set_cls_state(99);
+        ctest_host_rs_set_deathmatch(sentinel.as_ptr());
+        assert_eq!(
+            ctest_host_rs_find_max_clients(),
+            HOST_GUARD_OK,
+            "{label}: the port must return normally"
+        );
+        let rs_out = MaxClientsOut {
+            maxclients: ctest_host_rs_get_maxclients(),
+            cls_state: ctest_host_rs_get_cls_state(),
+            deathmatch_bits: ctest_host_get_deathmatch().to_bits(),
+            deathmatch_string: deathmatch_string(),
+        };
+        (c_out, rs_out)
+    };
+
+    assert_eq!(
+        rs_out, c_out,
+        "{label}: Rust port diverged from the C oracle (left = Rust, right = C)"
+    );
+    c_out
+}
+
 #[test]
 fn find_max_clients_defaults_to_a_single_disconnected_client() {
     let _g = lock();
-    // SAFETY: ADR-004. Drives the C oracle over its file-scope state, TEST_LOCK held.
-    unsafe {
-        let exe = CString::new("vkquake").unwrap();
-        ctest_host_register_deathmatch();
-        ctest_host_set_cmdline(exe.as_ptr(), core::ptr::null(), core::ptr::null());
-        ctest_host_find_max_clients();
-        assert_eq!(ctest_host_get_maxclients(), 1);
-        assert_eq!(ctest_host_get_cls_state(), CA_DISCONNECTED);
-        assert_eq!(ctest_host_get_deathmatch().to_bits(), 0.0f32.to_bits());
-        assert_eq!(deathmatch_string(), "0");
-    }
+    let out = find_max_clients_both("no arguments", [Some("vkquake"), None, None]);
+    assert_eq!(out.maxclients, 1);
+    assert_eq!(out.cls_state, CA_DISCONNECTED);
+    assert_eq!(out.deathmatch_bits, 0.0f32.to_bits());
+    assert_eq!(out.deathmatch_string, "0");
 }
 
 #[test]
 fn find_max_clients_reads_the_listen_argument_and_sets_deathmatch() {
     let _g = lock();
-    // SAFETY: ADR-004. Drives the C oracle over its file-scope state, TEST_LOCK held.
-    unsafe {
-        let exe = CString::new("vkquake").unwrap();
-        let listen = CString::new("-listen").unwrap();
-        let n = CString::new("4").unwrap();
-        ctest_host_register_deathmatch();
-        ctest_host_set_cmdline(exe.as_ptr(), listen.as_ptr(), n.as_ptr());
-        ctest_host_find_max_clients();
-        assert_eq!(ctest_host_get_maxclients(), 4);
-        assert_eq!(ctest_host_get_deathmatch().to_bits(), 1.0f32.to_bits());
-        assert_eq!(deathmatch_string(), "1");
+    let out = find_max_clients_both("-listen 4", [Some("vkquake"), Some("-listen"), Some("4")]);
+    assert_eq!(out.maxclients, 4);
+    assert_eq!(out.deathmatch_bits, 1.0f32.to_bits());
+    assert_eq!(out.deathmatch_string, "1");
 
-        // and back down again, so the "0" branch of host.c:397 is pinned too
-        ctest_host_set_cmdline(exe.as_ptr(), core::ptr::null(), core::ptr::null());
-        ctest_host_find_max_clients();
-        assert_eq!(deathmatch_string(), "0");
-    }
+    // and back down again, so the "0" branch of host.c:397 is pinned too
+    let out = find_max_clients_both("back to single player", [Some("vkquake"), None, None]);
+    assert_eq!(out.deathmatch_string, "0");
 }
 
 #[test]
 fn find_max_clients_uses_eight_when_listen_is_the_last_argument() {
     let _g = lock();
-    // SAFETY: ADR-004. Drives the C oracle over its file-scope state, TEST_LOCK held.
-    unsafe {
-        let exe = CString::new("vkquake").unwrap();
-        let listen = CString::new("-listen").unwrap();
-        ctest_host_set_cmdline(exe.as_ptr(), listen.as_ptr(), core::ptr::null());
-        ctest_host_find_max_clients();
-        assert_eq!(ctest_host_get_maxclients(), 8);
-    }
+    let out = find_max_clients_both(
+        "-listen with no count",
+        [Some("vkquake"), Some("-listen"), None],
+    );
+    assert_eq!(out.maxclients, 8);
 }
 
 #[test]
 fn find_max_clients_clamps_to_the_scoreboard_size() {
     let _g = lock();
-    // SAFETY: ADR-004. Drives the C oracle over its file-scope state, TEST_LOCK held.
-    unsafe {
-        let exe = CString::new("vkquake").unwrap();
-        let listen = CString::new("-listen").unwrap();
-        let n = CString::new("99").unwrap();
-        ctest_host_set_cmdline(exe.as_ptr(), listen.as_ptr(), n.as_ptr());
-        ctest_host_find_max_clients();
-        assert_eq!(ctest_host_get_maxclients(), MAX_SCOREBOARD);
+    let out = find_max_clients_both("-listen 99", [Some("vkquake"), Some("-listen"), Some("99")]);
+    assert_eq!(out.maxclients, MAX_SCOREBOARD);
 
-        // host.c:387 turns a non-positive count into 8, not into 1
-        let zero = CString::new("0").unwrap();
-        ctest_host_set_cmdline(exe.as_ptr(), listen.as_ptr(), zero.as_ptr());
-        ctest_host_find_max_clients();
-        assert_eq!(ctest_host_get_maxclients(), 8);
-    }
+    // host.c:387 turns a non-positive count into 8, not into 1
+    let out = find_max_clients_both("-listen 0", [Some("vkquake"), Some("-listen"), Some("0")]);
+    assert_eq!(out.maxclients, 8);
 }
 
 // ---------------------------------------------------------------------------
@@ -944,4 +1221,83 @@ fn write_configuration_is_a_no_op_before_host_init_and_after_an_error() {
         write_config_into(&dir, true, 1).is_none(),
         "host_parms->errstate must suppress the write"
     );
+}
+
+fn write_config_into_rs(
+    dir: &std::path::Path,
+    initialized: bool,
+    errstate: c_int,
+) -> Option<String> {
+    let d = CString::new(dir.to_str().unwrap()).unwrap();
+    let path = config_path(dir);
+    let _ = std::fs::remove_file(&path);
+    // SAFETY: ADR-004. Points the port's own com_gamedir at a scratch directory
+    // and runs host.rs:722; TEST_LOCK is held by the caller.
+    unsafe {
+        ctest_host_rs_set_gamedir(d.as_ptr());
+        ctest_host_rs_set_parms(errstate);
+        ctest_host_rs_set_initialized(initialized as c_int);
+        assert_eq!(
+            ctest_host_rs_write_configuration(),
+            HOST_GUARD_OK,
+            "the port must return normally"
+        );
+        ctest_host_rs_set_initialized(0);
+    }
+    std::fs::read_to_string(&path).ok()
+}
+
+#[test]
+fn write_configuration_guard_ladder_matches_the_port() {
+    let _g = lock();
+    let c_dir = std::env::temp_dir().join("ctest_host_cfg_ladder_c");
+    let rs_dir = std::env::temp_dir().join("ctest_host_cfg_ladder_rs");
+    std::fs::create_dir_all(&c_dir).unwrap();
+    std::fs::create_dir_all(&rs_dir).unwrap();
+
+    // The two sides write into two different directories -- the oracle through
+    // c_ref_com_gamedir, the port through the plain one -- so the port has to
+    // produce its own file. The open gate is exercised alongside the two closed
+    // ones precisely so an empty-bodied port fails: it would leave rs_dir with
+    // no config at all and skip the Key_WriteBindings call the oracle made.
+    for (initialized, errstate, expect_file) in
+        [(false, 0, false), (true, 1, false), (true, 0, true)]
+    {
+        let label = format!("initialized = {initialized}, errstate = {errstate}");
+
+        // SAFETY: ADR-004. Reads the shared Key_WriteBindings counter (host_ref.c:201).
+        let mark = unsafe { ctest_host_key_write_bindings_calls() };
+        let c_text = write_config_into(&c_dir, initialized, errstate);
+        // SAFETY: ADR-004. Reads the shared Key_WriteBindings counter (host_ref.c:201).
+        let c_calls = unsafe { ctest_host_key_write_bindings_calls() } - mark;
+
+        // SAFETY: ADR-004. Reads the shared Key_WriteBindings counter (host_ref.c:201).
+        let mark = unsafe { ctest_host_key_write_bindings_calls() };
+        let rs_text = write_config_into_rs(&rs_dir, initialized, errstate);
+        // SAFETY: ADR-004. Reads the shared Key_WriteBindings counter (host_ref.c:201).
+        let rs_calls = unsafe { ctest_host_key_write_bindings_calls() } - mark;
+
+        assert_eq!(
+            c_text.is_some(),
+            expect_file,
+            "{label}: the C oracle's gate moved"
+        );
+        let norm = |t: &Option<String>| t.as_ref().map(|s| s.replace("\r\n", "\n"));
+        assert_eq!(
+            norm(&rs_text),
+            norm(&c_text),
+            "{label}: Rust port diverged from the C oracle (left = Rust, right = C)"
+        );
+        assert_eq!(
+            rs_calls, c_calls,
+            "{label}: Key_WriteBindings call count diverged (left = Rust, right = C)"
+        );
+        assert_eq!(
+            c_calls, expect_file as c_int,
+            "{label}: unexpected call count"
+        );
+    }
+
+    let _ = std::fs::remove_file(config_path(&c_dir));
+    let _ = std::fs::remove_file(config_path(&rs_dir));
 }

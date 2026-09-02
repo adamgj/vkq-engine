@@ -235,7 +235,6 @@ srcs = [
     'Quake/harness.c',
     'Quake/q_thread_sdl.c',
     'Quake/pr_trace.c',
-    'Quake/host.c',
     'Quake/host_cmd.c',
     'Quake/image.c',
     'Quake/image_stb.c',
@@ -687,6 +686,23 @@ if use_rust_host
     srcs += ['Quake/cl_demo_glue.c']
 else
     srcs += ['Quake/cl_demo.c']
+endif
+
+# Phase 7 M8 T8.2: host.c -- the frame loop, timing accumulator, bring-up and
+# shutdown orchestration. Pattern A whole-file swap on the same use_rust_host
+# switch as M3/M4/M6/M7.
+#
+# The ADR-009 setjmp shell stays C: Host_Guard (host.c:302) and Host_Reraise
+# (host.c:339) live in Quake/host_glue.c along with the _Host_Frame setjmp,
+# which Host_Glue_FrameInner owns so no longjmp crosses a Rust frame.
+#
+# T8.2 closes no ADR-007 row: every host.c data object (host_parms, host_client,
+# the 20 cvars, oldrealtime, host_colormap, the sv_speeds counters) keeps its C
+# storage in the glue, because other TUs resolve them by local re-declaration.
+if use_rust_host
+    srcs += ['Quake/host_glue.c']
+else
+    srcs += ['Quake/host.c']
 endif
 
 if use_rust_snd

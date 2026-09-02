@@ -13,6 +13,7 @@ pub mod cl_input;
 pub mod cl_main;
 pub mod cl_parse;
 pub mod cl_tent;
+pub mod host;
 pub mod progs_builtins_cl;
 pub mod progs_builtins_sv;
 pub mod progs_builtins_sv_fx;

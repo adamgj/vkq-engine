@@ -178,6 +178,7 @@ fn main() {
         "cl_tent_ref.c",
         "view_ref.c",
         "host_ref.c",
+        "host_glue_ref.c",
         "host_cmd_ref.c",
     ] {
         let path = manifest.join("stubs").join(stub);

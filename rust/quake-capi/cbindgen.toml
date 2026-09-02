@@ -431,6 +431,12 @@ void CL_UpdateBeam(struct qmodel_s *m, const char *trailname, const char *impact
  * so the linkage matches the C original exactly */
 entity_t *CL_NewTempEntity(void);
 #endif
+/* Phase 7 M8 T8.2: host.c's cvar-callback core, the only host.c entry point
+ * whose signature uses an engine typedef. Guarded on cvar.h's include guard
+ * like the M2 block above. */
+#ifdef __CVAR_H__
+int quake_rs_host_callback_notify(cvar_t *var);
+#endif
 #ifdef __cplusplus
 } /* extern "C" -- these hand-written declarations sit outside cbindgen's own
    * cpp_compat guard, so they carry their own */
@@ -456,6 +462,8 @@ exclude = [
     "quake_rs_cvar_set_value_quick", "quake_rs_cvar_set", "quake_rs_cvar_set_value",
     "quake_rs_cvar_set_rom", "quake_rs_cvar_set_value_rom", "quake_rs_cvar_create",
     "quake_rs_cvar_command", "quake_rs_cvar_reset",
+    # Phase 7 M8 T8.2 -- declared by hand above, guarded on cvar.h
+    "quake_rs_host_callback_notify",
     "Cbuf_Init", "Cbuf_AddText", "Cbuf_AddTextLen", "Cbuf_Waited",
     "Cmd_Init", "Cmd_Argc", "Cmd_Argv", "Cmd_Args", "Cmd_TokenizeString",
     "Cmd_AddArg", "Cmd_AddCommand2", "Cmd_RemoveCommand", "Cmd_FindCommand",
