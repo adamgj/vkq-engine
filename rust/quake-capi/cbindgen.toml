@@ -304,6 +304,21 @@ const char *rust_net_SlistPrintServerName(size_t idx);
 void rust_net_Close(qsocket_t *sock);
 qsocket_t *rust_net_CheckNewConnections(void);
 int rust_net_ListAddresses(qhostaddr_t *addresses, int maxaddresses);
+/* Phase 7 M9c: the fourteen dispatch funnels. The raising five return a
+ * Host_Guard status and pass their result back through an out-parameter
+ * (ADR-009); net_main.c's wrapper re-issues the status with Host_Reraise.
+ * Only the entry points whose signatures name a net_defs.h / common.h type
+ * are declared here -- rust_net_Slist_f, rust_net_Slist_Send,
+ * rust_net_Slist_Poll, rust_net_Init, rust_net_Shutdown and rust_net_Poll
+ * take plain C types, so cbindgen emits them correctly on its own. */
+int rust_net_Connect(const char *host, qsocket_t **out);
+int rust_net_GetMessage(qsocket_t *sock, int *out);
+int rust_net_GetServerMessage(qsocket_t **out);
+int rust_net_SendMessage(qsocket_t *sock, sizebuf_t *data);
+int rust_net_SendUnreliableMessage(qsocket_t *sock, sizebuf_t *data);
+qboolean rust_net_CanSendMessage(qsocket_t *sock);
+int rust_net_SendToAll(sizebuf_t *data, double blocktime, int *out);
+void rust_net_SchedulePollProcedure(PollProcedure *proc_, double time_offset);
 /* Phase 7 M9b: the net_dgrm.c orchestration half. Only the entry points whose
  * signatures name net_defs.h types are declared here; the rest of the
  * quake_rs_dgrm_* set uses plain C types and cbindgen emits it unguarded. */
@@ -597,6 +612,11 @@ exclude = [
     "rust_net_SlistPrintServer", "rust_net_SlistPrintServerName",
     "rust_net_Close", "rust_net_CheckNewConnections",
     "rust_net_ListAddresses",
+    # Phase 7 M9c -- declared by hand above, guarded on net_defs.h
+    "rust_net_Connect", "rust_net_GetMessage", "rust_net_GetServerMessage",
+    "rust_net_SendMessage", "rust_net_SendUnreliableMessage",
+    "rust_net_CanSendMessage", "rust_net_SendToAll",
+    "rust_net_SchedulePollProcedure",
     # Phase 7 M9b -- declared by hand above, guarded on net_defs.h
     "quake_rs_dgrm_get_any_message", "quake_rs_dgrm_close",
     "quake_rs_dgrm_listen", "quake_rs_dgrm_check_new_connections",

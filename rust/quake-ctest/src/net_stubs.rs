@@ -130,3 +130,48 @@ pub unsafe fn qsocket_reset_rust() {
         QSOCKET_USED = 0;
     }
 }
+
+// Phase 7 M9c: net_main.c's remaining ambient globals (the funnel cores) and
+// the harness.c net-replay seam. The replay is always off in ctest, so the
+// four Harness_Net* entry points are inert stand-ins.
+#[no_mangle]
+pub static mut slistInProgress: qboolean = false;
+#[no_mangle]
+pub static mut slist_silent: qboolean = false;
+#[no_mangle]
+pub static mut net_numsockets: c_int = 0;
+#[no_mangle]
+pub static mut harness_netreplay: qboolean = false;
+
+/// # Safety
+/// Single-threaded tests.
+#[no_mangle]
+pub unsafe extern "C" fn Harness_NetCapture(
+    _direction: c_int,
+    _driver: c_int,
+    _kind: c_int,
+    _data: *const u8,
+    _len: c_int,
+) {
+}
+
+/// # Safety
+/// Single-threaded tests.
+#[no_mangle]
+pub unsafe extern "C" fn Harness_NetReplayConnect() -> *mut qsocket_s {
+    ptr::null_mut()
+}
+
+/// # Safety
+/// Single-threaded tests.
+#[no_mangle]
+pub unsafe extern "C" fn Harness_NetReplayOwns(_sock: *mut qsocket_s) -> qboolean {
+    false
+}
+
+/// # Safety
+/// Single-threaded tests.
+#[no_mangle]
+pub unsafe extern "C" fn Harness_NetReplayGetMessage() -> c_int {
+    -1
+}

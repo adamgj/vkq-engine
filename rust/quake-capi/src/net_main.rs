@@ -1,28 +1,36 @@
-//! Phase 5 M9: the ADR-009-safe core of net_main.c -- qsocket pool
-//! management, SetNetTime, the qsocket accessors, the slist UI helpers,
-//! the listen/maxplayers/port command handlers, and the leaf driver loops
-//! (Close, CheckNewConnections, ListAddresses). net_main.c keeps trampolines
-//! under `USE_RUST_NET` (the Phase 3 in-file idiom).
+//! Phase 5 M9 / Phase 7 M9c: net_main.c's logic in Rust -- qsocket pool
+//! management, SetNetTime, the qsocket accessors, the slist UI helpers, the
+//! listen/maxplayers/port command handlers, the leaf driver loops (Close,
+//! CheckNewConnections, ListAddresses) and, since M9c, the fourteen dispatch
+//! funnels. net_main.c keeps trampolines under `USE_RUST_NET` (the Phase 3
+//! in-file idiom).
 //!
-//! Deliberately NOT ported (the M9 ADR-009 audit, recorded in the task
-//! plan): the dispatch funnels NET_Connect / NET_GetMessage /
-//! NET_GetServerMessage / NET_Send* / NET_SendToAll / NET_Poll /
-//! SchedulePollProcedure and NET_Init/Shutdown. `Host_Error`-capable code
-//! runs beneath them (the dgrm glue's re-raise, `_Datagram_ServerControl
-//! Packet` -> SV_ConnectClient, the MSG-writer glue under SearchForHosts),
-//! and a longjmp must never unwind a Rust frame -- those functions ARE the
-//! required C frames until Phase 7 statusizes the layers below. The paths
-//! ported here have only `Sys_Error` exits (no longjmp) beneath them.
+//! ADR-009: `Host_Error`-capable code runs beneath the funnels (the dgrm
+//! glue's re-raise, `_Datagram_ServerControlPacket` -> SV_ConnectClient, the
+//! MSG-writer glue under SearchForHosts), and a longjmp must never unwind a
+//! Rust frame. M9c therefore pushed the required C frame down to the
+//! individual raise-capable vtable calls -- `NetMain_Glue_QGetMessage`,
+//! `NetMain_Glue_QGetAnyMessage`, `NetMain_Glue_DriverConnect`,
+//! `NetMain_Glue_DriverInit`, `NetMain_Glue_RegisterNetVars` -- instead of
+//! keeping whole funnels in C. The five cores that can observe a caught jump
+//! return the `Host_Guard` status untouched; their C wrapper re-issues it
+//! with `Host_Reraise`.
 //!
-//! Ownership (ADR-007): pool heads, hostcache, counters, slist state and
-//! net_time stay C-owned in net_main.c; `slistLastShown` (touched only by
-//! the ported print helpers) moves to Rust module state.
+//! Ownership (ADR-007): pool heads, hostcache, counters and net_time stay
+//! C-owned in net_main.c; `slistLastShown`, `slistStartTime`,
+//! `slistActiveTime`, `slistSendProcedure`, `slistPollProcedure` and the
+//! `pollProcedureList` *head* are Rust module state. The PollProcedure nodes
+//! themselves stay caller-owned, exactly as in C.
 
-use core::ffi::{c_char, c_int, CStr};
+use core::ffi::{c_char, c_int, c_void, CStr};
 
 use quake_c_sys as c;
+use quake_c_sys::host::HOST_GUARD_OK;
 use quake_net::cnum::c_atoi;
-use quake_types::net::{HostCache, NetDriver, QHostAddr, QSocket, HOSTCACHESIZE};
+use quake_types::net::{
+    HostCache, NetDriver, PollProcedure, QBoolean, QHostAddr, QSocket, SizeBuf, HOSTCACHESIZE,
+    NET_MAXMESSAGE,
+};
 
 extern "C" {
     static net_numdrivers: c_int;
@@ -575,5 +583,779 @@ pub unsafe extern "C" fn rust_net_ListAddresses(
             c::net_driverlevel += 1;
         }
         result
+    }
+}
+
+// =============================================================================
+// Phase 7 M9c (T9.1): the fourteen dispatch funnels.
+//
+// ADR-009: every raise-capable callee below is a driver-vtable call (plus the
+// cvar/command block of NET_Init), and each one goes through its own
+// `NetMain_Glue_*` `Host_Guard` trampoline in a pure C frame. The five cores
+// that can observe a caught jump return the status untouched; their C wrapper
+// re-issues it with `Host_Reraise`.
+// =============================================================================
+
+/// `quakedef.h:214` -- `#define MAX_SCOREBOARD 16`.
+const MAX_SCOREBOARD: usize = 16;
+
+/// `enum slistScope_e { SLIST_LOOP, ... }` (net.h:108).
+const SLIST_LOOP: c_int = 0;
+
+/// `slistStartTime` (net_main.c:63) -- C file static, no external declaration.
+static mut SLIST_START_TIME: f64 = 0.0;
+
+/// `slistActiveTime` (net_main.c:64) -- C file static.
+static mut SLIST_ACTIVE_TIME: f64 = 0.0;
+
+/// `slistSendProcedure` (net_main.c:71). C's initializer leaves `arg`
+/// implicitly NULL; `Slist_Send` is `rust_net_Slist_Send` here.
+static mut SLIST_SEND_PROCEDURE: PollProcedure = PollProcedure {
+    next: core::ptr::null_mut(),
+    next_time: 0.0,
+    procedure: Some(rust_net_Slist_Send),
+    arg: core::ptr::null_mut(),
+};
+
+/// `slistPollProcedure` (net_main.c:72)
+static mut SLIST_POLL_PROCEDURE: PollProcedure = PollProcedure {
+    next: core::ptr::null_mut(),
+    next_time: 0.0,
+    procedure: Some(rust_net_Slist_Poll),
+    arg: core::ptr::null_mut(),
+};
+
+/// `pollProcedureList` (net_main.c:1076) -- C file static. Only the list *head*
+/// is Rust-owned; the nodes stay caller-owned (ADR-011), exactly as in C.
+static mut POLL_PROCEDURE_LIST: *mut PollProcedure = core::ptr::null_mut();
+
+/// `host_client->netconnection`, through the C accessor: `host_client` and
+/// `svs` are server state and the net stratum builds with `use_rust_host=false`.
+///
+/// # Safety
+/// `host_client` currently addresses a live `svs.clients` slot.
+unsafe fn host_client_connection() -> *mut QSocket {
+    // SAFETY: caller contract
+    unsafe { c::net_main::NetMain_HostClientConnection().cast() }
+}
+
+/// `NET_Slist_f`
+///
+/// # Safety
+/// Single-threaded host frame.
+#[no_mangle]
+pub unsafe extern "C" fn rust_net_Slist_f() {
+    // SAFETY: caller contract
+    unsafe {
+        if c::net_main::slistInProgress {
+            return;
+        }
+
+        if !c::net_main::slist_silent {
+            con_print("Looking for Quake servers...\n");
+            rust_net_PrintSlistHeader();
+        }
+
+        c::net_main::slistInProgress = true;
+        SLIST_START_TIME = c::Sys_DoubleTime();
+        SLIST_ACTIVE_TIME = SLIST_START_TIME;
+
+        rust_net_SchedulePollProcedure(&raw mut SLIST_SEND_PROCEDURE, 0.0);
+        rust_net_SchedulePollProcedure(&raw mut SLIST_POLL_PROCEDURE, 0.1);
+
+        c::hostCacheCount = 0;
+    }
+}
+
+/// `Slist_Send` (net_main.c:496, `static` there). `SearchForHosts` reaches
+/// `Datagram_SearchForHosts`, which the M9c raise audit cleared: no guard.
+///
+/// # Safety
+/// Called as a `PollProcedure.procedure` callback from `NET_Poll`.
+#[no_mangle]
+pub unsafe extern "C" fn rust_net_Slist_Send(_unused: *mut c_void) {
+    // SAFETY: caller contract
+    unsafe {
+        c::net_driverlevel = 0;
+        while c::net_driverlevel < net_numdrivers {
+            let d = driver(c::net_driverlevel);
+            let skip = (c::net_dgrm_orch::slist_scope != SLIST_LOOP && c::net_driverlevel == 0)
+                || !(*d).initialized;
+            if !skip {
+                ((*d).search_for_hosts.expect("driver SearchForHosts"))(true);
+            }
+            c::net_driverlevel += 1;
+        }
+
+        if (c::Sys_DoubleTime() - SLIST_START_TIME) < 0.5 {
+            rust_net_SchedulePollProcedure(&raw mut SLIST_SEND_PROCEDURE, 0.75);
+        }
+    }
+}
+
+/// `Slist_Poll` (net_main.c:511, `static` there)
+///
+/// # Safety
+/// Called as a `PollProcedure.procedure` callback from `NET_Poll`.
+#[no_mangle]
+pub unsafe extern "C" fn rust_net_Slist_Poll(_unused: *mut c_void) {
+    // SAFETY: caller contract
+    unsafe {
+        c::net_driverlevel = 0;
+        while c::net_driverlevel < net_numdrivers {
+            let d = driver(c::net_driverlevel);
+            let skip = (c::net_dgrm_orch::slist_scope != SLIST_LOOP && c::net_driverlevel == 0)
+                || !(*d).initialized;
+            if !skip && ((*d).search_for_hosts.expect("driver SearchForHosts"))(false) {
+                SLIST_ACTIVE_TIME = c::Sys_DoubleTime(); // something was sent, reset the timer.
+            }
+            c::net_driverlevel += 1;
+        }
+
+        if !c::net_main::slist_silent {
+            rust_net_PrintSlist();
+        }
+
+        if (c::Sys_DoubleTime() - SLIST_ACTIVE_TIME) < 1.5 {
+            rust_net_SchedulePollProcedure(&raw mut SLIST_POLL_PROCEDURE, 0.1);
+            return;
+        }
+
+        if !c::net_main::slist_silent {
+            rust_net_PrintSlistTrailer();
+        }
+        c::net_main::slistInProgress = false;
+        c::net_main::slist_silent = false;
+        c::net_dgrm_orch::slist_scope = SLIST_LOOP;
+    }
+}
+
+/// `NET_Connect`. Returns a `Host_Guard` status; the socket comes back in
+/// `out` (ADR-009 -- `dfunc.Connect` reaches `Datagram_Connect`, which raises).
+///
+/// # Safety
+/// `out` is a writable `qsocket_t *` slot; single-threaded host frame.
+#[no_mangle]
+pub unsafe extern "C" fn rust_net_Connect(host: *const c_char, out: *mut *mut QSocket) -> c_int {
+    // SAFETY: caller contract
+    unsafe {
+        // the `host` parameter shadows the module's hostcache helper, so the
+        // helper is spelled `self::host` throughout this function
+        let mut host = host;
+        let mut numdrivers = net_numdrivers;
+
+        *out = core::ptr::null_mut();
+
+        if c::net_main::harness_netreplay {
+            *out = c::net_main::Harness_NetReplayConnect().cast(); /* Phase 5 M8: replayed session */
+            return HOST_GUARD_OK;
+        }
+
+        rust_net_SetNetTime();
+
+        if !host.is_null() && *host == 0 {
+            host = core::ptr::null();
+        }
+
+        'just_do_it: {
+            if !host.is_null() {
+                if c::net_main::q_strcasecmp(host, c"local".as_ptr()) == 0 {
+                    numdrivers = 1;
+                    break 'just_do_it;
+                }
+
+                if c::hostCacheCount != 0 {
+                    let mut n = 0usize;
+                    while n < c::hostCacheCount {
+                        if c::net_main::q_strcasecmp(host, (*self::host(n)).name.as_ptr()) == 0 {
+                            host = (*self::host(n)).cname.as_ptr();
+                            break;
+                        }
+                        n += 1;
+                    }
+                    if n < c::hostCacheCount {
+                        break 'just_do_it;
+                    }
+                }
+            }
+
+            c::net_main::slist_silent = !host.is_null();
+            rust_net_Slist_f();
+
+            while c::net_main::slistInProgress {
+                rust_net_Poll();
+            }
+
+            if host.is_null() {
+                if c::hostCacheCount != 1 {
+                    return HOST_GUARD_OK; // *out is NULL
+                }
+                host = (*self::host(0)).cname.as_ptr();
+                let mut line = b"Connecting to...\n".to_vec();
+                line.extend_from_slice(&field_bytes(&(*self::host(0)).name));
+                line.extend_from_slice(b" @ ");
+                line.extend_from_slice(CStr::from_ptr(host).to_bytes());
+                line.extend_from_slice(b"\n\n");
+                con_print_bytes(&line);
+            }
+
+            if c::hostCacheCount != 0 {
+                let mut n = 0usize;
+                while n < c::hostCacheCount {
+                    if c::net_main::q_strcasecmp(host, (*self::host(n)).name.as_ptr()) == 0 {
+                        host = (*self::host(n)).cname.as_ptr();
+                        break;
+                    }
+                    n += 1;
+                }
+            }
+        }
+
+        // JustDoIt:
+        c::net_driverlevel = 0;
+        while c::net_driverlevel < numdrivers {
+            let d = driver(c::net_driverlevel);
+            if (*d).initialized {
+                let mut ret: *mut c_void = core::ptr::null_mut();
+                let g = c::net_main::NetMain_Glue_DriverConnect(host, &mut ret);
+                if g != HOST_GUARD_OK {
+                    return g;
+                }
+                if !ret.is_null() {
+                    *out = ret.cast();
+                    return HOST_GUARD_OK;
+                }
+            }
+            c::net_driverlevel += 1;
+        }
+
+        if !host.is_null() {
+            con_print("\n");
+            rust_net_PrintSlistHeader();
+            rust_net_PrintSlist();
+            rust_net_PrintSlistTrailer();
+        }
+
+        HOST_GUARD_OK // *out is NULL
+    }
+}
+
+/// `NET_GetMessage`. Returns a `Host_Guard` status; the int result comes back
+/// in `out` (ADR-009 -- `sfunc.QGetMessage` reaches `Datagram_GetMessage`).
+///
+/// # Safety
+/// `out` is a writable `int` slot; single-threaded host frame.
+#[no_mangle]
+pub unsafe extern "C" fn rust_net_GetMessage(sock: *mut QSocket, out: *mut c_int) -> c_int {
+    // SAFETY: caller contract
+    unsafe {
+        if sock.is_null() {
+            *out = -1;
+            return HOST_GUARD_OK;
+        }
+
+        if (*sock).disconnected {
+            con_print("NET_GetMessage: disconnected socket\n");
+            *out = -1;
+            return HOST_GUARD_OK;
+        }
+
+        if c::net_main::harness_netreplay && c::net_main::Harness_NetReplayOwns(sock.cast()) {
+            *out = c::net_main::Harness_NetReplayGetMessage();
+            return HOST_GUARD_OK;
+        }
+
+        rust_net_SetNetTime();
+
+        let mut ret: c_int = 0;
+        let g = c::net_main::NetMain_Glue_QGetMessage(sock.cast(), &mut ret);
+        if g != HOST_GUARD_OK {
+            return g;
+        }
+
+        // see if this connection has timed out
+        if ret == 0 && (*sock).driver != 0 {
+            // COMPAT: ADR-010. C compares `double - double > float`: the cvar's
+            // f32 `value` is promoted to double by the usual arithmetic
+            // conversions, so the comparison happens in f64 over an f32-rounded
+            // threshold. Reproduced exactly; do not reassociate.
+            if c::net_time - (*sock).last_message_time
+                > f64::from(c::net_dgrm_orch::net_messagetimeout.value)
+            {
+                rust_net_Close(sock);
+                *out = -1;
+                return HOST_GUARD_OK;
+            }
+        }
+
+        if ret > 0 {
+            /* QGetMessage returns 1 for reliable and 2 for unreliable, which is
+            exactly the capture's `kind` encoding (see harness.h) */
+            let kind = ret;
+            c::net_main::Harness_NetCapture(
+                0,
+                (*sock).driver,
+                kind,
+                c::net_message.data,
+                c::net_message.cursize,
+            );
+            if (*sock).driver != 0 {
+                (*sock).last_message_time = c::net_time;
+                if ret == 1 {
+                    c::messagesReceived += 1;
+                } else if ret == 2 {
+                    c::unreliableMessagesReceived += 1;
+                }
+            }
+        }
+
+        *out = ret;
+        HOST_GUARD_OK
+    }
+}
+
+/// `NET_GetServerMessage`. Returns a `Host_Guard` status; the qsocket comes
+/// back in `out` (ADR-009 -- `QGetAnyMessage` reaches
+/// `Datagram_GetAnyMessage`).
+///
+/// # Safety
+/// `out` is a writable `qsocket_t *` slot; single-threaded host frame.
+#[no_mangle]
+pub unsafe extern "C" fn rust_net_GetServerMessage(out: *mut *mut QSocket) -> c_int {
+    // SAFETY: caller contract
+    unsafe {
+        *out = core::ptr::null_mut();
+
+        c::net_driverlevel = 0;
+        while c::net_driverlevel < net_numdrivers {
+            let d = driver(c::net_driverlevel);
+            if (*d).initialized {
+                let mut s: *mut c_void = core::ptr::null_mut();
+                let g = c::net_main::NetMain_Glue_QGetAnyMessage(&mut s);
+                if g != HOST_GUARD_OK {
+                    return g;
+                }
+                if !s.is_null() {
+                    let s = s.cast::<QSocket>();
+                    /* kind 0 = unknown: reliability is not distinguished on this path */
+                    c::net_main::Harness_NetCapture(
+                        0,
+                        (*s).driver,
+                        0,
+                        c::net_message.data,
+                        c::net_message.cursize,
+                    );
+                    *out = s;
+                    return HOST_GUARD_OK;
+                }
+            }
+            c::net_driverlevel += 1;
+        }
+
+        HOST_GUARD_OK
+    }
+}
+
+/// `NET_SendMessage`. `sfunc.QSendMessage` reaches `Datagram_SendMessage`,
+/// which the M9c raise audit cleared: no guard, no status channel.
+///
+/// # Safety
+/// `data` is a live sizebuf; single-threaded host frame.
+#[no_mangle]
+pub unsafe extern "C" fn rust_net_SendMessage(sock: *mut QSocket, data: *mut SizeBuf) -> c_int {
+    // SAFETY: caller contract
+    unsafe {
+        if sock.is_null() {
+            return -1;
+        }
+
+        if (*sock).disconnected {
+            con_print("NET_SendMessage: disconnected socket\n");
+            return -1;
+        }
+
+        if c::net_main::harness_netreplay && c::net_main::Harness_NetReplayOwns(sock.cast()) {
+            return 1; /* Phase 5 M8: the replay absorbs client output */
+        }
+
+        rust_net_SetNetTime();
+        let d = driver((*sock).driver);
+        let r = ((*d).qsend_message.expect("driver QSendMessage"))(sock, data);
+        if r == 1 {
+            c::net_main::Harness_NetCapture(1, (*sock).driver, 1, (*data).data, (*data).cursize);
+        }
+        if r == 1 && (*sock).driver != 0 {
+            c::net_dgrm_orch::messagesSent += 1;
+        }
+
+        r
+    }
+}
+
+/// `NET_SendUnreliableMessage`
+///
+/// # Safety
+/// `data` is a live sizebuf; single-threaded host frame.
+#[no_mangle]
+pub unsafe extern "C" fn rust_net_SendUnreliableMessage(
+    sock: *mut QSocket,
+    data: *mut SizeBuf,
+) -> c_int {
+    // SAFETY: caller contract
+    unsafe {
+        if sock.is_null() {
+            return -1;
+        }
+
+        if (*sock).disconnected {
+            // COMPAT: the diagnostic names NET_SendMessage, not this function
+            // (net_main.c:848). Console output is a compared surface, so the
+            // wrong name is preserved verbatim.
+            con_print("NET_SendMessage: disconnected socket\n");
+            return -1;
+        }
+
+        if c::net_main::harness_netreplay && c::net_main::Harness_NetReplayOwns(sock.cast()) {
+            return 1;
+        }
+
+        rust_net_SetNetTime();
+        let d = driver((*sock).driver);
+        let r = ((*d)
+            .send_unreliable_message
+            .expect("driver SendUnreliableMessage"))(sock, data);
+        if r == 1 {
+            c::net_main::Harness_NetCapture(1, (*sock).driver, 2, (*data).data, (*data).cursize);
+        }
+        if r == 1 && (*sock).driver != 0 {
+            c::net_dgrm_orch::unreliableMessagesSent += 1;
+        }
+
+        r
+    }
+}
+
+/// `NET_CanSendMessage`
+///
+/// # Safety
+/// Single-threaded host frame.
+#[no_mangle]
+pub unsafe extern "C" fn rust_net_CanSendMessage(sock: *mut QSocket) -> QBoolean {
+    // SAFETY: caller contract
+    unsafe {
+        if sock.is_null() {
+            return false;
+        }
+
+        if (*sock).disconnected {
+            return false;
+        }
+
+        if c::net_main::harness_netreplay && c::net_main::Harness_NetReplayOwns(sock.cast()) {
+            return true;
+        }
+
+        rust_net_SetNetTime();
+
+        let d = driver((*sock).driver);
+        ((*d).can_send_message.expect("driver CanSendMessage"))(sock)
+    }
+}
+
+/// `NET_SendToAll`. Returns a `Host_Guard` status; the remaining count comes
+/// back in `out`. The status channel exists because the loop calls
+/// `NET_GetMessage`, which reaches `Datagram_GetMessage` (ADR-009).
+///
+/// # Safety
+/// `data` is a live sizebuf and `out` a writable `int` slot; single-threaded
+/// host frame.
+#[no_mangle]
+pub unsafe extern "C" fn rust_net_SendToAll(
+    data: *mut SizeBuf,
+    blocktime: f64,
+    out: *mut c_int,
+) -> c_int {
+    // SAFETY: caller contract
+    unsafe {
+        let mut count: c_int = 0;
+        // COMPAT: C sizes these `qboolean [MAX_SCOREBOARD]` but indexes them
+        // with `i < svs.maxclients`. Both writers of svs.maxclients clamp it to
+        // MAX_SCOREBOARD (host.c:386-389, net_main.c:334-336), so the C arrays
+        // are never overrun -- the Rust bounds check below is unreachable and
+        // there is no defect to reproduce.
+        /* did we write the message to the client's connection	*/
+        let mut msg_init = [false; MAX_SCOREBOARD];
+        /* did the msg arrive its destination (canSend state).	*/
+        let mut msg_sent = [false; MAX_SCOREBOARD];
+
+        let maxclients = c::NetMain_MaxClients();
+
+        // C's `for (i = 0, host_client = svs.clients; ...; i++, host_client++)`:
+        // host_client tracks i and is left one past the last slot on exit.
+        let mut i: c_int = 0;
+        while i < maxclients {
+            c::net_main::NetMain_SetHostClient(i);
+            /*
+            if (!host_client->netconnection)
+                continue;
+            if (host_client->active)
+            */
+            let conn = host_client_connection();
+            if !conn.is_null() && c::net_main::NetMain_HostClientActive() {
+                if (*conn).driver == 0 {
+                    rust_net_SendMessage(conn, data);
+                    msg_init[i as usize] = true;
+                    msg_sent[i as usize] = true;
+                } else {
+                    count += 1;
+                    msg_init[i as usize] = false;
+                    msg_sent[i as usize] = false;
+                }
+            } else {
+                msg_init[i as usize] = true;
+                msg_sent[i as usize] = true;
+            }
+            i += 1;
+        }
+        c::net_main::NetMain_SetHostClient(maxclients);
+
+        let start = c::Sys_DoubleTime();
+        while count != 0 {
+            count = 0;
+            let mut i: c_int = 0;
+            while i < maxclients {
+                c::net_main::NetMain_SetHostClient(i);
+                'iteration: {
+                    if !msg_init[i as usize] {
+                        if rust_net_CanSendMessage(host_client_connection()) {
+                            msg_init[i as usize] = true;
+                            rust_net_SendMessage(host_client_connection(), data);
+                        } else {
+                            let mut ignored: c_int = 0;
+                            let g = rust_net_GetMessage(host_client_connection(), &mut ignored);
+                            if g != HOST_GUARD_OK {
+                                return g;
+                            }
+                        }
+                        count += 1;
+                        break 'iteration;
+                    }
+
+                    if !msg_sent[i as usize] {
+                        if rust_net_CanSendMessage(host_client_connection()) {
+                            msg_sent[i as usize] = true;
+                        } else {
+                            let mut ignored: c_int = 0;
+                            let g = rust_net_GetMessage(host_client_connection(), &mut ignored);
+                            if g != HOST_GUARD_OK {
+                                return g;
+                            }
+                        }
+                        count += 1;
+                    }
+                }
+                i += 1;
+            }
+            c::net_main::NetMain_SetHostClient(maxclients);
+            if (c::Sys_DoubleTime() - start) > blocktime {
+                break;
+            }
+        }
+
+        *out = count;
+        HOST_GUARD_OK
+    }
+}
+
+//=============================================================================
+
+/// `NET_Init`. Returns a `Host_Guard` status: the driver `Init` slots reach
+/// `Datagram_Init`, and the cvar/command block can raise under
+/// `-Duse_rust_cvar` (ADR-009).
+///
+/// # Safety
+/// Called once, from `Host_Init`.
+#[no_mangle]
+pub unsafe extern "C" fn rust_net_Init() -> c_int {
+    // SAFETY: caller contract
+    unsafe {
+        let mut i = c::COM_CheckParm(c"-port".as_ptr());
+        if i == 0 {
+            i = c::COM_CheckParm(c"-udpport".as_ptr());
+        }
+
+        if i != 0 {
+            if i < c::com_argc - 1 {
+                let arg = *c::com_argv.add((i + 1) as usize);
+                c::DEFAULTnet_hostport = c_atoi(CStr::from_ptr(arg).to_bytes());
+            } else {
+                c::Sys_Error(c"NET_Init: you must specify a number after -port".as_ptr());
+            }
+        }
+        c::net_hostport = c::DEFAULTnet_hostport;
+
+        c::net_main::net_numsockets = c::NetMain_MaxClientsLimit();
+        if !c::net_main::NetMain_ClsDedicated() {
+            c::net_main::net_numsockets += 1;
+        }
+        if c::COM_CheckParm(c"-listen".as_ptr()) != 0 || c::net_main::NetMain_ClsDedicated() {
+            c::listening = true;
+        }
+
+        rust_net_SetNetTime();
+
+        for _ in 0..c::net_main::net_numsockets {
+            let s = c::Mem_Alloc(core::mem::size_of::<QSocket>()).cast::<QSocket>();
+            (*s).next = c::net_freeSockets.cast();
+            c::net_freeSockets = s.cast();
+            (*s).disconnected = true;
+        }
+
+        // allocate space for network message buffer
+        c::cvar_cmd::SZ_Alloc(&raw mut c::net_message, NET_MAXMESSAGE as c_int);
+
+        let g = c::net_main::NetMain_Glue_RegisterNetVars();
+        if g != HOST_GUARD_OK {
+            return g;
+        }
+
+        // initialize all the drivers
+        let mut i: c_int = 0;
+        c::net_driverlevel = 0;
+        while c::net_driverlevel < net_numdrivers {
+            let mut r: c_int = 0;
+            let g = c::net_main::NetMain_Glue_DriverInit(&mut r);
+            if g != HOST_GUARD_OK {
+                return g;
+            }
+            if r != -1 {
+                i += 1;
+                let d = driver(c::net_driverlevel);
+                (*d).initialized = true;
+                if c::listening {
+                    ((*d).listen.expect("driver Listen"))(true);
+                }
+            }
+            c::net_driverlevel += 1;
+        }
+
+        /* Loop_Init() returns -1 for dedicated server case,
+         * therefore the i == 0 check is correct */
+        if i == 0 && c::net_main::NetMain_ClsDedicated() {
+            c::Sys_Error(c"Network not available!".as_ptr());
+        }
+
+        let ip4 = (&raw const c::my_ipv4_address).cast::<c_char>();
+        if *ip4 != 0 {
+            c::Con_DPrintf(c"IPv4 address %s\n".as_ptr(), ip4);
+        }
+        let ip6 = (&raw const c::my_ipv6_address).cast::<c_char>();
+        if *ip6 != 0 {
+            c::Con_DPrintf(c"IPv6 address %s\n".as_ptr(), ip6);
+        }
+
+        HOST_GUARD_OK
+    }
+}
+
+/// `NET_Shutdown`. `Close` and `Shutdown` are two of the vtable slots the M9c
+/// raise audit cleared, so no status channel.
+///
+/// # Safety
+/// Called once, from `Host_Shutdown`.
+#[no_mangle]
+pub unsafe extern "C" fn rust_net_Shutdown() {
+    // SAFETY: caller contract
+    unsafe {
+        rust_net_SetNetTime();
+
+        // COMPAT: NET_Close -> NET_FreeQSocket relinks `sock` onto the free
+        // list before `sock->next` is read here, so this walk continues into
+        // the free list rather than through the rest of the active list
+        // (net_main.c:1060-1061). Preserved verbatim.
+        let mut sock = c::net_activeSockets.cast::<QSocket>();
+        while !sock.is_null() {
+            rust_net_Close(sock);
+            sock = (*sock).next.cast();
+        }
+
+        //
+        // shutdown the drivers
+        //
+        c::net_driverlevel = 0;
+        while c::net_driverlevel < net_numdrivers {
+            let d = driver(c::net_driverlevel);
+            if (*d).initialized {
+                ((*d).shutdown.expect("driver Shutdown"))();
+                (*d).initialized = false;
+            }
+            c::net_driverlevel += 1;
+        }
+    }
+}
+
+/// `NET_Poll`
+///
+/// ADR-009: the reachable `PollProcedure.procedure` set is `Slist_Send`,
+/// `Slist_Poll`, `quake_rs_dgrm_test_poll` and `quake_rs_dgrm_test2_poll`;
+/// none of the four can raise, so this indirect call needs no `Host_Guard`
+/// and the funnel needs no status channel.
+///
+/// # Safety
+/// Single-threaded host frame; the list holds caller-owned nodes.
+#[no_mangle]
+pub unsafe extern "C" fn rust_net_Poll() {
+    // SAFETY: caller contract
+    unsafe {
+        rust_net_SetNetTime();
+
+        // COMPAT: `pp->next` is re-read after the callback ran, and a callback
+        // that re-schedules `pp` (Slist_Send and Slist_Poll both do) has
+        // already rewritten it -- so the walk resumes from the *new* successor,
+        // not the one that was there on entry (net_main.c:1084-1090).
+        let mut pp = POLL_PROCEDURE_LIST;
+        while !pp.is_null() {
+            if (*pp).next_time > c::net_time {
+                break;
+            }
+            POLL_PROCEDURE_LIST = (*pp).next;
+            ((*pp).procedure.expect("poll procedure"))((*pp).arg);
+            pp = (*pp).next;
+        }
+    }
+}
+
+/// `SchedulePollProcedure`
+///
+/// # Safety
+/// `proc_` is a live `PollProcedure` the caller keeps alive for as long as it
+/// stays scheduled; single-threaded host frame.
+#[no_mangle]
+pub unsafe extern "C" fn rust_net_SchedulePollProcedure(
+    proc_: *mut PollProcedure,
+    time_offset: f64,
+) {
+    // SAFETY: caller contract
+    unsafe {
+        (*proc_).next_time = c::Sys_DoubleTime() + time_offset;
+
+        let mut pp = POLL_PROCEDURE_LIST;
+        let mut prev: *mut PollProcedure = core::ptr::null_mut();
+        while !pp.is_null() {
+            if (*pp).next_time >= (*proc_).next_time {
+                break;
+            }
+            prev = pp;
+            pp = (*pp).next;
+        }
+
+        if prev.is_null() {
+            (*proc_).next = POLL_PROCEDURE_LIST;
+            POLL_PROCEDURE_LIST = proc_;
+            return;
+        }
+
+        (*proc_).next = pp;
+        (*prev).next = proc_;
     }
 }

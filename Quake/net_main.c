@@ -60,16 +60,19 @@ qboolean listening = false;
 qboolean		  slistInProgress = false;
 qboolean		  slist_silent = false;
 enum slistScope_e slist_scope = SLIST_LOOP;
-static double	  slistStartTime;
-static double	  slistActiveTime;
 #ifndef USE_RUST_NET
-static int slistLastShown; /* Phase 5 M9: Rust-owned under USE_RUST_NET */
-#endif
+/* Phase 7 M9c: slistStartTime, slistActiveTime and the two poll
+   procedures are Rust module state under USE_RUST_NET, along with
+   pollProcedureList below. */
+static double slistStartTime;
+static double slistActiveTime;
+static int	  slistLastShown; /* Phase 5 M9: Rust-owned under USE_RUST_NET */
 
 static void			 Slist_Send (void *);
 static void			 Slist_Poll (void *);
 static PollProcedure slistSendProcedure = {NULL, 0.0, Slist_Send};
 static PollProcedure slistPollProcedure = {NULL, 0.0, Slist_Poll};
+#endif
 
 sizebuf_t net_message;
 int		  net_activeconnections = 0;
@@ -245,6 +248,27 @@ void NetMain_SetMaxClients (int n)
 	svs.maxclients = n;
 }
 
+qboolean NetMain_ClsDedicated (void)
+{
+	return cls.state == ca_dedicated;
+}
+
+/* host_client walks svs.clients in NET_SendToAll. The Rust core assigns it
+   at exactly the points the C for-headers did, so the value it is left on
+   after each loop is the one the C code left behind. */
+void NetMain_SetHostClient (int idx)
+{
+	host_client = svs.clients + idx;
+}
+qboolean NetMain_HostClientActive (void)
+{
+	return host_client->active;
+}
+qsocket_t *NetMain_HostClientConnection (void)
+{
+	return host_client->netconnection;
+}
+
 /* net_drivers[]/net_landrivers[] are incomplete array types here (sized by
    their initializers in net_bsd.c/net_win.c), so the Rust side cannot
    declare a truthful array extern for them. Handing out the base pointer
@@ -410,6 +434,12 @@ static void PrintSlistTrailer (void)
 }
 #endif
 
+#ifdef USE_RUST_NET
+void NET_Slist_f (void)
+{
+	rust_net_Slist_f ();
+}
+#else
 void NET_Slist_f (void)
 {
 	if (slistInProgress)
@@ -429,6 +459,7 @@ void NET_Slist_f (void)
 
 	hostCacheCount = 0;
 }
+#endif
 
 #ifdef USE_RUST_NET
 void NET_SlistSort (void)
@@ -493,6 +524,7 @@ const char *NET_SlistPrintServerName (size_t idx)
 }
 #endif
 
+#ifndef USE_RUST_NET
 static void Slist_Send (void *unused)
 {
 	for (net_driverlevel = 0; net_driverlevel < net_numdrivers; net_driverlevel++)
@@ -535,6 +567,7 @@ static void Slist_Poll (void *unused)
 	slist_silent = false;
 	slist_scope = SLIST_LOOP;
 }
+#endif
 
 /*
 ===================
@@ -545,6 +578,38 @@ NET_Connect
 size_t		hostCacheCount = 0;
 hostcache_t hostcache[HOSTCACHESIZE];
 
+#ifdef USE_RUST_NET
+qsocket_t *NET_Connect (const char *host)
+{
+	qsocket_t *out = NULL;
+	Host_Reraise (rust_net_Connect (host, &out));
+	return out;
+}
+
+/* ADR-009: dfunc.Connect reaches Datagram_Connect, which can Host_Error.
+   The guard therefore wraps the vtable call itself rather than the whole
+   funnel; net_driverlevel is read ambiently, exactly as the C loop did. */
+typedef struct
+{
+	const char *host;
+	qsocket_t **out;
+} netmain_connect_t;
+
+static void NetMain_InvokeDriverConnect (void *p)
+{
+	netmain_connect_t *a = (netmain_connect_t *)p;
+	*a->out = dfunc.Connect (a->host);
+}
+
+int NetMain_Glue_DriverConnect (const char *host, qsocket_t **out)
+{
+	netmain_connect_t a;
+	a.host = host;
+	a.out = out;
+	*out = NULL;
+	return Host_Guard (NetMain_InvokeDriverConnect, &a);
+}
+#else
 qsocket_t *NET_Connect (const char *host)
 {
 	qsocket_t *ret;
@@ -626,6 +691,7 @@ JustDoIt:
 
 	return NULL;
 }
+#endif
 
 /*
 ===================
@@ -700,6 +766,38 @@ returns 1 if a message was received
 returns -1 if connection is invalid
 =================
 */
+#ifdef USE_RUST_NET
+int NET_GetMessage (qsocket_t *sock)
+{
+	int out = 0;
+	Host_Reraise (rust_net_GetMessage (sock, &out));
+	return out;
+}
+
+/* ADR-009: sfunc.QGetMessage reaches Datagram_GetMessage, which can
+   Host_Error. `sock` is a local so the sfunc macro resolves here. */
+typedef struct
+{
+	qsocket_t *sock;
+	int		  *out;
+} netmain_getmessage_t;
+
+static void NetMain_InvokeQGetMessage (void *p)
+{
+	netmain_getmessage_t *a = (netmain_getmessage_t *)p;
+	qsocket_t			 *sock = a->sock;
+	*a->out = sfunc.QGetMessage (sock);
+}
+
+int NetMain_Glue_QGetMessage (qsocket_t *sock, int *out)
+{
+	netmain_getmessage_t a;
+	a.sock = sock;
+	a.out = out;
+	*out = 0;
+	return Host_Guard (NetMain_InvokeQGetMessage, &a);
+}
+#else
 int NET_GetMessage (qsocket_t *sock)
 {
 	int ret;
@@ -748,6 +846,7 @@ int NET_GetMessage (qsocket_t *sock)
 
 	return ret;
 }
+#endif
 
 /*
 =================
@@ -758,6 +857,27 @@ If there is a complete message, return it in net_message
 returns the qsocket that the message was meant to be for.
 =================
 */
+#ifdef USE_RUST_NET
+qsocket_t *NET_GetServerMessage (void)
+{
+	qsocket_t *out = NULL;
+	Host_Reraise (rust_net_GetServerMessage (&out));
+	return out;
+}
+
+/* ADR-009: QGetAnyMessage reaches Datagram_GetAnyMessage, which can
+   Host_Error. net_driverlevel is read ambiently, as the C loop did. */
+static void NetMain_InvokeQGetAnyMessage (void *p)
+{
+	*(qsocket_t **)p = net_drivers[net_driverlevel].QGetAnyMessage ();
+}
+
+int NetMain_Glue_QGetAnyMessage (qsocket_t **out)
+{
+	*out = NULL;
+	return Host_Guard (NetMain_InvokeQGetAnyMessage, out);
+}
+#else
 qsocket_t *NET_GetServerMessage (void)
 {
 	qsocket_t *s;
@@ -775,6 +895,7 @@ qsocket_t *NET_GetServerMessage (void)
 	}
 	return NULL;
 }
+#endif
 
 /*
 Spike: This function is for the menus+status command
@@ -811,6 +932,12 @@ returns 1 if the message was sent properly
 returns -1 if the connection died
 ==================
 */
+#ifdef USE_RUST_NET
+int NET_SendMessage (qsocket_t *sock, sizebuf_t *data)
+{
+	return rust_net_SendMessage (sock, data);
+}
+#else
 int NET_SendMessage (qsocket_t *sock, sizebuf_t *data)
 {
 	int r;
@@ -836,7 +963,14 @@ int NET_SendMessage (qsocket_t *sock, sizebuf_t *data)
 
 	return r;
 }
+#endif
 
+#ifdef USE_RUST_NET
+int NET_SendUnreliableMessage (qsocket_t *sock, sizebuf_t *data)
+{
+	return rust_net_SendUnreliableMessage (sock, data);
+}
+#else
 int NET_SendUnreliableMessage (qsocket_t *sock, sizebuf_t *data)
 {
 	int r;
@@ -862,6 +996,7 @@ int NET_SendUnreliableMessage (qsocket_t *sock, sizebuf_t *data)
 
 	return r;
 }
+#endif
 
 /*
 ==================
@@ -871,6 +1006,12 @@ Returns true or false if the given qsocket can currently accept a
 message to be transmitted.
 ==================
 */
+#ifdef USE_RUST_NET
+qboolean NET_CanSendMessage (qsocket_t *sock)
+{
+	return rust_net_CanSendMessage (sock);
+}
+#else
 qboolean NET_CanSendMessage (qsocket_t *sock)
 {
 	if (!sock)
@@ -886,7 +1027,16 @@ qboolean NET_CanSendMessage (qsocket_t *sock)
 
 	return sfunc.CanSendMessage (sock);
 }
+#endif
 
+#ifdef USE_RUST_NET
+int NET_SendToAll (sizebuf_t *data, double blocktime)
+{
+	int out = 0;
+	Host_Reraise (rust_net_SendToAll (data, blocktime, &out));
+	return out;
+}
+#else
 int NET_SendToAll (sizebuf_t *data, double blocktime)
 {
 	double	 start;
@@ -962,6 +1112,7 @@ int NET_SendToAll (sizebuf_t *data, double blocktime)
 	}
 	return count;
 }
+#endif
 
 //=============================================================================
 
@@ -971,6 +1122,44 @@ NET_Init
 ====================
 */
 
+#ifdef USE_RUST_NET
+void NET_Init (void)
+{
+	Host_Reraise (rust_net_Init ());
+}
+
+/* ADR-009: net_drivers[].Init reaches Datagram_Init, and the cvar/command
+   registrations reach the Rust cvar registry under -Duse_rust_cvar. Both
+   guards sit in pure C frames; net_driverlevel is read ambiently. */
+static void NetMain_InvokeDriverInit (void *p)
+{
+	*(int *)p = net_drivers[net_driverlevel].Init ();
+}
+
+int NetMain_Glue_DriverInit (int *out)
+{
+	*out = -1;
+	return Host_Guard (NetMain_InvokeDriverInit, out);
+}
+
+static void NetMain_InvokeRegisterNetVars (void *p)
+{
+	(void)p;
+	Cvar_RegisterVariable (&net_messagetimeout);
+	Cvar_RegisterVariable (&net_connecttimeout);
+	Cvar_RegisterVariable (&hostname);
+
+	Cmd_AddCommand ("slist", NET_Slist_f);
+	Cmd_AddCommand ("listen", NET_Listen_f);
+	Cmd_AddCommand ("maxplayers", MaxPlayers_f);
+	Cmd_AddCommand ("port", NET_Port_f);
+}
+
+int NetMain_Glue_RegisterNetVars (void)
+{
+	return Host_Guard (NetMain_InvokeRegisterNetVars, NULL);
+}
+#else
 void NET_Init (void)
 {
 	int		   i;
@@ -1044,6 +1233,7 @@ void NET_Init (void)
 		Con_DPrintf ("IPv6 address %s\n", my_ipv6_address);
 	}
 }
+#endif
 
 /*
 ====================
@@ -1051,6 +1241,12 @@ NET_Shutdown
 ====================
 */
 
+#ifdef USE_RUST_NET
+void NET_Shutdown (void)
+{
+	rust_net_Shutdown ();
+}
+#else
 void NET_Shutdown (void)
 {
 	qsocket_t *sock;
@@ -1072,9 +1268,18 @@ void NET_Shutdown (void)
 		}
 	}
 }
+#endif
 
+#ifndef USE_RUST_NET
 static PollProcedure *pollProcedureList = NULL;
+#endif
 
+#ifdef USE_RUST_NET
+void NET_Poll (void)
+{
+	rust_net_Poll ();
+}
+#else
 void NET_Poll (void)
 {
 	PollProcedure *pp;
@@ -1089,7 +1294,14 @@ void NET_Poll (void)
 		pp->procedure (pp->arg);
 	}
 }
+#endif
 
+#ifdef USE_RUST_NET
+void SchedulePollProcedure (PollProcedure *proc, double timeOffset)
+{
+	rust_net_SchedulePollProcedure (proc, timeOffset);
+}
+#else
 void SchedulePollProcedure (PollProcedure *proc, double timeOffset)
 {
 	PollProcedure *pp, *prev;
@@ -1112,3 +1324,4 @@ void SchedulePollProcedure (PollProcedure *proc, double timeOffset)
 	proc->next = pp;
 	prev->next = proc;
 }
+#endif

@@ -16,6 +16,7 @@ pub mod cl_tent;
 pub mod host;
 pub mod host_cmd;
 pub mod net_dgrm_orch;
+pub mod net_main;
 pub mod progs_builtins_cl;
 pub mod progs_builtins_sv;
 pub mod progs_builtins_sv_fx;
