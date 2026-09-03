@@ -23,6 +23,7 @@ mod ffi {
         pub fn sqrt(x: c_double) -> c_double;
         pub fn acos(x: c_double) -> c_double;
         pub fn floor(x: c_double) -> c_double;
+        pub fn ceil(x: c_double) -> c_double;
         pub fn fabs(x: c_double) -> c_double;
         pub fn exp(x: c_double) -> c_double;
         pub fn log(x: c_double) -> c_double;
@@ -67,6 +68,11 @@ pub fn sqrtf(x: f32) -> f32 {
 pub fn floor(x: f64) -> f64 {
     // SAFETY: pure libm function, no preconditions
     unsafe { ffi::floor(x) }
+}
+
+pub fn ceil(x: f64) -> f64 {
+    // SAFETY: pure libm function, no preconditions
+    unsafe { ffi::ceil(x) }
 }
 
 pub fn exp(x: f64) -> f64 {

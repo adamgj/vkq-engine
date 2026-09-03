@@ -89,7 +89,7 @@ const RHT_SOLID: c_int = 0;
 /// `world.h` `rht_empty`
 const RHT_EMPTY: c_int = 1;
 /// `world.h` `rht_impact`
-const RHT_IMPACT: c_int = 2;
+pub(crate) const RHT_IMPACT: c_int = 2;
 
 /// `protocol.h` `ES_SOLID_NOT`
 const ES_SOLID_NOT: c_uint = 0;

@@ -1609,6 +1609,8 @@ typedef struct
 	VkDeviceSize size;
 } VkBufferCopy;
 
+#define FTE_PARTICLE_PIPELINE_COUNT 16 /* glquake.h:199 */
+
 /* COMPILE-ONLY: glquake.h:351-... vulkanglobals_t has ~100 members; only the
  * seven pr_ext.c:4940-4947 / :5180-5184 name, the three menu.c:1738,
  * :1898/:1925/:2030/:2062 and :2038 name and the nine r_part.c:161-207 /
@@ -1637,6 +1639,15 @@ typedef struct
 	VkPhysicalDeviceProperties device_properties;									 /* glquake.h:365 */
 	VkPhysicalDeviceFeatures   device_features;	  /* glquake.h:366 */
 	qboolean				   ray_query;		  /* glquake.h:385 */
+	/* Phase 7 M10f-2 (T10.5): the five members r_part_fte.c's rendering half
+	 * names -- :5936, :6002, :6088, :6172 (the pipeline arrays), :6217
+	 * (non_solid_fill) and :5697/:6198 (view_projection_matrix). */
+	vulkan_pipeline_t fte_particle_pipelines[MAIN_RENDER_PASS_VARIANT_COUNT][FTE_PARTICLE_PIPELINE_COUNT];		  /* glquake.h:465 */
+	vulkan_pipeline_t fte_particle_wboit_pipelines[FTE_PARTICLE_PIPELINE_COUNT];								  /* glquake.h:466 */
+	vulkan_pipeline_t fte_particle_post_oit_pipelines[MAIN_RENDER_PASS_VARIANT_COUNT][FTE_PARTICLE_PIPELINE_COUNT]; /* glquake.h:467 */
+	qboolean		  non_solid_fill;																  /* glquake.h:373 */
+	float			  view_projection_matrix[16];													  /* glquake.h:504 */
+	void (*vk_cmd_push_constants) (VkCommandBuffer, VkPipelineLayout, VkFlags, uint32_t, uint32_t, const void *); /* glquake.h:512 */
 } vulkanglobals_t;
 extern vulkanglobals_t vulkan_globals;
 
@@ -2350,5 +2361,84 @@ void Draw_TransPicTranslate (cb_context_t *cbx, float x, float y, qpic_t *pic, i
 void Draw_FadeScreen (cb_context_t *cbx);															 /* draw.h:53 */
 
 uint32_t SDL_GetMouseState (int *x, int *y); /* SDL2 SDL_mouse.h */
+
+
+/* ---- Phase 7 M10f-2 (T10.5): the r_part_fte.c oracle's rendering half ----
+ *
+ * stubs/r_part_fte_ref.c composes Quake/r_part_fte.c the way stubs/r_part_ref.c
+ * composes Quake/r_part.c. Its simulation half is the differential's subject;
+ * its rendering half (r_part_fte.c:5547-6250) and its decal clipper
+ * (:3928-4307) come along because a #include cannot take half a file. Nothing
+ * in this link calls either: PScript_DrawParticles* and the five task entry
+ * points have no caller here, and Mod_ClipDecal is reached only from
+ * PScript_EffectSpawned's decal arm, whose Q1BSP walk needs a loaded world
+ * model that this link never mounts.
+ *
+ * COMPILE-ONLY throughout -- these are spellings, not layouts. Definitions,
+ * where any are needed, live in stubs/r_part_fte_ref.c and abort. The
+ * Vulkan/texture surface the M10f-1 block above already declares is not
+ * repeated. ---- */
+
+#define VK_NULL_HANDLE						 0
+#define VK_BUFFER_USAGE_VERTEX_BUFFER_BIT	 0x00000080
+#define VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT	 0x00000002
+#define VK_MEMORY_PROPERTY_HOST_CACHED_BIT	 0x00000008
+#define VK_SHADER_STAGE_ALL_GRAPHICS		 0x0000001F
+#define TEXPREF_PREMULTIPLY					 0x1000 /* gl_texmgr.h:49 */
+
+/* FAITHFUL in spelling: glquake.h:178-190. */
+typedef enum
+{
+	VULKAN_MEMORY_TYPE_NONE,
+	VULKAN_MEMORY_TYPE_DEVICE,
+	VULKAN_MEMORY_TYPE_HOST,
+} vulkan_memory_type_t;
+typedef struct vulkan_memory_s
+{
+	VkDeviceMemory		 handle;
+	size_t				 size;
+	vulkan_memory_type_t type;
+} vulkan_memory_t;
+
+/* glquake.h:885-886, :711 and vulkan_core.h. Doubles in
+ * stubs/r_part_fte_ref.c; every one of them aborts. */
+void R_AllocateVulkanMemory (vulkan_memory_t *memory, VkMemoryAllocateInfo *memory_allocate_info, vulkan_memory_type_t type, atomic_uint32_t *num_allocations);
+void R_FreeVulkanMemory (vulkan_memory_t *memory, atomic_uint32_t *num_allocations);
+void Fog_DisableGFog (cb_context_t *cbx);
+void vkDestroyBuffer (VkDevice device, VkBuffer buffer, const void *allocator);
+VkResult vkMapMemory (VkDevice device, VkDeviceMemory memory, VkDeviceSize offset, VkDeviceSize size, VkFlags flags, void **data);
+void vkUnmapMemory (VkDevice device, VkDeviceMemory memory);
+
+/* gl_texmgr.h:111, :98 and image.h:29. TexMgr_LoadImage is already declared in
+ * the block above; these three complete P_LoadTexture's surface
+ * (r_part_fte.c:1146-1326). Doubles in stubs/r_part_fte_ref.c. */
+gltexture_t *TexMgr_FindTexture (qmodel_t *owner, const char *name);
+byte		*Image_LoadImage (const char *name, int *width, int *height, enum srcformat *fmt, unsigned int min_path_id);
+extern gltexture_t *whitetexture;
+
+/* glquake.h:123. r_part_fte.c:3476 calls it before its own definition at
+ * :3754, and glquake.h is unreachable here. */
+void PScript_EmitSkyEffectTris (qmodel_t *mod, msurface_t *fa, int ptype);
+
+/* COMPILE-ONLY mirror of glquake.h:861-864. The real one dispatches through
+ * vulkan_globals.vk_cmd_push_constants; r_part_fte.c:6217 and :6237 are the
+ * only callers in this link and neither runs. */
+static inline void R_PushConstants (cb_context_t *cbx, VkFlags stage_flags, int offset, int size, const void *data)
+{
+	(void)cbx;
+	(void)stage_flags;
+	(void)offset;
+	(void)size;
+	(void)data;
+}
+
+/* tasks.h:30, :37, :39. tasks.h is not force-included here (ADR-016 keeps
+ * tasks.c C until Phase 8 and it is not an oracle source), and
+ * r_part_fte.c:6305 sizes deferred_queues[] with TASKS_MAX_WORKERS. The two
+ * functions are defined in stubs/r_part_fte_ref.c as a single-worker task
+ * pool, which is what makes the parallel update deterministic here. */
+#define TASKS_MAX_WORKERS 32
+int Tasks_NumWorkers (void);
+int Tasks_GetWorkerIndex (void);
 
 #endif /* C_REF_PRELUDE_H */

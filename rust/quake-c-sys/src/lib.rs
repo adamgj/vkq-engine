@@ -28,6 +28,7 @@ pub mod progs_builtins_sv_fx;
 pub mod progs_builtins_sv_msg;
 pub mod progs_edict_dispatch;
 pub mod r_part;
+pub mod r_part_fte;
 pub mod sbar;
 pub mod sv_main;
 pub mod sv_move;

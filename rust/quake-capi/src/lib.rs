@@ -108,6 +108,8 @@ pub mod progs_save; // pr_edict_save.c
 #[cfg(feature = "host")]
 pub mod r_part; // r_part.c (simulation half)
 #[cfg(feature = "host")]
+pub mod r_part_fte; // r_part_fte.c (simulation half)
+#[cfg(feature = "host")]
 pub mod sbar; // sbar.c
 #[cfg(feature = "snd")]
 pub mod snd_codec;

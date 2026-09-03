@@ -108,7 +108,7 @@ FTE particle renderer: `PerpendicularVector` at `r_part_fte.c:4390`,
 `r_part_fte.c` calls either). Particle *storage* is outside the demo
 state-hash chain and savegames, but particle *execution* is not entirely
 outside the hash: `Harness_Frame` mixes `COM_RandState` into the
-chain (`Quake/harness.c:299`) and `frandom()` (`r_part_fte.c:37`) draws from
+chain (`Quake/harness.c:525`) and `frandom()` (`r_part_fte.c:37`) draws from
 that same stream, so "the renderer is unhashed" is not on its own a sufficient
 argument. A NaN **sign bit** specifically cannot reach the hash: every
 comparison against a NaN is false regardless of sign, so no branch, no
@@ -184,3 +184,63 @@ Consequences, stated so they are not rediscovered as defects:
   negative where the engine never writes one. None is reachable from the
   engine's own code paths, which is why the differential and soak gates are
   green; the divergence is only a hazard for a deliberately hostile mod.
+
+## Amended (Phase 7, 2026-09-03): the NaN-sign exception is narrowed and re-justified, not withdrawn
+
+Phase 7 milestone M10 (task T10.5) ports the simulation half of
+`Quake/r_part_fte.c` to Rust. The Phase 3 amendment above ends with a trigger
+sentence -- "If either function ever acquires a simulation-side caller, this
+exception must come down" -- and the Phase 7 task plan (landmine 12) was
+written expecting M10 to satisfy that trigger and remove the fence. **The fence
+does not come down, and the reason is stronger than a scheduling deferral.**
+
+**The mathlib implementations have been Rust in every `use_rust` build since
+Phase 1.** `Quake/mathlib.c` is listed in `meson.build`'s `phase1_c_srcs`
+(`meson.build:295`), and that list is appended to `srcs` only in the `else`
+branch of the `use_rust` conditional (`meson.build:450-452`) -- that is, only
+when `use_rust` is *disabled*. In `build-rs`, `build-rs-chost`,
+`build-rs-cprogs` and `build-rs-trace`, `PerpendicularVector` and
+`RotatePointAroundVector` are `rust/quake-capi/src/mathlib.rs:149` and `:157`,
+exported under their plain C names, and the C `r_part_fte.c` has been calling
+*those* since Phase 1. Porting the callers therefore changes only the language
+of the calling frame. It introduces **no new divergence surface**: whatever
+C-vs-Rust NaN-sign disagreement exists at these call sites already exists in
+the shipped mixed build, and has since Phase 1.
+
+**The trigger sentence is retired as mis-specified.** It was written against
+the `RotationMatrix` sibling, where "acquires a simulation-side caller" is a
+useful proxy, because that divergence would newly reach hashed state. For the
+`PerpendicularVector` / `RotatePointAroundVector` pair the load-bearing
+argument was never the caller's identity but *observability*, and the Phase 3
+amendment already states it in those terms -- and already rejects the weaker
+"the renderer is unhashed" version. A NaN **sign bit** cannot reach the state
+hash, because every comparison against a NaN is false regardless of sign, so no
+branch, no `COM_Rand ()` draw count and no stored value can depend on it. That
+argument does not mention the calling frame's language and does not depend on
+it. **The correct trigger is: if a NaN sign bit ever becomes observable in
+hashed state, in a savegame, or on the wire, this exception must come down.**
+The `RotationMatrix` fence keeps its own trigger, which is correctly specified,
+and is **untouched** by this amendment.
+
+Call-site disposition after M10:
+
+| site | function | disposition |
+|---|---|---|
+| `r_part_fte.c:4390` | `PerpendicularVector` | in `PScript_RunParticleEffectState` (simulation) -- **caller is now Rust** |
+| `r_part_fte.c:4485` | `RotatePointAroundVector` | same function -- **caller is now Rust** |
+| `r_part_fte.c:7262` | `RotatePointAroundVector` | in `PScript_UpdateParticleTypes`, decal tangent-frame block -- **caller stays C**, and moves with the rendering half in Phase 8 |
+
+`PScript_UpdateParticleTypes` is deliberately not split at M10: it interleaves
+simulation bookkeeping with `cl_stris` batch reservation inside a single loop,
+and because the FTE particle system never advances under `-headless` -- its
+task entry points are scheduled only from `gl_rmain.c` inside `R_RenderView`,
+which `host.c:1107` skips whenever `no_rendering` is set -- no engine-level
+gate could validate such a split.
+
+**This is a narrowing and a re-justification, not a takedown.** The Phase 7
+exit record must not record this fence as removed.
+
+Correction made while amending: the Phase 3 amendment cited
+`Quake/harness.c:299` for the `COM_RandState` mix into the hash chain. The
+current line is `Quake/harness.c:525`, still inside `Harness_Frame`
+(`harness.c:506`); the citation has been updated in place above.

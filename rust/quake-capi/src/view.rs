@@ -301,7 +301,7 @@ unsafe fn host_frametime() -> f64 {
 /// # Safety
 /// `cl.entities` must be a live array with more than `i` elements.
 #[inline]
-unsafe fn cl_entity(i: c_int) -> *mut Entity {
+pub(crate) unsafe fn cl_entity(i: c_int) -> *mut Entity {
     // SAFETY: caller guarantees the index is in bounds; `EntityOpaque` has
     // the verified `sizeof (entity_t)` stride.
     unsafe {

@@ -134,10 +134,10 @@ fn main() {
         build.file(path);
     }
     // host.c, host_cmd.c, pr_ext.c, keys.c, console.c, sbar.c, menu.c and
-    // r_part.c are not compiled directly: stubs/host_ref.c,
+    // r_part.c and r_part_fte.c are not compiled directly: stubs/host_ref.c,
     // stubs/host_cmd_ref.c, stubs/pr_ext_ref.c, stubs/keys_ref.c,
     // stubs/console_ref.c, stubs/sbar_ref.c, stubs/menu_ref.c and
-    // stubs/r_part_ref.c #include them
+    // stubs/r_part_ref.c and stubs/r_part_fte_ref.c #include them
     // behind a per-TU rename block, so the C_SOURCES loop above never sees
     // them and an edit to any of them would not rebuild the oracle. Watch them
     // explicitly.
@@ -150,6 +150,7 @@ fn main() {
         "Quake/sbar.c",
         "Quake/menu.c",
         "Quake/r_part.c",
+        "Quake/r_part_fte.c",
     ] {
         println!("cargo:rerun-if-changed={}", repo_root.join(src).display());
     }
@@ -204,6 +205,7 @@ fn main() {
         "sbar_ref.c",
         "menu_ref.c",
         "r_part_ref.c",
+        "r_part_fte_ref.c",
     ] {
         let path = manifest.join("stubs").join(stub);
         println!("cargo:rerun-if-changed={}", path.display());

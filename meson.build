@@ -249,7 +249,6 @@ srcs = [
     'Quake/pr_ext.c',
     'Quake/r_alias.c',
     'Quake/r_brush.c',
-    'Quake/r_part_fte.c',
     'Quake/r_sprite.c',
     'Quake/r_world.c',
     'Quake/steam_api.c',
@@ -807,7 +806,7 @@ endif
 
 # Phase 7 M10f: r_part.c -> quake-capi (Pattern A whole-file swap), on the same
 # use_rust_host switch as M3/M4/M6/M7/M8/M10b/M10c/M10d/M10e. r_part_fte.c is
-# NOT part of this flip and stays C.
+# flipped separately by the M10f-2 block below.
 #
 # Only the classic particle *simulation* moves. Quake/r_part_glue.c keeps the
 # rendering half verbatim (r_part.c:54-221 and :951-1106) because the renderer
@@ -830,6 +829,36 @@ if use_rust_host
     srcs += ['Quake/r_part_glue.c']
 else
     srcs += ['Quake/r_part.c']
+endif
+
+# Phase 7 M10f-2: the r_part_fte.c *simulation* half -> quake-capi (Pattern A
+# whole-file swap), on the same use_rust_host switch. Completes T10.5.
+#
+# Quake/r_part_fte_glue.c keeps C: the rendering/emit block (r_part_fte.c:5585-
+# 6324), PScript_UpdateParticleTypes (:6786) and everything below it, P_LoadTexture
+# (:1146-1327, the only renderer-coupled function below the seam) and the decal
+# clipper family (:3928-4307, pure qmodel_t BSP geometry whose every object is
+# already C-owned on the render side). The particle/beam/decal/trailstate pools
+# and the part_type table stay C storage; Rust drives them through ADR-011 mirrors.
+#
+# PScript_UpdateParticleTypes is deliberately not split: it interleaves simulation
+# bookkeeping with cl_stris batch reservation inside one loop, and the FTE particle
+# system never advances under -headless -- its task entry points are scheduled only
+# from gl_rmain.c inside R_RenderView, which host.c:1107 skips whenever no_rendering
+# is set -- so no engine-level gate could validate such a split. The ctest
+# differential is the only gate with an opinion about the ported simulation.
+#
+# Every plain PScript_* name in glquake.h:109-131 stays in the glue as a wrapper
+# over a quake_rs_ftepart_* core, as does CL_TraceLine (client.h:435). Four
+# Host_Guard trampolines, because each of these callees is itself a re-raising glue
+# wrapper and calling one from a Rust frame would longjmp through Rust (ADR-009
+# rule 3): Cvar_RegisterVariable (cvar_cmd_glue.c:300, x16 in PScript_InitParticles),
+# CL_ClearTrailStates (cl_main_glue.c:839), CL_RegisterParticles (cl_parse_glue.c:625)
+# and CL_EntityNum (cl_parse_glue.c:596).
+if use_rust_host
+    srcs += ['Quake/r_part_fte_glue.c']
+else
+    srcs += ['Quake/r_part_fte.c']
 endif
 
 if use_rust_snd
