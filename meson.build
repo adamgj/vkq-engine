@@ -254,7 +254,6 @@ srcs = [
     'Quake/r_part_fte.c',
     'Quake/r_sprite.c',
     'Quake/r_world.c',
-    'Quake/sbar.c',
     'Quake/steam_api.c',
 	'Quake/sys_sdl.c',
     'Quake/tasks.c',
@@ -759,6 +758,29 @@ if use_rust_host
     srcs += ['Quake/console_glue.c']
 else
     srcs += ['Quake/console.c']
+endif
+
+# Phase 7 M10d: sbar.c -> quake-capi (Pattern A whole-file swap), on the same
+# use_rust_host switch as M3/M4/M6/M7/M8/M10b/M10c.
+#
+# Quake/sbar_glue.c keeps the four C-visible objects sbar.c defined --
+# sb_showscores, sb_lines, fragsort[] and scoreboardlines -- because
+# gl_screen.c writes and reads sb_lines, reads sb_showscores, and pr_ext.c
+# reads fragsort/scoreboardlines by plain name. Everything else sbar.c
+# defined at file scope is static (the qpic_t * handles, hipweapons[] and
+# hudtype) and moves to Rust.
+#
+# It also keeps every plain Sbar_* name as a wrapper over a quake_rs_sbar_*
+# core, because most of those prototypes mention cb_context_t * or qpic_t *,
+# neither of which cbindgen can spell. Five of the wrappers re-raise:
+# PR_ExecuteProgram is the file's only longjmp-capable callee (sbar.c:82,
+# :864, :870, :1590) and the Rust side reaches it through the existing
+# Host_Glue_PR_ExecuteProgram trampoline, so Host_Reraise is called only from
+# the glue and no jump crosses a Rust frame.
+if use_rust_host
+    srcs += ['Quake/sbar_glue.c']
+else
+    srcs += ['Quake/sbar.c']
 endif
 
 if use_rust_snd

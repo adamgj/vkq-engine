@@ -237,15 +237,14 @@ void ctest_pr_ext_set_sbarscale (float v)
 	scr_sbarscale.value = v;
 }
 
-/* gl_texmgr.c:63, gl_draw.c:36, gl_screen.c:139, sbar.c:439-441 and the
- * COMPILE-ONLY vulkanglobals_t from c_ref_prelude.h. All inert: the code that
- * reads them is Phase 8 (PF_cl_draw*, PF_sb_*). */
+/* gl_texmgr.c:63, gl_draw.c:36, gl_screen.c:139 and the COMPILE-ONLY
+ * vulkanglobals_t from c_ref_prelude.h. All inert: the code that reads them
+ * is Phase 8 (PF_cl_draw*). sbar.c:439-441's fragsort/scoreboardlines moved
+ * to Quake/sbar_glue.c's oracle mirror in stubs/sbar_ref.c at M10d. */
 unsigned int	d_8to24table[256];
 qpic_t		   *pic_nul;
 gltexture_t	   *char_texture;
 qmutex_t	   *draw_qcvm_mutex;
-int				fragsort[MAX_SCOREBOARD];
-int				scoreboardlines;
 vulkanglobals_t vulkan_globals;
 
 /* ---------------------------------------------------------------------------
@@ -305,23 +304,6 @@ qpic_t *Draw_TryCachePic (const char *path, unsigned int texflags, int picflags)
 	(void)texflags;
 	(void)picflags;
 	ctest_pr_ext_unreached ("Draw_TryCachePic");
-}
-
-void Draw_SubPic (cb_context_t *cbx, float x, float y, float w, float h, qpic_t *pic, float s1, float t1, float s2, float t2, float *rgb, float alpha)
-{
-	(void)cbx;
-	(void)x;
-	(void)y;
-	(void)w;
-	(void)h;
-	(void)pic;
-	(void)s1;
-	(void)t1;
-	(void)s2;
-	(void)t2;
-	(void)rgb;
-	(void)alpha;
-	ctest_pr_ext_unreached ("Draw_SubPic");
 }
 
 /* UNREACHED link doubles, pr_cmds.c server surface: builtin-table rows

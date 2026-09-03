@@ -2085,4 +2085,29 @@ void M_Menu_Main_f (void); /* menu.h:74 */
 
 void S_LocalSound (const char *name); /* q_sound.h:184 */
 
+
+/* ---- Phase 7 M10d seam: the draw.h / menu.h / screen.h declarations sbar.c
+ * reaches (task M10d). sbar.c becomes an oracle TU here, composed by
+ * stubs/sbar_ref.c rather than listed in build.rs's C_SOURCES; the reason
+ * (stubs/console_ref.c already owns the shared Draw_ recorder, and the two
+ * files' file-static pic tables must not collide) is written out at the top
+ * of stubs/sbar_ref.c. The doubles live in stubs/draw_ref.c.
+ *
+ * draw.h and menu.h are NOT included as-is: both are Vulkan-facing through
+ * cb_context_t. Only what sbar.c names is taken, copied verbatim from the
+ * line named on each. screen.h IS included above (:1875), so it already
+ * supplies scr_sbaralpha and scr_sbarscale; scr_style is not in any header --
+ * gl_screen.c:94 defines it and gl_draw.c:29, menu.c:119 and sbar.c:69 each
+ * re-declare it locally -- so the one declaration below is needed here. ---- */
+
+qpic_t *Draw_PicFromWad (const char *name);						  /* draw.h:44 */
+qpic_t *Draw_CachePic (const char *path);						  /* draw.h:48 */
+void	Draw_TileClear (cb_context_t *cbx, int x, int y, int w, int h); /* draw.h:51 */
+extern qpic_t *draw_disc;										  /* draw.h:31 */
+
+void M_Print (cb_context_t *cbx, int cx, int cy, const char *str); /* menu.h:78 */
+void M_DrawPic (cb_context_t *cbx, int x, int y, qpic_t *pic);	   /* menu.h:82 */
+
+extern cvar_t scr_style; /* gl_screen.c:94 */
+
 #endif /* C_REF_PRELUDE_H */

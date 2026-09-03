@@ -674,77 +674,22 @@ static int		ctest_console_mousex, ctest_console_mousey;
 
 /* The draw stream. Con_DrawNotify / Con_DrawInput / Con_DrawConsole have no
  * state to compare afterwards -- the whole of their behaviour is the order and
- * arguments of the renderer calls they make -- so each one is appended here as
- * a line of text and the two sides' logs are compared as a whole. */
-#define CTEST_CONSOLE_DRAWLOG_SIZE 262144
-static char	  ctest_console_drawlog[CTEST_CONSOLE_DRAWLOG_SIZE];
-static size_t ctest_console_drawlog_len;
-
-static void ctest_console_draw_record (const char *fmt, ...)
-{
-	va_list argptr;
-	char	line[512];
-
-	va_start (argptr, fmt);
-	q_vsnprintf (line, sizeof (line), fmt, argptr);
-	va_end (argptr);
-
-	q_strlcat (ctest_console_drawlog, line, sizeof (ctest_console_drawlog));
-	ctest_console_drawlog_len = strlen (ctest_console_drawlog);
-}
-
-void ctest_console_clear_draw_log (void)
-{
-	ctest_console_drawlog[0] = '\0';
-	ctest_console_drawlog_len = 0;
-}
-
-const char *ctest_console_draw_log (void)
-{
-	return ctest_console_drawlog;
-}
-
-/* draw.h:46 */
-void Draw_Character (cb_context_t *cbx, float x, float y, int num)
-{
-	(void)cbx;
-	ctest_console_draw_record ("char %.2f %.2f %d\n", x, y, num);
-}
-
-/* draw.h:54 */
-void Draw_String (cb_context_t *cbx, float x, float y, const char *str)
-{
-	(void)cbx;
-	ctest_console_draw_record ("str %.2f %.2f |%s|\n", x, y, str ? str : "(null)");
-}
-
-/* draw.h:52 */
-void Draw_Fill (cb_context_t *cbx, float x, float y, float w, float h, int c, float alpha)
-{
-	(void)cbx;
-	ctest_console_draw_record ("fill %.2f %.2f %.2f %.2f %d %.4f\n", x, y, w, h, c, alpha);
-}
-
-/* draw.h:50 */
-/* draw.h:47 -- the insert/overwrite cursor pic at console.c:2251. The pic
- * pointer is only ever pic_ins or pic_ovr, so it is logged as which. */
-void Draw_Pic (cb_context_t *cbx, float x, float y, qpic_t *pic, float alpha, qboolean alpha_blend)
-{
-	(void)cbx;
-	ctest_console_draw_record ("pic %g %g %s %g %d", x, y, pic == pic_ins ? "ins" : (pic == pic_ovr ? "ovr" : "?"), alpha, alpha_blend ? 1 : 0);
-}
+ * arguments of the renderer calls they make -- so each one is appended to a
+ * text log and the two sides' logs are compared as a whole.
+ *
+ * Phase 7 M10d moved that log, and every renderer double sbar.c also reaches
+ * (Draw_Character, Draw_String, Draw_Fill, Draw_Pic, GL_SetCanvas, pic_ovr,
+ * pic_ins), into stubs/draw_ref.c so two composing stubs can share one
+ * recorder. ctest_console_draw_log () and ctest_console_clear_draw_log () are
+ * still the log's accessors, exported from there under the same names and
+ * emitting the same bytes. The two doubles kept below are the ones console.c
+ * is the only caller of in this link. */
+void ctest_draw_record (const char *fmt, ...);
 
 void Draw_ConsoleBackground (cb_context_t *cbx)
 {
 	(void)cbx;
-	ctest_console_draw_record ("conback\n");
-}
-
-/* draw.h:64 */
-void GL_SetCanvas (cb_context_t *cbx, canvastype newcanvas)
-{
-	(void)cbx;
-	ctest_console_draw_record ("canvas %d\n", (int)newcanvas);
+	ctest_draw_record ("conback\n");
 }
 
 /* draw.h:65 */
@@ -754,14 +699,8 @@ void GL_SetCanvasColor (float r, float g, float b, float a)
 	ctest_console_calls.canvascolor[1] = g;
 	ctest_console_calls.canvascolor[2] = b;
 	ctest_console_calls.canvascolor[3] = a;
-	ctest_console_draw_record ("canvascolor %.4f %.4f %.4f %.4f\n", r, g, b, a);
+	ctest_draw_record ("canvascolor %.4f %.4f %.4f %.4f\n", r, g, b, a);
 }
-
-/* gl_draw.c: the two cursor pics Con_DrawInput (console.c:2216) alternates
- * between. NULL is what Draw_TryCachePic hands back for a missing pic, and
- * console.c only ever passes them straight to Draw_Pic. */
-qpic_t *pic_ovr;
-qpic_t *pic_ins;
 
 /* gl_screen.c: how far the console has slid down; console.c:2371 reads it. */
 float scr_con_current;
