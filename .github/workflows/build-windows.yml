@@ -159,9 +159,13 @@ jobs:
       run: |
         ./scripts/harness/check_capi_signatures.sh build-rs/quake_rs.h
         ./scripts/harness/check_capi_signatures.sh build-rs-cfs/quake_rs.h
-    # no windows-x86_64 goldens yet, so gate on run-to-run stability and on the
-    # mixed build matching C-only; both cover the map entries, i.e. real
-    # server/edict state rather than demo playback alone
+    # windows-x86_64 goldens landed in Phase 7 M11 (generated with MSVC cl from
+    # a C-only release build; clang-cl was verified to reproduce them
+    # byte-identically, see goldens/windows-x86_64/MANIFEST.json). --check is
+    # the absolute gate; --stability and the mixed-vs-C-only compares stay
+    # because they also cover the registered-tier entries CI has no data for.
+    # All of these cover the map entries, i.e. real server/edict state rather
+    # than demo playback alone.
     - name: Corpus stability (C-only, run-twice)
       run: |
         $env:QUAKE_GAME_DATA = "$PWD\shareware-data"
@@ -177,6 +181,17 @@ jobs:
         $env:QUAKE_GAME_DATA = "$PWD\shareware-data"
         python scripts/harness/run_corpus.py --vkquake build-c/vkqr-engine.exe --compare build-rs-cfs/vkqr-engine.exe --tier shareware
         if ($LASTEXITCODE -ne 0) { throw "mixed build (C fs) differs from C-only" }
+    - name: Corpus goldens (--check, C-only and mixed)
+      run: |
+        $env:QUAKE_GAME_DATA = "$PWD\shareware-data"
+        python scripts/harness/run_corpus.py --vkquake build-c/vkqr-engine.exe --check --tier shareware
+        if ($LASTEXITCODE -ne 0) { throw "C-only differs from windows-x86_64 goldens" }
+        python scripts/harness/run_corpus.py --vkquake build-c/vkqr-engine.exe --check --sndhash --tier shareware
+        if ($LASTEXITCODE -ne 0) { throw "C-only differs from windows-x86_64 sound goldens" }
+        python scripts/harness/run_corpus.py --vkquake build-rs/vkqr-engine.exe --check --tier shareware
+        if ($LASTEXITCODE -ne 0) { throw "mixed build differs from windows-x86_64 goldens" }
+        python scripts/harness/run_corpus.py --vkquake build-rs/vkqr-engine.exe --check --sndhash --tier shareware
+        if ($LASTEXITCODE -ne 0) { throw "mixed build differs from windows-x86_64 sound goldens" }
     - name: Savegame byte-diff (C-only vs mixed)
       run: |
         $env:QUAKE_GAME_DATA = "$PWD\shareware-data"
