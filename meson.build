@@ -249,7 +249,6 @@ srcs = [
     'Quake/pr_ext.c',
     'Quake/r_alias.c',
     'Quake/r_brush.c',
-    'Quake/r_part.c',
     'Quake/r_part_fte.c',
     'Quake/r_sprite.c',
     'Quake/r_world.c',
@@ -804,6 +803,33 @@ if use_rust_host
     srcs += ['Quake/menu_glue.c']
 else
     srcs += ['Quake/menu.c']
+endif
+
+# Phase 7 M10f: r_part.c -> quake-capi (Pattern A whole-file swap), on the same
+# use_rust_host switch as M3/M4/M6/M7/M8/M10b/M10c/M10d/M10e. r_part_fte.c is
+# NOT part of this flip and stays C.
+#
+# Only the classic particle *simulation* moves. Quake/r_part_glue.c keeps the
+# rendering half verbatim (r_part.c:54-221 and :951-1106) because the renderer
+# stays C until Phase 8, and it keeps the particle pool -- active_particles,
+# free_particles, particles and r_numparticles -- plus r_particles,
+# r_quadparticles, the five particletexture handles, texturescalefactor and
+# particle_index_buffer. The pool quartet and r_quadparticles lose their static
+# so quake-c-sys can extern them; r_part_fte.c's same-named globals (:459-461)
+# are static, so there is no collision.
+#
+# Every plain R_* / CL_RunParticles / Harness_HashParticles name stays in the
+# glue as a wrapper over a quake_rs_rpart_* core. One Host_Guard trampoline,
+# RPart_Glue_RegisterVariable: R_InitParticles calls Cvar_RegisterVariable
+# twice (r_part.c:247, :249) and under -Duse_rust_cvar that plain name is
+# itself a Host_Reraise wrapper (cvar_cmd_glue.c:300), so calling it from a
+# Rust frame would longjmp through Rust (ADR-009 rule 3). Modelled on
+# Chase_Glue_RegisterVariable. R_InitParticles is consequently the module's
+# only re-raising wrapper.
+if use_rust_host
+    srcs += ['Quake/r_part_glue.c']
+else
+    srcs += ['Quake/r_part.c']
 endif
 
 if use_rust_snd

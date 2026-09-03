@@ -522,6 +522,31 @@ static inline uint32_t Atomic_LoadUInt32 (volatile atomic_uint32_t *atomic)
 {
 	return atomic->value;
 }
+
+/* atomics.h:82-88, :103-106 and :146-152, same single-threaded rationale as
+ * the pair above: Phase 7 M10f-1 composes r_part.c, whose
+ * R_InitParticleIndexBuffer and R_DrawParticlesFaces bump three counters.
+ * atomic_uint64_t is the 8-byte analogue of the u32 stand-in. */
+static inline uint32_t Atomic_AddUInt32 (volatile atomic_uint32_t *atomic, uint32_t value)
+{
+	uint32_t previous = atomic->value;
+	atomic->value = previous + value;
+	return previous;
+}
+static inline uint32_t Atomic_IncrementUInt32 (volatile atomic_uint32_t *atomic)
+{
+	return Atomic_AddUInt32 (atomic, 1);
+}
+typedef struct
+{
+	volatile uint64_t value;
+} atomic_uint64_t;
+static inline uint64_t Atomic_AddUInt64 (volatile atomic_uint64_t *atomic, uint64_t value)
+{
+	uint64_t previous = atomic->value;
+	atomic->value = previous + value;
+	return previous;
+}
 /* atomics.h:157-172, minus the _ReadBarrier/_WriteBarrier intrinsics the
  * real header pairs them with: this harness is single-threaded, so the
  * barriers have nothing to order. Same 8-byte layout. */
@@ -589,6 +614,10 @@ enum srcformat
 #define TEXPREF_ALPHA	 0x0008
 #define TEXPREF_PAD		 0x0010
 #define TEXPREF_NOPICMIP 0x0080
+/* gl_texmgr.h:38-42; r_part.c's R_InitParticleTextures names these three. */
+#define TEXPREF_LINEAR	 0x0002
+#define TEXPREF_NEAREST	 0x0004
+#define TEXPREF_PERSIST	 0x0020
 typedef struct gltexture_s gltexture_t;
 gltexture_t *TexMgr_LoadImage (
 	qmodel_t *owner, const char *name, int width, int height, enum srcformat format, byte *data, const char *source_file, src_offset_t source_offset,
@@ -1456,10 +1485,12 @@ typedef struct vulkan_pipeline_s
 	vulkan_pipeline_layout_t layout;
 } vulkan_pipeline_t;
 
-/* COMPILE-ONLY: glquake.h:221-239 secondary_cb_contexts_t and :283-... the
- * render_pass_index_t enum, cut down to the members pr_ext.c indexes with.
- * SCBX_GUI's real numeric value is NOT reproduced -- nothing in this link
- * indexes a real context array. */
+/* COMPILE-ONLY: glquake.h:221-239 secondary_cb_contexts_t, cut down to the
+ * members pr_ext.c indexes with. SCBX_GUI's real numeric value is NOT
+ * reproduced -- nothing in this link indexes a real context array.
+ * FAITHFUL, below it: glquake.h:241-251's render_pass_index_t. Phase 7
+ * M10f-1 needs its OIT/MBOIT arms for R_MainPassPipelineVariant and
+ * R_PipelineForRenderPass, so the whole enum is transcribed. */
 typedef enum
 {
 	SCBX_GUI,
@@ -1469,8 +1500,23 @@ typedef enum
 {
 	RENDER_PASS_INDEX_MAIN,
 	RENDER_PASS_INDEX_UI,
+	RENDER_PASS_INDEX_MAIN_OIT,
+	RENDER_PASS_INDEX_MAIN_MBOIT,
+	RENDER_PASS_INDEX_WBOIT,
+	RENDER_PASS_INDEX_MBOIT_MOMENTS,
+	RENDER_PASS_INDEX_MBOIT_COMPOSITE,
 	RENDER_PASS_INDEX_COUNT
 } render_pass_index_t;
+
+/* FAITHFUL: glquake.h:253-259. Phase 7 M10f-1 needs it for the two
+ * showtris pipeline arrays vulkanglobals_t carries below. */
+typedef enum
+{
+	MAIN_RENDER_PASS_STANDARD,
+	MAIN_RENDER_PASS_OIT,
+	MAIN_RENDER_PASS_MBOIT,
+	MAIN_RENDER_PASS_VARIANT_COUNT,
+} main_render_pass_variant_t;
 
 /* COMPILE-ONLY: glquake.h:339-349. pr_ext.c only ever dereferences `cb`; the
  * real struct also carries `canvastype current_canvas`, `uint32_t
@@ -1505,10 +1551,69 @@ typedef struct
 	VkBool32 sampleRateShading;
 } VkPhysicalDeviceFeatures;
 
+/* ---- Phase 7 M10f-1 (T10.5): the r_part.c oracle's rendering half -------
+ *
+ * stubs/r_part_ref.c composes Quake/r_part.c, whose simulation half is the
+ * differential's subject and whose rendering half (r_part.c:54-221, :951-1106)
+ * comes along because a #include cannot take half a file. Every name below is
+ * reached only from that rendering half, which nothing in this link calls:
+ * no_rendering is true here (stubs/host_ref.c:330), so R_InitParticles skips
+ * R_InitParticleTextures / R_InitParticleIndexBuffer, and R_DrawParticles* has
+ * no caller at all. COMPILE-ONLY throughout -- these are spellings, not
+ * layouts -- except where marked. Definitions live in stubs/r_part_ref.c.
+ */
+typedef int VkResult;
+#define VK_SUCCESS 0
+typedef struct VkDevice_T		*VkDevice;
+typedef struct VkDeviceMemory_T *VkDeviceMemory;
+typedef uint32_t				 VkFlags;
+typedef int						 VkStructureType;
+typedef int						 VkObjectType;
+typedef int						 VkIndexType;
+#define VK_INDEX_TYPE_UINT16				   0
+#define VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO   12
+#define VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO 5
+#define VK_BUFFER_USAGE_TRANSFER_DST_BIT	   0x00000002
+#define VK_BUFFER_USAGE_INDEX_BUFFER_BIT	   0x00000040
+#define VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT	   0x00000001
+#define VK_OBJECT_TYPE_DEVICE_MEMORY		   8
+#define VK_OBJECT_TYPE_BUFFER				   9
+typedef struct
+{
+	VkStructureType sType;
+	const void	   *pNext;
+	VkFlags			flags;
+	VkDeviceSize	size;
+	VkFlags			usage;
+	int				sharingMode;
+	uint32_t		queueFamilyIndexCount;
+	const uint32_t *pQueueFamilyIndices;
+} VkBufferCreateInfo;
+typedef struct
+{
+	VkDeviceSize size;
+	VkDeviceSize alignment;
+	uint32_t	 memoryTypeBits;
+} VkMemoryRequirements;
+typedef struct
+{
+	VkStructureType sType;
+	const void	   *pNext;
+	VkDeviceSize	allocationSize;
+	uint32_t		memoryTypeIndex;
+} VkMemoryAllocateInfo;
+typedef struct
+{
+	VkDeviceSize srcOffset;
+	VkDeviceSize dstOffset;
+	VkDeviceSize size;
+} VkBufferCopy;
+
 /* COMPILE-ONLY: glquake.h:351-... vulkanglobals_t has ~100 members; only the
- * seven pr_ext.c:4940-4947 / :5180-5184 name plus the three menu.c:1738,
- * :1898/:1925/:2030/:2062 and :2038 name are mirrored, so this struct's
- * layout is NOT the real one. */
+ * seven pr_ext.c:4940-4947 / :5180-5184 name, the three menu.c:1738,
+ * :1898/:1925/:2030/:2062 and :2038 name and the nine r_part.c:161-207 /
+ * :1061-1069 / :1082-1105 name are mirrored, so this struct's layout is NOT
+ * the real one. */
 typedef struct
 {
 	cb_context_t *secondary_cb_contexts[SCBX_NUM];
@@ -1520,11 +1625,103 @@ typedef struct
 	vulkan_pipeline_t		 basic_blend_pipeline[RENDER_PASS_INDEX_COUNT];
 	vulkan_pipeline_t		 basic_notex_blend_pipeline[RENDER_PASS_INDEX_COUNT];
 	vulkan_pipeline_layout_t   basic_pipeline_layout;
-	VkPhysicalDeviceProperties device_properties; /* glquake.h:365 */
+	VkDevice device; /* glquake.h:353 */
+	void (*vk_cmd_bind_index_buffer) (VkCommandBuffer, VkBuffer, VkDeviceSize, VkIndexType);		/* glquake.h:510 */
+	void (*vk_cmd_draw_indexed) (VkCommandBuffer, uint32_t, uint32_t, uint32_t, int32_t, uint32_t); /* glquake.h:513 */
+	vulkan_pipeline_t		   particle_pipeline;								  /* glquake.h:417 */
+	vulkan_pipeline_t		   particle_oit_pipeline;							  /* glquake.h:418 */
+	vulkan_pipeline_t		   particle_mboit_moment_pipeline;					  /* glquake.h:420 */
+	vulkan_pipeline_t		   particle_mboit_composite_pipeline;				  /* glquake.h:421 */
+	vulkan_pipeline_t		   showtris_pipeline[MAIN_RENDER_PASS_VARIANT_COUNT]; /* glquake.h:451 */
+	vulkan_pipeline_t		   showtris_depth_test_pipeline[MAIN_RENDER_PASS_VARIANT_COUNT]; /* glquake.h:453 */
+	VkPhysicalDeviceProperties device_properties;									 /* glquake.h:365 */
 	VkPhysicalDeviceFeatures   device_features;	  /* glquake.h:366 */
 	qboolean				   ray_query;		  /* glquake.h:385 */
 } vulkanglobals_t;
 extern vulkanglobals_t vulkan_globals;
+
+/* Phase 7 M10f-1, continued: the rest of r_part.c's rendering-half surface.
+ * The Vulkan entry points and the GL_ / R_Staging helpers are FAITHFUL in
+ * spelling (glquake.h:826, :913-915, :933 and vulkan_core.h); the three
+ * counters are FAITHFUL (quakedef.h:513, glquake.h:587, :597). */
+VkResult vkCreateBuffer (VkDevice device, const VkBufferCreateInfo *create_info, const void *allocator, VkBuffer *buffer);
+void	 vkGetBufferMemoryRequirements (VkDevice device, VkBuffer buffer, VkMemoryRequirements *requirements);
+VkResult vkAllocateMemory (VkDevice device, const VkMemoryAllocateInfo *allocate_info, const void *allocator, VkDeviceMemory *memory);
+VkResult vkBindBufferMemory (VkDevice device, VkBuffer buffer, VkDeviceMemory memory, VkDeviceSize offset);
+void	 vkCmdCopyBuffer (VkCommandBuffer cb, VkBuffer src, VkBuffer dst, uint32_t region_count, const VkBufferCopy *regions);
+void	 GL_SetObjectName (uint64_t object, VkObjectType object_type, const char *name);
+int		 GL_MemoryTypeFromProperties (uint32_t type_bits, VkFlags requirements_mask, VkFlags preferred_mask);
+byte	*R_StagingAllocate (int size, int alignment, VkCommandBuffer *cb_context, VkBuffer *buffer, int *buffer_offset);
+void	 R_StagingBeginCopy (void);
+void	 R_StagingEndCopy (void);
+extern atomic_uint32_t rs_particles;
+extern atomic_uint32_t num_vulkan_dynbuf_allocations;
+extern atomic_uint64_t total_device_vulkan_allocation_size;
+
+/* FAITHFUL: glquake.h:292-299 and :303-318, transcribed because glquake.h
+ * itself is unreachable here. Both are pure selectors over the enums above. */
+static inline main_render_pass_variant_t R_MainPassPipelineVariant (int render_pass_index)
+{
+	if (render_pass_index == RENDER_PASS_INDEX_MAIN_OIT)
+		return MAIN_RENDER_PASS_OIT;
+	if (render_pass_index == RENDER_PASS_INDEX_MAIN_MBOIT)
+		return MAIN_RENDER_PASS_MBOIT;
+	return MAIN_RENDER_PASS_STANDARD;
+}
+static inline vulkan_pipeline_t R_PipelineForRenderPass (
+	int render_pass_index, vulkan_pipeline_t main_pipeline, vulkan_pipeline_t wboit_pipeline, vulkan_pipeline_t mboit_moment_pipeline,
+	vulkan_pipeline_t mboit_composite_pipeline)
+{
+	switch (render_pass_index)
+	{
+	case RENDER_PASS_INDEX_WBOIT:
+		return wboit_pipeline;
+	case RENDER_PASS_INDEX_MBOIT_MOMENTS:
+		return mboit_moment_pipeline;
+	case RENDER_PASS_INDEX_MBOIT_COMPOSITE:
+		return mboit_composite_pipeline;
+	default:
+		return main_pipeline;
+	}
+}
+
+/* COMPILE-ONLY: glquake.h:866-880 wraps vulkan_globals' debug-utils label
+ * function pointers behind a `if (vulkan_globals.debug_utils)` guard. Neither
+ * the flag nor the two pointers are mirrored above; r_part.c:1080 and :1091
+ * are the only callers in this link and they never run. */
+static inline void R_BeginDebugUtilsLabel (cb_context_t *cbx, const char *name)
+{
+	(void)cbx;
+	(void)name;
+}
+static inline void R_EndDebugUtilsLabel (cb_context_t *cbx)
+{
+	(void)cbx;
+}
+
+/* FAITHFUL: glquake.h:81-105. r_part.c's pool element type; quake-c-sys's
+ * ADR-011 mirror (rust/quake-c-sys/src/r_part.rs) is field-for-field this. */
+typedef enum
+{
+	pt_static,
+	pt_grav,
+	pt_slowgrav,
+	pt_fire,
+	pt_explode,
+	pt_explode2,
+	pt_blob,
+	pt_blob2
+} ptype_t;
+typedef struct particle_s
+{
+	vec3_t			   org;
+	float			   color;
+	struct particle_s *next;
+	vec3_t			   vel;
+	float			   ramp;
+	float			   die;
+	ptype_t			   type;
+} particle_t;
 
 /* COMPILE-ONLY: gl_texmgr.h's gltexture_s is completed here with just the one
  * member pr_ext.c:4945 reads off char_texture. The real struct has ~20 more. */

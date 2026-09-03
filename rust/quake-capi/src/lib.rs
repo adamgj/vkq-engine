@@ -106,6 +106,8 @@ pub mod progs_parse; // pr_edict_parse.c
 #[cfg(feature = "progs")]
 pub mod progs_save; // pr_edict_save.c
 #[cfg(feature = "host")]
+pub mod r_part; // r_part.c (simulation half)
+#[cfg(feature = "host")]
 pub mod sbar; // sbar.c
 #[cfg(feature = "snd")]
 pub mod snd_codec;
