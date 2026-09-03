@@ -298,14 +298,6 @@ qpic_t *Draw_GetCachedPic (const char *path)
 	ctest_pr_ext_unreached ("Draw_GetCachedPic");
 }
 
-qpic_t *Draw_TryCachePic (const char *path, unsigned int texflags, int picflags)
-{
-	(void)path;
-	(void)texflags;
-	(void)picflags;
-	ctest_pr_ext_unreached ("Draw_TryCachePic");
-}
-
 /* UNREACHED link doubles, pr_cmds.c server surface: builtin-table rows
  * pr_ext.c shares with pr_cmds.c, plus the two helpers its setmodel/message
  * builtins call. Porting any of these is M9e/Phase 8 work, not M9f's. */

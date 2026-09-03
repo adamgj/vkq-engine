@@ -1486,8 +1486,28 @@ typedef struct cb_context_s
 	vulkan_pipeline_t current_pipeline;
 } cb_context_t;
 
+/* COMPILE-ONLY: vulkan_core.h's VkPhysicalDeviceFeatures,
+ * VkPhysicalDeviceProperties and VkPhysicalDeviceLimits, each cut down to the
+ * single member menu.c reads off it -- .device_features.sampleRateShading at
+ * menu.c:1898 and :2030, .device_properties.limits.maxSamplerAnisotropy at
+ * menu.c:2038. Neither layout is the real one. */
+typedef uint32_t VkBool32;
+typedef struct
+{
+	float maxSamplerAnisotropy;
+} VkPhysicalDeviceLimits;
+typedef struct
+{
+	VkPhysicalDeviceLimits limits;
+} VkPhysicalDeviceProperties;
+typedef struct
+{
+	VkBool32 sampleRateShading;
+} VkPhysicalDeviceFeatures;
+
 /* COMPILE-ONLY: glquake.h:351-... vulkanglobals_t has ~100 members; only the
- * seven pr_ext.c:4940-4947 / :5180-5184 name are mirrored, so this struct's
+ * seven pr_ext.c:4940-4947 / :5180-5184 name plus the three menu.c:1738,
+ * :1898/:1925/:2030/:2062 and :2038 name are mirrored, so this struct's
  * layout is NOT the real one. */
 typedef struct
 {
@@ -1499,7 +1519,10 @@ typedef struct
 	vulkan_pipeline_t		 basic_alphatest_pipeline[RENDER_PASS_INDEX_COUNT];
 	vulkan_pipeline_t		 basic_blend_pipeline[RENDER_PASS_INDEX_COUNT];
 	vulkan_pipeline_t		 basic_notex_blend_pipeline[RENDER_PASS_INDEX_COUNT];
-	vulkan_pipeline_layout_t basic_pipeline_layout;
+	vulkan_pipeline_layout_t   basic_pipeline_layout;
+	VkPhysicalDeviceProperties device_properties; /* glquake.h:365 */
+	VkPhysicalDeviceFeatures   device_features;	  /* glquake.h:366 */
+	qboolean				   ray_query;		  /* glquake.h:385 */
 } vulkanglobals_t;
 extern vulkanglobals_t vulkan_globals;
 
@@ -2109,5 +2132,26 @@ void M_Print (cb_context_t *cbx, int cx, int cy, const char *str); /* menu.h:78 
 void M_DrawPic (cb_context_t *cbx, int x, int y, qpic_t *pic);	   /* menu.h:82 */
 
 extern cvar_t scr_style; /* gl_screen.c:94 */
+
+/* ---- Phase 7 M10e seam: the three declarations Quake/menu.c reaches that no
+ * header above supplies (task M10e). menu.c becomes an oracle TU here,
+ * composed by stubs/menu_ref.c rather than listed in build.rs's C_SOURCES;
+ * the reason is written out at the top of that file. menu.h is NOT force-
+ * included here -- stubs/menu_ref.c includes it itself, after its rename
+ * block, so that menu.h's prototypes are renamed in step with menu.c's
+ * definitions.
+ *
+ * The two Draw_ entries are copied verbatim from the draw.h line named on
+ * each; their doubles live in stubs/draw_ref.c beside the rest of the shared
+ * draw recorder. SDL_GetMouseState is declared with SDL2's `int *`
+ * signature because the harness builds without USE_SDL3, so menu.c:4630-4635
+ * takes the #else branch; the double is in stubs/menu_ref.c, and the port
+ * half reaches the same fixture position through Menu_Glue_GetMouseState.
+ * No Rust TU names an SDL symbol. ---- */
+
+void Draw_TransPicTranslate (cb_context_t *cbx, float x, float y, qpic_t *pic, int top, int bottom); /* draw.h:49 */
+void Draw_FadeScreen (cb_context_t *cbx);															 /* draw.h:53 */
+
+uint32_t SDL_GetMouseState (int *x, int *y); /* SDL2 SDL_mouse.h */
 
 #endif /* C_REF_PRELUDE_H */

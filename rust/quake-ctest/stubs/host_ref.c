@@ -235,8 +235,10 @@ void Key_WriteBindings (FILE *f)
 /* sys.h:169-175. Host_Error (host.c:218) calls all three. Sys_IsInDebugger
  * answers true, which is a real runtime state and the one under which
  * host.c:231-251 -- a block whose only effect is Con_Printf output -- is
- * skipped; Sys_StackTrace and q_strsplit are consequently unreachable and
- * abort rather than fabricate a trace. */
+ * skipped; Sys_StackTrace is consequently unreachable and aborts rather than
+ * fabricate a trace. (q_strsplit was an aborting double here too until Phase 7
+ * M10e made menu.c:3804 reach it; the real common.c copy now lives beside
+ * q_strtrim in stubs/stubs.c.) */
 static int ctest_sys_debug_break_calls = 0;
 
 void Sys_DebugBreak (void)
@@ -255,15 +257,6 @@ const char *Sys_StackTrace (void)
 	return NULL;
 }
 
-char **q_strsplit (char *str, const char *sep_set, size_t *nb_substr)
-{
-	(void)str;
-	(void)sep_set;
-	(void)nb_substr;
-	ctest_host_unreached ("q_strsplit");
-	return NULL;
-}
-
 /* Aborting doubles: Host_Init (host.c:1288), Host_Shutdown (host.c:1424),
  * Host_ClearMemory (host.c:735) and _Host_Frame's render half only. */
 void Mem_Init (void) { ctest_host_unreached ("Mem_Init"); }
@@ -273,7 +266,23 @@ void Mod_ClearAll (void) { ctest_host_unreached ("Mod_ClearAll"); }
 void PR_Init (void) { ctest_host_unreached ("PR_Init"); }
 void NET_Init (void) { ctest_host_unreached ("NET_Init"); }
 void NET_Shutdown (void) { ctest_host_unreached ("NET_Shutdown"); }
-void NET_Poll (void) { ctest_host_unreached ("NET_Poll"); }
+
+/* NET_Poll is the one aborting double the menu differential needs to reach:
+ * M_Search_Draw (menu.c:4436) calls it under slistInProgress, the composed
+ * menu.c calls it directly and quake-capi calls it through Host_Glue_NET_Poll
+ * (Quake/host_glue.c:423), so it is where that guard's re-raise is observable.
+ * Sys_Error would not do: it never returns, so the guard never gets to report
+ * anything. Armed by bit 16 of stubs/stubs.c's menu raise mask, which raises
+ * from there because Host_Error is renamed inside this file; unarmed this is
+ * the abort it has always been. */
+extern void ctest_menu_raise_net_poll (void);
+
+void NET_Poll (void)
+{
+	ctest_menu_raise_net_poll ();
+	ctest_host_unreached ("NET_Poll");
+}
+
 void VID_Init (void) { ctest_host_unreached ("VID_Init"); }
 void VID_Shutdown (void) { ctest_host_unreached ("VID_Shutdown"); }
 void Con_Init (void) { ctest_host_unreached ("Con_Init"); }

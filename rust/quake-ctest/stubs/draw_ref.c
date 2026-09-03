@@ -223,6 +223,26 @@ qpic_t *Draw_CachePic (const char *path)
 	return ctest_draw_intern (path);
 }
 
+/* draw.h:50 -- menu.c:638 (Get_Menu2) is the only caller in this link. The
+ * engine hands back NULL when the lump is absent, and whether gfx/mainmenu2.lmp
+ * is present is what decides between a four-item and a five-item main menu, so
+ * the fixture has to be able to answer "missing" as well as "present".
+ * (stubs/pr_ext_ref.c owned an aborting double until M10e) */
+static qboolean ctest_draw_trycache_missing;
+
+void ctest_draw_set_trycache_missing (qboolean missing)
+{
+	ctest_draw_trycache_missing = missing;
+}
+
+qpic_t *Draw_TryCachePic (const char *path, unsigned int texflags, int picflags)
+{
+	qboolean missing = ctest_draw_trycache_missing;
+
+	ctest_draw_record ("trycachepic |%s| %u %d -> %d\n", path ? path : "(null)", texflags, picflags, missing ? 0 : 1);
+	return missing ? NULL : ctest_draw_intern (path);
+}
+
 /* draw.h:51 */
 void Draw_TileClear (cb_context_t *cbx, int x, int y, int w, int h)
 {
@@ -253,4 +273,22 @@ void M_DrawPic (cb_context_t *cbx, int x, int y, qpic_t *pic)
 
 	(void)cbx;
 	ctest_draw_record ("mdrawpic %d %d %s\n", x, y, name ? name : "?");
+}
+
+/* draw.h:49 -- menu.c:294 (M_DrawTransPicTranslate), the colour-translated
+ * player model on the Setup menu. Added in M10e. */
+void Draw_TransPicTranslate (cb_context_t *cbx, float x, float y, qpic_t *pic, int top, int bottom)
+{
+	const char *name = ctest_draw_pic_name (pic);
+
+	(void)cbx;
+	ctest_draw_record ("transpictranslate %g %g %s %d %d\n", x, y, name ? name : "?", top, bottom);
+}
+
+/* draw.h:53 -- menu.c:4683, the dim behind a menu drawn over the world.
+ * Added in M10e. */
+void Draw_FadeScreen (cb_context_t *cbx)
+{
+	(void)cbx;
+	ctest_draw_record ("fadescreen\n");
 }

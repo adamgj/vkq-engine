@@ -2454,6 +2454,95 @@ size_t Mod_LoadMD5SurfaceSkins (qmodel_t *mod, aliashdr_t *surf, int surf_index,
 	return (size_t)ctest_record_mdxskin (shader_name, surf_index, numsurfaces, MAX_SKINS, 0);
 }
 
+/* Phase 7 M10e: q_strsplit and its helper, verbatim from Quake/common.c:527-607,
+ * for the same reason as q_strtrim below -- common.c is not in the c_ref build.
+ * menu.c:3804 (validate_LanConfig) is the caller that made it reachable, and it
+ * frees the result with Mem_Free, so the copy has to keep using Mem_Alloc /
+ * Mem_Realloc (stubs/stubs.c:157, :178) rather than malloc. stubs/host_ref.c
+ * owned an aborting double until M10e; a second definition would be a duplicate
+ * symbol, so that one was removed. */
+static bool is_in_char_set (char single_char, const char *char_set)
+{
+	const size_t char_set_size = strlen (char_set);
+
+	for (size_t char_index = 0; char_index < char_set_size; char_index++)
+	{
+		if (char_set[char_index] == single_char)
+			return true;
+	}
+
+	return false;
+}
+
+char **q_strsplit (char *str, const char *sep_set, size_t *nb_substr)
+{
+	size_t nb_sub_strings_max_size = 8;
+	// if the nb_substr is NULL, we are just interested in splitting str-on place by '\0' ,
+	// and not in returning the token starts at all.
+	char **sub_strings = (nb_substr ? Mem_Alloc (nb_sub_strings_max_size * sizeof (char *)) : NULL);
+	int	   nb_sub_strings = 0;
+
+	size_t start_str_index = 0;
+
+	// special case, gobble the leading sep characters:
+	while (is_in_char_set (str[start_str_index], sep_set))
+	{
+		str[start_str_index] = 0;
+		start_str_index++;
+	}
+	// the real start of the string is here
+	char *str_start = &str[start_str_index];
+
+	// always return a valid memory although  nb_sub_strings = 0
+	// so that the caller is not burdened with NULL checks.
+	//  TODO: or more explicit if it would ?
+	assert (nb_sub_strings == 0);
+	if (!str_start)
+		return sub_strings;
+
+	const size_t initial_str_size = strlen (str_start);
+
+	for (size_t char_index = 0; char_index < initial_str_size; char_index++)
+	{
+		// find the next sep
+		if (is_in_char_set (str_start[char_index], sep_set))
+		{
+			// goble consecutive seps, if any
+			while (is_in_char_set (str_start[char_index], sep_set))
+			{
+				// split the original string
+				str_start[char_index] = '\0';
+				char_index++;
+			}
+			//
+			if (sub_strings && char_index <= initial_str_size)
+			{
+				// make room
+				if (nb_sub_strings >= nb_sub_strings_max_size)
+				{
+					nb_sub_strings_max_size = nb_sub_strings_max_size * 2;
+					sub_strings = Mem_Realloc (sub_strings, nb_sub_strings_max_size * sizeof (char *));
+				}
+				// we found the first split, meaning the string before this split is indeed the first sub-string
+				if (nb_sub_strings == 0)
+					sub_strings[nb_sub_strings++] = &str_start[0];
+
+				if (char_index < initial_str_size)
+					sub_strings[nb_sub_strings++] = &str_start[char_index];
+			}
+		}
+	}
+
+	// no split, return the original string stripped from its leadings seps
+	if (sub_strings && nb_sub_strings == 0)
+		sub_strings[nb_sub_strings++] = &str_start[0];
+
+	if (nb_substr)
+		*nb_substr = nb_sub_strings;
+
+	return sub_strings;
+}
+
 /* q_strtrim lives in Quake/common.c, which is not in the c_ref build; verbatim
  * copy shared by both sides (the prelude does not rename it). The size_t
  * last_index underflow on an all-whitespace field is the C's, kept as-is. */
@@ -7734,9 +7823,38 @@ void SCR_CenterPrint (const char *str)
 	Sys_Error ("ctest: SCR_CenterPrint reached (gl_screen.c is not an oracle source)");
 }
 
+extern void ctest_draw_record (const char *fmt, ...);
+
+/* Phase 7 M10e: menu.c:952 (M_Load_Key) and menu.c:4387 (M_MPGameOptions_Key)
+ * both reach this on the way to a Cbuf_AddText, so the double gains a
+ * recording mode. The real SCR_BeginLoadingPlaque (gl_screen.c:962) stops
+ * sounds, sets scr_disabled_for_loading/scr_drawloading and pumps one frame
+ * through SCR_UpdateScreen; none of that exists in this link and none of it
+ * is observable to menu.c, so the recorded body is the log line alone. It
+ * goes in the shared ordered recorder because its POSITION relative to the
+ * surrounding Cbuf_AddText calls is the thing worth comparing.
+ *
+ * The abort stays the default. tests/cl_main_differential.rs:1291 asserts
+ * that CL_NextDemo's populated-loop arm reaches this and aborts, and that
+ * abort is what distinguishes that arm from the empty-loop one; only a
+ * caller that opts in with ctest_set_loading_plaque_recording gets a log
+ * line instead. */
+static qboolean ctest_loading_plaque_recording;
+
+void ctest_set_loading_plaque_recording (qboolean on)
+{
+	ctest_loading_plaque_recording = on;
+}
+
+extern int ctest_menu_raise_plaque (void);
+
 void SCR_BeginLoadingPlaque (void)
 {
-	Sys_Error ("ctest: SCR_BeginLoadingPlaque reached (gl_screen.c is not an oracle source)");
+	if (ctest_menu_raise_plaque ())
+		Host_Error ("ctest loading plaque raise");
+	if (!ctest_loading_plaque_recording)
+		Sys_Error ("ctest: SCR_BeginLoadingPlaque reached (gl_screen.c is not an oracle source)");
+	ctest_draw_record ("beginloadingplaque\n");
 }
 
 /* Phase 7 M8: reached from Host_Loadgame_f (host_cmd.c:1866). The real
@@ -8111,13 +8229,28 @@ void *Mod_Extradata (qmodel_t *mod)
 	return NULL;
 }
 
+/* Phase 7 M10e: menu.c:3447 (M_SetSkillMenuMap) reaches this, so the aborting
+ * double becomes a fixture-driven one. gl_model.c is still not an oracle
+ * source; what menu.c can observe is only the return value and whether the
+ * buffer came back empty, which is exactly what the fixture controls -- the
+ * three combinations drive both arms of the `|| !m_skill_maptitle[0]` at
+ * menu.c:3447. The call is logged because its position relative to the
+ * surrounding draw calls is part of the comparison. */
+static char	 ctest_map_description[256];
+static qboolean ctest_map_description_ret;
+
+void ctest_set_map_description (const char *desc, qboolean ret)
+{
+	q_strlcpy (ctest_map_description, desc ? desc : "", sizeof (ctest_map_description));
+	ctest_map_description_ret = ret;
+}
+
 qboolean Mod_LoadMapDescription (char *desc, size_t maxchars, const char *map)
 {
-	(void)desc;
-	(void)maxchars;
-	(void)map;
-	Sys_Error ("ctest: Mod_LoadMapDescription reached (gl_model.c is not an oracle source)");
-	return false;
+	ctest_draw_record ("mapdesc |%s| %d -> %d\n", map ? map : "(null)", (int)maxchars, ctest_map_description_ret ? 1 : 0);
+	if (desc && maxchars)
+		q_strlcpy (desc, ctest_map_description, maxchars);
+	return ctest_map_description_ret;
 }
 
 void Mod_Print (void)
@@ -8169,12 +8302,38 @@ const char *NET_QSocketGetMaskedAddressString (const struct qsocket_s *sock)
 	return NULL;
 }
 
+/* Phase 7 M10e: menu.c:3729 (M_LanConfig_Draw) reaches this, so the aborting
+ * double becomes a fixture-driven one. net_main.c is still not an oracle
+ * source -- there is one list and both halves read it, which makes the
+ * address list shared world state exactly like vid or keydown. */
+#define CTEST_NET_MAX_ADDRESSES 6
+
+static qhostaddr_t ctest_net_addresses[CTEST_NET_MAX_ADDRESSES];
+static int		   ctest_net_numaddresses;
+
+void ctest_clear_net_addresses (void)
+{
+	ctest_net_numaddresses = 0;
+}
+
+void ctest_add_net_address (const char *addr)
+{
+	if (!addr || ctest_net_numaddresses == CTEST_NET_MAX_ADDRESSES)
+		return;
+	q_strlcpy (ctest_net_addresses[ctest_net_numaddresses], addr, sizeof (ctest_net_addresses[0]));
+	ctest_net_numaddresses++;
+}
+
 int NET_ListAddresses (qhostaddr_t *addresses, int maxaddresses)
 {
-	(void)addresses;
-	(void)maxaddresses;
-	Sys_Error ("ctest: NET_ListAddresses reached (net_main.c is not an oracle source)");
-	return 0;
+	int i;
+	int n = ctest_net_numaddresses;
+
+	if (n > maxaddresses)
+		n = maxaddresses;
+	for (i = 0; i < n; i++)
+		q_strlcpy (addresses[i], ctest_net_addresses[i], sizeof (addresses[0]));
+	return n;
 }
 
 /* Phase 7 M10b: IN_Activate moved to stubs/keys_ref.c, which records the call
@@ -8205,4 +8364,98 @@ void Sky_SetSkyfog (float value)
 {
 	(void)value;
 	Sys_Error ("ctest: Sky_SetSkyfog reached (gl_sky.c is not an oracle source)");
+}
+
+/* =========================================================================
+ * Phase 7 M10e. Five doubles menu.c is the first and only caller of in this
+ * link, so none of them existed before and none can perturb an existing
+ * suite. All five append to the shared draw log (stubs/draw_ref.c) because
+ * both halves of the menu differential reach them and the log is already the
+ * ordered record the menu suite diffs.
+ *
+ * M_Menu_Video_f / M_Video_Draw / M_Video_Key live in Quake/gl_vidsdl.c, not
+ * in menu.c: the video menu is not part of the M10e port and stays C on both
+ * sides. They are defined here rather than in stubs/menu_ref.c so that file
+ * keeps exporting no plain M_* name at all.
+ * ========================================================================= */
+
+extern void ctest_draw_record (const char *fmt, ...);
+
+static int ctest_modal_message_answer = 1;
+static int ctest_menu_raise_mask;
+
+void ctest_set_modal_message_answer (int answer)
+{
+	ctest_modal_message_answer = answer;
+}
+
+/* The menu differential's only way to exercise ADR-009 end to end. menu.c
+ * names no longjmp-capable function itself -- every raise it can propagate
+ * comes back out of an engine callee -- so the suite arms one here and checks
+ * that both halves report the same raise. Bit 1 = SCR_ModalMessage,
+ * 2 = M_Menu_Video_f, 4 = M_Video_Draw, 8 = M_Video_Key, 16 = NET_Poll,
+ * 32 = SCR_BeginLoadingPlaque. */
+void ctest_set_menu_raise_mask (int mask)
+{
+	ctest_menu_raise_mask = mask;
+}
+
+/* Bit 16's double is NET_Poll, which lives in stubs/host_ref.c: host.c's own
+ * _Host_Frame calls it too, so it cannot also be defined here. The raise is
+ * armed from here rather than there because host_ref.c renames Host_Error to
+ * c_ref_Host_Error for the host.c it composes, and what the menu suite needs
+ * raised is the plain ADR-009 trap this file owns. */
+void ctest_menu_raise_net_poll (void)
+{
+	if (ctest_menu_raise_mask & 16)
+		Host_Error ("ctest net poll raise");
+}
+
+/* Bit 32 is read the same way, by the SCR_BeginLoadingPlaque double far
+ * above this block; it raises there rather than here so that the Sys_Error
+ * default and the recording mode stay in one place. */
+int ctest_menu_raise_plaque (void)
+{
+	return (ctest_menu_raise_mask & 32) != 0;
+}
+
+/* screen.h:38 -- menu.c:793 (the "kill the current server?" prompt) and
+ * menu.c:2274 (the video-mode confirmation). */
+int SCR_ModalMessage (const char *text, float timeout)
+{
+	if (ctest_menu_raise_mask & 1)
+		Host_Error ("ctest modal raise");
+	ctest_draw_record ("modalmessage |%s| %g -> %d\n", text ? text : "(null)", timeout, ctest_modal_message_answer);
+	return ctest_modal_message_answer;
+}
+
+/* input.h:31 -- menu.c:2483, where the key-binding menu grabs the mouse.
+ * IN_Activate's counter lives in stubs/keys_ref.c:663; this one is a log
+ * entry instead because the menu suite diffs ordering, not a count. */
+void IN_Deactivate (qboolean free_cursor)
+{
+	ctest_draw_record ("in_deactivate %d\n", free_cursor ? 1 : 0);
+}
+
+/* menu.h:87-89 -- gl_vidsdl.c:5387, :5328 and :5216. */
+void M_Menu_Video_f (void)
+{
+	if (ctest_menu_raise_mask & 2)
+		Host_Error ("ctest video menu raise");
+	ctest_draw_record ("video_menu\n");
+}
+
+void M_Video_Draw (cb_context_t *cbx)
+{
+	(void)cbx;
+	if (ctest_menu_raise_mask & 4)
+		Host_Error ("ctest video draw raise");
+	ctest_draw_record ("video_draw\n");
+}
+
+void M_Video_Key (int key)
+{
+	if (ctest_menu_raise_mask & 8)
+		Host_Error ("ctest video key raise");
+	ctest_draw_record ("video_key %d\n", key);
 }

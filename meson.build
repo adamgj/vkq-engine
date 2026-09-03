@@ -241,7 +241,6 @@ srcs = [
     'Quake/in_sdl3.c',
     'Quake/main_sdl.c',
     'Quake/mem.c',
-    'Quake/menu.c',
     'Quake/net_loop.c',
     'Quake/net_main.c',
     'Quake/palette.c',
@@ -781,6 +780,30 @@ if use_rust_host
     srcs += ['Quake/sbar_glue.c']
 else
     srcs += ['Quake/sbar.c']
+endif
+
+# Phase 7 M10e: menu.c -> quake-capi (Pattern A whole-file swap), on the same
+# use_rust_host switch as M3/M4/M6/M7/M8/M10b/M10c/M10d.
+#
+# Quake/menu_glue.c keeps the eight C-visible objects menu.c defined --
+# m_state, m_return_state, m_entersound, m_is_quitting, vid_menucmdfn,
+# vid_menukeyfn, m_return_onerror and m_return_reason[] -- because keys.c,
+# gl_screen.c, host.c and the already-Rust net_dgrm orchestration read or
+# write them by plain name. Everything else menu.c defined at file scope is
+# static and moves to Rust.
+#
+# It also keeps every plain M_* name as a wrapper over a quake_rs_menu_*
+# core, for the same cbindgen reason as M10d (cb_context_t * / qpic_t *).
+# Four of the wrappers re-raise: M_ToggleMenu_f, M_UpdateMouse, M_Draw and
+# M_Keydown. Ten Host_Guard trampolines live in the glue, so Host_Reraise is
+# called only from the glue TU and no longjmp crosses a Rust frame. That
+# includes Con_ToggleConsole_f, which has itself been a re-raising wrapper
+# since M10c (console_glue.c:234) and therefore cannot be called directly
+# from a Rust frame.
+if use_rust_host
+    srcs += ['Quake/menu_glue.c']
+else
+    srcs += ['Quake/menu.c']
 endif
 
 if use_rust_snd

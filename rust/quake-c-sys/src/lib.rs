@@ -17,6 +17,7 @@ pub mod console;
 pub mod host;
 pub mod host_cmd;
 pub mod keys;
+pub mod menu;
 pub mod net_dgrm_orch;
 pub mod net_main;
 pub mod pr_edict_arena;

@@ -55,6 +55,8 @@ pub mod keys; // keys.c
 pub mod loc;
 pub mod mathlib;
 pub mod mdfour;
+#[cfg(feature = "host")]
+pub mod menu; // menu.c
 #[cfg(feature = "formats")]
 pub mod model_parse;
 #[cfg(feature = "net")]
