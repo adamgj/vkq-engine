@@ -1328,7 +1328,7 @@ fn model_for_index_returns_the_same_slot() {
 fn save_spawnparms_copies_serverflags_with_no_active_clients() {
     let _g = lock();
     reset(PROTOCOL_RMQ, 0, 0, false);
-    // SAFETY: leaf setter; writes pr_global_struct->parm1..parm64.
+    // SAFETY: leaf setter; writes pr_global_struct->parm1..parm16.
     unsafe { ctest_svmain_set_global_parms(7.0) };
     // SAFETY: leaf drivers; svs.maxclients == 0 keeps the loop body unentered.
     let c = unsafe { ctest_svmain_drive_savespawnparms(SIDE_C) };

@@ -803,10 +803,17 @@ void ctest_svmain_set_spawn_parm (int i, int j, float v)
 	ctest_svmain_clients_r[i].spawn_parms[j] = v;
 }
 
+/* globalvars_t only carries parm1..parm16 (progdefs.q1:21-36). The extended
+ * spawn parms are separate QC globals that SV_SaveSpawnparms resolves with
+ * ED_FindGlobal (sv_main.c:863-867), which is why the engine splits its own
+ * loop at NUM_BASIC_SPAWN_PARMS. Writing NUM_TOTAL_SPAWN_PARMS floats from
+ * &parm1 ran 33 slots over the rest of the struct -- the trace block and all
+ * ten func_t entry points, SetChangeParms included -- and then 15 slots past
+ * the end of ctest_svmain_globals itself. */
 void ctest_svmain_set_global_parms (float base)
 {
 	int i;
-	for (i = 0; i < NUM_TOTAL_SPAWN_PARMS; i++)
+	for (i = 0; i < NUM_BASIC_SPAWN_PARMS; i++)
 		(&pr_global_struct->parm1)[i] = base + (float)i;
 }
 
