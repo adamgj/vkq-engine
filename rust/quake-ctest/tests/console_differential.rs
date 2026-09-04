@@ -1498,7 +1498,21 @@ fn con_tabcomplete_cycles_forwards_and_backwards() {
                 // SAFETY: ADR-004. key_tabpartial already set means the "cycle"
                 // branch at console.c:2043; keydown[K_SHIFT] picks the
                 // direction.
+                //
+                // That branch reuses Con_TabComplete's insert point instead of
+                // recomputing it, and the insert point is a function-local
+                // `static char *c` (console.c:1995), mirrored by TAB_C in the
+                // port. No fixture can reach either one, so presetting
+                // key_tabpartial is not enough on its own: the cycle state has
+                // to be entered the way the engine enters it, with a
+                // first-time-through completion. Otherwise `c` holds whatever
+                // an earlier test left behind -- or NULL, if this test runs
+                // first, and console.c:2023 dereferences it.
                 unsafe {
+                    ctest_console_set_editline(cs("]e").as_ptr(), 2, 1);
+                    ctest_console_set_tabpartial(side, cs("").as_ptr());
+                    ctest_console_tabcomplete(side, TABCOMPLETE_USER);
+
                     ctest_console_set_editline(cs("]messagemode").as_ptr(), 12, 1);
                     ctest_console_set_tabpartial(side, cs("e").as_ptr());
                     ctest_console_set_keydown(K_SHIFT, shift);
