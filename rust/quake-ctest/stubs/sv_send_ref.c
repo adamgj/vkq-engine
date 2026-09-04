@@ -1099,6 +1099,13 @@ static void ctest_svsend_mirror_to_rust (void)
  * the harness: Quake/sv_send_glue.c is not in build.rs's C_SOURCES.
  */
 
+/* quakedef.h:478-479. The prelude renamed quakedef.h's prototypes before they
+ * reached this file, so the plain spellings below -- stubs.c's substitute
+ * guard, which is what the seams here are specified against -- have no
+ * declaration left. Same line, same reason, as chase_ref.c:38-39. */
+extern int	Host_Guard (void (*fn) (void *), void *arg);
+extern void Host_Reraise (int guard_result);
+
 /* Layout-identical to svsend_write_t in Quake/sv_send_glue.c:76-83 and to
  * SvSendWriteOp in rust/quake-c-sys/src/sv_send.rs:186-194. */
 typedef struct

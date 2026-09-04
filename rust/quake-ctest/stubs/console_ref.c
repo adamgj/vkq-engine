@@ -156,9 +156,6 @@ void		Con_CheckResize (void);
 void		Con_Init (void);
 void		Con_DrawConsole (cb_context_t *cbx, int lines, qboolean drawinput);
 static void	Con_Print (const char *txt);
-static void	Con_Dump_f (void);
-static void	Con_MessageMode_f (void);
-static void	Con_MessageMode2_f (void);
 void		Con_Printf (const char *fmt, ...) FUNC_PRINTF (1, 2);
 void		Con_DWarning (const char *fmt, ...) FUNC_PRINTF (1, 2);
 void		Con_Warning (const char *fmt, ...) FUNC_PRINTF (1, 2);
@@ -271,6 +268,15 @@ void Sys_Printf (const char *fmt, ...) FUNC_PRINTF (1, 2);
 #undef Con_MessageMode_f
 #undef Con_MessageMode2_f
 #undef Con_StripControlPrefixes
+
+/* The four command handlers are static in console.c, so no header declares
+ * them and the #undef above left the plain spellings bare. On the plain side
+ * they are quake-capi's exports (console.rs:1060, :1146, :1252, :1271), which
+ * the fixtures below call directly. */
+void Con_Clear_f (void);
+void Con_Dump_f (void);
+void Con_MessageMode_f (void);
+void Con_MessageMode2_f (void);
 
 extern client_state_t  cl;	/* quake-capi's cl_main port owns these two */
 extern client_static_t cls;

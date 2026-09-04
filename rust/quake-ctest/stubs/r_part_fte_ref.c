@@ -320,7 +320,8 @@ void	  PScript_EmitParticlesTask (int index, void *unused);
 void	  PScript_DrawParticles (cb_context_t *blend_cbx, cb_context_t *wboit_cbx);
 void	  PScript_DrawParticles_ShowTris (cb_context_t *cbx);
 float	  CL_TraceLine (vec3_t start, vec3_t end, vec3_t impact, vec3_t normal, int *entnum);
-void	  CL_PrepareTraceLineEntities (void);
+static void CL_PrepareTraceLineEntities (void); /* static at r_part_fte.c:574; a non-static
+												   declaration makes the rename above illegal */
 void	  VectorVectors (const vec3_t forward, vec3_t right, vec3_t up);
 vec_t	  VectorNormalize2 (const vec3_t v, vec3_t out);
 

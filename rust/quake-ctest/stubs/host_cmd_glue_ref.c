@@ -265,6 +265,9 @@ typedef struct
 void		SaveList_Rebuild (void);
 static void Host_Reconnect_f (void);
 
+/* menu.h:76. menu.h is not in this slice's include set. */
+void M_Menu_Quit_f (void);
+
 // -- chunk A (host_cmd.c:24-898) --------------------------------------------
 
 /* host_cmd.c:56 -- M_Menu_Quit_f (), which reaches Cbuf_AddText. */

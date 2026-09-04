@@ -225,6 +225,29 @@ const int		  host_glue_num_tests = 0;
 		return Host_Guard (Host_Invoke_##name, &a); \
 	}
 
+/* The subsystem entry points host.c reaches through glquake.h, menu.h,
+ * gl_texmgr.h, draw.h and steam_api.h -- none of which is in this slice's
+ * include set. host_ref.c needs no such block because it defines its own
+ * unreached-marker doubles (host_ref.c:312, :334, :345) ahead of host.c;
+ * nothing here defines them, so declare them. Each line is copied from the
+ * definition named beside it, and each is rewritten by the same prelude
+ * renames as the call sites below, so declaration and call stay on one
+ * spelling. */
+void Sky_ClearAll (void);		   /* gl_sky.c:565 */
+void M_UpdateMouse (void);		   /* menu.c:4623 */
+void CL_RunParticles (void);	   /* r_part.c:803 */
+void Host_InitCommands (void);	   /* host_cmd.c:3299 */
+void Tasks_Init (void);			   /* tasks.c:419 */
+void M_Init (void);				   /* menu.c:4597 */
+void M_CheckMods (void);		   /* menu.c:4580 */
+void TexMgr_Init (void);		   /* gl_texmgr.c:763 */
+void Draw_Init (void);			   /* gl_draw.c:531 */
+void R_Init (void);				   /* gl_rmisc.c:4225 */
+void Sbar_Init (void);			   /* sbar.c:283 */
+void R_InitParticles (void);	   /* r_part.c:228 */
+void PScript_InitParticles (void); /* r_part_fte.c:3264 */
+void Steam_Shutdown (void);		   /* steam_api.c:266 */
+
 /* host.c:746-751, :1005 -- world/model/sky/sound teardown and the CSQC world. */
 HOST_GUARD_VOID (Mod_ClearAll)
 HOST_GUARD_VOID (Sky_ClearAll)

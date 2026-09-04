@@ -104,6 +104,14 @@ extern client_t *host_client;
 void			 SV_ClientPrintf (const char *fmt, ...) FUNC_PRINTF (1, 2);
 void			 SV_BroadcastPrintf (const char *fmt, ...) FUNC_PRINTF (1, 2);
 
+/* host_cmd.c also reaches four entry points declared only in menu.h and
+ * glquake.h, neither of which is in this slice's include set. Copied from the
+ * definition named on each line. */
+void M_Menu_Quit_f (void);	/* menu.c:3559 */
+void Fog_ResetFade (void);	/* gl_fog.c:269 */
+void Sky_SetSkyfog (float value); /* gl_sky.c:683 */
+void Fog_Update (float density, float red, float green, float blue, float time); /* gl_fog.c:55 */
+
 #include "host_cmd.c"
 
 /* ---- fixture drivers ----------------------------------------------------
