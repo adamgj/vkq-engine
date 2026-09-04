@@ -203,8 +203,9 @@ void Key_Bind_f (void);
 
 /* ---------------------------------------------------------------------------
  * C-visible objects (keys.c:31-46, :54-142, :539), initializers verbatim from
- * Quake/keys_glue.c. key_dest is NOT here: stubs.c:2717 already owns the one
- * shared definition (see the header comment).
+ * Quake/keys_glue.c. key_dest is NOT here and not in stubs.c either: it is
+ * left unrenamed (see the header comment), so Quake/keys.c:41's own definition
+ * -- pulled in by the #include below -- is the one shared object.
  */
 
 char key_lines[CMDLINES][MAXCMDLINE];

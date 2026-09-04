@@ -2823,7 +2823,13 @@ void ctest_resample_ref (int length, int loopstart, int inrate, int inwidth, int
 #undef cl
 extern client_state_t cl; /* T7.4: quake-capi/src/cl_main.rs owns the storage */
 #define cl c_ref_cl
-keydest_t	   key_dest = key_game;
+/* key_dest is the one keys.c symbol keys_ref.c deliberately leaves unrenamed
+ * (keys_ref.c:30-36), so Quake/keys.c:41's definition is already in this link
+ * and owns the storage. Defining it again here is a duplicate symbol under
+ * -fno-common, the default for both GCC and clang; MSVC merges the two
+ * tentative definitions and hides it. key_game is 0, so keys.c's
+ * zero-initialized object starts at the same value this one did. */
+extern keydest_t key_dest;
 double		   host_frametime = 0.0;
 
 qboolean harness_sndhash = false;
