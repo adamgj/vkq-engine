@@ -3302,6 +3302,10 @@ static void PF_fopen (void)
 		{
 			qcfiles_max++;
 			qcfiles = Mem_Realloc (qcfiles, sizeof (*qcfiles) * qcfiles_max);
+			/* Mem_Realloc does not zero (mem.c:120); without this the scan below
+			   reads uninitialised heap and handle numbering becomes
+			   allocator-dependent. */
+			memset (&qcfiles[i], 0, sizeof (*qcfiles));
 		}
 		if (!qcfiles[i].file)
 			break;

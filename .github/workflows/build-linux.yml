@@ -165,6 +165,14 @@ jobs:
       run: |
         export QUAKE_GAME_DATA="$PWD/shareware-data"
         python3 scripts/harness/run_corpus.py --vkquake build-c/vkqr-engine --compare build-rs/vkqr-engine --tier shareware
+    # Phase 7 M10.5 (ADR-019 gate 1): the classic particle simulator's active
+    # list. It stays OUT of the default state-hash chain -- folding it in
+    # would change every committed golden on every platform -- so it rides an
+    # opt-in engine flag and is gated by --compare, which needs no goldens.
+    - name: Particle-sim hash identity (mixed vs C-only, -parthash)
+      run: |
+        export QUAKE_GAME_DATA="$PWD/shareware-data"
+        python3 scripts/harness/run_corpus.py --vkquake build-c/vkqr-engine --compare build-rs/vkqr-engine --extra-args=-parthash --tier shareware
     - name: Mixed build identity (C fs vs C-only)
       run: |
         export QUAKE_GAME_DATA="$PWD/shareware-data"
@@ -252,13 +260,14 @@ jobs:
     # session on the C build, then the structural differ in self-compare mode
     # (parser sanity). Cross-build capture comparisons begin at the M5/M7
     # driver flips; the byte gates are the netreplay/record_diff instruments.
-    - name: Net capture gate (C x2 for the noise floor, then C vs Rust)
+    - name: Net capture gate (C x3 for the noise floor, then C vs Rust)
       run: |
         export QUAKE_GAME_DATA="$PWD/shareware-data"
         python3 scripts/harness/capture_session.py --vkquake build-c/vkqr-engine --out session-c.cap --frames 1200
         python3 scripts/harness/capture_session.py --vkquake build-c/vkqr-engine --out session-c2.cap --frames 1200
+        python3 scripts/harness/capture_session.py --vkquake build-c/vkqr-engine --out session-c3.cap --frames 1200
         python3 scripts/harness/capture_session.py --vkquake build-rs/vkqr-engine --out session-rs.cap --frames 1200
-        python3 scripts/harness/capture_diff.py session-c.cap session-rs.cap --window-from session-c2.cap -v
+        python3 scripts/harness/capture_diff.py session-c.cap session-rs.cap --window-from session-c2.cap --window-from session-c3.cap -v
     # Phase 5 M4 (ADR-019 gate 4): deterministic loopback session recorded by
     # both builds must produce byte-identical .dem files
     - name: Demo record byte-diff (C self, then C vs Rust)

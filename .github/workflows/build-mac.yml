@@ -105,6 +105,14 @@ jobs:
       run: |
         export QUAKE_GAME_DATA="$PWD/shareware-data"
         python3 scripts/harness/run_corpus.py --vkquake build-c/vkqr-engine --compare build-rs/vkqr-engine --tier shareware
+    # Phase 7 M10.5 (ADR-019 gate 1): the classic particle simulator's active
+    # list. It stays OUT of the default state-hash chain -- folding it in
+    # would change every committed golden on every platform -- so it rides an
+    # opt-in engine flag and is gated by --compare, which needs no goldens.
+    - name: Particle-sim hash identity (mixed vs C-only, -parthash)
+      run: |
+        export QUAKE_GAME_DATA="$PWD/shareware-data"
+        python3 scripts/harness/run_corpus.py --vkquake build-c/vkqr-engine --compare build-rs/vkqr-engine --extra-args=-parthash --tier shareware
     - name: Mixed build identity (C fs vs C-only)
       run: |
         export QUAKE_GAME_DATA="$PWD/shareware-data"

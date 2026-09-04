@@ -176,6 +176,15 @@ jobs:
         $env:QUAKE_GAME_DATA = "$PWD\shareware-data"
         python scripts/harness/run_corpus.py --vkquake build-c/vkqr-engine.exe --compare build-rs/vkqr-engine.exe --tier shareware
         if ($LASTEXITCODE -ne 0) { throw "mixed build differs from C-only" }
+    # Phase 7 M10.5 (ADR-019 gate 1): the classic particle simulator's active
+    # list. It stays OUT of the default state-hash chain -- folding it in
+    # would change every committed golden on every platform -- so it rides an
+    # opt-in engine flag and is gated by --compare, which needs no goldens.
+    - name: Particle-sim hash identity (mixed vs C-only, -parthash)
+      run: |
+        $env:QUAKE_GAME_DATA = "$PWD\shareware-data"
+        python scripts/harness/run_corpus.py --vkquake build-c/vkqr-engine.exe --compare build-rs/vkqr-engine.exe --extra-args=-parthash --tier shareware
+        if ($LASTEXITCODE -ne 0) { throw "mixed build differs from C-only under -parthash" }
     - name: Mixed build identity (C fs vs C-only)
       run: |
         $env:QUAKE_GAME_DATA = "$PWD\shareware-data"

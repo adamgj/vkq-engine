@@ -15,6 +15,7 @@ All compiled into every build (runtime-gated); see [harness.h](../../Quake/harne
 | `-netcapture <file>` | framed capture of all traffic at the `NET_*` funnels |
 | `-netreplay <file>` | deterministic client-side replay of a `-netcapture` recv stream (one record per frame; sends absorbed); forces the fixed timestep, so with `-demohash` the replayed session byte-compares across builds |
 | `-tracefile <file>` | per-instruction progs VM trace (needs a `-Dtrace=true` build) |
+| `-parthash` | additionally fold the classic particle simulator's active list into the client hash. Opt-in because it changes the hash chain, and so every committed golden on every platform; the goldens are generated without it, and it is used only by golden-free `--compare` legs (`run_corpus.py --extra-args=-parthash`) |
 
 The state hash covers: per-edict `free`/`freetime`/`alpha`/`baseline`/lerp fields/`num_leafs`+populated `leafnums` + the full progs-visible field block, progs globals, VM time, client sim variables, client entity states, and the RNG state. It deliberately excludes pointers, area links, the debug-only edict header, and `leafnums` entries past `num_leafs` (stale leftovers no observer can see), so debug and release builds hash the same *state* (though FP differences mean goldens are release-only).
 

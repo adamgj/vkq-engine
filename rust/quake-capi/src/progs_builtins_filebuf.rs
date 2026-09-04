@@ -246,14 +246,12 @@ struct QcFile {
 }
 
 impl QcFile {
-    /// COMPAT (ADR-013, deviation -- REPORTED): `PF_fopen` grows the table
-    /// with `Mem_Realloc`, which does *not* zero (`mem.c:120`), and then reads
-    /// `qcfiles[i].file` out of the byte it just added. That is a read of
-    /// uninitialised heap: with a non-zero residue C loops and grows again,
-    /// so the handle it hands out is whatever the allocator left behind. Rust
-    /// cannot reproduce an uninitialised read, so the new slot is zeroed --
-    /// the benign realisation, and the one the surrounding code was written
-    /// for. Handle numbering matches C whenever the residue is zero.
+    /// `PF_fopen` grows the table with `Mem_Realloc`, which does *not* zero
+    /// (`mem.c:120`), so C used to read `qcfiles[i].file` out of the byte it
+    /// had just added -- an uninitialised read that made handle numbering
+    /// allocator-dependent and irreproducible here. `pr_ext.c` now `memset`s
+    /// the grown slot, which is the realisation the surrounding code was
+    /// written for; zeroing here matches it exactly.
     const fn new() -> Self {
         Self {
             owningvm: ptr::null_mut(),
@@ -442,17 +440,32 @@ fn pf_fopen(vm: *mut QcVm, con: &mut SvConsole) -> SvResult {
     Ok(())
 }
 
-/// The `size_t fileid = G_FLOAT (OFS_PARM0) - QC_FILE_BASE` narrowing every
-/// file builtin opens with.
+/// `float` -> unsigned integer with the *host target's* conversion semantics.
 ///
-/// COMPAT (ADR-010): the intermediate `i64` is load-bearing. C converts the
-/// float straight to `size_t`, and on every target the engine builds for that
-/// is a `cvttss2si`-style truncation, so `fopen`'s -1 failure handle reaches
-/// the table lookup as `SIZE_MAX` and is rejected by `fileid >= qcfiles_max`.
-/// Rust's `f32 as usize` *saturates* instead, turning that -1 into 0 and
-/// aliasing file handle 0. Going through `i64` reproduces the truncation.
+/// COMPAT (ADR-010): C leaves this conversion undefined for negative values,
+/// and the targets the engine builds for genuinely disagree. On x86 and
+/// x86-64 the compiler emits a `cvttss2si`-style truncation, so a -1 failure
+/// handle arrives as `SIZE_MAX`/`0xffffffff` and is rejected by the
+/// `>= qcfiles_max` / `>= NUMSTRINGBUFS` bounds test. On aarch64 `fcvtzu`
+/// *saturates* to 0, so C accepts the handle and aliases slot 0. Rust's `as`
+/// saturates like aarch64. ADR-010 is a per-platform determinism policy, so
+/// the port mirrors whichever host it is built for rather than hardcoding
+/// one: the `i64` hop reproduces the truncation, the bare cast the
+/// saturation.
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+fn c_f32_to_unsigned(f: c_float) -> u64 {
+    f as i64 as u64
+}
+
+#[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
+fn c_f32_to_unsigned(f: c_float) -> u64 {
+    f as u64
+}
+
+/// The `size_t fileid = G_FLOAT (OFS_PARM0) - QC_FILE_BASE` narrowing every
+/// file builtin opens with; see [`c_f32_to_unsigned`].
 fn file_id(raw: &VmRaw) -> usize {
-    (raw.g_f32(OFS_PARM0) - QC_FILE_BASE) as i64 as usize
+    c_f32_to_unsigned(raw.g_f32(OFS_PARM0) - QC_FILE_BASE) as usize
 }
 
 fn pf_fgets(vm: *mut QcVm, con: &mut SvConsole) -> SvResult {
@@ -696,17 +709,17 @@ fn pf_whichpack(vm: *mut QcVm) -> SvResult {
 /// for every value a `float` can name inside `i32`'s range, and every value
 /// outside it fails the `>= NUMSTRINGBUFS` test on both sides.
 ///
-/// COMPAT (ADR-010): as in [`file_id`], the `i64` hop is what makes
-/// `buf_create`'s -1 failure handle land on `0xffffffff` and get rejected,
-/// rather than on Rust's saturating 0, which would alias buffer 0.
+/// COMPAT (ADR-010): as in [`file_id`], the conversion follows the host
+/// target -- see [`c_f32_to_unsigned`] for why `buf_create`'s -1 failure
+/// handle is rejected on x86 and aliases buffer 0 on aarch64.
 fn buf_no(raw: &VmRaw, ofs: usize) -> u32 {
-    (raw.g_f32(ofs) - BUFSTRBASE) as i64 as u32
+    c_f32_to_unsigned(raw.g_f32(ofs) - BUFSTRBASE) as u32
 }
 
 /// The `unsigned int index = G_FLOAT (OFS_PARM1)` narrowing (`bufstr_get`,
-/// `bufstr_set`); see [`buf_no`] for why it goes through `i64`.
+/// `bufstr_set`); see [`c_f32_to_unsigned`] for the conversion.
 fn arg_index_u32(raw: &VmRaw, ofs: usize) -> usize {
-    raw.g_f32(ofs) as i64 as u32 as usize
+    c_f32_to_unsigned(raw.g_f32(ofs)) as u32 as usize
 }
 
 /// `strbuflist[bufno]`, or `None` when C's `bufno >= NUMSTRINGBUFS` or

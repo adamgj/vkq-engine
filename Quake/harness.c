@@ -50,10 +50,11 @@ _Static_assert (CMDLINE_LENGTH == 256, "rust/quake-capi/src/cmd.rs and c_ref_pre
    by the config byte-diff gate, which reads the file back by name. */
 _Static_assert (sizeof (CONFIG_NAME) == sizeof ("vkQuake.cfg"), "rust/quake-capi/src/cmd.rs hardcodes this; update both together");
 
-qboolean harness_active = false;
-qboolean harness_fixed_dt = false;
-qboolean no_rendering = false;
-qboolean harness_sndhash = false;
+qboolean		harness_active = false;
+qboolean		harness_fixed_dt = false;
+qboolean		no_rendering = false;
+qboolean		harness_sndhash = false;
+static qboolean harness_parthash = false;
 
 /* fixed simulation rate; the -sndhash DMA clock derives from the same
    constant so the mixer and the simulation can never drift apart */
@@ -107,7 +108,7 @@ void Harness_CheckArgs (void)
 	if (COM_CheckParm ("-headless"))
 		no_rendering = true;
 	if (COM_CheckParm ("-headless") || COM_CheckParm ("-demohash") || COM_CheckParm ("-exitafter") || COM_CheckParm ("-harnesscmds") ||
-		COM_CheckParm ("-netcapture") || COM_CheckParm ("-sndhash") || COM_CheckParm ("-netreplay"))
+		COM_CheckParm ("-netcapture") || COM_CheckParm ("-sndhash") || COM_CheckParm ("-netreplay") || COM_CheckParm ("-parthash"))
 		harness_active = true;
 	if (COM_CheckParm ("-demohash") || COM_CheckParm ("-sndhash") || COM_CheckParm ("-netreplay"))
 		harness_fixed_dt = true;
@@ -115,6 +116,8 @@ void Harness_CheckArgs (void)
 		harness_netreplay = true;
 	if (COM_CheckParm ("-sndhash"))
 		harness_sndhash = true;
+	if (COM_CheckParm ("-parthash"))
+		harness_parthash = true;
 	if (isDedicated)
 		no_rendering = true;
 }
@@ -309,7 +312,12 @@ static uint64_t Harness_HashClient (uint64_t h)
 	if (cl.qcvm.progs)
 		h = Harness_HashVM (h, &cl.qcvm);
 
-	h = Harness_HashParticles (h);
+	/* opt-in: folding the particle pool into the client hash changes every
+	   pre-existing golden on every platform, and the C-vs-Rust parity it would
+	   buy is already covered bit-exactly by r_part_differential. -parthash keeps
+	   it available to --compare legs without invalidating the goldens. */
+	if (harness_parthash)
+		h = Harness_HashParticles (h);
 	return h;
 }
 

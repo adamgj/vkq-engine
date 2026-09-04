@@ -84,14 +84,23 @@ def main():
                    help="fail if the calibrated gate window drops below this "
                         "many bytes: a degenerate early reference divergence "
                         "must not silently reduce the gate to a no-op")
-    p.add_argument("--window-from", metavar="CAP",
+    p.add_argument("--window-from", metavar="CAP", action="append",
+                   default=[],
                    help="calibrate the gate window per direction to the "
                         "common reliable prefix of cap_a and this capture "
                         "(a second run of the SAME build): live sessions "
                         "carry a time-bearing message near the signon tail, "
                         "so the honest gate is 'the compared build matches "
                         "at least as far as the reference build matches "
-                        "itself'")
+                        "itself'. Repeatable, and repeating it is strongly "
+                        "recommended: one reference pair is a single sample "
+                        "of a nondeterministic quantity, and the divergence "
+                        "point scatters by a byte or two between runs, so a "
+                        "compared build that diverges at the same message as "
+                        "the reference can land just inside a one-sample "
+                        "window and fail for no reason. With several the "
+                        "window is the MINIMUM over every reference pair -- "
+                        "the conservative estimate of where noise starts.")
     p.add_argument("--count-tolerance", type=float, default=0.5,
                    help="max relative difference in per-(direction,kind) "
                         "record counts")
@@ -100,22 +109,27 @@ def main():
 
     rec_a = parse_capture(args.cap_a)
     rec_b = parse_capture(args.cap_b)
-    rec_w = parse_capture(args.window_from) if args.window_from else None
+    rec_w = [parse_capture(c) for c in args.window_from]
     ok = True
 
     for direction in (0, 1):
         sa = reliable_stream(rec_a, direction)
         sb = reliable_stream(rec_b, direction)
         window = min(len(sa), len(sb), args.min_reliable_prefix)
-        if rec_w is not None:
-            sw = reliable_stream(rec_w, direction)
-            noise_floor = next(
-                (i for i in range(min(len(sa), len(sw))) if sa[i] != sw[i]),
-                min(len(sa), len(sw)))
+        if rec_w:
+            floors = []
+            for rw in rec_w:
+                sw = reliable_stream(rw, direction)
+                floors.append(next(
+                    (i for i in range(min(len(sa), len(sw)))
+                     if sa[i] != sw[i]),
+                    min(len(sa), len(sw))))
+            noise_floor = min(floors)
             if noise_floor < window:
                 print(f"note: {DIR_NAMES[direction]} window calibrated to "
                       f"{noise_floor} bytes (reference build's own "
-                      f"run-to-run divergence point)")
+                      f"run-to-run divergence point, minimum over "
+                      f"{len(floors)} reference pair(s): {floors})")
                 window = noise_floor
         # The floor is judged against the REFERENCE stream only. Gating it on
         # min(len(sa), len(sb)) would disable it in exactly the case it
