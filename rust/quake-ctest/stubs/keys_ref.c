@@ -152,6 +152,28 @@ void Key_Bind_f (void);
 #include <stdio.h>
 #include <string.h>
 
+/* Quake/keys.c:41 defines key_dest, and stubs.c defines it too: it is the one
+ * symbol this file deliberately leaves unrenamed (see the header comment), so
+ * the two halves share one object. Under -fno-common -- the GCC 10+ / clang
+ * 15+ default -- that is two strong definitions and every ELF link fails; MSVC
+ * merges them silently, which is why only CI ever saw it.
+ *
+ * stubs.o has to be the owner rather than this file. Ten other oracle objects
+ * carry an undefined key_dest (console_ref.o, menu_ref.o, sbar_ref.o,
+ * host_ref.o, host_cmd_ref.o, cl_main.o, cl_demo.o, snd_mix.o, sv_user.o,
+ * sv_user_ref.o), so if keys_ref.o were the only definition the linker would
+ * extract it into EVERY test binary -- dragging in the plain-named recorders
+ * below (Con_TabComplete and the Keys_Glue_* trampolines), which are selected
+ * ahead of quake-capi's exports and silently replace the port under test.
+ * That is a SIGSEGV in console_differential, not a link error.
+ *
+ * So: stubs.c keeps the strong definition and keys.c's copy is weak here.
+ * MSVC has no #pragma weak and does not need one -- it already merges the two
+ * tentative definitions. */
+#if !defined(_MSC_VER)
+#pragma weak key_dest
+#endif
+
 #include "keys.c"
 
 /* =========================================================================
@@ -203,9 +225,9 @@ void Key_Bind_f (void);
 
 /* ---------------------------------------------------------------------------
  * C-visible objects (keys.c:31-46, :54-142, :539), initializers verbatim from
- * Quake/keys_glue.c. key_dest is NOT here and not in stubs.c either: it is
- * left unrenamed (see the header comment), so Quake/keys.c:41's own definition
- * -- pulled in by the #include below -- is the one shared object.
+ * Quake/keys_glue.c. key_dest is NOT here: stubs.c owns the one shared
+ * definition, and Quake/keys.c's own copy is weakened just above the #include
+ * below so the two do not collide.
  */
 
 char key_lines[CMDLINES][MAXCMDLINE];

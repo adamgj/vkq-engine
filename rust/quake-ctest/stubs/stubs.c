@@ -1521,13 +1521,23 @@ int Host_Guard (void (*fn) (void *), void *arg)
 
 void Host_Reraise (int guard_result)
 {
+	/* The text has to go through a copy. Host_Error and Sys_Error vsnprintf
+	 * INTO ctest_host_error_msg/ctest_sys_error_msg, so handing either buffer
+	 * to itself as the %s argument is a self-overlapping vsnprintf: glibc
+	 * produces an empty string, while the MSVC and Apple CRTs happen to keep
+	 * the text. Quake/host.c:339's Host_Reraise longjmps and never reformats,
+	 * so preserving the message is what actually mirrors it. */
+	char msg[sizeof (ctest_host_error_msg)];
+
 	switch (guard_result)
 	{
 	case CTEST_GUARD_HOST_ERROR:
-		Host_Error ("%s", ctest_host_error_msg);
+		memcpy (msg, ctest_host_error_msg, sizeof (msg));
+		Host_Error ("%s", msg);
 		break;
 	case CTEST_GUARD_SYS_ERROR:
-		Sys_Error ("%s", ctest_sys_error_msg);
+		memcpy (msg, ctest_sys_error_msg, sizeof (msg));
+		Sys_Error ("%s", msg);
 		break;
 	default:
 		break;
@@ -2824,12 +2834,14 @@ void ctest_resample_ref (int length, int loopstart, int inrate, int inwidth, int
 extern client_state_t cl; /* T7.4: quake-capi/src/cl_main.rs owns the storage */
 #define cl c_ref_cl
 /* key_dest is the one keys.c symbol keys_ref.c deliberately leaves unrenamed
- * (keys_ref.c:30-36), so Quake/keys.c:41's definition is already in this link
- * and owns the storage. Defining it again here is a duplicate symbol under
- * -fno-common, the default for both GCC and clang; MSVC merges the two
- * tentative definitions and hides it. key_game is 0, so keys.c's
- * zero-initialized object starts at the same value this one did. */
-extern keydest_t key_dest;
+ * (keys_ref.c:30-36), so BOTH this file and Quake/keys.c:41 define it. This
+ * object is the strong one and every binary resolves to it; keys_ref.c marks
+ * keys.c's copy weak so -fno-common (the GCC/clang default) does not see two
+ * strong definitions. It has to be this way round: stubs.o is in every test
+ * binary, whereas keys_ref.o carries all of keys.c plus plain-named recorders
+ * that would pre-empt quake-capi's exports in the suites that port those
+ * modules -- see the note at keys_ref.c's #pragma weak. */
+keydest_t key_dest = key_game;
 double		   host_frametime = 0.0;
 
 qboolean harness_sndhash = false;
