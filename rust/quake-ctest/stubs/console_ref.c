@@ -148,12 +148,17 @@
  * forward calls (Con_ClearNotify from Con_CheckResize at console.c:1009,
  * Con_ForceMouseMove from Con_Scroll at console.c:1044, ...) would fall back
  * to implicit int. Re-declaring them here costs nothing: the macros above
- * rewrite each line, so the text is a verbatim copy of console.h plus the two
- * entry points console.c declares in no header at all. */
+ * rewrite each line, so the text is console.h plus the entry points console.c
+ * declares in no header at all. The file-static ones must be declared static
+ * here too, or GCC rejects console.c's definition as a static declaration
+ * following a non-static one. */
 void		Con_CheckResize (void);
 void		Con_Init (void);
 void		Con_DrawConsole (cb_context_t *cbx, int lines, qboolean drawinput);
-void		Con_Print (const char *txt);
+static void	Con_Print (const char *txt);
+static void	Con_Dump_f (void);
+static void	Con_MessageMode_f (void);
+static void	Con_MessageMode2_f (void);
 void		Con_Printf (const char *fmt, ...) FUNC_PRINTF (1, 2);
 void		Con_DWarning (const char *fmt, ...) FUNC_PRINTF (1, 2);
 void		Con_Warning (const char *fmt, ...) FUNC_PRINTF (1, 2);
@@ -1696,6 +1701,9 @@ void ctest_console_set_keydown (int key, qboolean down)
 }
 
 /* ---- the shared call recorder ------------------------------------------- */
+
+/* Defined in draw_ref.c, declared in no header. */
+void ctest_console_clear_draw_log (void);
 
 void ctest_console_reset_calls (void)
 {

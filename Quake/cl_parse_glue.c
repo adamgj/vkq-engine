@@ -530,8 +530,7 @@ typedef struct
 static void ClParse_InvokeParticleTrail (void *p)
 {
 	clparse_ptrail_args_t *a = (clparse_ptrail_args_t *)p;
-	PScript_ParticleTrail (
-		(float *)(uintptr_t)a->start, (float *)(uintptr_t)a->end, a->type, a->timeinterval, a->dlkey, NULL, (struct trailstate_s **)a->tsk);
+	PScript_ParticleTrail ((float *)(uintptr_t)a->start, (float *)(uintptr_t)a->end, a->type, a->timeinterval, a->dlkey, NULL, (struct trailstate_s **)a->tsk);
 }
 
 int ClParse_Glue_ParticleTrail (const float *start, const float *end, int type, float timeinterval, int dlkey, void **tsk)

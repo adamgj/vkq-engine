@@ -96,9 +96,9 @@ typedef struct
 
 typedef struct
 {
-	sizebuf_t			   *sb;
+	sizebuf_t			  *sb;
 	const clinput_write_t *ops;
-	int						count;
+	int					   count;
 } clinput_writebatch_arg_t;
 
 static void ClInput_InvokeWriteBatch (void *p)

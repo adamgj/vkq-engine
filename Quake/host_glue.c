@@ -76,6 +76,8 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 // stay C until Phase 9, per the roadmap and ADR-009. So does the setjmp shell
 // of _Host_Frame -- see Host_Glue_FrameInner at the bottom of this file.
 
+#include <setjmp.h>
+
 #include "quakedef.h"
 #include "sys.h"
 

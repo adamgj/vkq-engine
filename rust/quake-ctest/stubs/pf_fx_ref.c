@@ -190,6 +190,14 @@ int ctest_fx_edict_to_prog (int num)
 #undef SV_StartParticle
 #undef SV_StartSound
 
+/* The #undef above strips the c_ref_ rename, but server.h was force-included
+ * by the prelude *before* the rename block, so the prototype it carries was
+ * itself renamed and no longer covers the plain name. Re-declare it
+ * (server.h:338) or the calls below fall back to implicit int, which clang
+ * rejects outright. */
+void SV_StartSound (edict_t *entity, float *origin, int channel, const char *sample, int volume, float attenuation);
+
+
 /* ---------------------------------------------------------------------------
  * PF_particle (pr_cmds.c:614-625). No glue: SV_StartParticle never raises
  * and PF_particle uses no G_STRING/G_EDICTNUM, so quake_rs_pf_particle calls

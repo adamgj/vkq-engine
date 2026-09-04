@@ -133,11 +133,11 @@ int ClDemo_Glue_WriteBatch (const cldemo_write_t *ops, int count)
 /* cl_demo.c:391, :400 */
 typedef struct
 {
-	int			  idx;
-	void		 *state;
-	unsigned int  pext2;
-	unsigned int  protocol;
-	unsigned int  protocolflags;
+	int			 idx;
+	void		*state;
+	unsigned int pext2;
+	unsigned int protocol;
+	unsigned int protocolflags;
 } cldemo_baseline_arg_t;
 
 static void ClDemo_InvokeStaticOrBaseLine (void *p)

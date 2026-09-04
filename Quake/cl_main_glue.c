@@ -71,8 +71,6 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 #ifdef USE_RUST_HOST
 
-#include "SDL3/SDL_clipboard.h"
-
 /* ---------------------------------------------------------------------------
  * 1. C-visible storage (cl_main.c:29-72). Verbatim, including declaration
  * order -- Cvar_RegisterVariable order is observable in config.cfg and the
@@ -136,18 +134,18 @@ qboolean needs_relink;
  * :767 in this file. CL_SendInitialUserinfo is external in cl_main.c:241
  * already. All are referenced above their definitions, hence these forward
  * declarations. */
-void CL_LegacyColor_f (void);
-void CL_ServerExtension_FullServerinfo_f (void);
-void CL_ServerExtension_FullUserinfo_f (void);
-void CL_ServerExtension_Ignore_f (void);
-void CL_ServerExtension_ServerinfoUpdate_f (void);
-void CL_ServerExtension_UserinfoUpdate_f (void);
+void		CL_LegacyColor_f (void);
+void		CL_ServerExtension_FullServerinfo_f (void);
+void		CL_ServerExtension_FullUserinfo_f (void);
+void		CL_ServerExtension_Ignore_f (void);
+void		CL_ServerExtension_ServerinfoUpdate_f (void);
+void		CL_ServerExtension_UserinfoUpdate_f (void);
 static void CL_Viewpos_Completion_f (const char *partial);
-void CL_SendInitialUserinfo (void *ctx, const char *key, const char *val);
+void		CL_SendInitialUserinfo (void *ctx, const char *key, const char *val);
 
-#define CLMAIN_RAISE_CONNECT_FAILED	  (-101)
-#define CLMAIN_RAISE_LOST_READ		  (-102)
-#define CLMAIN_RAISE_LOST_SEND		  (-103)
+#define CLMAIN_RAISE_CONNECT_FAILED (-101)
+#define CLMAIN_RAISE_LOST_READ		(-102)
+#define CLMAIN_RAISE_LOST_SEND		(-103)
 
 /* Batched, guarded sizebuf writers. Every MSG_Write* reaches SZ_GetSpace
  * (net_msg.c:481), which Host_Errors on overflow, so no Rust frame may sit
