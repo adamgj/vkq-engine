@@ -712,8 +712,31 @@ fn pf_whichpack(vm: *mut QcVm) -> SvResult {
 /// COMPAT (ADR-010): as in [`file_id`], the conversion follows the host
 /// target -- see [`c_f32_to_unsigned`] for why `buf_create`'s -1 failure
 /// handle is rejected on x86 and aliases buffer 0 on aarch64.
+///
+/// This is the `unsigned int`/`size_t` idiom only: `PF_buf_del`,
+/// `PF_buf_copy`, `PF_bufstr_get`, `PF_bufstr_set`, `PF_bufstr_add`,
+/// `PF_bufstr_free` and `PF_buf_cvarlist`. The three functions that declare a
+/// *signed* `bufno` use [`buf_no_signed`] -- the C is not uniform here, and
+/// treating it as though it were is what made `bad_handles_match` fail on
+/// macOS.
 fn buf_no(raw: &VmRaw, ofs: usize) -> u32 {
     c_f32_to_unsigned(raw.g_f32(ofs) - BUFSTRBASE) as u32
+}
+
+/// The *signed* buffer-handle idiom: `PF_buf_getsize`, `PF_buf_sort` and
+/// `PF_buf_implode` declare `int bufno = G_FLOAT (..) - BUFSTRBASE` and only
+/// then test `(unsigned int)bufno >= NUMSTRINGBUFS`.
+///
+/// COMPAT (ADR-010): unlike [`buf_no`], this path is **platform-independent**,
+/// so it deliberately does not go through [`c_f32_to_unsigned`]. The negative
+/// handle survives the conversion as a negative int on both x86 (`cvttss2si`)
+/// and aarch64 (`fcvtzs`), and it is the *unsigned reinterpretation* that
+/// rejects it -- there is no saturation for aarch64 to disagree about. Values
+/// outside `i32` land `>= NUMSTRINGBUFS` under either arch's out-of-range
+/// result (x86's `INT_MIN` indefinite, aarch64's saturation), so the bounds
+/// observable is identical even there.
+fn buf_no_signed(raw: &VmRaw, ofs: usize) -> u32 {
+    (raw.g_f32(ofs) - BUFSTRBASE) as i32 as u32
 }
 
 /// The `unsigned int index = G_FLOAT (OFS_PARM1)` narrowing (`bufstr_get`,
@@ -826,7 +849,7 @@ fn pf_buf_getsize(vm: *mut QcVm) -> SvResult {
     let mut raw = unsafe { VmRaw::new(vm) };
     // COMPAT: on a bad handle C returns without touching OFS_RETURN, so the
     // caller reads whatever the previous builtin left there.
-    let Some(b) = live_buf(buf_no(&raw, OFS_PARM0)) else {
+    let Some(b) = live_buf(buf_no_signed(&raw, OFS_PARM0)) else {
         return Ok(());
     };
     let used = b.used;
@@ -924,7 +947,7 @@ fn pf_buf_sort(vm: *mut QcVm) -> SvResult {
     let raw = unsafe { VmRaw::new(vm) };
     let mut sortprefixlen = raw.g_f32(OFS_PARM1) as c_int;
     let backwards = raw.g_f32(OFS_PARM2) as c_int;
-    let Some(b) = live_buf(buf_no(&raw, OFS_PARM0)) else {
+    let Some(b) = live_buf(buf_no_signed(&raw, OFS_PARM0)) else {
         return Ok(());
     };
 
@@ -981,7 +1004,7 @@ fn pf_buf_sort(vm: *mut QcVm) -> SvResult {
 fn pf_buf_implode(vm: *mut QcVm, con: &mut SvConsole) -> SvResult {
     // SAFETY: ADR-008.
     let mut raw = unsafe { VmRaw::new(vm) };
-    let bufno = buf_no(&raw, OFS_PARM0);
+    let bufno = buf_no_signed(&raw, OFS_PARM0);
     let glue = g_string(&raw, OFS_PARM1)?;
     // SAFETY: a live engine string.
     let glue = unsafe { c_bytes(glue) };
