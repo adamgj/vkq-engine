@@ -194,9 +194,12 @@ fn unsupported_conv(conv: u8) -> SvRaise {
  */
 
 /// `cvttss2si`'s representable range: `[INT64_MIN, 2^63)`. Both bounds are
-/// exactly representable in `f32` and `f64`.
+/// exactly representable in `f32` and `f64`. The lower bounds only matter to
+/// the x86-64 range check; the upper ones are also the unsigned bias.
+#[cfg(target_arch = "x86_64")]
 const I64_LO_F32: f32 = -9223372036854775808.0;
 const I64_HI_F32: f32 = 9223372036854775808.0;
+#[cfg(target_arch = "x86_64")]
 const I64_LO_F64: f64 = -9223372036854775808.0;
 const I64_HI_F64: f64 = 9223372036854775808.0;
 
