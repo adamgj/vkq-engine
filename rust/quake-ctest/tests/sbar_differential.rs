@@ -404,34 +404,32 @@ fn noop(_side: c_int) {}
 // ---------------------------------------------------------------------------
 // Sbar_itoa (sbar.c:356)
 
-/// `Sbar_itoa`'s `for (pow10 = 10; num >= pow10; pow10 *= 10)` scan does not
-/// terminate for `|num| >= 1000000000`: `pow10` wraps past `10^9`, and every
+/// Two `Sbar_itoa` inputs are out of range here, both because the C oracle
+/// stops being observable on them rather than because the port disagrees.
+///
+/// `|num| >= 1000000000`: the `for (pow10 = 10; num >= pow10; pow10 *= 10)`
+/// scan does not terminate, because `pow10` wraps past `10^9` and every
 /// `10^k` with `k >= 32` is zero modulo 2^32, at which point `num >= pow10`
-/// holds forever. That is a live defect in `Quake/sbar.c:362` -- reported, not
-/// papered over -- and the port reproduces it. It is out of range here because
-/// a hang cannot be differentially compared. `i32::MIN` IS covered: its
-/// `num = -num` stays negative, so the scan exits immediately.
+/// holds forever. That is a live defect in `Quake/sbar.c:362` -- reported,
+/// not papered over -- and the port reproduces it. A hang cannot be
+/// differentially compared.
+///
+/// `i32::MIN`: `num = -num` (`sbar.c:367`) is signed overflow, which clang
+/// takes as licence to assume `num > 0` from there on. On the real `INT_MIN`
+/// value the `while (pow10 != 1)` exit is then unreachable, and the digit
+/// loop writes past the caller's buffer until it faults on the stack guard
+/// page -- observed as SIGSEGV/SIGBUS in `c_ref_Sbar_itoa` on release
+/// aarch64-apple-darwin, through this entry point and through the two
+/// callers that inline it (`Sbar_DrawNum` at `sbar.c:400` and
+/// `Sbar_IntermissionNumber` at `sbar.c:1317`). A crashing oracle is no more
+/// comparable than a hanging one. The port itself is well-defined on
+/// `i32::MIN` and keeps the wrapping arithmetic (COMPAT: ADR-010,
+/// `quake-capi/src/sbar.rs`); there is simply no C side to diff it against.
 #[test]
 fn itoa_matches_across_the_sign_and_width_range() {
     for num in [
-        0,
-        1,
-        9,
-        10,
-        99,
-        100,
-        999,
-        1000,
-        99999,
-        123456789,
-        999999999,
-        -1,
-        -9,
-        -10,
-        -999,
-        -123456,
+        0, 1, 9, 10, 99, 100, 999, 1000, 99999, 123456789, 999999999, -1, -9, -10, -999, -123456,
         -999999999,
-        i32::MIN,
     ] {
         assert_quiet(&format!("itoa({num})"), noop, |side| {
             let mut buf = [0i8; 64];
@@ -444,6 +442,24 @@ fn itoa_matches_across_the_sign_and_width_range() {
             (len, String::from_utf8_lossy(&bytes).into_owned())
         });
     }
+}
+
+/// The `i32::MIN` half of the exclusion above, pinned on the port alone so
+/// the input keeps a regression test even though the C oracle cannot run it.
+/// `num.wrapping_neg()` stays `INT_MIN`, so the `pow10` scan exits at once and
+/// the single digit is `('0' + INT_MIN) as c_char`, which truncates back to
+/// `'0'` -- output `"-0"`, length 2.
+#[test]
+fn itoa_of_int_min_is_well_defined_in_the_port() {
+    let _g = lock();
+    let mut buf = [0i8; 64];
+    // SAFETY: `buf` is 64 bytes; this input writes 3 including the NUL.
+    let len = unsafe { ctest_sbar_itoa(R, i32::MIN, buf.as_mut_ptr()) };
+    let bytes: Vec<u8> = buf[..len.max(0) as usize]
+        .iter()
+        .map(|&b| b as u8)
+        .collect();
+    assert_eq!((len, String::from_utf8_lossy(&bytes)), (2, "-0".into()));
 }
 
 // ---------------------------------------------------------------------------
@@ -738,7 +754,8 @@ fn draw_num_matches_across_digits_and_colours() {
         noop,
         // SAFETY: as above.
         |side| unsafe {
-            for &num in &[0, 5, 42, 999, 1000, -1, -42, -1000, i32::MIN] {
+            // i32::MIN excluded: see itoa_matches_across_the_sign_and_width_range.
+            for &num in &[0, 5, 42, 999, 1000, -1, -42, -1000] {
                 for digits in [1, 3, 5] {
                     for color in [0, 1] {
                         ctest_sbar_draw_num(side, 24, 0, num, digits, color);
@@ -1325,7 +1342,8 @@ fn intermission_number_matches() {
         |side| seed_loaded(side, 0, LOADOUT, 75),
         // SAFETY: as above.
         |side| unsafe {
-            for &num in &[0, 7, 42, 999, 1000, -1, -42, i32::MIN] {
+            // i32::MIN excluded: see itoa_matches_across_the_sign_and_width_range.
+            for &num in &[0, 7, 42, 999, 1000, -1, -42] {
                 for digits in [1, 3, 6] {
                     for color in [0, 1] {
                         ctest_sbar_intermission_number(side, 160, 56, num, digits, color);
