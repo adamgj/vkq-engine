@@ -1420,6 +1420,8 @@ void Con_LinkPrintf (const char *addr, const char *fmt, ...)
 		{
 			link->begin.col = 0;
 			link->begin.line++;
+			// re-derive: the next line is not physically adjacent at the ring-buffer wrap
+			text = con_text + (link->begin.line % con_totallines) * con_linewidth;
 		}
 	}
 
