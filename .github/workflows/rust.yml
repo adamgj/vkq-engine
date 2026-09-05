@@ -65,6 +65,26 @@ jobs:
         arguments: --config rust/deny.toml
         command: check licenses
 
+  # the lint job above is x86_64-only, so a cfg-gated item that is dead on
+  # aarch64 (e.g. an x86-64-only const in an ADR-010 compat path) passes there
+  # and only fails on an Apple Silicon checkout. macos-latest is arm64; run
+  # just the clippy passes on it -- fmt and deny are target-independent.
+  lint-aarch64:
+    name: clippy (aarch64)
+    runs-on: macos-latest
+    steps:
+    - uses: actions/checkout@v6
+    - uses: dtolnay/rust-toolchain@stable
+      with:
+        toolchain: 1.97.1
+        components: clippy
+    - name: cargo clippy
+      working-directory: rust
+      run: cargo clippy --workspace --all-targets --locked -- -D warnings
+    - name: cargo clippy (progs feature)
+      working-directory: rust
+      run: cargo clippy -p quake-capi --features progs --all-targets --locked -- -D warnings
+
   # cargo-deny's advisories check already covers RustSec on every PR; this
   # standalone audit only adds value on the weekly cron
   audit:
