@@ -1658,6 +1658,11 @@ pub unsafe extern "C" fn quake_rs_con_link_print(addr: *const c_char, msg: *cons
             if (*link).begin.col == g::con_linewidth {
                 (*link).begin.col = 0;
                 (*link).begin.line += 1;
+                // re-derive: the next line is not physically adjacent at the ring-buffer wrap
+                text = g::con_text.offset(
+                    imod((*link).begin.line, g::con_totallines).wrapping_mul(g::con_linewidth)
+                        as isize,
+                );
             }
         }
 

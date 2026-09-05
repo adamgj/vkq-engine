@@ -1296,6 +1296,44 @@ fn con_linkprintf_skips_leading_spaces_in_the_link_range() {
     );
 }
 
+#[test]
+fn con_linkprintf_skips_leading_spaces_across_the_ring_buffer_wrap() {
+    let _g = lock();
+    // `fresh` leaves con_current at con_totallines - 1 with con_x == 0, so
+    // Con_Print's leading Con_Linefeed (console.c:1175) puts the text on
+    // physical row 0 while link->begin still names the last physical row.
+    // The skip loop then has to walk begin from row 63 to row 64, i.e. wrap
+    // back to row 0 (console.c:1421). Walking `text` straight off the end of
+    // con_text instead reads past the allocation and can collapse the link to
+    // an empty range, making it un-clickable. The collapse depends on what the
+    // bytes past the allocation happen to be, so a plain run only catches it by
+    // luck; the deterministic detector is Guard Malloc
+    // (DYLD_INSERT_LIBRARIES=/usr/lib/libgmalloc.dylib MALLOC_STRICT_SIZE=1),
+    // under which the pre-fix engine dies here with SIGSEGV.
+    let seen = both(|side| {
+        fresh(side);
+        // SAFETY: ADR-004. One link on the wrap boundary, then lay it out.
+        unsafe {
+            ctest_console_linkprintf(side, cs("/tmp/x").as_ptr(), cs("wrapped").as_ptr());
+            ctest_console_drawconsole(side, 480, false);
+            ctest_console_reset_calls();
+        }
+        let mut hits = Vec::new();
+        // The link is on con_current, i.e. y 464; column c is at (c+1)*8.
+        for col in 0..10 {
+            // SAFETY: ADR-004. Hover; the cursor answer is recorded.
+            unsafe { ctest_console_mousemove(side, (col + 1) * 8, 464) };
+            hits.push(calls().cursor);
+        }
+        hits
+    });
+    assert_eq!(
+        seen[0..7],
+        [1, 1, 1, 1, 1, 1, 1],
+        "MOUSECURSOR_HAND over \"wrapped\" after the skip wraps to row 0: {seen:?}"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Tab completion
 
