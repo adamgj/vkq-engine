@@ -84,7 +84,11 @@ def run_entry(vkquake, entry, game_data, out, extra_args="", sndhash=False):
         # their own <name>.snd / <name>.snd-demo.hash namespace
         extra_args = (extra_args + " " if extra_args else "") + "-sndhash " + out + ".snd"
     if extra_args:
-        cmd += ["--extra-args", extra_args]
+        # `=` form, not two tokens: engine argv starts with `-`, and argparse
+        # only tolerates a leading dash in a value when the token also has a
+        # space in it. A single-token value like "-parthash" would otherwise
+        # be parsed as an option and reported as a missing argument.
+        cmd += ["--extra-args=" + extra_args]
     if entry.get("demo"):
         cmd += ["--demo", entry["demo"]]
     if entry.get("game"):

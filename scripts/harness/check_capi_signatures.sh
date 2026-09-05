@@ -180,8 +180,44 @@ void GLMesh_UploadBuffers (qmodel_t *mod, aliashdr_t *hdr, unsigned short *index
 void GLMesh_DeleteMeshBuffers (aliashdr_t *mainhdr);
 #include "mathlib.h"
 #include "model_parse.h"
+/* Phase 7 M3: the world/collision seam. world.h needs edict_t from
+ * progs.h *and* the BSP types (hull_t, mnode_t, mclipnode_t, mplane_t)
+ * from gl_model.h above, so it joins this TU rather than the first one,
+ * which has progs.h but no BSP types. */
+#include "protocol.h"
+@PER_LEVEL_LIMITS@
+#include "progs.h"
+#include "world.h"
+/* Phase 7 M4: SV_FixCheckBottom and SV_CloseEnough are declared by
+ * server.h, which has no includes of its own and leans on quakedef.h's
+ * ordering; net.h supplies the qsocket_t that client_t embeds, and the
+ * limits below size its buffers. */
+@SERVER_LIMITS@
+#include "net.h"
+#include "server.h"
 #include "quake_rs.h"
 EOF
+
+awk 'FNR == NR { lim = lim $0 "\n"; next }
+     $0 == "@PER_LEVEL_LIMITS@" { printf "%s", lim; next }
+     { print }' "$tmpdir/per_level_limits.h" "$tmpdir/capi_sig_check_model.c" > "$tmpdir/capi_sig_check_model.c.tmp"
+mv "$tmpdir/capi_sig_check_model.c.tmp" "$tmpdir/capi_sig_check_model.c"
+
+# ...and the same for the quakedef.h limits server.h sizes its buffers with
+# (five #defines plus one enumerator), extracted rather than hand-copied.
+server_limits="$(grep -E '^#define[[:space:]]+(MAX_MSGLEN|MAX_DATAGRAM|MAX_MODELS|MAX_SOUNDS|MAX_PARTICLETYPES)[[:space:]]' Quake/quakedef.h |
+	awk '{ print "#define " $2 " " $3 }'
+	grep -E '^[[:space:]]*MAX_CL_STATS[[:space:]]*=' Quake/quakedef.h |
+		awk -F '[=,]' '{ gsub(/[[:space:]]/, "", $2); print "#define MAX_CL_STATS " $2 }')"
+if [ "$(printf '%s\n' "$server_limits" | grep -c .)" -ne 6 ]; then
+	echo "FAIL: could not extract the server.h limits from Quake/quakedef.h" >&2
+	exit 1
+fi
+printf '%s\n' "$server_limits" > "$tmpdir/server_limits.h"
+awk 'FNR == NR { lim = lim $0 "\n"; next }
+     $0 == "@SERVER_LIMITS@" { printf "%s", lim; next }
+     { print }' "$tmpdir/server_limits.h" "$tmpdir/capi_sig_check_model.c" > "$tmpdir/capi_sig_check_model.c.tmp"
+mv "$tmpdir/capi_sig_check_model.c.tmp" "$tmpdir/capi_sig_check_model.c"
 
 "$CC" -fsyntax-only -Werror -IQuake -I"$header_dir" "$tmpdir/capi_sig_check_model.c"
 echo "OK: quake_rs.h declarations are compatible with the engine headers"

@@ -128,12 +128,18 @@ pub fn ed_alloc(
     Ok(id)
 }
 
-/// `ED_Free`. `unlink` is `SV_UnlinkEdict` (world.c, C until Phase 7).
+/// `ED_Free` up to — but not including — its `ED_AddToFreeList (ed)`: the
+/// already-free early return, `SV_UnlinkEdict`, and the field resets.
+///
+/// Split out of [`ed_free`] because `ED_AddToFreeList`'s two debug-only
+/// `Host_Error` preconditions and `NUM_FOR_EDICT`'s own raise are evaluated
+/// *between* these writes and the add. A caller that reproduces those raises
+/// in a C frame (ADR-009) has to interleave, so it drives the two halves
+/// itself; callers that cannot reach the raises keep using [`ed_free`].
 ///
 /// Returns `false` when the edict was already free, which is C's early
 /// return — including its `assert (!ed->area.prev)`.
-pub fn ed_free(
-    free_list: &mut FreeList,
+pub fn ed_free_fields(
     arena: &mut EdictArena,
     id: EdictId,
     time: f64,
@@ -162,6 +168,23 @@ pub fn ed_free(
 
     arena.set_freetime(id, time as f32);
 
+    true
+}
+
+/// `ED_Free`. `unlink` is `SV_UnlinkEdict` (world.c, C until Phase 7).
+///
+/// Returns `false` when the edict was already free, which is C's early
+/// return — including its `assert (!ed->area.prev)`.
+pub fn ed_free(
+    free_list: &mut FreeList,
+    arena: &mut EdictArena,
+    id: EdictId,
+    time: f64,
+    unlink: &mut dyn FnMut(EdictId),
+) -> bool {
+    if !ed_free_fields(arena, id, time, unlink) {
+        return false;
+    }
     add_to_free_list(free_list, id);
     true
 }

@@ -20,8 +20,11 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 //
 // Compiled instead of pr_edict_load.c under -Duse_rust_progs (Phase 6 M6).
 // Owns:
-//   - qcvm / pr_global_struct / PR_SwitchQCVM, the storage and the selector
-//     every other translation unit reads (ADR-007, ADR-008);
+//   - PR_SwitchQCVM, the selector every other translation unit reaches the
+//     ambient VM through (ADR-008). Phase 7 M9g moved the two pointers it
+//     assigns -- qcvm and pr_global_struct -- into Rust
+//     (rust/quake-capi/src/progs_load.rs), closing the ADR-007 row; this file
+//     writes that storage but no longer defines it;
 //   - COM_LoadFile, so com_filesize (THREAD_LOCAL) never has to be threaded
 //     across the boundary;
 //   - the engine lookups and va() the loader must call rather than
@@ -44,10 +47,13 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #define PRLOAD_ERR_TOO_SHORT			8
 #define PRLOAD_ERR_UNTERMINATED_STRINGS 9
 
-/* ---- the C-owned VM selection (the flip map keeps this side C) ---- */
+/* ---- the VM selection (the flip map keeps this side C) ----
 
-qcvm_t		 *qcvm;
-globalvars_t *pr_global_struct;
+   Phase 7 M9g: qcvm and pr_global_struct are Rust-owned storage, defined by
+   rust/quake-capi/src/progs_load.rs under the `progs` feature (which tracks
+   -Duse_rust_progs exactly, so pr_edict_load.c keeps its own copies for the
+   oracle leg). progs.h:433-435 keeps both declarations, so every reader here
+   and in the other 14 dereferencing files is unchanged. */
 
 void PR_SwitchQCVM (qcvm_t *nvm)
 {

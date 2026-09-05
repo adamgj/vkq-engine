@@ -40,8 +40,52 @@ triangles
 triangles_size
 "
 
+# MSVC emits COMDAT float/vector constants (__real@..., __xmm@...), the C++-
+# mangled __local_stdio_*_options guard objects and the <stdio.h> inline
+# wrappers as *defined* globals in every object that uses them. They are
+# toolchain artifacts, not engine symbols -- '?' and '@' are not even valid
+# in a C identifier -- and they appear in pre-existing oracle sources too.
+NOISE_RE='^(_real@|_xmm@|_ymm@|\?|_local_stdio_(printf|scanf)_options$)'
+NOISE_EXACT="
+fprintf
+fscanf
+sprintf
+sscanf
+vfprintf_l
+vfscanf_l
+vsnprintf_l
+vsprintf_l
+vsscanf_l
+"
+
+# This gate reads symbols out of compiled objects, so it is only a gate when
+# a symbol reader exists. It used to pipe nm through 2>/dev/null and || true,
+# so on a box without nm (any Windows dev checkout -- LLVM ships llvm-nm, not
+# nm) every source reported ok while nothing was inspected, and Phase 7 M6
+# recorded a PASS that measured zero bytes. Resolve the tool up front and
+# fail loudly instead.
+NM="${NM:-}"
+if [ -z "$NM" ]; then
+    for cand in nm llvm-nm; do
+        if command -v "$cand" >/dev/null 2>&1; then
+            NM="$cand"
+            break
+        fi
+    done
+fi
+if [ -z "$NM" ]; then
+    echo "FAIL: neither nm nor llvm-nm is on PATH; this gate cannot inspect"
+    echo "      the oracle objects without one. Install binutils or LLVM, or"
+    echo "      point \$NM at a symbol reader."
+    exit 1
+fi
+echo "symbol reader: $NM"
+
 echo "building quake-ctest (oracle objects) ..."
-cargo build --manifest-path rust/Cargo.toml -p quake-ctest --quiet
+# run from rust/ so rustup's upward search finds rust/rust-toolchain.toml;
+# invoked from the repo root it falls back to the default toolchain and dies on
+# "expected a boolean or an integer for key profile.release.debug"
+(cd rust && cargo build -p quake-ctest --quiet)
 
 out_dir=$(ls -dt rust/target/debug/build/quake-ctest-*/out 2>/dev/null | head -1)
 if [ -z "$out_dir" ] || [ ! -d "$out_dir" ]; then
@@ -70,12 +114,21 @@ for base in $sources; do
     fi
     checked=$((checked + 1))
 
+    if ! syms=$("$NM" -g "$obj" 2>&1); then
+        echo "FAIL: $NM could not read $obj"
+        echo \"$syms\" | sed 's/^/        /'
+        status=1
+        continue
+    fi
+
     # defined (non-U) globals; macOS nm prefixes symbols with an underscore
-    leaked=$(nm -g "$obj" 2>/dev/null \
+    leaked=$(printf '%s\n' "$syms" \
         | awk 'NF >= 3 && $2 != "U" { print $3 }' \
         | sed 's/^_//' \
         | grep -v '^c_ref_' \
         | grep -Ev "$ALLOW_RE" \
+        | grep -Ev "$NOISE_RE" \
+        | grep -vxF "$(echo "$NOISE_EXACT" | grep -v '^$')" \
         | grep -vxF "$(echo "$ALLOW_EXACT" | grep -v '^$')" || true)
 
     if [ -n "$leaked" ]; then

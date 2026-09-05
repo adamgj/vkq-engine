@@ -1091,14 +1091,18 @@ size_t ctest_abi_progs_lookup (const char *key)
  * Since quake_types::host::EntityOpaque treats entity_t entirely as an
  * opaque, size/align-verified blob -- Phase 8's renderer owns its real
  * fields, not Phase 7 -- only entity_t's sizeof/alignof are needed here,
- * not per-field offsets. So below is a bounded, field-verbatim local
- * shadow of entity_t/lightcache_t/entlerp_t transcribed from render.h,
- * reusing the Vulkan handle stand-ins above for entity_t's only
+ * not per-field offsets. The bounded, field-verbatim shadow of
+ * entity_t/lightcache_t/entlerp_t/efrag_t transcribed from render.h used to
+ * live right here; Phase 7 M3 moved it into c_ref_prelude.h, because
+ * world.c's World_ClipToNetwork walks cl.entities as entity_t and needs the
+ * same layout in its own TU. Two copies would have been free to drift, so
+ * there is now one, force-included into every oracle TU including this one.
+ * It reuses the Vulkan handle stand-ins above for entity_t's only
  * Vulkan-typed member (entity_blas_t, reached solely through a pointer, so
  * its own body is never needed).
  *
- * KNOWN GAP -- this shadow is the one place in this file that is NOT
- * header-derived, and it is load-bearing: client.h has no #includes of its
+ * KNOWN GAP -- that shadow is the one place in this probe's input that is
+ * NOT header-derived, and it is load-bearing: client.h has no #includes of its
  * own, so the client_state_t laid out in this TU takes every offset at or
  * after `viewent` from the transcription below rather than from render.h.
  * A field added to the real entity_t therefore still compiles, still passes
@@ -1116,160 +1120,17 @@ size_t ctest_abi_progs_lookup (const char *key)
  * actually reach through a named quake_types::host field gets its own
  * offsetof entry below, exactly like every other phase in this file.
  *
- * server.h/client.h declare `extern server_t sv;`, `extern server_static_t
- * svs;`, `extern client_state_t cl;` and `extern client_static_t cls;`, but
- * c_ref_prelude.h already declared small stand-in stubs under those same
- * four names for the Phase 4/5/6 oracles (snd_mix.c, pr_exec.c,
- * net_loop.c). Redeclaring the same identifiers with the real, larger
- * types would be a C "conflicting types" error, so they are renamed out of
- * the way for just the two #includes below, using the same #define/#undef
- * idiom c_ref_prelude.h itself uses throughout (e.g. `#define X c_ref_X`).
- * This does not touch unrelated identifiers that merely share a prefix
- * (`cl_lightstyle`, `host_client`, ...): C macro substitution is
- * whole-token only.
- *
- * quakedef.h constants server.h/client.h expect from their normal
- * #include "quakedef.h" chain, which c_ref_prelude.h pre-empts before this
- * TU ever reaches them (MAX_SOUNDS, MAX_LIGHTSTYLES, MAX_DATAGRAM,
- * MAX_MSGLEN and MAX_EDICTS are already defined above by the earlier
- * phases' slices; SERVER_INFO_STRING_SIZE, CLIENT_USER_INFO_STRING_SIZE,
- * NUM_PING_TIMES, NUM_TOTAL_SPAWN_PARMS, NUM_CSHIFTS, MAX_MAPSTRING,
- * MAX_DEMOS and MAX_DEMONAME are `#define`d by server.h/client.h
- * themselves): */
-#define MAX_MODELS		  8192
-#define MAX_PARTICLETYPES 2048
-#define MAX_STYLESTRING	  64
-#define MAX_CL_STATS	  256
-#define MAX_SCOREBOARDNAME 32
-#define VID_CBITS		  6
-#define VID_GRADES		  (1 << VID_CBITS)
-
-typedef struct lightcache_s
-{
-	int	   surfidx;
-	vec3_t pos;
-	short  ds;
-	short  dt;
-} lightcache_t;
-
-typedef struct entlerp_s
-{
-	qboolean movestep;
-	int		 prev_frame;
-	double	 frame_change_time;
-	double	 frame_duration;
-	double	 frame_finish_time;
-	int		 snap_frames;
-	double	 snap_msgtime;
-	vec3_t	 prev_origin;
-	vec3_t	 prev_angles;
-	double	 move_change_time;
-	double	 move_duration;
-} entlerp_t;
-
-typedef struct entity_s
-{
-	qboolean forcelink;
-
-	int update_type;
-
-	entity_state_t baseline;
-	entity_state_t netstate;
-
-	double			 msgtime;
-	vec3_t			 msg_origins[2];
-	vec3_t			 origin;
-	vec3_t			 msg_angles[2];
-	vec3_t			 angles;
-	struct qmodel_s *model;
-	struct efrag_s	*efrag;
-	int				 frame;
-	float			 syncbase;
-	byte			*colormap;
-	int				 effects;
-	int				 skinnum;
-	int				 visframe;
-
-	int dlightframe;
-	int dlightbits;
-
-	struct mnode_s *topnode;
-
-	byte	  eflags;
-	byte	  alpha;
-	entlerp_t lerp;
-
-#ifdef PSET_SCRIPT
-	struct trailstate_s *trailstate;
-	struct trailstate_s *emitstate;
-#endif
-	float  traildelay;
-	vec3_t trailorg;
-
-	lightcache_t lightcache;
-
-	int	   contentscache;
-	vec3_t contentscache_origin;
-
-	struct entity_blas_s *blas_data;
-} entity_t;
-
-/* render.h's efrag_t: not opaque (quake_types::host::Efrag mirrors it
- * field-by-field), so it needs a real local definition too, referencing
- * the entity_t shadow above only through a pointer. */
-typedef struct efrag_s
-{
-	struct efrag_s	*leafnext;
-	struct entity_s *entity;
-} efrag_t;
-
-/* c_ref_prelude.h already declares its own `server_state_t`/`cactive_t`
- * (with the same enumerator names) for the Phase 6 pr_exec.c oracle's
- * stub `sv`/`cl`. Including the real server.h/client.h below would
- * redefine those same enumerators, so they're renamed out of the way for
- * just these two #includes, same idiom as the sv/svs/cl/cls dodge. */
-#define sv			  ctest_host_probe_unused_sv
-#define svs			  ctest_host_probe_unused_svs
-#define cl			  ctest_host_probe_unused_cl
-#define cls			  ctest_host_probe_unused_cls
-#define server_state_t	  ctest_host_real_server_state_t
-#define ss_loading		  ctest_host_real_ss_loading
-#define ss_active		  ctest_host_real_ss_active
-#define cactive_t		  ctest_host_real_cactive_t
-#define ca_dedicated	  ctest_host_real_ca_dedicated
-#define ca_disconnected	  ctest_host_real_ca_disconnected
-#define ca_connected	  ctest_host_real_ca_connected
-/* Phase 7 M2: c_ref_prelude.h now also declares its own small `client_t`
- * (struct client_s), for cvar.c's CVAR_SERVERINFO replication block, under
- * this same real name. Same dodge as sv/svs/cl/cls above, but NOT undone
- * below like the others: the OFF()/SZ() table further down still spells the
- * type as bare `client_t` (only the "client_t" string label needs to stay
- * literal, which it does -- macros don't expand inside string literals), so
- * the rename has to stay live for the rest of this translation unit for
- * those to keep resolving to server.h's real, full struct rather than
- * falling back to the small mock once this block ends. */
-#define client_t	  ctest_host_real_client_t
-#define client_s	  ctest_host_real_client_s
-/* server.h also declares `extern client_t *host_client;` under the real
- * type -- c_ref_prelude.h's own extern of the same name (mock type) is
- * already in scope from the force-included prelude, so this one needs the
- * same treatment as sv/svs/cl/cls: renamed away for the include, then
- * discarded (nothing below needs the variable, only the struct layout). */
-#define host_client	  ctest_host_probe_unused_host_client
-#include "server.h"
-#include "client.h"
-#undef sv
-#undef svs
-#undef cl
-#undef cls
-#undef host_client
-#undef server_state_t
-#undef ss_loading
-#undef ss_active
-#undef cactive_t
-#undef ca_dedicated
-#undef ca_disconnected
-#undef ca_connected
+ * Phase 7 M6: c_ref_prelude.h now #includes the real server.h and client.h
+ * itself (the four stand-in structs it used to declare under those names are
+ * gone), so this probe no longer needs its own copies of the quakedef.h
+ * constants those headers expect, nor the #define/#undef rename dodge that
+ * used to keep `sv`/`svs`/`cl`/`cls`/`client_t`/`server_state_t`/`cactive_t`
+ * out of the way for two local #includes. Both headers are already in scope
+ * here through the force-included prelude, under their real names, so the
+ * table below measures exactly the declarations every other oracle TU sees.
+ * The one deliberate leftover is that `sv`, `svs` and `sv_player` are now
+ * renamed c_ref_* by the prelude (sv_main.c/sv_user.c define them); nothing
+ * in this file names those variables, only the types. */
 
 static const ctest_abi_entry_t ctest_abi_host_table[] = {
 	SZ ("server_static_t", server_static_t),
@@ -1280,8 +1141,8 @@ static const ctest_abi_entry_t ctest_abi_host_table[] = {
 	OFF ("server_static_t", server_static_t, changelevel_issued),
 	OFF ("server_static_t", server_static_t, serverinfo),
 
-	{"const.ss_loading", ctest_host_real_ss_loading},
-	{"const.ss_active", ctest_host_real_ss_active},
+	{"const.ss_loading", ss_loading},
+	{"const.ss_active", ss_active},
 
 	SZ ("ambientsound_t", struct ambientsound_s),
 	OFF ("ambientsound_t", struct ambientsound_s, origin),
@@ -1427,9 +1288,9 @@ static const ctest_abi_entry_t ctest_abi_host_table[] = {
 	OFF ("client_t", client_t, knowntoqc),
 	OFF ("client_t", client_t, userinfo),
 
-	{"const.CA_DEDICATED", ctest_host_real_ca_dedicated},
-	{"const.CA_DISCONNECTED", ctest_host_real_ca_disconnected},
-	{"const.CA_CONNECTED", ctest_host_real_ca_connected},
+	{"const.CA_DEDICATED", ca_dedicated},
+	{"const.CA_DISCONNECTED", ca_disconnected},
+	{"const.CA_CONNECTED", ca_connected},
 
 	SZ ("cshift_t", cshift_t),
 	OFF ("cshift_t", cshift_t, destcolor),

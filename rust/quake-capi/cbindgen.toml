@@ -304,6 +304,31 @@ const char *rust_net_SlistPrintServerName(size_t idx);
 void rust_net_Close(qsocket_t *sock);
 qsocket_t *rust_net_CheckNewConnections(void);
 int rust_net_ListAddresses(qhostaddr_t *addresses, int maxaddresses);
+/* Phase 7 M9c: the fourteen dispatch funnels. The raising five return a
+ * Host_Guard status and pass their result back through an out-parameter
+ * (ADR-009); net_main.c's wrapper re-issues the status with Host_Reraise.
+ * Only the entry points whose signatures name a net_defs.h / common.h type
+ * are declared here -- rust_net_Slist_f, rust_net_Slist_Send,
+ * rust_net_Slist_Poll, rust_net_Init, rust_net_Shutdown and rust_net_Poll
+ * take plain C types, so cbindgen emits them correctly on its own. */
+int rust_net_Connect(const char *host, qsocket_t **out);
+int rust_net_GetMessage(qsocket_t *sock, int *out);
+int rust_net_GetServerMessage(qsocket_t **out);
+int rust_net_SendMessage(qsocket_t *sock, sizebuf_t *data);
+int rust_net_SendUnreliableMessage(qsocket_t *sock, sizebuf_t *data);
+qboolean rust_net_CanSendMessage(qsocket_t *sock);
+int rust_net_SendToAll(sizebuf_t *data, double blocktime, int *out);
+void rust_net_SchedulePollProcedure(PollProcedure *proc_, double time_offset);
+/* Phase 7 M9b: the net_dgrm.c orchestration half. Only the entry points whose
+ * signatures name net_defs.h types are declared here; the rest of the
+ * quake_rs_dgrm_* set uses plain C types and cbindgen emits it unguarded. */
+int quake_rs_dgrm_get_any_message(qsocket_t **out);
+void quake_rs_dgrm_close(qsocket_t *sock);
+void quake_rs_dgrm_listen(qboolean state);
+int quake_rs_dgrm_check_new_connections(qsocket_t **out);
+qboolean quake_rs_dgrm_search_for_hosts(qboolean xmit);
+int quake_rs_dgrm_connect(const char *host, qsocket_t **out);
+int quake_rs_dgrm_query_addresses(qhostaddr_t *addresses, int maxaddresses);
 #endif
 /* Phase 7 M2: the cvar registry. The non-raising API keeps its cvar.h names;
  * everything that can reach a callback, PR_AutoCvarChanged, or the
@@ -361,6 +386,128 @@ void quake_rs_cbuf_insert_text(const char *text, int *raised);
 qboolean quake_rs_cmd_execute_string(const char *text, cmd_source_t src, int *raised);
 int quake_rs_cmd_forward_to_server(void);
 #endif
+/* Phase 7 M3: world/collision. The world.c entry points whose bodies can reach
+ * Host_Error -- SV_LinkEdict (PR_ExecuteProgram), SV_HullForEntity (PR_GetString
+ * behind two Con_Warnings), SV_ClipMoveToEntity, SV_Move, SV_TestEntityPosition
+ * and SV_PointContentsAllBsps -- are quake_rs_* status cores wrapped by
+ * Quake/world_glue.c, which re-issues the jump from a pure C frame (ADR-009).
+ * The rest keep their engine names and are non-raising. SV_FindTouchedLeafs and
+ * SV_MoveBounds have no engine-header prototype, so this block is their only
+ * declaration; it is guarded on world.h like the rest so the
+ * edict_t/hull_t/areanode_t/vec3_t typedefs are in scope. */
+#ifdef _QUAKE_WORLD_H
+void SV_InitBoxHull(void);
+hull_t *SV_HullForBox(vec3_t mins, vec3_t maxs);
+areanode_t *SV_CreateAreaNode(int depth, vec3_t mins, vec3_t maxs);
+void SV_ClearWorld(void);
+void SV_UnlinkEdict(edict_t *ent);
+void SV_FindTouchedLeafs(edict_t *ent, mnode_t *node);
+int SV_HullPointContents(hull_t *hull, int num, vec3_t p);
+int SV_PointContents(vec3_t p);
+int SV_TruePointContents(vec3_t p);
+int Q1BSP_RecursiveHullTrace(struct rhtctx_s *ctx, int num, float p1f, float p2f, vec3_t p1, vec3_t p2, trace_t *trace);
+qboolean SV_RecursiveHullCheck(hull_t *hull, vec3_t p1, vec3_t p2, trace_t *trace, unsigned int hitcontents);
+void SV_MoveBounds(vec3_t start, vec3_t mins, vec3_t maxs, vec3_t end, vec3_t boxmins, vec3_t boxmaxs);
+/* ADR-009 status cores; Quake/world_glue.c owns the plain SV_* wrappers that
+ * re-issue a caught jump (SV_LinkEdict, SV_HullForEntity, SV_ClipMoveToEntity,
+ * SV_Move, SV_TestEntityPosition, SV_PointContentsAllBsps), so those six names
+ * are not declared here. */
+int quake_rs_sv_link_edict(edict_t *ent, qboolean touch_triggers);
+int quake_rs_sv_hull_for_entity(edict_t *ent, vec3_t mins, vec3_t maxs, vec3_t offset, hull_t **out);
+int quake_rs_sv_clip_move_to_entity(trace_t *out, edict_t *ent, vec3_t start, vec3_t mins, vec3_t maxs, vec3_t end, unsigned int hitcontents);
+int quake_rs_sv_move(trace_t *out, vec3_t start, vec3_t mins, vec3_t maxs, vec3_t end, int type, edict_t *passedict);
+int quake_rs_sv_test_entity_position(edict_t *ent, edict_t **out);
+int quake_rs_sv_point_contents_all_bsps(int *out, vec3_t p, edict_t *forent);
+/* Phase 7 M4: sv_move.c + sv_phys.c. Same ADR-009 topology -- every entry
+ * point whose body can reach Host_Error is a quake_rs_* status core wrapped
+ * by Quake/sv_move_glue.c / Quake/sv_phys_glue.c. The three non-raising
+ * exports keep their engine names; they are declared here as well as by
+ * server.h / world.h so the signature gate diffs them, exactly as the M3
+ * plain exports above. */
+void SV_FixCheckBottom(edict_t *ent);
+qboolean SV_CloseEnough(edict_t *ent, edict_t *goal, float dist);
+void SV_PushGridEntityLinked(edict_t *ent);
+int quake_rs_sv_check_bottom(edict_t *ent, qboolean *out);
+int quake_rs_sv_movestep(edict_t *ent, vec3_t move, qboolean relink, qboolean *out);
+int quake_rs_sv_step_direction(edict_t *ent, float yaw, float dist, qboolean *out);
+int quake_rs_sv_new_chase_dir(edict_t *actor, edict_t *enemy, float dist);
+int quake_rs_sv_move_to_goal(void);
+int quake_rs_sv_check_all_ents(void);
+int quake_rs_sv_check_velocity(edict_t *ent);
+int quake_rs_sv_check_water_transition(edict_t *ent);
+int quake_rs_sv_physics(void);
+#endif
+/* Phase 7 M7: the client leaves' entry points whose parameters use engine
+ * typedefs with no C spelling in the Rust mirrors (usercmd_t, entity_t,
+ * struct qmodel_s). Guarded on client.h's own include guard, like the world.h
+ * and common.h blocks above; check_capi_signatures.sh compiles a TU with both
+ * and diffs them against client.h:383-433. */
+#ifdef _CLIENT_H_
+/* cl_input.c:61 / :90 / :277 -- external linkage, declared in no header,
+   like V_cshift_f and CL_NewTempEntity below */
+void KeyDown(kbutton_t *b);
+void KeyUp(kbutton_t *b);
+float CL_KeyState(kbutton_t *key);
+void CL_BaseMove(usercmd_t *cmd);
+void CL_FinishMove(usercmd_t *cmd);
+int quake_rs_cl_send_move(const usercmd_t *cmd);
+void CL_UpdateBeam(struct qmodel_s *m, const char *trailname, const char *impactname, int ent, float *start, float *end);
+/* external linkage in cl_tent.c:323 but declared in no header -- kept exported
+ * so the linkage matches the C original exactly */
+entity_t *CL_NewTempEntity(void);
+#endif
+/* Phase 7 M8 T8.2: host.c's cvar-callback core, the only host.c entry point
+ * whose signature uses an engine typedef. Guarded on cvar.h's include guard
+ * like the M2 block above. */
+#ifdef __CVAR_H__
+int quake_rs_host_callback_notify(cvar_t *var);
+#endif
+/* Phase 7 M8 T8.3: host_cmd.c's entry points whose parameters use engine
+ * typedefs with no C spelling in the Rust mirrors (filelist_item_t, an ADR-011
+ * FileListItem). Guarded on quakedef.h's own include guard like the client.h
+ * block above; the return types stay plain so quakedef.h:454-461 keeps
+ * spelling maptype_t. */
+#ifdef QUAKEDEFS_H
+unsigned int quake_rs_hostcmd_extra_maps_get_type(const filelist_item_t *item);
+const char *quake_rs_hostcmd_extra_maps_get_message(const filelist_item_t *item);
+const char *quake_rs_hostcmd_modlist_get_full_name(const filelist_item_t *item);
+#endif
+/* Phase 7 M9f group C: progs_builtins_filebuf.rs declares its seventeen
+ * builtin entry points through the filebuf_entry! macro, and cbindgen parses
+ * source syntactically, so it never sees them. They all share one signature,
+ * so they are declared by hand here; the other four M9f groups use plain
+ * `fn` items and are generated normally. */
+int quake_rs_pf_fopen(int *detail);
+int quake_rs_pf_fgets(int *detail);
+int quake_rs_pf_fputs(int *detail);
+int quake_rs_pf_fclose(int *detail);
+int quake_rs_pf_fseek(int *detail);
+int quake_rs_pf_whichpack(int *detail);
+int quake_rs_pf_buf_create(int *detail);
+int quake_rs_pf_buf_del(int *detail);
+int quake_rs_pf_buf_getsize(int *detail);
+int quake_rs_pf_buf_copy(int *detail);
+int quake_rs_pf_buf_sort(int *detail);
+int quake_rs_pf_buf_implode(int *detail);
+int quake_rs_pf_bufstr_get(int *detail);
+int quake_rs_pf_bufstr_set(int *detail);
+int quake_rs_pf_bufstr_add(int *detail);
+int quake_rs_pf_bufstr_free(int *detail);
+int quake_rs_pf_buf_cvarlist(int *detail);
+/* Phase 7 M10b: keys.c's config-writer core. Its FILE * parameter has no
+ * spelling in the Rust mirrors (quake-c-sys models FILE as an opaque struct
+ * and parse_deps is off), so it is declared by hand like Cvar_WriteVariables
+ * above; Quake/keys_glue.c's Key_WriteBindings forwards to it. Guarded on
+ * keys.h's own include guard. */
+#ifdef _QUAKE_KEYS_H
+void quake_rs_key_write_bindings(FILE *f);
+#endif
+/* Phase 7 M9: menu.c's crosshair table lookup. crosshair_t is a menu.h
+ * typedef, so this declaration is guarded on menu.h's own include guard --
+ * menu.h is not in check_capi_signatures.sh's synthetic TU and must not be. */
+#ifdef _QUAKE_MENU_H
+void quake_rs_menu_get_crosshair_def(float crosshair_def_value, crosshair_t *out);
+#endif
 #ifdef __cplusplus
 } /* extern "C" -- these hand-written declarations sit outside cbindgen's own
    * cpp_compat guard, so they carry their own */
@@ -386,6 +533,10 @@ exclude = [
     "quake_rs_cvar_set_value_quick", "quake_rs_cvar_set", "quake_rs_cvar_set_value",
     "quake_rs_cvar_set_rom", "quake_rs_cvar_set_value_rom", "quake_rs_cvar_create",
     "quake_rs_cvar_command", "quake_rs_cvar_reset",
+    # Phase 7 M8 T8.2 -- declared by hand above, guarded on cvar.h
+    "quake_rs_host_callback_notify",
+    # Phase 7 M9 -- declared by hand above, guarded on menu.h
+    "quake_rs_menu_get_crosshair_def",
     "Cbuf_Init", "Cbuf_AddText", "Cbuf_AddTextLen", "Cbuf_Waited",
     "Cmd_Init", "Cmd_Argc", "Cmd_Argv", "Cmd_Args", "Cmd_TokenizeString",
     "Cmd_AddArg", "Cmd_AddCommand2", "Cmd_RemoveCommand", "Cmd_FindCommand",
@@ -426,6 +577,13 @@ exclude = [
     "Mod_LoadMD3Model", "Mod_LoadMD3SkinDefinitions", "Mod_LoadMD3SurfaceSkins",
     "Mod_LoadMD5MeshModel", "Mod_LoadMD5SurfaceSkins", "GLMesh_DeleteMeshBuffers",
     "strtoull", "strtol",
+    # Phase 7 M10b -- declared by hand above, guarded on keys.h
+    "quake_rs_key_write_bindings",
+    # Phase 7 M9f -- libc and engine functions the pr_ext port modules import;
+    # the CRT headers and pr_ext.c already declare them (same reason as fread/
+    # fclose/strtoull/strtol above).
+    "qsort", "strncmp", "fputs", "time", "gmtime", "localtime", "strftime",
+    "PR_GetTempString", "PF_VarString", "wildcmp",
     "S_LoadSound", "GetWavinfo", "Sfx", "SfxCache", "WavInfo", "SamplePair",
     "Channel", "Dma", "S_PaintChannels", "SND_InitScaletable",
     "S_Init", "S_Startup", "S_Shutdown", "S_StartSound", "S_StaticSound",
@@ -499,4 +657,69 @@ exclude = [
     "rust_net_SlistPrintServer", "rust_net_SlistPrintServerName",
     "rust_net_Close", "rust_net_CheckNewConnections",
     "rust_net_ListAddresses",
+    # Phase 7 M9c -- declared by hand above, guarded on net_defs.h
+    "rust_net_Connect", "rust_net_GetMessage", "rust_net_GetServerMessage",
+    "rust_net_SendMessage", "rust_net_SendUnreliableMessage",
+    "rust_net_CanSendMessage", "rust_net_SendToAll",
+    "rust_net_SchedulePollProcedure",
+    # Phase 7 M9b -- declared by hand above, guarded on net_defs.h
+    "quake_rs_dgrm_get_any_message", "quake_rs_dgrm_close",
+    "quake_rs_dgrm_listen", "quake_rs_dgrm_check_new_connections",
+    "quake_rs_dgrm_search_for_hosts", "quake_rs_dgrm_connect",
+    "quake_rs_dgrm_query_addresses",
+    # Phase 7 M3 -- declared by hand above, guarded on world.h
+    "SV_InitBoxHull", "SV_HullForBox", "SV_CreateAreaNode",
+    "SV_ClearWorld", "SV_UnlinkEdict", "SV_FindTouchedLeafs",
+    "SV_HullPointContents", "SV_PointContents", "SV_TruePointContents",
+    "Q1BSP_RecursiveHullTrace", "SV_RecursiveHullCheck", "SV_MoveBounds",
+    "quake_rs_sv_link_edict", "quake_rs_sv_hull_for_entity",
+    "quake_rs_sv_clip_move_to_entity", "quake_rs_sv_move",
+    "quake_rs_sv_test_entity_position", "quake_rs_sv_point_contents_all_bsps",
+    # Phase 7 M4 -- declared by hand above, guarded on world.h
+    "SV_FixCheckBottom", "SV_CloseEnough", "SV_PushGridEntityLinked",
+    "quake_rs_sv_check_bottom", "quake_rs_sv_movestep",
+    "quake_rs_sv_step_direction", "quake_rs_sv_new_chase_dir",
+    "quake_rs_sv_move_to_goal", "quake_rs_sv_check_all_ents",
+    "quake_rs_sv_check_velocity", "quake_rs_sv_check_water_transition",
+    "quake_rs_sv_physics",
+    "Trace", "PlaneT", "RhtCtx", "Edict", "EntVars", "AreaNode", "Link",
+    "GlobalVars", "QcVm",
+    # Phase 7 M6 -- sv and svs became Rust-owned storage at T6.6 (ADR-007 row
+    # closed), but server.h still declares them and every C caller includes it.
+    # Their types are the ADR-011 mirrors Server/ServerStatic, which have no
+    # C spelling here, so a cbindgen declaration would be both a redeclaration
+    # and a syntax error.
+    "sv", "svs",
+    # Phase 7 M7 T7.4 -- cl and cls became Rust-owned storage (ADR-007 row
+    # closed), but client.h:154 and :332 still declare them and every C caller
+    # includes it. Their types are the ADR-011 mirrors ClientStatic/ClientState,
+    # which have no C spelling here, so a cbindgen declaration would be both a
+    # redeclaration and a syntax error.
+    "cl", "cls",
+    # Phase 7 M9e -- the net reader globals became Rust-owned storage
+    # (ADR-007 net row closed). net.h:44 and common.h still declare them and
+    # every C reader includes those, so a cbindgen declaration would be a
+    # redeclaration; net_message's type is quake_c_sys's bindgen sizebuf_t,
+    # which has no spelling in this header at all.
+    "net_message", "msg_readcount", "msg_badread",
+    # Phase 7 M9g -- the ambient VM pointers became Rust-owned storage
+    # (ADR-007 qcvm row closed). progs.h:433-435 declares both and every C
+    # reader includes it, so a cbindgen declaration would be a redeclaration;
+    # pr_global_struct's globalvars_t has no spelling in this header at all.
+    "qcvm", "pr_global_struct",
+    # Phase 7 M7 -- declared by hand above, guarded on client.h. UserCmd and
+    # EntityOpaque are ADR-011 mirrors with no C spelling, so cbindgen's own
+    # declarations are syntax errors in every C TU that includes the header.
+    "KeyDown", "KeyUp", "CL_KeyState",
+    "CL_BaseMove", "CL_FinishMove", "quake_rs_cl_send_move",
+    "CL_UpdateBeam", "CL_NewTempEntity",
+    "UserCmd", "EntityOpaque",
+    # Phase 7 M8 T8.3 -- declared by hand above, guarded on quakedef.h.
+    # FileListItem is an ADR-011 mirror with no C spelling, so cbindgen's own
+    # declarations would be syntax errors in every C TU that includes the
+    # header.
+    "quake_rs_hostcmd_extra_maps_get_type",
+    "quake_rs_hostcmd_extra_maps_get_message",
+    "quake_rs_hostcmd_modlist_get_full_name",
+    "FileListItem",
 ]

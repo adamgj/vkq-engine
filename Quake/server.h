@@ -342,9 +342,12 @@ void SV_DropClient (qboolean crash);
 
 void SVFTE_Ack (client_t *client, int sequence);
 void SVFTE_DestroyFrames (client_t *client);
+void SVFTE_SetupFrames (client_t *client);
 void SV_BuildEntityState (edict_t *ent, entity_state_t *state);
 void SV_SendClientMessages (void);
 void SV_ClearDatagram (void);
+void SV_CreateBaseline (void);
+void SV_SendReconnect (void);
 
 int SV_ModelIndex (const char *name);
 
@@ -359,9 +362,16 @@ void SV_ClientPrintf (const char *fmt, ...) FUNC_PRINTF (1, 2);
 void SV_BroadcastPrintf (const char *fmt, ...) FUNC_PRINTF (1, 2);
 
 void SV_Physics (void);
+void SV_CheckAllEnts (void);
+void SV_CheckVelocity (edict_t *ent);
+void SV_CheckWaterTransition (edict_t *ent);
 
 qboolean SV_CheckBottom (edict_t *ent);
 qboolean SV_movestep (edict_t *ent, vec3_t move, qboolean relink);
+qboolean SV_StepDirection (edict_t *ent, float yaw, float dist);
+void	 SV_FixCheckBottom (edict_t *ent);
+void	 SV_NewChaseDir (edict_t *actor, edict_t *enemy, float dist);
+qboolean SV_CloseEnough (edict_t *ent, edict_t *goal, float dist);
 
 void SV_WriteClientdataToMessage (client_t *client, sizebuf_t *msg);
 

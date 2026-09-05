@@ -48,6 +48,8 @@ typedef struct
 
 #define MOVE_HITALLCONTENTS (1 << 9)
 
+areanode_t *SV_CreateAreaNode (int depth, vec3_t mins, vec3_t maxs);
+
 void SV_ClearWorld (void);
 // called after the world model has been loaded, before linking any entities
 
@@ -89,6 +91,10 @@ trace_t SV_Move (vec3_t start, vec3_t mins, vec3_t maxs, vec3_t end, int type, e
 // shouldn't be considered solid objects
 
 // passedict is explicitly excluded from clipping checks (normally NULL)
+
+void	SV_InitBoxHull (void);
+hull_t *SV_HullForBox (vec3_t mins, vec3_t maxs);
+hull_t *SV_HullForEntity (edict_t *ent, vec3_t mins, vec3_t maxs, vec3_t offset);
 
 int SV_HullPointContents (hull_t *hull, int num, vec3_t p);
 

@@ -1,11 +1,12 @@
 //! Host/server/client ABI mirrors -- `Quake/server.h`, `Quake/client.h`.
 //!
 //! Compat-critical (Rust migration Phase 7, ADR-011): `sv`/`svs` and
-//! `cl`/`cls` are the process-global server and client state; under the
-//! Phase 7 host/server/client port Rust reads and writes these C-owned
-//! instances directly (dual-view closes per `sv`/`svs` at M6 and `cl`/`cls`
-//! at M7, per `docs/ai/plans/rust-conversion-phase-7.md`), so layout drift
-//! here is silent memory corruption, not a link error.
+//! `cl`/`cls` are the process-global server and client state, read and
+//! written directly from both languages, so layout drift here is silent
+//! memory corruption, not a link error. `sv`/`svs` are now Rust-owned
+//! (`quake-capi`'s `sv_main.rs`), which closed their ADR-007 dual view at
+//! M6; `cl`/`cls` are still C-owned and close at M7, per
+//! `docs/ai/plans/rust-conversion-phase-7.md`.
 //!
 //! Neither `server.h` nor `client.h` is a bindgen-clean root: both pull
 //! `qcvm_t` (`progs.h`) and, via `client_state_t::viewent`, `entity_t`
@@ -449,4 +450,50 @@ const _: () = {
     assert!(core::mem::size_of::<EntityNumState>() == 4 + core::mem::size_of::<EntityState>());
     assert!(core::mem::size_of::<DeltaFrameEnt>() == 12);
     assert!(core::mem::size_of::<ParticlePrecacheEntry>() == 16);
+};
+
+/// C: `filelist_item_t` (`Quake/quakedef.h:412-416`) -- the intrusive
+/// singly-linked node `host_cmd.c` allocates for every map, mod, demo and
+/// savegame name. `FileList_AddEx` over-allocates the node so that a
+/// per-list payload (`levelinfo_t`, `modinfo_t`) sits immediately after it;
+/// those payload types are file-local to `host_cmd.c` and are mirrored
+/// there, not here.
+///
+/// Compat-critical (ADR-011): `console.c` and `menu.c` walk these lists
+/// under the plain C spelling, so the layout is shared, not private.
+#[repr(C)]
+pub struct FileListItem {
+    pub name: [c_char; 32],
+    pub next: *mut FileListItem,
+}
+
+/// `Quake/quakedef.h:423-452` -- `maptype_t`, in declaration order. The
+/// numeric values are load-bearing: `ExtraMaps_Sort` orders by them and
+/// `ExtraMaps_IsStart` tests four of them by name.
+pub const MAPTYPE_CUSTOM_MOD_START: c_uint = 0;
+pub const MAPTYPE_CUSTOM_MOD_LEVEL: c_uint = 1;
+pub const MAPTYPE_CUSTOM_MOD_END: c_uint = 2;
+pub const MAPTYPE_CUSTOM_MOD_DM: c_uint = 3;
+pub const MAPTYPE_MOD_START: c_uint = 4;
+pub const MAPTYPE_MOD_LEVEL: c_uint = 5;
+pub const MAPTYPE_MOD_END: c_uint = 6;
+pub const MAPTYPE_MOD_DM: c_uint = 7;
+pub const MAPTYPE_CUSTOM_ID_START: c_uint = 8;
+pub const MAPTYPE_CUSTOM_ID_LEVEL: c_uint = 9;
+pub const MAPTYPE_CUSTOM_ID_END: c_uint = 10;
+pub const MAPTYPE_CUSTOM_ID_DM: c_uint = 11;
+pub const MAPTYPE_ID_START: c_uint = 12;
+pub const MAPTYPE_ID_EP1_LEVEL: c_uint = 13;
+pub const MAPTYPE_ID_EP2_LEVEL: c_uint = 14;
+pub const MAPTYPE_ID_EP3_LEVEL: c_uint = 15;
+pub const MAPTYPE_ID_EP4_LEVEL: c_uint = 16;
+pub const MAPTYPE_ID_END: c_uint = 17;
+pub const MAPTYPE_ID_DM: c_uint = 18;
+pub const MAPTYPE_ID_LEVEL: c_uint = 19;
+pub const MAPTYPE_BMODEL: c_uint = 20;
+pub const MAPTYPE_COUNT: c_uint = 21;
+
+const _: () = {
+    assert!(core::mem::size_of::<FileListItem>() == 32 + core::mem::size_of::<*mut u8>());
+    assert!(core::mem::offset_of!(FileListItem, next) == 32);
 };

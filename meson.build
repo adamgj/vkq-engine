@@ -216,14 +216,7 @@ endforeach
 
 srcs = [
     'Quake/cd_null.c',
-    'Quake/chase.c',
-    'Quake/cl_demo.c',
-    'Quake/cl_input.c',
-    'Quake/cl_main.c',
-    'Quake/cl_parse.c',
-    'Quake/cl_tent.c',
     'Quake/common.c',
-    'Quake/console.c',
     'Quake/gl_draw.c',
     'Quake/gl_fog.c',
     'Quake/gl_heap.c',
@@ -241,41 +234,26 @@ srcs = [
     'Quake/harness.c',
     'Quake/q_thread_sdl.c',
     'Quake/pr_trace.c',
-    'Quake/host.c',
-    'Quake/host_cmd.c',
     'Quake/image.c',
     'Quake/image_stb.c',
     'Quake/in_sdl.c',
     'Quake/in_sdl2.c',
     'Quake/in_sdl3.c',
-    'Quake/keys.c',
     'Quake/main_sdl.c',
     'Quake/mem.c',
-    'Quake/menu.c',
-    'Quake/net_dgrm.c',
     'Quake/net_loop.c',
     'Quake/net_main.c',
     'Quake/palette.c',
     'Quake/pr_cmds.c',
     'Quake/pr_edict.c',
-    'Quake/pr_edict_arena.c',
     'Quake/pr_ext.c',
     'Quake/r_alias.c',
     'Quake/r_brush.c',
-    'Quake/r_part.c',
-    'Quake/r_part_fte.c',
     'Quake/r_sprite.c',
     'Quake/r_world.c',
-    'Quake/sbar.c',
     'Quake/steam_api.c',
-    'Quake/sv_main.c',
-    'Quake/sv_move.c',
-    'Quake/sv_phys.c',
-    'Quake/sv_user.c',
 	'Quake/sys_sdl.c',
     'Quake/tasks.c',
-    'Quake/view.c',
-    'Quake/world.c',
 	 run_generate_embedded_pak,
 ]
 
@@ -451,6 +429,13 @@ if use_rust
     if use_rust_host
         rust_feature_list += 'host'
     endif
+    # Phase 7 M5: the server- and client-coupled pr_cmds.c/pr_ext.c builtins
+    # and the ED_Parse* dispatchers straddle both strata -- the builtin tables
+    # are progs, the sv/cl glue their cores call is host -- so the feature that
+    # compiles them tracks the conjunction, mirroring the C-side PF_RSH gate.
+    if use_rust_progs and use_rust_host
+        rust_feature_list += 'progs-host'
+    endif
     # cargo features tracking C defines the fs shims must agree with
     if use_sdl3
         rust_feature_list += 'sdl3'
@@ -509,9 +494,9 @@ phase4_glue_c_srcs = [
 # C originals stay the -Duse_rust_net=disabled comparison oracle
 if use_rust_net
     cflags += '-DUSE_RUST_NET'
-    srcs += ['Quake/net_msg_glue.c', 'Quake/net_dgrm_glue.c']
+    srcs += ['Quake/net_msg_glue.c', 'Quake/net_dgrm_glue.c', 'Quake/net_dgrm_orch_glue.c']
 else
-    srcs += ['Quake/net_msg.c', 'Quake/net_dgrm_rel.c']
+    srcs += ['Quake/net_msg.c', 'Quake/net_dgrm_rel.c', 'Quake/net_dgrm.c']
 endif
 
 # Phase 6: the progs VM. The flip is per-file and lands milestone by milestone
@@ -530,10 +515,17 @@ if use_rust_progs
         'Quake/pr_edict_save_glue.c',
         'Quake/pr_edict_parse_glue.c',
         'Quake/pr_edict_load_glue.c',
+        'Quake/pr_edict_arena_glue.c',
         'Quake/pr_cmds_glue.c',
     ]
 else
-    srcs += ['Quake/pr_exec.c', 'Quake/pr_edict_save.c', 'Quake/pr_edict_parse.c', 'Quake/pr_edict_load.c']
+    srcs += [
+        'Quake/pr_exec.c',
+        'Quake/pr_edict_save.c',
+        'Quake/pr_edict_parse.c',
+        'Quake/pr_edict_load.c',
+        'Quake/pr_edict_arena.c',
+    ]
 endif
 
 # Phase 7 M2: the cvar/command registry. Whole-file Pattern A swap: the Rust
@@ -541,16 +533,332 @@ endif
 # data symbols, the Host_Guard trampolines for command handlers and cvar
 # callbacks, and the Host_Reraise wrappers (ADR-009). The C originals stay the
 # -Duse_rust_cvar=disabled comparison oracle.
-# USE_RUST_HOST is still an M1 placeholder: nothing reads it yet; the
-# client/server simulation swaps land from M3 and it only carries signal then
 if use_rust_cvar
     cflags += '-DUSE_RUST_CVAR'
     srcs += ['Quake/cvar_cmd_glue.c']
 else
     srcs += ['Quake/cvar.c', 'Quake/cmd.c']
 endif
+# Phase 7 M3: world.c. Same whole-file Pattern A swap: the Rust exports
+# replace world.c, with world_glue.c supplying the two C-visible cvars and
+# the ADR-009 raise topology. Six of world.c's entry points are raise-capable
+# -- SV_LinkEdict reaches PR_ExecuteProgram, and SV_HullForEntity's two
+# Con_Warning sites reach Host_Error through PR_GetString
+# (pr_edict_arena.c:315), which makes SV_ClipMoveToEntity, SV_Move,
+# SV_TestEntityPosition and SV_PointContentsAllBsps raise-capable in turn --
+# so each is a reraising C wrapper here over a quake_rs_* status core, and
+# the Host_Guard trampolines around every C callee that can longjmp live in
+# the glue. No longjmp crosses a Rust frame. The glue also carries the
+# cl.entities accessors World_ClipToNetwork needs until the M7 client port
+# gives `cl` an ADR-011 mirror. The C original stays the
+# -Duse_rust_host=disabled comparison oracle.
 if use_rust_host
     cflags += '-DUSE_RUST_HOST'
+    srcs += ['Quake/world_glue.c']
+else
+    srcs += ['Quake/world.c']
+endif
+
+# Phase 7 M4: sv_move.c + sv_phys.c, riding the same use_rust_host switch.
+# Nine of their twelve entry points are raise-capable, so each is a reraising
+# C wrapper in the glue over a quake_rs_* status core, exactly as M3 did for
+# world.c; SV_FixCheckBottom, SV_CloseEnough and SV_PushGridEntityLinked are
+# plain Rust exports. sv_phys_glue.c also owns the twelve physics cvars
+# (sv_main.c registers them by address), sv_analyticphysics_frame (read by
+# sv_user.c, C until M6) and the sv_speeds_* counters (read and zeroed by
+# host.c). The C originals stay the -Duse_rust_host=disabled oracle.
+if use_rust_host
+    srcs += ['Quake/sv_move_glue.c', 'Quake/sv_phys_glue.c']
+else
+    srcs += ['Quake/sv_move.c', 'Quake/sv_phys.c']
+endif
+
+# Phase 7 M5: the glue behind the server- and client-coupled pr_cmds.c /
+# pr_ext.c builtins and the ED_Parse* key dispatchers. Pattern C, so unlike M3
+# and M4 there is no whole-file swap here: pr_cmds.c, pr_ext.c and pr_edict.c
+# stay compiled in every configuration and the flip happens slot by slot
+# through PF_RSH, which expands to the Rust export only when USE_RUST_PROGS
+# and USE_RUST_HOST are both defined. These files only *define* the
+# PRBI_*Glue_* / PREdictDispatch_Glue_* trampolines the Rust cores call back
+# into -- they reference no quake_rs_* symbol themselves -- so riding
+# use_rust_host alone is link-safe in all four progs/host combinations.
+if use_rust_host
+    srcs += [
+        'Quake/pr_cmds_sv_glue.c',
+        'Quake/pr_cmds_sv_msg_glue.c',
+        'Quake/pr_cmds_sv_fx_glue.c',
+        'Quake/pr_cmds_cl_glue.c',
+        'Quake/pr_edict_dispatch_glue.c',
+    ]
+endif
+
+# Phase 7 M6: sv_main.c, sv_send.c and sv_user.c -- the server simulation's
+# top half. Pattern A whole-file swap on use_rust_host, as M3 and M4 did.
+# T6.1 first split sv_main.c into a connection half (sv_main.c) and an entity
+# send half (sv_send.c); both halves plus sv_user.c port here.
+#
+# Glue ownership: sv_main_glue.c owns sv_protocol/sv_protocol_pext1/pext2 and
+# the SV_ConnectClient reraise; sv_user_glue.c owns the five sv_user.c cvars
+# (sv_edgefriction, sv_idealpitchscale, sv_altnoclip, sv_maxspeed,
+# sv_accelerate), which sv_main.c registers by address; sv_send_glue.c owns no
+# cvars -- sv_send.c declared none -- and exists for the ADR-009 guards alone.
+# server_t sv and server_static_t svs are now Rust-owned (quake-capi
+# sv_main.rs), closing the last ADR-007 sv/svs dual view; server.h's extern
+# declarations are unchanged and 35 C translation units keep reading them.
+#
+# SV_ConnectClient is statusized on Host_Guard's own 0/1/2 set, propagated
+# verbatim -- that is the ADR-009 precondition M9's NET funnel flips depend on.
+# The C originals stay the -Duse_rust_host=disabled oracle.
+if use_rust_host
+    srcs += ['Quake/sv_main_glue.c', 'Quake/sv_send_glue.c', 'Quake/sv_user_glue.c']
+else
+    srcs += ['Quake/sv_main.c', 'Quake/sv_send.c', 'Quake/sv_user.c']
+endif
+
+# Phase 7 M7 T7.2: the client stratum's leaves -- view.c, chase.c, cl_input.c
+# and cl_tent.c -- riding the same use_rust_host switch as M3/M4/M6.
+#
+# Glue ownership follows the sv_user_glue.c pattern: the cvar_t storage stays
+# C-visible because other still-C translation units reach it by plain name.
+# view_glue.c owns view.c's 30 cvars plus v_punchangles/v_blend/cshift_*
+# (gl_screen.c, gl_rmain.c, menu.c and sbar.c read them); chase_glue.c owns the
+# four chase cvars; cl_input_glue.c owns cl_input.c's nine cvars and the 17
+# kbutton_t in_* objects (in_sdl.c and menu.c drive them, and cl_main_glue.c
+# is what registers the cvars); cl_tent_glue.c owns cl_beams[],
+# cl_temp_entities[] and num_temp_entities, which cl_demo.c, cl_main.c and
+# host_cmd.c read. cl_tent.c's seven cl_sfx_* handles were file-static and move
+# to Rust.
+if use_rust_host
+    srcs += ['Quake/chase_glue.c', 'Quake/cl_input_glue.c', 'Quake/cl_tent_glue.c', 'Quake/view_glue.c']
+else
+    srcs += ['Quake/chase.c', 'Quake/cl_input.c', 'Quake/cl_tent.c', 'Quake/view.c']
+endif
+
+# Phase 7 M7 T7.3: cl_parse.c -- the server-message parser, and the phase's
+# largest ADR-009 surface. Pattern A whole-file swap on the same use_rust_host
+# switch as M3/M4/M6/T7.2.
+#
+# cl_parse.c has 38 Host_Error/Host_EndGame sites, of which 34 are live: the
+# three at :886/:890/:894 sit inside the #if 0 CL_KeepaliveMessage (:852-:915,
+# no callers) and the UF_UNUSED2 Host_EndGame at :439 is unreachable because
+# protocol.h:33 defines LERP_BANDAID unconditionally. cl_parse_glue.c mirrors
+# the 34 live sites as CLPARSE_* status codes and re-issues each raise verbatim
+# from ClParse_Raise, the PRBI_Raise pattern from pr_cmds_glue.c:309; the Rust
+# core returns status and never jumps.
+#
+# Glue ownership: cl_parse_glue.c owns svc_strings[128] (cl_parse.c:30-88),
+# external linkage in the original but declared in no header, and supplies the
+# 21 Host_Guard trampolines. The five entry points keep their exact C
+# signatures; CL_EntityNum and CL_ParseLocalSound are likewise header-less
+# externals, and r_part_fte.c:156 re-declares CL_EntityNum locally and calls it
+# at :4458, :5961 and :7251, so the plain name stays a real C function.
+#
+# The cl/cls ADR-007 row closed in T7.4: their storage now lives in
+# rust/quake-capi/src/cl_main.rs. The C originals stay the
+# -Duse_rust_host=disabled oracle.
+if use_rust_host
+    srcs += ['Quake/cl_parse_glue.c']
+else
+    srcs += ['Quake/cl_parse.c']
+endif
+
+# Phase 7 M7 T7.4: cl_main.c + cl_demo.c -- the client entry points, lerp and
+# relink, and demo record/playback. Pattern A whole-file swap on the same
+# use_rust_host switch as M3/M4/M6/T7.2/T7.3. This closes the ADR-007 cl/cls
+# row: their storage moves to rust/quake-capi/src/cl_main.rs.
+#
+# cl_main.c has three live raise sites (:232, :983, :1108); cl_demo.c has none
+# and exits only through Sys_Error, which aborts rather than longjmps.
+#
+# cl_main.c owns cl/cls and ~20 cvars; cl_maxpitch, cl_minpitch, cl_confirmquit,
+# needs_relink and CL_GenerateRandomParticlePrecache are header-less externals
+# that other TUs (cl_input.c, in_sdl.c, menu.c, view.c, cl_parse_glue.c) resolve
+# by local re-declaration, so those stay real C objects in the glue.
+if use_rust_host
+    srcs += ['Quake/cl_main_glue.c']
+else
+    srcs += ['Quake/cl_main.c']
+endif
+
+if use_rust_host
+    srcs += ['Quake/cl_demo_glue.c']
+else
+    srcs += ['Quake/cl_demo.c']
+endif
+
+# Phase 7 M8 T8.2: host.c -- the frame loop, timing accumulator, bring-up and
+# shutdown orchestration. Pattern A whole-file swap on the same use_rust_host
+# switch as M3/M4/M6/M7.
+#
+# The ADR-009 setjmp shell stays C: Host_Guard (host.c:302) and Host_Reraise
+# (host.c:339) live in Quake/host_glue.c along with the _Host_Frame setjmp,
+# which Host_Glue_FrameInner owns so no longjmp crosses a Rust frame.
+#
+# T8.2 closes no ADR-007 row: every host.c data object (host_parms, host_client,
+# the 20 cvars, oldrealtime, host_colormap, the sv_speeds counters) keeps its C
+# storage in the glue, because other TUs resolve them by local re-declaration.
+if use_rust_host
+    srcs += ['Quake/host_glue.c']
+else
+    srcs += ['Quake/host.c']
+endif
+
+# Phase 7 M8 T8.3: host_cmd.c -> quake-capi (Pattern A whole-file swap).
+#
+# Like T8.2, no ADR-007 row opens or closes: current_skill, the four filelist
+# heads plus extralevels_sorted, and noclip_anglehack all keep C storage in the
+# glue, and the ExtraMaps_* parsing thread stays C behind named seams
+# (ADR-016).
+if use_rust_host
+    srcs += ['Quake/host_cmd_glue.c']
+else
+    srcs += ['Quake/host_cmd.c']
+endif
+
+# Phase 7 M10b: keys.c -> quake-capi (Pattern A whole-file swap), on the same
+# use_rust_host switch as M3/M4/M6/M7/M8.
+#
+# Quake/keys_glue.c keeps every C-visible object keys.c defined -- the
+# key_lines edit line, key_linepos/key_insert/key_blinktime, edit_line,
+# history_line, key_dest, keybindings[], consolekeys[], menubound[],
+# keydown[], key_tabhint[], chat_team and the keynames[] table -- because
+# console.c, menu.c, sbar.c, in_sdl.c and the net/host code all resolve them
+# by plain name. Only keys.c's six file-statics (the chat buffer and its
+# length, key_inputgrab, and the three function-statics) move to Rust.
+#
+# The glue also carries the eleven ADR-009 Host_Guard trampolines the port
+# needs (SCR_UpdateScreen, the six Con_* console entry points, M_Keydown,
+# M_Charinput, M_ToggleMenu_f and VID_Toggle) and the Host_Reraise frames for
+# the eight raise-capable entry points.
+if use_rust_host
+    srcs += ['Quake/keys_glue.c']
+else
+    srcs += ['Quake/keys.c']
+endif
+
+# Phase 7 M10c: console.c -> quake-capi (Pattern A whole-file swap), on the
+# same use_rust_host switch as M3/M4/M6/M7/M8/M10b.
+#
+# Quake/console_glue.c keeps every C-visible object console.c defined -- the
+# scrollback buffer and its geometry, the six con_* cvars, the notify ring,
+# con_lastcenterstring, the rcon redirect buffer, con_mutex and
+# key_tabpartial -- because keys.c, gl_screen.c, host.c and the net code
+# resolve them by plain name.
+#
+# It also keeps the eight C-variadic entry points (Con_Printf and friends) so
+# libc still formats console output byte for byte, Con_Printf's
+# SCR_UpdateScreen tail (which reaches Mod_LoadModel -> Host_Error),
+# Con_NotifyBox, the three ADR-009 Host_Guard trampolines (M_Menu_Main_f and
+# the two tab-completion callbacks) and the Host_Reraise frames for
+# Con_ToggleConsole_f and Con_TabComplete.
+if use_rust_host
+    srcs += ['Quake/console_glue.c']
+else
+    srcs += ['Quake/console.c']
+endif
+
+# Phase 7 M10d: sbar.c -> quake-capi (Pattern A whole-file swap), on the same
+# use_rust_host switch as M3/M4/M6/M7/M8/M10b/M10c.
+#
+# Quake/sbar_glue.c keeps the four C-visible objects sbar.c defined --
+# sb_showscores, sb_lines, fragsort[] and scoreboardlines -- because
+# gl_screen.c writes and reads sb_lines, reads sb_showscores, and pr_ext.c
+# reads fragsort/scoreboardlines by plain name. Everything else sbar.c
+# defined at file scope is static (the qpic_t * handles, hipweapons[] and
+# hudtype) and moves to Rust.
+#
+# It also keeps every plain Sbar_* name as a wrapper over a quake_rs_sbar_*
+# core, because most of those prototypes mention cb_context_t * or qpic_t *,
+# neither of which cbindgen can spell. Five of the wrappers re-raise:
+# PR_ExecuteProgram is the file's only longjmp-capable callee (sbar.c:82,
+# :864, :870, :1590) and the Rust side reaches it through the existing
+# Host_Glue_PR_ExecuteProgram trampoline, so Host_Reraise is called only from
+# the glue and no jump crosses a Rust frame.
+if use_rust_host
+    srcs += ['Quake/sbar_glue.c']
+else
+    srcs += ['Quake/sbar.c']
+endif
+
+# Phase 7 M10e: menu.c -> quake-capi (Pattern A whole-file swap), on the same
+# use_rust_host switch as M3/M4/M6/M7/M8/M10b/M10c/M10d.
+#
+# Quake/menu_glue.c keeps the eight C-visible objects menu.c defined --
+# m_state, m_return_state, m_entersound, m_is_quitting, vid_menucmdfn,
+# vid_menukeyfn, m_return_onerror and m_return_reason[] -- because keys.c,
+# gl_screen.c, host.c and the already-Rust net_dgrm orchestration read or
+# write them by plain name. Everything else menu.c defined at file scope is
+# static and moves to Rust.
+#
+# It also keeps every plain M_* name as a wrapper over a quake_rs_menu_*
+# core, for the same cbindgen reason as M10d (cb_context_t * / qpic_t *).
+# Four of the wrappers re-raise: M_ToggleMenu_f, M_UpdateMouse, M_Draw and
+# M_Keydown. Ten Host_Guard trampolines live in the glue, so Host_Reraise is
+# called only from the glue TU and no longjmp crosses a Rust frame. That
+# includes Con_ToggleConsole_f, which has itself been a re-raising wrapper
+# since M10c (console_glue.c:234) and therefore cannot be called directly
+# from a Rust frame.
+if use_rust_host
+    srcs += ['Quake/menu_glue.c']
+else
+    srcs += ['Quake/menu.c']
+endif
+
+# Phase 7 M10f: r_part.c -> quake-capi (Pattern A whole-file swap), on the same
+# use_rust_host switch as M3/M4/M6/M7/M8/M10b/M10c/M10d/M10e. r_part_fte.c is
+# flipped separately by the M10f-2 block below.
+#
+# Only the classic particle *simulation* moves. Quake/r_part_glue.c keeps the
+# rendering half verbatim (r_part.c:54-221 and :951-1106) because the renderer
+# stays C until Phase 8, and it keeps the particle pool -- active_particles,
+# free_particles, particles and r_numparticles -- plus r_particles,
+# r_quadparticles, the five particletexture handles, texturescalefactor and
+# particle_index_buffer. The pool quartet and r_quadparticles lose their static
+# so quake-c-sys can extern them; r_part_fte.c's same-named globals (:459-461)
+# are static, so there is no collision.
+#
+# Every plain R_* / CL_RunParticles / Harness_HashParticles name stays in the
+# glue as a wrapper over a quake_rs_rpart_* core. One Host_Guard trampoline,
+# RPart_Glue_RegisterVariable: R_InitParticles calls Cvar_RegisterVariable
+# twice (r_part.c:247, :249) and under -Duse_rust_cvar that plain name is
+# itself a Host_Reraise wrapper (cvar_cmd_glue.c:300), so calling it from a
+# Rust frame would longjmp through Rust (ADR-009 rule 3). Modelled on
+# Chase_Glue_RegisterVariable. R_InitParticles is consequently the module's
+# only re-raising wrapper.
+if use_rust_host
+    srcs += ['Quake/r_part_glue.c']
+else
+    srcs += ['Quake/r_part.c']
+endif
+
+# Phase 7 M10f-2: the r_part_fte.c *simulation* half -> quake-capi (Pattern A
+# whole-file swap), on the same use_rust_host switch. Completes T10.5.
+#
+# Quake/r_part_fte_glue.c keeps C: the rendering/emit block (r_part_fte.c:5585-
+# 6324), PScript_UpdateParticleTypes (:6786) and everything below it, P_LoadTexture
+# (:1146-1327, the only renderer-coupled function below the seam) and the decal
+# clipper family (:3928-4307, pure qmodel_t BSP geometry whose every object is
+# already C-owned on the render side). The particle/beam/decal/trailstate pools
+# and the part_type table stay C storage; Rust drives them through ADR-011 mirrors.
+#
+# PScript_UpdateParticleTypes is deliberately not split: it interleaves simulation
+# bookkeeping with cl_stris batch reservation inside one loop, and the FTE particle
+# system never advances under -headless -- its task entry points are scheduled only
+# from gl_rmain.c inside R_RenderView, which host.c:1107 skips whenever no_rendering
+# is set -- so no engine-level gate could validate such a split. The ctest
+# differential is the only gate with an opinion about the ported simulation.
+#
+# Every plain PScript_* name in glquake.h:109-131 stays in the glue as a wrapper
+# over a quake_rs_ftepart_* core, as does CL_TraceLine (client.h:435). Four
+# Host_Guard trampolines, because each of these callees is itself a re-raising glue
+# wrapper and calling one from a Rust frame would longjmp through Rust (ADR-009
+# rule 3): Cvar_RegisterVariable (cvar_cmd_glue.c:300, x16 in PScript_InitParticles),
+# CL_ClearTrailStates (cl_main_glue.c:839), CL_RegisterParticles (cl_parse_glue.c:625)
+# and CL_EntityNum (cl_parse_glue.c:596).
+if use_rust_host
+    srcs += ['Quake/r_part_fte_glue.c']
+else
+    srcs += ['Quake/r_part_fte.c']
 endif
 
 if use_rust_snd

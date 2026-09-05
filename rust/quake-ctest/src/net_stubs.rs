@@ -1,32 +1,28 @@
 //! Rust-side engine-global stand-ins for the quake-capi `net` shims in the
 //! test binaries (Phase 5).
 //!
-//! In the engine these symbols come from net_main.c / net_msg_glue.c /
-//! harness.c; here the c_ref net subsystem owns its *renamed* copies (see
+//! In the engine these symbols come from net_main.c / net_bsd.c / harness.c;
+//! here the c_ref net subsystem owns its *renamed* copies (see
 //! c_ref_prelude.h), so the unrenamed names the Rust shims import are
-//! defined here. Tests point `net_message.data` at their own buffers and
-//! reset the qsocket pool between scenarios.
+//! defined here. The reader trio is the exception: quake-capi owns it from
+//! Phase 7 M9e and this module only re-exports it. Tests point
+//! `net_message.data` at their own buffers and reset the qsocket pool
+//! between scenarios.
 
 #![allow(non_upper_case_globals, missing_docs)]
 
 use core::ffi::c_int;
 use core::ptr;
 
-use quake_c_sys::{qboolean, qsocket_s, sizebuf_t};
+use quake_c_sys::{qboolean, qsocket_s};
 use quake_types::net::QSocket;
 
-#[no_mangle]
-pub static mut net_message: sizebuf_t = sizebuf_t {
-    allowoverflow: false,
-    overflowed: false,
-    data: ptr::null_mut(),
-    maxsize: 0,
-    cursize: 0,
-};
-#[no_mangle]
-pub static mut msg_readcount: c_int = 0;
-#[no_mangle]
-pub static mut msg_badread: qboolean = false;
+// Phase 7 M9e: net_message/msg_readcount/msg_badread became Rust-owned
+// storage in quake-capi's `net` module (ADR-007 net row closed), and this
+// link enables that feature, so they are re-exported here rather than
+// defined -- defining them again is a duplicate symbol. The re-export keeps
+// the `net_stubs::net_message` path the tests already use.
+pub use quake_rs::net::{msg_badread, msg_readcount, net_message};
 #[no_mangle]
 pub static mut harness_badread_count: core::ffi::c_uint = 0;
 #[no_mangle]
@@ -129,4 +125,49 @@ pub unsafe fn qsocket_reset_rust() {
     unsafe {
         QSOCKET_USED = 0;
     }
+}
+
+// Phase 7 M9c: net_main.c's remaining ambient globals (the funnel cores) and
+// the harness.c net-replay seam. The replay is always off in ctest, so the
+// four Harness_Net* entry points are inert stand-ins.
+#[no_mangle]
+pub static mut slistInProgress: qboolean = false;
+#[no_mangle]
+pub static mut slist_silent: qboolean = false;
+#[no_mangle]
+pub static mut net_numsockets: c_int = 0;
+#[no_mangle]
+pub static mut harness_netreplay: qboolean = false;
+
+/// # Safety
+/// Single-threaded tests.
+#[no_mangle]
+pub unsafe extern "C" fn Harness_NetCapture(
+    _direction: c_int,
+    _driver: c_int,
+    _kind: c_int,
+    _data: *const u8,
+    _len: c_int,
+) {
+}
+
+/// # Safety
+/// Single-threaded tests.
+#[no_mangle]
+pub unsafe extern "C" fn Harness_NetReplayConnect() -> *mut qsocket_s {
+    ptr::null_mut()
+}
+
+/// # Safety
+/// Single-threaded tests.
+#[no_mangle]
+pub unsafe extern "C" fn Harness_NetReplayOwns(_sock: *mut qsocket_s) -> qboolean {
+    false
+}
+
+/// # Safety
+/// Single-threaded tests.
+#[no_mangle]
+pub unsafe extern "C" fn Harness_NetReplayGetMessage() -> c_int {
+    -1
 }

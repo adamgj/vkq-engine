@@ -27,15 +27,13 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 // writer exports return a status and these pure-C frames re-raise it with
 // the exact message the C original used. The reader-side entry points and
 // SZ_Clear carry no error paths and are exported from Rust under their C
-// names directly. The reader globals stay C-owned here (ADR-007 net row);
-// net_message itself stays in net_main.c.
+// names directly. Phase 7 M9e moved the reader globals (net_message,
+// msg_readcount, msg_badread) into rust/quake-capi/src/net.rs, closing the
+// ADR-007 net row; this file owns no storage any more.
 
 #include "quakedef.h"
 #include "steam.h" // quake_rs.h declares the Phase 2 Steam shims in terms of steamgame_t
 #include "quake_rs.h"
-
-int		 msg_readcount;
-qboolean msg_badread;
 
 /* status codes shared with rust/quake-capi/src/net.rs (keep in sync) */
 #define SZ_OK			   0

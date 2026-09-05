@@ -254,12 +254,10 @@ pub struct HostCache {
 
 /// `PollProcedure` (net_defs.h).
 ///
-/// No Rust consumer yet: M9's ADR-009 audit left `NET_Poll` /
-/// `SchedulePollProcedure` as C frames until Phase 7. The mirror and its
-/// `abi_probe` entries are kept anyway so the layout is already pinned on
-/// all three CI platforms when that port lands -- the pin costs nothing at
-/// runtime and turns any intervening header drift into a CI failure rather
-/// than a Phase 7 surprise.
+/// Phase 7 M9c ported `NET_Poll` / `SchedulePollProcedure`, so this is a
+/// live mirror now. The nodes stay caller-owned; only the list head is
+/// Rust state (ADR-007). Layout is pinned by `abi_probe.c` and
+/// `tests/net_abi.rs` on all three CI platforms.
 #[repr(C)]
 pub struct PollProcedure {
     pub next: *mut PollProcedure,

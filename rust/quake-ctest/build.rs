@@ -7,6 +7,12 @@ use std::path::PathBuf;
 
 const C_SOURCES: &[&str] = &[
     "Quake/cfgfile.c",
+    "Quake/chase.c",
+    "Quake/cl_demo.c",
+    "Quake/cl_input.c",
+    "Quake/cl_main.c",
+    "Quake/cl_parse.c",
+    "Quake/cl_tent.c",
     "Quake/cmd.c",
     "Quake/common_fs.c",
     "Quake/cvar.c",
@@ -35,7 +41,14 @@ const C_SOURCES: &[&str] = &[
     "Quake/steam.c",
     "Quake/strlcpy.c",
     "Quake/strlcat.c",
+    "Quake/sv_main.c",
+    "Quake/sv_move.c",
+    "Quake/sv_phys.c",
+    "Quake/sv_send.c",
+    "Quake/sv_user.c",
+    "Quake/view.c",
     "Quake/wad.c",
+    "Quake/world.c",
 ];
 
 /// Builds the synthetic embedded vkquake.pak: a tiny valid single-entry pak,
@@ -120,6 +133,27 @@ fn main() {
         println!("cargo:rerun-if-changed={}", path.display());
         build.file(path);
     }
+    // host.c, host_cmd.c, pr_ext.c, keys.c, console.c, sbar.c, menu.c and
+    // r_part.c and r_part_fte.c are not compiled directly: stubs/host_ref.c,
+    // stubs/host_cmd_ref.c, stubs/pr_ext_ref.c, stubs/keys_ref.c,
+    // stubs/console_ref.c, stubs/sbar_ref.c, stubs/menu_ref.c and
+    // stubs/r_part_ref.c and stubs/r_part_fte_ref.c #include them
+    // behind a per-TU rename block, so the C_SOURCES loop above never sees
+    // them and an edit to any of them would not rebuild the oracle. Watch them
+    // explicitly.
+    for src in [
+        "Quake/host.c",
+        "Quake/host_cmd.c",
+        "Quake/pr_ext.c",
+        "Quake/keys.c",
+        "Quake/console.c",
+        "Quake/sbar.c",
+        "Quake/menu.c",
+        "Quake/r_part.c",
+        "Quake/r_part_fte.c",
+    ] {
+        println!("cargo:rerun-if-changed={}", repo_root.join(src).display());
+    }
     // Phase 5 M7b: the unix UDP landriver oracle (net_wins.c stays C-only
     // and untested here; see the task plan's ADR-017 deferral note)
     if std::env::var_os("CARGO_CFG_UNIX").is_some() {
@@ -144,6 +178,34 @@ fn main() {
         "anorms_ref.c",
         "hashers_ref.c",
         "qctype_ref.c",
+        "pf_msg_ref.c",
+        "pf_fx_ref.c",
+        "pf_cl_ref.c",
+        "sv_send_ref.c",
+        "sv_user_ref.c",
+        "sv_main_ref.c",
+        "chase_ref.c",
+        "cl_demo_ref.c",
+        "cl_input_ref.c",
+        "cl_main_ref.c",
+        "cl_parse_ref.c",
+        "cl_tent_ref.c",
+        "view_ref.c",
+        "host_ref.c",
+        "host_glue_ref.c",
+        "host_cmd_ref.c",
+        "host_cmd_glue_ref.c",
+        "net_dgrm_orch_glue_ref.c",
+        "net_main_glue_ref.c",
+        "pr_edict_arena_glue_ref.c",
+        "pr_ext_ref.c",
+        "draw_ref.c",
+        "keys_ref.c",
+        "console_ref.c",
+        "sbar_ref.c",
+        "menu_ref.c",
+        "r_part_ref.c",
+        "r_part_fte_ref.c",
     ] {
         let path = manifest.join("stubs").join(stub);
         println!("cargo:rerun-if-changed={}", path.display());

@@ -517,12 +517,67 @@ static inline void Atomic_StoreUInt32 (volatile atomic_uint32_t *atomic, uint32_
 {
 	atomic->value = desired;
 }
+/* atomics.h:53-56, same single-threaded rationale as the store above. */
+static inline uint32_t Atomic_LoadUInt32 (volatile atomic_uint32_t *atomic)
+{
+	return atomic->value;
+}
+
+/* atomics.h:82-88, :103-106 and :146-152, same single-threaded rationale as
+ * the pair above: Phase 7 M10f-1 composes r_part.c, whose
+ * R_InitParticleIndexBuffer and R_DrawParticlesFaces bump three counters.
+ * atomic_uint64_t is the 8-byte analogue of the u32 stand-in. */
+static inline uint32_t Atomic_AddUInt32 (volatile atomic_uint32_t *atomic, uint32_t value)
+{
+	uint32_t previous = atomic->value;
+	atomic->value = previous + value;
+	return previous;
+}
+static inline uint32_t Atomic_IncrementUInt32 (volatile atomic_uint32_t *atomic)
+{
+	return Atomic_AddUInt32 (atomic, 1);
+}
+typedef struct
+{
+	volatile uint64_t value;
+} atomic_uint64_t;
+static inline uint64_t Atomic_AddUInt64 (volatile atomic_uint64_t *atomic, uint64_t value)
+{
+	uint64_t previous = atomic->value;
+	atomic->value = previous + value;
+	return previous;
+}
+/* atomics.h:157-172, minus the _ReadBarrier/_WriteBarrier intrinsics the
+ * real header pairs them with: this harness is single-threaded, so the
+ * barriers have nothing to order. Same 8-byte layout. */
+typedef struct
+{
+	void *volatile value;
+} atomic_ptr_t;
+static inline void *Atomic_LoadPtr (volatile atomic_ptr_t *atomic)
+{
+	return atomic->value;
+}
+static inline void Atomic_StorePtr (volatile atomic_ptr_t *atomic, void *desired)
+{
+	atomic->value = desired;
+}
 
 /* quakedef.h slice gl_model.h / model_parse.c need. PSET_SCRIPT is
  * unconditional in quakedef.h and changes qmodel_t's layout, so it must be
  * defined before gl_model.h. */
 #define PSET_SCRIPT
-typedef struct efrag_s efrag_t;
+/* render.h's efrag_t, transcribed (render.h itself #includes tasks.h ->
+ * q_stdinc.h -> SDL.h). quake_types::host::Efrag mirrors it field-by-field,
+ * and abi_probe.c's host probe takes its offsetof()s from this definition;
+ * it reaches entity_t only through a pointer, so it can sit here, ahead of
+ * the entity_t transcription further down (which needs protocol.h's
+ * entity_state_t). */
+typedef struct efrag_s
+{
+	struct efrag_s	*leafnext;
+	struct entity_s *entity;
+} efrag_t;
 #define MAX_DLIGHTS			  64
 #define MAX_LBM_HEIGHT		  480
 #define MAX_LIGHTSTYLES		  64
@@ -555,9 +610,14 @@ enum srcformat
 	SRC_RGBA_CUBEMAP,
 	SRC_INDEXED_PALETTE,
 };
+#define TEXPREF_MIPMAP	 0x0001
 #define TEXPREF_ALPHA	 0x0008
 #define TEXPREF_PAD		 0x0010
 #define TEXPREF_NOPICMIP 0x0080
+/* gl_texmgr.h:38-42; r_part.c's R_InitParticleTextures names these three. */
+#define TEXPREF_LINEAR	 0x0002
+#define TEXPREF_NEAREST	 0x0004
+#define TEXPREF_PERSIST	 0x0020
 typedef struct gltexture_s gltexture_t;
 gltexture_t *TexMgr_LoadImage (
 	qmodel_t *owner, const char *name, int width, int height, enum srcformat format, byte *data, const char *source_file, src_offset_t source_offset,
@@ -601,6 +661,100 @@ void GLMesh_DeleteMeshBuffers (aliashdr_t *mainhdr);
 #define ED_FindField          c_ref_ED_FindField
 #define ED_FindFunction       c_ref_ED_FindFunction
 
+/* ---- Phase 7 M3: world.c, the world-query oracle ----
+ *
+ * Every public symbol world.c defines is renamed c_ref_*; the Rust port
+ * (quake-capi's `host` feature) exports the same plain names beside it. The
+ * block sits HERE, above the prelude's own `void SV_UnlinkEdict (edict_t *)`
+ * forward declaration below and above every `#include "world.h"`, so the
+ * declarations rename with the definitions -- and so pr_edict_arena.c's
+ * ED_Free call site reaches the real, renamed world.c function instead of
+ * the hand-written stub that used to stand in for it (removed from stubs.c).
+ *
+ * world.c's file statics (box_hull/box_clipnodes/box_planes,
+ * SV_AreaTriggerEdicts, SV_TouchLinks, SV_SlowRecursiveHullCheck,
+ * SV_ClipToLinks, World_ClipToNetwork) need no rename. The two cvars DO:
+ * world_glue.c defines them under the plain names for the Rust side.
+ * SV_PushGridEntityLinked is sv_phys.c's and is renamed with the rest of
+ * that file in the Phase 7 M4 block below (it was stub-owned through M3,
+ * when sv_phys.c was not yet one of build.rs's C_SOURCES). */
+#define sv_fte_recursivehullckeck c_ref_sv_fte_recursivehullckeck
+#define sv_fte_createareanode	  c_ref_sv_fte_createareanode
+#define SV_InitBoxHull			  c_ref_SV_InitBoxHull
+#define SV_HullForBox			  c_ref_SV_HullForBox
+#define SV_HullForEntity		  c_ref_SV_HullForEntity
+#define SV_CreateAreaNode		  c_ref_SV_CreateAreaNode
+#define SV_ClearWorld			  c_ref_SV_ClearWorld
+#define SV_UnlinkEdict			  c_ref_SV_UnlinkEdict
+#define SV_FindTouchedLeafs		  c_ref_SV_FindTouchedLeafs
+#define SV_LinkEdict			  c_ref_SV_LinkEdict
+#define SV_HullPointContents	  c_ref_SV_HullPointContents
+#define SV_PointContents		  c_ref_SV_PointContents
+#define SV_TruePointContents	  c_ref_SV_TruePointContents
+#define SV_PointContentsAllBsps	  c_ref_SV_PointContentsAllBsps
+#define SV_TestEntityPosition	  c_ref_SV_TestEntityPosition
+#define Q1BSP_RecursiveHullTrace  c_ref_Q1BSP_RecursiveHullTrace
+#define SV_RecursiveHullCheck	  c_ref_SV_RecursiveHullCheck
+#define SV_ClipMoveToEntity		  c_ref_SV_ClipMoveToEntity
+#define SV_MoveBounds			  c_ref_SV_MoveBounds
+#define SV_Move					  c_ref_SV_Move
+
+/* ---- Phase 7 M4: sv_move.c + sv_phys.c, the monster-move / physics oracle --
+ *
+ * Same shape as the M3 world.c block above: every public symbol the two
+ * files *define* is renamed c_ref_*, and the Rust port (quake-capi's `host`
+ * feature) exports the same plain names beside it. The block sits above the
+ * `#include "world.h"` further down, so world.h's
+ * `void SV_PushGridEntityLinked (edict_t *)` declaration -- and world.c's
+ * call to it -- rename together with sv_phys.c's definition.
+ *
+ * sv_move.c's only file-local data is `static int c_yes, c_no;`
+ * (sv_move.c:37); sv_phys.c's file statics (pushable_ent_cache, push_grid_*,
+ * sv_pusher_support*, sv_walk_support_*) likewise. Neither needs a rename.
+ * Everything sv_phys.c defines with *external* linkage does, per this
+ * header's invariant below: the twelve cvars (sv_main.c registers them by
+ * address), sv_analyticphysics_frame (sv_user.c reads it), and the seven
+ * sv_speeds_* counters (host.c reads and zeroes them). In the shipping build
+ * those objects move to Quake/sv_phys_glue.c under the plain names;
+ * sv_phys_glue.c is not one of build.rs's C_SOURCES, so stubs.c owns the
+ * plain-named copies for the Rust side -- exactly as it already does for
+ * world.c's two sv_fte_* cvars.
+ *
+ * `extern cvar_t sv_speeds;` (sv_phys.c:343) is host.c's, not sv_phys.c's,
+ * so it stays stub-owned and shared un-renamed between the two sides. */
+#define SV_CheckBottom					 c_ref_SV_CheckBottom
+#define SV_movestep						 c_ref_SV_movestep
+#define SV_StepDirection				 c_ref_SV_StepDirection
+#define SV_FixCheckBottom				 c_ref_SV_FixCheckBottom
+#define SV_NewChaseDir					 c_ref_SV_NewChaseDir
+#define SV_CloseEnough					 c_ref_SV_CloseEnough
+#define SV_MoveToGoal					 c_ref_SV_MoveToGoal
+#define SV_PushGridEntityLinked			 c_ref_SV_PushGridEntityLinked
+#define SV_CheckAllEnts					 c_ref_SV_CheckAllEnts
+#define SV_CheckVelocity				 c_ref_SV_CheckVelocity
+#define SV_CheckWaterTransition			 c_ref_SV_CheckWaterTransition
+#define SV_Physics						 c_ref_SV_Physics
+#define sv_friction						 c_ref_sv_friction
+#define sv_stopspeed					 c_ref_sv_stopspeed
+#define sv_gravity						 c_ref_sv_gravity
+#define sv_maxvelocity					 c_ref_sv_maxvelocity
+#define sv_nostep						 c_ref_sv_nostep
+#define sv_freezenonclients				 c_ref_sv_freezenonclients
+#define sv_gameplayfix_spawnbeforethinks c_ref_sv_gameplayfix_spawnbeforethinks
+#define sv_gameplayfix_bouncedownslopes	 c_ref_sv_gameplayfix_bouncedownslopes
+#define sv_gameplayfix_elevators		 c_ref_sv_gameplayfix_elevators
+#define sv_fastpushmove					 c_ref_sv_fastpushmove
+#define sv_pushgrid						 c_ref_sv_pushgrid
+#define sv_analyticphysics				 c_ref_sv_analyticphysics
+#define sv_analyticphysics_frame		 c_ref_sv_analyticphysics_frame
+#define sv_speeds_think_ms				 c_ref_sv_speeds_think_ms
+#define sv_speeds_pusher_ms				 c_ref_sv_speeds_pusher_ms
+#define sv_speeds_build_ms				 c_ref_sv_speeds_build_ms
+#define sv_speeds_thinks				 c_ref_sv_speeds_thinks
+#define sv_speeds_pushers				 c_ref_sv_speeds_pushers
+#define sv_speeds_pushables				 c_ref_sv_speeds_pushables
+#define sv_speeds_grid_entries			 c_ref_sv_speeds_grid_entries
+
 #include "protocol.h" /* entity_state_t, which edict_t embeds */
 #include "progs.h"
 #include "pr_trace.h" /* the PR_TRACE_* hooks; no-ops without -Dtrace=true */
@@ -623,22 +777,11 @@ extern const int	  type_size[NUM_TYPE_SIZES];
 ddef_t				 *ED_FindField (const char *name);
 dfunction_t			 *ED_FindFunction (const char *fn_name);
 
-/* server.h slice: model_parse.c reads sv.modelname; snd_mix.c (Phase 4)
- * reads sv.active */
-typedef enum
-{
-	ss_loading,
-	ss_active
-} server_state_t; /* server.h; pr_exec.c's OP_ADDRESS guard reads it */
-typedef struct
-{
-	char		   modelname[64];
-	qboolean	   active;
-	char		   name[64];  /* Phase 5: net_loop.c's Loop_SearchForHosts */
-	server_state_t state;	  /* Phase 6 M3: pr_exec.c's OP_ADDRESS guard */
-	qcvm_t		   qcvm;	  /* Phase 6 M3: pr_exec.c's PR_Profile_f */
-} ctest_server_stub_t;
-extern ctest_server_stub_t sv;
+/* server_state_t / server_t / `sv` used to be hand-cut stand-ins here.
+ * Phase 7 M6 replaced them with the real Quake/server.h, included at the
+ * bottom of this header (everything server.h needs -- qcvm_t, sizebuf_t,
+ * entity_state_t, usercmd_t, cvar_t, struct qsocket_s -- is only in scope
+ * by then). */
 
 /* wad.c only includes quakedef.h; hand it wad.h, which pulls the real,
  * bindgen-clean common.h for the COM_ and FS_ APIs and fshandle_t */
@@ -753,26 +896,163 @@ extern cvar_t		 developer;
 #include "q_thread.h"
 #include "q_sound.h"
 
-/* the quakedef.h slice snd_mix.c's pause_loops computation reads; the stub
- * definitions expose setters for the differential tests */
-typedef struct
+/* ---- Phase 7 M3: the quakedef.h/server.h/render.h slice world.c needs ----
+ *
+ * quakedef.h's DIST_EPSILON and assert_always (quakedef.h:66, :335). The
+ * assert_always guard is spelled exactly as the engine's so a later real
+ * quakedef.h slice cannot silently disagree. */
+#ifndef DIST_EPSILON
+#define DIST_EPSILON (0.03125) // 1/32 epsilon to keep floating point happy (moved from world.c)
+#endif
+FUNC_NORETURN void COM_Assert_Failed (const char *expr, const char *file, int line);
+#ifndef assert_always
+#define assert_always(e) ((e) ? (void)0 : COM_Assert_Failed (#e, __FILE__, __LINE__))
+#endif
+
+/* server.h's movetype/solid/edict-flag enumerators used to be transcribed
+ * here as object-like macros, because quakedef.h is neutered and world.c /
+ * sv_move.c / sv_phys.c never saw the real enums. Phase 7 M6 includes the
+ * real server.h at the bottom of this header, so the enumerators themselves
+ * are in scope and the transcription (and abi_probe.c's #undef dodge around
+ * it) is gone. */
+
+/* quakedef.h:68 -- SV_AddGravity/SV_FinishGravity's analytic half-step
+ * (sv_phys.c:682,693) divides by it, and the comment on that line says the
+ * value must not change. */
+#ifndef MAX_PHYSICS_FREQ
+#define MAX_PHYSICS_FREQ (72.0)
+#endif
+
+/* Phase 7 M4/M6: Host_EndGame (quakedef.h:480, defined host.c:185) is the
+ * one seam of sv_phys.c's bad-movetype sites that stays stub-owned -- host.c
+ * is not in build.rs's C_SOURCES. SV_StartSound and sv_player used to be
+ * declared (and stub-defined) here for the same reason; M6 pulled sv_main.c
+ * and sv_user.c into C_SOURCES, so both are now real, renamed c_ref_* below
+ * and declared by the real server.h. */
+FUNC_NORETURN void Host_EndGame (const char *message, ...) FUNC_PRINTF (1, 2);
+
+/* Phase 7 M4: sv_phys.c's own public cvars, its per-frame analytic latch and
+ * the sv_speeds counters. server.h:314-329 and host.c declare these in the
+ * engine; this prelude pre-empts server.h, so they come by hand. Every name
+ * here is rewritten to c_ref_* by the M4 rename block above, which is what
+ * lets stubs.c hold a second, plain-named set for the Rust port (the copies
+ * Quake/sv_phys_glue.c owns in the shipping build). */
+extern cvar_t sv_friction;
+extern cvar_t sv_stopspeed;
+extern cvar_t sv_gravity;
+extern cvar_t sv_maxvelocity;
+extern cvar_t sv_nostep;
+extern cvar_t sv_freezenonclients;
+extern cvar_t sv_gameplayfix_spawnbeforethinks;
+extern cvar_t sv_gameplayfix_bouncedownslopes;
+extern cvar_t sv_gameplayfix_elevators;
+extern cvar_t sv_fastpushmove;
+extern cvar_t sv_pushgrid;
+extern cvar_t sv_analyticphysics;
+extern qboolean sv_analyticphysics_frame;
+extern double	sv_speeds_think_ms, sv_speeds_pusher_ms, sv_speeds_build_ms;
+extern int		sv_speeds_thinks, sv_speeds_pushers, sv_speeds_pushables, sv_speeds_grid_entries;
+
+/* host.c:70 -- read by sv_phys.c's timing blocks and NOT renamed: there is
+ * one such cvar in the engine and stubs.c owns the single definition. */
+extern cvar_t sv_speeds;
+
+/* pr_ext.c's extension-enable cvar. world.c branches on it in five places
+ * (SV_HullForEntity, SV_CreateAreaNode, SV_LinkEdict, SV_RecursiveHullCheck,
+ * SV_ClipMoveToEntity), so it is stub-owned and shared un-renamed: the Rust
+ * port reads the same object through quake-c-sys. */
+extern cvar_t pr_checkextension;
+
+/* render.h's entity_t (and the two structs it embeds by value), transcribed:
+ * render.h #includes tasks.h -> q_stdinc.h -> SDL.h, which this build must
+ * stay clear of. World_ClipToNetwork walks cl.entities as entity_t, so the
+ * layout has to be the real one -- the Rust side sees the same objects
+ * through world_glue.c's World_Glue_ClEntity accessor. This transcription is
+ * also what abi_probe.c's Phase 7 host probe measures (it used to carry its
+ * own private copy; that was moved here so both TUs cannot drift apart).
+ * render.h carries the codebase's "!!! if this is changed, it must be
+ * changed in rust/quake-ctest/stubs/abi_probe.c too !!!" markers on
+ * entity_s/entlerp_s/lightcache_s. */
+typedef struct lightcache_s
 {
-	qboolean  paused;
-	int		  viewentity;
-	qmodel_t *worldmodel;
-} ctest_cl_t;
-extern ctest_cl_t cl;
-/* ctest_svs_t (needs client_t, which needs sizebuf_t from net.h) is defined
- * further down, after the net.h include block. */
-typedef enum
+	int	   surfidx;
+	vec3_t pos;
+	short  ds;
+	short  dt;
+} lightcache_t;
+
+typedef struct entlerp_s
 {
-	key_game,
-	key_console,
-	key_message,
-	key_menu
-} keydest_t;
-extern keydest_t key_dest;
-extern double	 host_frametime;
+	qboolean movestep;
+	int		 prev_frame;
+	double	 frame_change_time;
+	double	 frame_duration;
+	double	 frame_finish_time;
+	int		 snap_frames;
+	double	 snap_msgtime;
+	vec3_t	 prev_origin;
+	vec3_t	 prev_angles;
+	double	 move_change_time;
+	double	 move_duration;
+} entlerp_t;
+
+typedef struct entity_s
+{
+	qboolean forcelink;
+
+	int update_type;
+
+	entity_state_t baseline;
+	entity_state_t netstate;
+
+	double			 msgtime;
+	vec3_t			 msg_origins[2];
+	vec3_t			 origin;
+	vec3_t			 msg_angles[2];
+	vec3_t			 angles;
+	struct qmodel_s *model;
+	struct efrag_s	*efrag;
+	int				 frame;
+	float			 syncbase;
+	byte			*colormap;
+	int				 effects;
+	int				 skinnum;
+	int				 visframe;
+
+	int dlightframe;
+	int dlightbits;
+
+	struct mnode_s *topnode;
+
+	byte	  eflags;
+	byte	  alpha;
+	entlerp_t lerp;
+
+#ifdef PSET_SCRIPT
+	struct trailstate_s *trailstate;
+	struct trailstate_s *emitstate;
+#endif
+	float  traildelay;
+	vec3_t trailorg;
+
+	lightcache_t lightcache;
+
+	int	   contentscache;
+	vec3_t contentscache_origin;
+
+	struct entity_blas_s *blas_data;
+} entity_t;
+
+#include "world.h" /* the renames above are already in effect */
+
+/* `cl` used to be a six-field ctest_cl_t stand-in here. Phase 7 M6 replaced
+ * it with the real client_state_t from Quake/client.h, included at the
+ * bottom of this header; cl_main.c is still not in C_SOURCES, so the
+ * instance itself stays stub-owned (stubs.c) and un-renamed. */
+/* keydest_t and key_dest used to be transcribed here; Phase 7 M7 includes
+ * the real Quake/keys.h below (cl_input.c and cl_main.c need the rest of it
+ * anyway), so this is just host_frametime now. */
+extern double host_frametime;
 
 /* file-internal in the engine build; snd_mem.c un-statics it for this
  * oracle build (the rename above applies) */
@@ -814,14 +1094,7 @@ extern cvar_t snd_pauselooping;
 /* the quakedef.h slice snd_dma.c needs beyond the fs slice above */
 #define MAX_SOUNDS 2048
 #define SIGNONS	   4
-typedef enum
-{
-	ca_dedicated,
-	ca_disconnected,
-	ca_connected
-} cactive_t;
-/* ctest_cls_stub_t is defined further down (needs sizebuf_t from net.h for
- * cls.message). */
+/* cactive_t / client_static_t come from the real client.h, at the bottom. */
 /* ---- Phase 5 M2: net_msg.c wire serialization oracle ---- */
 #include "protocol.h" /* PRFL_* / PEXT2_* flag sets (pulls q_minmax.h's Q_rint) */
 /* Phase 5 M5: net_loop.c oracle needs the net headers (quakedef.h
@@ -842,47 +1115,1330 @@ void					S_CodecInit (void);							/* snd_codec.h; stub no-ops */
 void					S_CodecShutdown (void);
 void					Con_SafePrintf (const char *fmt, ...);
 
-/* Phase 7 M2: the server.h/client.h slice cvar.c's CVAR_SERVERINFO /
- * CVAR_USERINFO replication blocks and cmd.c's Cmd_ExecuteString /
- * Cmd_ForwardToServer read. Stub-owned mirror structs, like ctest_cl_t
- * above; definitions/instances live in stubs.c. */
-/* Named client_t/client_s (not ctest_-prefixed like ctest_svs_t below):
- * cvar.c's own CVAR_SERVERINFO replication block (cvar.c:513) declares a
- * local `client_t *current_client` by that literal name, so the type must
- * exist under this exact name for cvar.c's unmodified source to compile.
- * abi_probe.c separately #includes the real server.h/client.h for its own
- * struct-layout ABI probe further down in that file; it #define/#undef's
- * this name (and svs/sv/cl/cls, same idiom) out of the way for just those
- * two #includes to avoid a duplicate-definition error in that TU. */
-typedef struct client_s
+/* ---- Phase 7 M6: the real Quake/server.h and Quake/client.h --------------
+ *
+ * Through M5 this header carried hand-cut stand-ins under the engine's own
+ * names -- ctest_server_stub_t `sv`, a four-field `client_t`, ctest_svs_t
+ * `svs`, ctest_cl_t `cl`, ctest_cls_stub_t `cls`. M6 puts sv_main.c,
+ * sv_send.c and sv_user.c into build.rs's C_SOURCES, and those three touch
+ * essentially every field of the real structs, so the stand-ins are gone and
+ * the engine's own headers are included here instead. Every earlier oracle's
+ * reader (sv.modelname, sv.active, sv.name, sv.state, sv.qcvm,
+ * svs.maxclients, svs.serverinfo, svs.clients, cls.state, cls.signon, ...)
+ * names a field that exists on the real struct, so they compile unchanged.
+ *
+ * abi_probe.c used to #include these two headers itself, behind a
+ * #define/#undef rename dodge, precisely because this header occupied the
+ * four names. That dodge is gone with the stand-ins; the probe now measures
+ * the same declarations every other oracle TU sees.
+ *
+ * This is the last thing the header does: server.h needs qcvm_t (progs.h),
+ * entity_state_t/usercmd_t (protocol.h), sizebuf_t (common.h), cvar_t
+ * (cvar.h) and struct qsocket_s (net_defs.h); client.h additionally embeds
+ * entity_t (the render.h transcription above) by value in `viewent`, and
+ * needs qfileofs_t (sys.h, via common.h) and FILE.
+ *
+ * quakedef.h constants the two headers expect from their normal
+ * #include "quakedef.h" chain, which this header pre-empts. MAX_SOUNDS,
+ * MAX_LIGHTSTYLES, MAX_DATAGRAM, MAX_MSGLEN, MAX_EDICTS and SIGNONS are
+ * already defined above by the earlier phases' slices;
+ * SERVER_INFO_STRING_SIZE, CLIENT_USER_INFO_STRING_SIZE, NUM_PING_TIMES,
+ * NUM_TOTAL_SPAWN_PARMS, NUM_CSHIFTS, MAX_MAPSTRING, MAX_DEMOS and
+ * MAX_DEMONAME are #define'd by server.h/client.h themselves. The values
+ * below are gated against the real quakedef.h by a _Static_assert in
+ * Quake/harness.c. */
+#include <stdio.h> /* client_static_t::demofile */
+
+#define MAX_MODELS		   8192
+#define MAX_PARTICLETYPES  2048
+#define MAX_STYLESTRING	   64
+#define MAX_SCOREBOARDNAME 32
+#define VID_CBITS		   6
+#define VID_GRADES		   (1 << VID_CBITS)
+
+/* Phase 7 M6 renames. sv_main.c, sv_send.c and sv_user.c are oracle sources
+ * now, so every global they define is c_ref_*; the block has to precede the
+ * two #includes below so server.h's own declarations rename with them.
+ *
+ * `sv`, `svs` and `sv_player` move with their files: stubs.c no longer
+ * defines them, the oracle does, and the Rust-side glue in stubs.c reaches
+ * the same storage through these macros. ADR-007 makes sv/svs Rust-owned at
+ * M6-T6.6; until that storage move lands, the C oracle owns the one copy.
+ *
+ * SV_StartSound is the one M4 seam this flips: it was a stub-owned recorder
+ * shared by both sides, and it is sv_main.c's function, so from M6 it is the
+ * real implementation on the oracle side and for the glue that drives the
+ * Rust side. See stubs.c's ctest_phys_sound_* block. */
+
+/* sv_main.c */
+#define sv					   c_ref_sv
+#define svs					   c_ref_svs
+#define sv_protocol			   c_ref_sv_protocol
+#define sv_protocol_pext1	   c_ref_sv_protocol_pext1
+#define sv_protocol_pext2	   c_ref_sv_protocol_pext2
+#define sv_netsort			   c_ref_sv_netsort
+#define sv_smoothplatformlerps c_ref_sv_smoothplatformlerps
+#define SV_Init				   c_ref_SV_Init
+#define SV_StartParticle	   c_ref_SV_StartParticle
+#define SV_StartSound		   c_ref_SV_StartSound
+#define SV_LocalSound		   c_ref_SV_LocalSound
+#define SV_SendServerinfo	   c_ref_SV_SendServerinfo
+#define SV_ConnectClient	   c_ref_SV_ConnectClient
+#define SV_CheckForNewClients  c_ref_SV_CheckForNewClients
+#define SV_ClearDatagram	   c_ref_SV_ClearDatagram
+#define SV_ModelIndex		   c_ref_SV_ModelIndex
+#define SV_SaveSpawnparms	   c_ref_SV_SaveSpawnparms
+#define SV_ModelForIndex	   c_ref_SV_ModelForIndex
+#define SV_SpawnServer		   c_ref_SV_SpawnServer
+
+/* sv_send.c */
+#define SV_CalcStats					 c_ref_SV_CalcStats
+#define SVFTE_DestroyFrames				 c_ref_SVFTE_DestroyFrames
+#define SVFTE_SetupFrames				 c_ref_SVFTE_SetupFrames
+#define SVFTE_Ack						 c_ref_SVFTE_Ack
+#define SV_BuildEntityState				 c_ref_SV_BuildEntityState
+#define MSG_WriteStaticOrBaseLine		 c_ref_MSG_WriteStaticOrBaseLine
+#define SV_AddToFatPVS					 c_ref_SV_AddToFatPVS
+#define SV_FatPVS						 c_ref_SV_FatPVS
+#define SV_VisibleToClient				 c_ref_SV_VisibleToClient
+#define SV_WriteEntitiesToClient		 c_ref_SV_WriteEntitiesToClient
+#define SV_CleanupEnts					 c_ref_SV_CleanupEnts
+#define SV_WriteDamageToMessage			 c_ref_SV_WriteDamageToMessage
+#define SV_WriteClientdataToMessage		 c_ref_SV_WriteClientdataToMessage
+#define SV_PresendClientDatagram		 c_ref_SV_PresendClientDatagram
+#define SV_SendClientDatagram			 c_ref_SV_SendClientDatagram
+#define SV_UpdateToReliableMessages		 c_ref_SV_UpdateToReliableMessages
+#define SV_SendNop						 c_ref_SV_SendNop
+#define SV_SendPrespawnModelPrecaches	 c_ref_SV_SendPrespawnModelPrecaches
+#define SV_SendPrespawnSoundPrecaches	 c_ref_SV_SendPrespawnSoundPrecaches
+#define SV_SendPrespawnParticlePrecaches c_ref_SV_SendPrespawnParticlePrecaches
+#define SV_SendPrespawnStatics			 c_ref_SV_SendPrespawnStatics
+#define SV_SendAmbientSounds			 c_ref_SV_SendAmbientSounds
+#define SV_SendPrespawnBaselines		 c_ref_SV_SendPrespawnBaselines
+#define SV_SendClientMessages			 c_ref_SV_SendClientMessages
+#define SV_CreateBaseline				 c_ref_SV_CreateBaseline
+#define SV_SendReconnect				 c_ref_SV_SendReconnect
+
+/* sv_user.c */
+#define sv_player			 c_ref_sv_player
+#define sv_edgefriction		 c_ref_sv_edgefriction
+#define sv_idealpitchscale	 c_ref_sv_idealpitchscale
+#define sv_altnoclip		 c_ref_sv_altnoclip
+#define sv_maxspeed			 c_ref_sv_maxspeed
+#define sv_accelerate		 c_ref_sv_accelerate
+#define SV_SetIdealPitch	 c_ref_SV_SetIdealPitch
+#define SV_UserFriction		 c_ref_SV_UserFriction
+#define SV_Accelerate		 c_ref_SV_Accelerate
+#define SV_AirAccelerate	 c_ref_SV_AirAccelerate
+#define DropPunchAngle		 c_ref_DropPunchAngle
+#define SV_WaterMove		 c_ref_SV_WaterMove
+#define SV_WaterJump		 c_ref_SV_WaterJump
+#define SV_NoclipMove		 c_ref_SV_NoclipMove
+#define SV_AirMove			 c_ref_SV_AirMove
+#define SV_ClientThink		 c_ref_SV_ClientThink
+#define SV_ReadClientMove	 c_ref_SV_ReadClientMove
+#define SV_ReadClientMessage c_ref_SV_ReadClientMessage
+#define SV_RunClients		 c_ref_SV_RunClients
+
+/* ---- Phase 7 M6 seam: the quakedef.h / host.c declarations sv_main.c,
+ * sv_send.c and sv_user.c reach that no header in this slice supplies. All
+ * of them belong to files that are not oracle sources (host.c above all), so
+ * they stay un-renamed and stub-owned; stubs.c defines them. ---- */
+#include "quakever.h" /* ENGINE_NAME_AND_VER (sv_main.c:549); self-contained */
+
+void	      Host_Callback_Notify (cvar_t *var);
+extern double realtime;
+extern int    current_skill;
+extern cvar_t max_edicts;
+
+/* quakedef.h:107-134 stat_t, verbatim. It carries MAX_CL_STATS, which
+ * server.h and client.h size arrays with. */
+/* clang-format off */
+typedef enum
 {
-	qboolean  active;
-	sizebuf_t message;
-	char	  name[32];
-} client_t;
-extern client_t *host_client; // valid only while cmd_source == src_client
+	MAX_CL_BASE_STATS	= 32,
+	MAX_CL_STATS		= 256,
+
+	STAT_HEALTH			= 0,
+	STAT_FRAGS			= 1,
+	STAT_WEAPON			= 2,
+	STAT_AMMO			= 3,
+	STAT_ARMOR			= 4,
+	STAT_WEAPONFRAME	= 5,
+	STAT_SHELLS			= 6,
+	STAT_NAILS			= 7,
+	STAT_ROCKETS		= 8,
+	STAT_CELLS			= 9,
+	STAT_ACTIVEWEAPON	= 10,
+	STAT_NONCLIENT		= 11,	// first stat not included in svc_clientdata
+	STAT_TOTALSECRETS	= 11,
+	STAT_TOTALMONSTERS	= 12,
+	STAT_SECRETS		= 13,	// bumped on client side by svc_foundsecret
+	STAT_MONSTERS		= 14,	// bumped by svc_killedmonster
+	STAT_ITEMS			= 15,	//replaces clc_clientdata info
+	STAT_VIEWHEIGHT		= 16, // replaces clc_clientdata info
+	STAT_VIEWZOOM		= 21, // DP
+	STAT_IDEALPITCH		= 25, // nq-emu
+	STAT_PUNCHANGLE_X	= 26, // nq-emu
+	STAT_PUNCHANGLE_Y	= 27, // nq-emu
+	STAT_PUNCHANGLE_Z	= 28, // nq-emu
+} stat_t;
+/* clang-format on */
+
+/* glquake.h:601-623 -- sv_send.c's developer packet-size stats. glquake.h is
+ * Vulkan-dependent, so these are transcribed rather than #included; the
+ * instances are stub-owned (gl_screen.c is not an oracle source). */
+typedef struct
+{
+	int packetsize;
+	int edicts;
+	int visedicts;
+	int efrags;
+	int tempents;
+	int beams;
+	int dlights;
+} devstats_t;
+extern devstats_t dev_stats, dev_peakstats;
 
 typedef struct
 {
-	int		  maxclients;
-	char	  serverinfo[512];
-	client_t *clients;
-} ctest_svs_t;
-extern ctest_svs_t svs;
+	double packetsize;
+	double efrags;
+	double beams;
+	double varstring;
+} overflowtimes_t;
+extern overflowtimes_t dev_overflows;
+#define CONSOLE_RESPAM_TIME 3
 
+extern cvar_t devstats;
+
+void SCR_CenterPrintClear (void); /* screen.h:34 */
+void Host_ClearMemory (void);	  /* quakedef.h:463 */
+
+#define ON_EPSILON 0.1 /* quakedef.h:64 */
+
+float V_CalcRoll (vec3_t angles, vec3_t velocity); /* view.h:36 */
+/* ---- end Phase 7 M6 seam ---- */
+
+/* ---- Phase 7 M7 seam: the client stratum's declarations ------------------
+ *
+ * chase.c, cl_demo.c, cl_input.c, cl_main.c, cl_parse.c, cl_tent.c and
+ * view.c become oracle sources here (task T7.0), one layer up from what T6.0
+ * did for the server stratum, and under the same rule: include the REAL
+ * engine header wherever it is free of SDL/Vulkan, transcribe only where it
+ * is not, and say why.
+ *
+ * Included below as-is: console.h, screen.h, keys.h, input.h, cdaudio.h,
+ * view.h and vid.h carry no #include lines at all, and every type they name
+ * is already in scope by this point; harness.h includes only q_types.h.
+ *
+ * Transcribed here instead, each for a stated reason:
+ *  - render.h #includes tasks.h -> q_stdinc.h -> SDL.h, which this build must
+ *    stay clear of. Its efrag_t and entity_t are already transcribed above
+ *    for exactly that reason; refdef_t and the R_* prototypes the client
+ *    calls follow the same way, copied verbatim from Quake/render.h.
+ *  - glquake.h #includes tasks.h and is Vulkan-typed throughout.
+ *  - quakedef.h is what this whole prelude replaces (it reaches SDL through
+ *    q_stdinc.h), so its client-visible slice comes by hand, as every earlier
+ *    phase's quakedef.h slice in this header does.
+ */
+
+typedef uint64_t task_handle_t; /* tasks.h:32; render.h/view.h take it by value */
+
+#include "vid.h" /* vrect_t (refdef_t embeds two), viddef_t and `vid` */
+
+/* render.h:140-169 refdef_t, verbatim. */
 typedef struct
 {
-	cactive_t state;
-	int		  signon;
-	int		  demonum;
-	qboolean  demoplayback;
-	char	  userinfo[512];
-	sizebuf_t message;
-} ctest_cls_stub_t;
-extern ctest_cls_stub_t cls;
+	vrect_t vrect;							   // subwindow in video for refresh
+											   // FIXME: not need vrect next field here?
+	vrect_t aliasvrect;						   // scaled Alias version
+	int		vrectright, vrectbottom;		   // right & bottom screen coords
+	int		aliasvrectright, aliasvrectbottom; // scaled Alias versions
+	float	vrectrightedge;					   // rightmost right edge we care about,
+											   //  for use in edge list
+	float	fvrectx, fvrecty;				   // for floating-point compares
+	float	fvrectx_adj, fvrecty_adj;		   // left and top edges, for clamping
+	int		vrect_x_adj_shift20;			   // (vrect.x + 0.5 - epsilon) << 20
+	int		vrectright_adj_shift20;			   // (vrectright + 0.5 - epsilon) << 20
+	float	fvrectright_adj, fvrectbottom_adj;
+	// right and bottom edges, for clamping
+	float	fvrectright;		   // rightmost edge, for Alias clamping
+	float	fvrectbottom;		   // bottommost edge, for Alias clamping
+	float	horizontalFieldOfView; // at Z = 1.0, this many X is visible
+								   // 2.0 = 90 degrees
+	float	xOrigin;			   // should probably allways be 0.5
+	float	yOrigin;			   // between be around 0.3 to 0.5
 
-extern cvar_t cl_name;
-extern cvar_t cl_topcolor;
-extern cvar_t cl_bottomcolor;
+	vec3_t vieworg;
+	vec3_t viewangles;
+
+	float basefov;
+	float fov_x, fov_y;
+
+	int ambientlight;
+} refdef_t;
+
+/* render.h:200-201 and the render.h prototypes the seven files call. */
+extern refdef_t r_refdef;
+extern vec3_t	r_origin, vpn, vright, vup;
+
+void R_RenderView (
+	qboolean use_tasks, task_handle_t begin_rendering_task, task_handle_t setup_frame_task, task_handle_t draw_done_task); // must set r_refdef first
+void R_CheckEfrags (void);
+void R_AddEfrags (entity_t *ent);
+void R_NewMap (void);
+void R_ParseParticleEffect (void);
+void R_RunParticleEffect (vec3_t org, vec3_t dir, int color, int count);
+void R_RocketTrail (vec3_t start, vec3_t end, int type);
+void R_EntityParticles (entity_t *ent);
+void R_BlobExplosion (vec3_t org);
+void R_ParticleExplosion (vec3_t org);
+void R_ParticleExplosion2 (vec3_t org, int colorStart, int colorLength);
+void R_LavaSplash (vec3_t org);
+void R_TeleportSplash (vec3_t org);
+
+/* glquake.h's client-visible slice. PSET_SCRIPT is defined above (it is
+ * unconditional in quakedef.h), so this is glquake.h's PSET_SCRIPT arm:
+ * glquake.h:110-135, :542-545, :705-738, :780-781, :810-814. */
+void PScript_Shutdown (void);
+struct trailstate_s;
+int	 PScript_ParticleTrail (vec3_t startpos, vec3_t end, int type, float timeinterval, int dlkey, vec3_t axis[3], struct trailstate_s **tsk);
+int	 PScript_RunParticleEffectState (vec3_t org, vec3_t dir, float count, int typenum, struct trailstate_s **tsk);
+void PScript_RunParticleWeather (vec3_t minb, vec3_t maxb, vec3_t dir, float count, int colour, const char *efname);
+int	 PScript_FindParticleType (const char *fullname);
+int	 PScript_RunParticleEffectTypeString (vec3_t org, vec3_t dir, float count, const char *name);
+int	 PScript_EntParticleTrail (vec3_t oldorg, entity_t *ent, const char *name);
+void PScript_DelinkTrailstate (struct trailstate_s **tsk);
+void PScript_ClearParticles (qboolean load);
+
+/* ---- Phase 7 M9f (T9f.0): the pr_ext.c oracle's renderer-facing slice ----
+ *
+ * stubs/pr_ext_ref.c composes Quake/pr_ext.c into this link (the composing-TU
+ * pattern; see that file's header). pr_ext.c reaches a handful of glquake.h /
+ * draw.h declarations the real headers cannot supply here, because glquake.h
+ * pulls vulkan/vulkan.h and tasks.h. Two kinds of declaration follow, and they
+ * are labelled individually:
+ *
+ *   FAITHFUL   -- character-for-character the real declaration; a Phase 8 port
+ *                 can trust it.
+ *   COMPILE-ONLY -- a minimal stand-in with the right *spelling* but not the
+ *                 real layout. Every consumer of one is Phase 8 renderer code
+ *                 (PF_cl_draw*, DrawQC_CharacterQuad, PF_getsurface*) that no
+ *                 differential drives and that nothing in this link calls, and
+ *                 nothing here takes sizeof() of a COMPILE-ONLY struct.
+ *
+ * Definitions for the objects declared here live in stubs/pr_ext_ref.c as link
+ * doubles, not in a real renderer TU.
+ */
+
+/* FAITHFUL: glquake.h:41, :107, :636, :639 */
+extern int glwidth, glheight;
+#define P_INVALID	   -1
+#define LMBLOCK_WIDTH  1024
+#define LMBLOCK_HEIGHT 1024
+
+/* COMPILE-ONLY: the Vulkan handles and renderer structs DrawQC_CharacterQuad
+ * (pr_ext.c:4885) and PF_cl_drawfill (pr_ext.c:5133) name. The handle types are
+ * opaque pointers as vulkan.h defines them; the structs carry only the members
+ * pr_ext.c actually touches, in the real spelling. */
+typedef uint64_t				 VkDeviceSize;
+typedef struct VkBuffer_T		*VkBuffer;
+typedef struct VkCommandBuffer_T *VkCommandBuffer;
+typedef struct VkPipeline_T		*VkPipeline;
+typedef struct VkPipelineLayout_T *VkPipelineLayout;
+typedef struct VkRenderPass_T	 *VkRenderPass;
+typedef struct VkDescriptorSet_T *VkDescriptorSet;
+typedef int						 VkPipelineBindPoint;
+#define VK_PIPELINE_BIND_POINT_GRAPHICS 0
+typedef struct
+{
+	int32_t x, y;
+} VkOffset2D;
+typedef struct
+{
+	uint32_t width, height;
+} VkExtent2D;
+typedef struct
+{
+	VkOffset2D offset;
+	VkExtent2D extent;
+} VkRect2D;
+typedef uint32_t VkShaderStageFlags;
+typedef struct
+{
+	VkShaderStageFlags stageFlags;
+	uint32_t		   offset;
+	uint32_t		   size;
+} VkPushConstantRange;
+
+/* FAITHFUL: glquake.h:152-163 */
+typedef struct vulkan_pipeline_layout_s
+{
+	VkPipelineLayout	handle;
+	VkPushConstantRange push_constant_range;
+	int					mboit_input_attachment_set;
+} vulkan_pipeline_layout_t;
+typedef struct vulkan_pipeline_s
+{
+	VkPipeline				 handle;
+	vulkan_pipeline_layout_t layout;
+} vulkan_pipeline_t;
+
+/* COMPILE-ONLY: glquake.h:221-239 secondary_cb_contexts_t, cut down to the
+ * members pr_ext.c indexes with. SCBX_GUI's real numeric value is NOT
+ * reproduced -- nothing in this link indexes a real context array.
+ * FAITHFUL, below it: glquake.h:241-251's render_pass_index_t. Phase 7
+ * M10f-1 needs its OIT/MBOIT arms for R_MainPassPipelineVariant and
+ * R_PipelineForRenderPass, so the whole enum is transcribed. */
+typedef enum
+{
+	SCBX_GUI,
+	SCBX_NUM
+} secondary_cb_contexts_t;
+typedef enum
+{
+	RENDER_PASS_INDEX_MAIN,
+	RENDER_PASS_INDEX_UI,
+	RENDER_PASS_INDEX_MAIN_OIT,
+	RENDER_PASS_INDEX_MAIN_MBOIT,
+	RENDER_PASS_INDEX_WBOIT,
+	RENDER_PASS_INDEX_MBOIT_MOMENTS,
+	RENDER_PASS_INDEX_MBOIT_COMPOSITE,
+	RENDER_PASS_INDEX_COUNT
+} render_pass_index_t;
+
+/* FAITHFUL: glquake.h:253-259. Phase 7 M10f-1 needs it for the two
+ * showtris pipeline arrays vulkanglobals_t carries below. */
+typedef enum
+{
+	MAIN_RENDER_PASS_STANDARD,
+	MAIN_RENDER_PASS_OIT,
+	MAIN_RENDER_PASS_MBOIT,
+	MAIN_RENDER_PASS_VARIANT_COUNT,
+} main_render_pass_variant_t;
+
+/* COMPILE-ONLY: glquake.h:339-349. pr_ext.c only ever dereferences `cb`; the
+ * real struct also carries `canvastype current_canvas`, `uint32_t
+ * vbo_indices[MAX_BATCH_SIZE]` and `unsigned int num_vbo_indices`, which are
+ * omitted because MAX_BATCH_SIZE and canvastype are renderer-private and
+ * nothing here takes sizeof (cb_context_t). */
+typedef struct cb_context_s
+{
+	VkCommandBuffer	  cb;
+	VkRenderPass	  render_pass;
+	int				  render_pass_index;
+	int				  subpass;
+	vulkan_pipeline_t current_pipeline;
+} cb_context_t;
+
+/* COMPILE-ONLY: vulkan_core.h's VkPhysicalDeviceFeatures,
+ * VkPhysicalDeviceProperties and VkPhysicalDeviceLimits, each cut down to the
+ * single member menu.c reads off it -- .device_features.sampleRateShading at
+ * menu.c:1898 and :2030, .device_properties.limits.maxSamplerAnisotropy at
+ * menu.c:2038. Neither layout is the real one. */
+typedef uint32_t VkBool32;
+typedef struct
+{
+	float maxSamplerAnisotropy;
+} VkPhysicalDeviceLimits;
+typedef struct
+{
+	VkPhysicalDeviceLimits limits;
+} VkPhysicalDeviceProperties;
+typedef struct
+{
+	VkBool32 sampleRateShading;
+} VkPhysicalDeviceFeatures;
+
+/* ---- Phase 7 M10f-1 (T10.5): the r_part.c oracle's rendering half -------
+ *
+ * stubs/r_part_ref.c composes Quake/r_part.c, whose simulation half is the
+ * differential's subject and whose rendering half (r_part.c:54-221, :951-1106)
+ * comes along because a #include cannot take half a file. Every name below is
+ * reached only from that rendering half, which nothing in this link calls:
+ * no_rendering is true here (stubs/host_ref.c:330), so R_InitParticles skips
+ * R_InitParticleTextures / R_InitParticleIndexBuffer, and R_DrawParticles* has
+ * no caller at all. COMPILE-ONLY throughout -- these are spellings, not
+ * layouts -- except where marked. Definitions live in stubs/r_part_ref.c.
+ */
+typedef int VkResult;
+#define VK_SUCCESS 0
+typedef struct VkDevice_T		*VkDevice;
+typedef struct VkDeviceMemory_T *VkDeviceMemory;
+typedef uint32_t				 VkFlags;
+typedef int						 VkStructureType;
+typedef int						 VkObjectType;
+typedef int						 VkIndexType;
+#define VK_INDEX_TYPE_UINT16				   0
+#define VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO   12
+#define VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO 5
+#define VK_BUFFER_USAGE_TRANSFER_DST_BIT	   0x00000002
+#define VK_BUFFER_USAGE_INDEX_BUFFER_BIT	   0x00000040
+#define VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT	   0x00000001
+#define VK_OBJECT_TYPE_DEVICE_MEMORY		   8
+#define VK_OBJECT_TYPE_BUFFER				   9
+typedef struct
+{
+	VkStructureType sType;
+	const void	   *pNext;
+	VkFlags			flags;
+	VkDeviceSize	size;
+	VkFlags			usage;
+	int				sharingMode;
+	uint32_t		queueFamilyIndexCount;
+	const uint32_t *pQueueFamilyIndices;
+} VkBufferCreateInfo;
+typedef struct
+{
+	VkDeviceSize size;
+	VkDeviceSize alignment;
+	uint32_t	 memoryTypeBits;
+} VkMemoryRequirements;
+typedef struct
+{
+	VkStructureType sType;
+	const void	   *pNext;
+	VkDeviceSize	allocationSize;
+	uint32_t		memoryTypeIndex;
+} VkMemoryAllocateInfo;
+typedef struct
+{
+	VkDeviceSize srcOffset;
+	VkDeviceSize dstOffset;
+	VkDeviceSize size;
+} VkBufferCopy;
+
+#define FTE_PARTICLE_PIPELINE_COUNT 16 /* glquake.h:199 */
+
+/* COMPILE-ONLY: glquake.h:351-... vulkanglobals_t has ~100 members; only the
+ * seven pr_ext.c:4940-4947 / :5180-5184 name, the three menu.c:1738,
+ * :1898/:1925/:2030/:2062 and :2038 name and the nine r_part.c:161-207 /
+ * :1061-1069 / :1082-1105 name are mirrored, so this struct's layout is NOT
+ * the real one. */
+typedef struct
+{
+	cb_context_t *secondary_cb_contexts[SCBX_NUM];
+	void (*vk_cmd_bind_descriptor_sets) (
+		VkCommandBuffer, VkPipelineBindPoint, VkPipelineLayout, uint32_t, uint32_t, const VkDescriptorSet *, uint32_t, const uint32_t *);
+	void (*vk_cmd_bind_vertex_buffers) (VkCommandBuffer, uint32_t, uint32_t, const VkBuffer *, const VkDeviceSize *);
+	void (*vk_cmd_draw) (VkCommandBuffer, uint32_t, uint32_t, uint32_t, uint32_t);
+	vulkan_pipeline_t		 basic_alphatest_pipeline[RENDER_PASS_INDEX_COUNT];
+	vulkan_pipeline_t		 basic_blend_pipeline[RENDER_PASS_INDEX_COUNT];
+	vulkan_pipeline_t		 basic_notex_blend_pipeline[RENDER_PASS_INDEX_COUNT];
+	vulkan_pipeline_layout_t   basic_pipeline_layout;
+	VkDevice device; /* glquake.h:353 */
+	void (*vk_cmd_bind_index_buffer) (VkCommandBuffer, VkBuffer, VkDeviceSize, VkIndexType);		/* glquake.h:510 */
+	void (*vk_cmd_draw_indexed) (VkCommandBuffer, uint32_t, uint32_t, uint32_t, int32_t, uint32_t); /* glquake.h:513 */
+	vulkan_pipeline_t		   particle_pipeline;								  /* glquake.h:417 */
+	vulkan_pipeline_t		   particle_oit_pipeline;							  /* glquake.h:418 */
+	vulkan_pipeline_t		   particle_mboit_moment_pipeline;					  /* glquake.h:420 */
+	vulkan_pipeline_t		   particle_mboit_composite_pipeline;				  /* glquake.h:421 */
+	vulkan_pipeline_t		   showtris_pipeline[MAIN_RENDER_PASS_VARIANT_COUNT]; /* glquake.h:451 */
+	vulkan_pipeline_t		   showtris_depth_test_pipeline[MAIN_RENDER_PASS_VARIANT_COUNT]; /* glquake.h:453 */
+	VkPhysicalDeviceProperties device_properties;									 /* glquake.h:365 */
+	VkPhysicalDeviceFeatures   device_features;	  /* glquake.h:366 */
+	qboolean				   ray_query;		  /* glquake.h:385 */
+	/* Phase 7 M10f-2 (T10.5): the five members r_part_fte.c's rendering half
+	 * names -- :5936, :6002, :6088, :6172 (the pipeline arrays), :6217
+	 * (non_solid_fill) and :5697/:6198 (view_projection_matrix). */
+	vulkan_pipeline_t fte_particle_pipelines[MAIN_RENDER_PASS_VARIANT_COUNT][FTE_PARTICLE_PIPELINE_COUNT];		  /* glquake.h:465 */
+	vulkan_pipeline_t fte_particle_wboit_pipelines[FTE_PARTICLE_PIPELINE_COUNT];								  /* glquake.h:466 */
+	vulkan_pipeline_t fte_particle_post_oit_pipelines[MAIN_RENDER_PASS_VARIANT_COUNT][FTE_PARTICLE_PIPELINE_COUNT]; /* glquake.h:467 */
+	qboolean		  non_solid_fill;																  /* glquake.h:373 */
+	float			  view_projection_matrix[16];													  /* glquake.h:504 */
+	void (*vk_cmd_push_constants) (VkCommandBuffer, VkPipelineLayout, VkFlags, uint32_t, uint32_t, const void *); /* glquake.h:512 */
+} vulkanglobals_t;
+extern vulkanglobals_t vulkan_globals;
+
+/* Phase 7 M10f-1, continued: the rest of r_part.c's rendering-half surface.
+ * The Vulkan entry points and the GL_ / R_Staging helpers are FAITHFUL in
+ * spelling (glquake.h:826, :913-915, :933 and vulkan_core.h); the three
+ * counters are FAITHFUL (quakedef.h:513, glquake.h:587, :597). */
+VkResult vkCreateBuffer (VkDevice device, const VkBufferCreateInfo *create_info, const void *allocator, VkBuffer *buffer);
+void	 vkGetBufferMemoryRequirements (VkDevice device, VkBuffer buffer, VkMemoryRequirements *requirements);
+VkResult vkAllocateMemory (VkDevice device, const VkMemoryAllocateInfo *allocate_info, const void *allocator, VkDeviceMemory *memory);
+VkResult vkBindBufferMemory (VkDevice device, VkBuffer buffer, VkDeviceMemory memory, VkDeviceSize offset);
+void	 vkCmdCopyBuffer (VkCommandBuffer cb, VkBuffer src, VkBuffer dst, uint32_t region_count, const VkBufferCopy *regions);
+void	 GL_SetObjectName (uint64_t object, VkObjectType object_type, const char *name);
+int		 GL_MemoryTypeFromProperties (uint32_t type_bits, VkFlags requirements_mask, VkFlags preferred_mask);
+byte	*R_StagingAllocate (int size, int alignment, VkCommandBuffer *cb_context, VkBuffer *buffer, int *buffer_offset);
+void	 R_StagingBeginCopy (void);
+void	 R_StagingEndCopy (void);
+extern atomic_uint32_t rs_particles;
+extern atomic_uint32_t num_vulkan_dynbuf_allocations;
+extern atomic_uint64_t total_device_vulkan_allocation_size;
+
+/* FAITHFUL: glquake.h:292-299 and :303-318, transcribed because glquake.h
+ * itself is unreachable here. Both are pure selectors over the enums above. */
+static inline main_render_pass_variant_t R_MainPassPipelineVariant (int render_pass_index)
+{
+	if (render_pass_index == RENDER_PASS_INDEX_MAIN_OIT)
+		return MAIN_RENDER_PASS_OIT;
+	if (render_pass_index == RENDER_PASS_INDEX_MAIN_MBOIT)
+		return MAIN_RENDER_PASS_MBOIT;
+	return MAIN_RENDER_PASS_STANDARD;
+}
+static inline vulkan_pipeline_t R_PipelineForRenderPass (
+	int render_pass_index, vulkan_pipeline_t main_pipeline, vulkan_pipeline_t wboit_pipeline, vulkan_pipeline_t mboit_moment_pipeline,
+	vulkan_pipeline_t mboit_composite_pipeline)
+{
+	switch (render_pass_index)
+	{
+	case RENDER_PASS_INDEX_WBOIT:
+		return wboit_pipeline;
+	case RENDER_PASS_INDEX_MBOIT_MOMENTS:
+		return mboit_moment_pipeline;
+	case RENDER_PASS_INDEX_MBOIT_COMPOSITE:
+		return mboit_composite_pipeline;
+	default:
+		return main_pipeline;
+	}
+}
+
+/* COMPILE-ONLY: glquake.h:866-880 wraps vulkan_globals' debug-utils label
+ * function pointers behind a `if (vulkan_globals.debug_utils)` guard. Neither
+ * the flag nor the two pointers are mirrored above; r_part.c:1080 and :1091
+ * are the only callers in this link and they never run. */
+static inline void R_BeginDebugUtilsLabel (cb_context_t *cbx, const char *name)
+{
+	(void)cbx;
+	(void)name;
+}
+static inline void R_EndDebugUtilsLabel (cb_context_t *cbx)
+{
+	(void)cbx;
+}
+
+/* FAITHFUL: glquake.h:81-105. r_part.c's pool element type; quake-c-sys's
+ * ADR-011 mirror (rust/quake-c-sys/src/r_part.rs) is field-for-field this. */
+typedef enum
+{
+	pt_static,
+	pt_grav,
+	pt_slowgrav,
+	pt_fire,
+	pt_explode,
+	pt_explode2,
+	pt_blob,
+	pt_blob2
+} ptype_t;
+typedef struct particle_s
+{
+	vec3_t			   org;
+	float			   color;
+	struct particle_s *next;
+	vec3_t			   vel;
+	float			   ramp;
+	float			   die;
+	ptype_t			   type;
+} particle_t;
+
+/* COMPILE-ONLY: gl_texmgr.h's gltexture_s is completed here with just the one
+ * member pr_ext.c:4945 reads off char_texture. The real struct has ~20 more. */
+struct gltexture_s
+{
+	VkDescriptorSet descriptor_set;
+};
+
+/* FAITHFUL: glquake.h:625-630 */
+typedef struct
+{
+	float position[3];
+	float texcoord[2];
+	byte  color[4];
+} basicvertex_t;
+
+/* FAITHFUL: glquake.h:790 and the two renderer entry points DrawQC_
+ * CharacterQuad calls; vkCmdSetScissor is Vulkan's own. */
+byte *R_VertexAllocate (int size, VkBuffer *buffer, VkDeviceSize *buffer_offset);
+void  R_BindPipeline (cb_context_t *cbx, VkPipelineBindPoint bind_point, vulkan_pipeline_t pipeline);
+void  vkCmdSetScissor (VkCommandBuffer cb, uint32_t first, uint32_t count, const VkRect2D *scissors);
+int	  R_LightPoint (vec3_t p, float ofs, lightcache_t *cache, vec3_t *lightcolor);
+
+/* FAITHFUL: Quake/draw.h:32-42's picflags_t and the Draw_* entry points
+ * pr_ext.c's PF_cl_drawpic / PF_cl_drawsubpic / PF_cl_getimagesize reach
+ * (draw.h itself is not includable here: every prototype takes cb_context_t).
+ * gl_texmgr.c:63's palette table comes along for PF_cl_drawcharacter's colour
+ * lookup. */
+typedef enum
+{
+	PICFLAG_AUTO = 0,
+	PICFLAG_WAD = (1u << 0),
+	PICFLAG_WRAP = (1u << 2),
+	PICFLAG_MIPMAP = (1u << 3),
+	PICFLAG_NOLOAD = (1u << 31)
+} picflags_t;
+qpic_t *Draw_PicFromWad2 (const char *name, unsigned int texflags, int picflags);
+qpic_t *Draw_GetCachedPic (const char *path);
+qpic_t *Draw_TryCachePic (const char *path, unsigned int texflags, int picflags);
+void	Draw_Pic (cb_context_t *cbx, float x, float y, qpic_t *pic, float alpha, qboolean alpha_blend);
+void	Draw_SubPic (
+	   cb_context_t *cbx, float x, float y, float w, float h, qpic_t *pic, float s1, float t1, float s2, float t2, float *rgb, float alpha);
+extern unsigned int d_8to24table[256];
+
+extern int r_trace_line_cache_counter;
+#define InvalidateTraceLineCache()    \
+	do                                \
+	{                                 \
+		++r_trace_line_cache_counter; \
+	} while (0);
+
+extern qboolean render_warp;
+extern int		render_scale;
+
+void		Fog_ParseServerMessage (void);
+const char *Fog_GetFogCommand (qboolean always);
+void		Fog_NewMap (void);
+void		Sky_NewMap (void);
+void		Sky_LoadSkyBox (const char *name);
+const char *Sky_GetSkyCommand (qboolean always);
+
+void R_UpdateEntityDlights (void);
+void R_ClearParticles (void);
+void R_TranslatePlayerSkin (int playernum);
+void R_TranslateNewPlayerSkin (int playernum);
+void R_AllocateEntityBLAS (entity_t *e);
+void R_FreeEntityBLAS (entity_t *e);
+
+/* quakedef.h's client-visible slice: :136-167 items_t (view.c's cshift
+ * powerup arms), :214 MAX_SCOREBOARD, :392, :408, :484, :496. */
+/* clang-format off */
+typedef enum
+{
+	IT_SHOTGUN			= 1,
+	IT_SUPER_SHOTGUN	= 2,
+	IT_NAILGUN			= 4,
+	IT_SUPER_NAILGUN	= 8,
+	IT_GRENADE_LAUNCHER	= 16,
+	IT_ROCKET_LAUNCHER	= 32,
+	IT_LIGHTNING		= 64,
+	IT_SUPER_LIGHTNING	= 128,
+	IT_SHELLS			= 256,
+	IT_NAILS			= 512,
+	IT_ROCKETS			= 1024,
+	IT_CELLS			= 2048,
+	IT_AXE				= 4096,
+	IT_ARMOR1			= 8192,
+	IT_ARMOR2			= 16384,
+	IT_ARMOR3			= 32768,
+	IT_SUPERHEALTH		= 65536,
+	IT_KEY1				= 131072,
+	IT_KEY2				= 262144,
+	IT_INVISIBILITY		= 524288,
+	IT_INVULNERABILITY	= 1048576,
+	IT_SUIT				= 2097152,
+	IT_QUAD				= 4194304,
+	IT_SIGIL1			= (1<<28),
+	IT_SIGIL2			= (1<<29),
+	IT_SIGIL3			= (1<<30),
+	IT_SIGIL4			= (1<<31),
+} items_t;
+/* clang-format on */
+
+#define MAX_SCOREBOARD 16
+
+extern qboolean noclip_anglehack;
+extern int		host_framecount;
+void			Host_ShutdownServer (qboolean crash);
+void			DemoList_Rebuild (void);
+
+/* cl_main.c:1168 is the one SDL call in the client stratum (the `copy` of a
+ * console link). SDL3's own header is off-limits here, so the prototype is
+ * spelled out and stubs.c owns the symbol. */
+int SDL_SetClipboardText (const char *text);
+/* common.h:169 declares MSG_WriteStaticOrBaseLine, but this header includes
+ * common.h (line 845) well before the M6 rename block, so cl_demo.c:395,407
+ * would see only the plain declaration and call an undeclared c_ref_ name.
+ * Redeclared here, where the rename macro is in effect. */
+void MSG_WriteStaticOrBaseLine (
+	sizebuf_t *buf, int idx, struct entity_state_s *state, unsigned int protocol_pext2, unsigned int protocol, unsigned int protocolflags);
+
+/* The engine's own client-side headers. None of these seven has a single
+ * #include line of its own except harness.h (q_types.h), and every type they
+ * name is in scope by now, so they come in whole rather than transcribed --
+ * the T6.0 rule. view.h must sit after the rename block above: it declares
+ * view.c's own entry points and v_blend/vid_gamma/vid_contrast, which are
+ * oracle symbols now. */
+/* ---- Phase 7 M7 renames --------------------------------------------------
+ * chase.c, cl_demo.c, cl_input.c, cl_main.c, cl_parse.c, cl_tent.c and view.c
+ * are oracle sources from Phase 7 M7 (T7.0). Every non-static symbol they
+ * define is renamed here so the C reference and the Rust port can coexist in
+ * one link, the same way the M6 block above does for the sv_* stratum.
+ *
+ * The list was taken from `llvm-nm --defined-only` on the seven objects, not
+ * from reading the sources, so it cannot drift silently;
+ * scripts/harness/check_ctest_symbols.sh is the gate that keeps it complete.
+ *
+ * This block must sit before the client-stratum headers included below
+ * (client.h, view.h, ...): those declare the very symbols being renamed, and a
+ * declaration that escapes the macro would leave an un-renamed prototype for
+ * an object that no longer exists under that name.
+ */
+
+/* chase.c */
+#define chase_active           c_ref_chase_active
+#define chase_back             c_ref_chase_back
+#define Chase_Init             c_ref_Chase_Init
+#define chase_right            c_ref_chase_right
+#define chase_up               c_ref_chase_up
+#define Chase_UpdateForClient  c_ref_Chase_UpdateForClient
+#define Chase_UpdateForDrawing c_ref_Chase_UpdateForDrawing
+#define TraceLine              c_ref_TraceLine
+
+/* cl_demo.c */
+#define CL_GetMessage    c_ref_CL_GetMessage
+#define CL_PlayDemo_f    c_ref_CL_PlayDemo_f
+#define CL_Record_f      c_ref_CL_Record_f
+#define CL_Resume_Record c_ref_CL_Resume_Record
+#define CL_Seek_f        c_ref_CL_Seek_f
+#define CL_Stop_f        c_ref_CL_Stop_f
+#define CL_StopPlayback  c_ref_CL_StopPlayback
+#define CL_TimeDemo_f    c_ref_CL_TimeDemo_f
+
+/* cl_input.c */
+#define CL_AdjustAngles  c_ref_CL_AdjustAngles
+#define cl_alwaysrun     c_ref_cl_alwaysrun
+#define CL_AngleLocked   c_ref_CL_AngleLocked
+#define cl_anglespeedkey c_ref_cl_anglespeedkey
+#define cl_backspeed     c_ref_cl_backspeed
+#define CL_BaseMove      c_ref_CL_BaseMove
+#define CL_FinishMove    c_ref_CL_FinishMove
+#define cl_forwardspeed  c_ref_cl_forwardspeed
+#define CL_InitInput     c_ref_CL_InitInput
+#define CL_KeyState      c_ref_CL_KeyState
+#define cl_movespeedkey  c_ref_cl_movespeedkey
+#define cl_pitchspeed    c_ref_cl_pitchspeed
+#define CL_SendMove      c_ref_CL_SendMove
+#define cl_sidespeed     c_ref_cl_sidespeed
+#define cl_upspeed       c_ref_cl_upspeed
+#define cl_yawspeed      c_ref_cl_yawspeed
+#define in_attack        c_ref_in_attack
+#define IN_AttackDown    c_ref_IN_AttackDown
+#define IN_AttackUp      c_ref_IN_AttackUp
+#define in_back          c_ref_in_back
+#define IN_BackDown      c_ref_IN_BackDown
+#define IN_BackUp        c_ref_IN_BackUp
+#define in_down          c_ref_in_down
+#define IN_DownDown      c_ref_IN_DownDown
+#define IN_DownUp        c_ref_IN_DownUp
+#define in_forward       c_ref_in_forward
+#define IN_ForwardDown   c_ref_IN_ForwardDown
+#define IN_ForwardUp     c_ref_IN_ForwardUp
+#define IN_Impulse       c_ref_IN_Impulse
+#define in_impulse       c_ref_in_impulse
+#define in_jump          c_ref_in_jump
+#define IN_JumpDown      c_ref_IN_JumpDown
+#define IN_JumpUp        c_ref_IN_JumpUp
+#define in_klook         c_ref_in_klook
+#define IN_KLookDown     c_ref_IN_KLookDown
+#define IN_KLookUp       c_ref_IN_KLookUp
+#define in_left          c_ref_in_left
+#define IN_LeftDown      c_ref_IN_LeftDown
+#define IN_LeftUp        c_ref_IN_LeftUp
+#define in_lookdown      c_ref_in_lookdown
+#define IN_LookdownDown  c_ref_IN_LookdownDown
+#define IN_LookdownUp    c_ref_IN_LookdownUp
+#define in_lookup        c_ref_in_lookup
+#define IN_LookupDown    c_ref_IN_LookupDown
+#define IN_LookupUp      c_ref_IN_LookupUp
+#define in_mlook         c_ref_in_mlook
+#define IN_MLookDown     c_ref_IN_MLookDown
+#define IN_MLookUp       c_ref_IN_MLookUp
+#define in_moveleft      c_ref_in_moveleft
+#define IN_MoveleftDown  c_ref_IN_MoveleftDown
+#define IN_MoveleftUp    c_ref_IN_MoveleftUp
+#define in_moveright     c_ref_in_moveright
+#define IN_MoverightDown c_ref_IN_MoverightDown
+#define IN_MoverightUp   c_ref_IN_MoverightUp
+#define in_right         c_ref_in_right
+#define IN_RightDown     c_ref_IN_RightDown
+#define IN_RightUp       c_ref_IN_RightUp
+#define in_speed         c_ref_in_speed
+#define IN_SpeedDown     c_ref_IN_SpeedDown
+#define IN_SpeedUp       c_ref_IN_SpeedUp
+#define in_strafe        c_ref_in_strafe
+#define IN_StrafeDown    c_ref_IN_StrafeDown
+#define IN_StrafeUp      c_ref_IN_StrafeUp
+#define in_up            c_ref_in_up
+#define IN_UpDown        c_ref_IN_UpDown
+#define IN_UpUp          c_ref_IN_UpUp
+#define in_use           c_ref_in_use
+#define IN_UseDown       c_ref_IN_UseDown
+#define IN_UseUp         c_ref_IN_UseUp
+#define KeyDown          c_ref_KeyDown
+#define KeyUp            c_ref_KeyUp
+
+/* cl_main.c -- `cl` and `cls` included; see the DUPLICATE-SYMBOL
+ * HAZARD note in stubs.c for the storage split they create. */
+#define cfg_unbindall                     c_ref_cfg_unbindall
+#define cl                                c_ref_cl
+#define CL_AccumulateCmd                  c_ref_CL_AccumulateCmd
+#define CL_AllocDlight                    c_ref_CL_AllocDlight
+#define cl_bottomcolor                    c_ref_cl_bottomcolor
+#define CL_ClearState                     c_ref_CL_ClearState
+#define CL_ClearTrailStates               c_ref_CL_ClearTrailStates
+#define cl_confirmquit                    c_ref_cl_confirmquit
+#define CL_DecayLights                    c_ref_CL_DecayLights
+#define CL_Disconnect                     c_ref_CL_Disconnect
+#define CL_Disconnect_f                   c_ref_CL_Disconnect_f
+#define cl_dlights                        c_ref_cl_dlights
+#define CL_EstablishConnection            c_ref_CL_EstablishConnection
+#define CL_FreeState                      c_ref_CL_FreeState
+#define CL_GenerateRandomParticlePrecache c_ref_CL_GenerateRandomParticlePrecache
+#define CL_Init                           c_ref_CL_Init
+#define CL_LerpPoint                      c_ref_CL_LerpPoint
+#define cl_lightstyle                     c_ref_cl_lightstyle
+#define cl_maxpitch                       c_ref_cl_maxpitch
+#define cl_maxvisedicts                   c_ref_cl_maxvisedicts
+#define cl_minpitch                       c_ref_cl_minpitch
+#define cl_name                           c_ref_cl_name
+#define CL_NextDemo                       c_ref_CL_NextDemo
+#define cl_nolerp                         c_ref_cl_nolerp
+#define cl_numvisedicts                   c_ref_cl_numvisedicts
+#define cl_numvisedicts_alpha_overwater   c_ref_cl_numvisedicts_alpha_overwater
+#define cl_numvisedicts_alpha_underwater  c_ref_cl_numvisedicts_alpha_underwater
+#define CL_PrintEntities_f                c_ref_CL_PrintEntities_f
+#define CL_ReadFromServer                 c_ref_CL_ReadFromServer
+#define CL_RelinkEntities                 c_ref_CL_RelinkEntities
+#define CL_SendCmd                        c_ref_CL_SendCmd
+#define CL_SendInitialUserinfo            c_ref_CL_SendInitialUserinfo
+#define cl_shownet                        c_ref_cl_shownet
+#define CL_SignonReply                    c_ref_CL_SignonReply
+#define cl_startdemos                     c_ref_cl_startdemos
+#define cl_topcolor                       c_ref_cl_topcolor
+#define CL_Tracepos_f                     c_ref_CL_Tracepos_f
+#define CL_Viewpos_f                      c_ref_CL_Viewpos_f
+#define cl_visedicts                      c_ref_cl_visedicts
+#define cl_visedicts_alpha                c_ref_cl_visedicts_alpha
+#define cls                               c_ref_cls
+#define lookspring                        c_ref_lookspring
+#define lookstrafe                        c_ref_lookstrafe
+#define m_forward                         c_ref_m_forward
+#define m_pitch                           c_ref_m_pitch
+#define m_side                            c_ref_m_side
+#define m_yaw                             c_ref_m_yaw
+#define needs_relink                      c_ref_needs_relink
+#define sensitivity                       c_ref_sensitivity
+#define SV_UpdateInfo                     c_ref_SV_UpdateInfo
+
+/* cl_parse.c */
+#define CL_EntityNum          c_ref_CL_EntityNum
+#define CL_NewTranslation     c_ref_CL_NewTranslation
+#define CL_ParseLocalSound    c_ref_CL_ParseLocalSound
+#define CL_ParseServerMessage c_ref_CL_ParseServerMessage
+#define CL_RegisterParticles  c_ref_CL_RegisterParticles
+#define svc_strings           c_ref_svc_strings
+
+/* cl_tent.c */
+#define cl_beams          c_ref_cl_beams
+#define CL_InitTEnts      c_ref_CL_InitTEnts
+#define CL_NewTempEntity  c_ref_CL_NewTempEntity
+#define CL_ParseTEnt      c_ref_CL_ParseTEnt
+#define cl_temp_entities  c_ref_cl_temp_entities
+#define CL_UpdateBeam     c_ref_CL_UpdateBeam
+#define CL_UpdateTEnts    c_ref_CL_UpdateTEnts
+#define num_temp_entities c_ref_num_temp_entities
+
+/* view.c */
+#define angledelta                c_ref_angledelta
+#define CalcGunAngle              c_ref_CalcGunAngle
+#define cl_bob                    c_ref_cl_bob
+#define cl_bobcycle               c_ref_cl_bobcycle
+#define cl_bobup                  c_ref_cl_bobup
+#define cl_rollangle              c_ref_cl_rollangle
+#define cl_rollspeed              c_ref_cl_rollspeed
+#define crosshair                 c_ref_crosshair
+#define crosshair_def             c_ref_crosshair_def
+#define cshift_lava               c_ref_cshift_lava
+#define cshift_slime              c_ref_cshift_slime
+#define cshift_water              c_ref_cshift_water
+#define gl_cshiftpercent          c_ref_gl_cshiftpercent
+#define gl_cshiftpercent_bonus    c_ref_gl_cshiftpercent_bonus
+#define gl_cshiftpercent_contents c_ref_gl_cshiftpercent_contents
+#define gl_cshiftpercent_damage   c_ref_gl_cshiftpercent_damage
+#define gl_cshiftpercent_powerup  c_ref_gl_cshiftpercent_powerup
+#define r_viewmodel_quake         c_ref_r_viewmodel_quake
+#define scr_ofsx                  c_ref_scr_ofsx
+#define scr_ofsy                  c_ref_scr_ofsy
+#define scr_ofsz                  c_ref_scr_ofsz
+#define V_AddIdle                 c_ref_V_AddIdle
+#define v_autopitch               c_ref_v_autopitch
+#define v_blend                   c_ref_v_blend
+#define V_BonusFlash_f            c_ref_V_BonusFlash_f
+#define V_BoundOffsets            c_ref_V_BoundOffsets
+#define V_CalcBlend               c_ref_V_CalcBlend
+#define V_CalcBob                 c_ref_V_CalcBob
+#define V_CalcIntermissionRefdef  c_ref_V_CalcIntermissionRefdef
+#define V_CalcPowerupCshift       c_ref_V_CalcPowerupCshift
+#define V_CalcRefdef              c_ref_V_CalcRefdef
+#define V_CalcRoll                c_ref_V_CalcRoll
+#define V_CalcViewRoll            c_ref_V_CalcViewRoll
+#define v_centermove              c_ref_v_centermove
+#define v_centerspeed             c_ref_v_centerspeed
+#define V_cshift_f                c_ref_V_cshift_f
+#define V_DriftPitch              c_ref_V_DriftPitch
+#define v_gunkick                 c_ref_v_gunkick
+#define v_idlescale               c_ref_v_idlescale
+#define V_Init                    c_ref_V_Init
+#define v_ipitch_cycle            c_ref_v_ipitch_cycle
+#define v_ipitch_level            c_ref_v_ipitch_level
+#define v_iroll_cycle             c_ref_v_iroll_cycle
+#define v_iroll_level             c_ref_v_iroll_level
+#define v_iyaw_cycle              c_ref_v_iyaw_cycle
+#define v_iyaw_level              c_ref_v_iyaw_level
+#define v_kickpitch               c_ref_v_kickpitch
+#define v_kickroll                c_ref_v_kickroll
+#define v_kicktime                c_ref_v_kicktime
+#define V_ParseDamage             c_ref_V_ParseDamage
+#define v_punchangles             c_ref_v_punchangles
+#define v_punchangles_times       c_ref_v_punchangles_times
+#define V_RenderView              c_ref_V_RenderView
+#define V_ResetBlend              c_ref_V_ResetBlend
+#define V_RestoreAngles           c_ref_V_RestoreAngles
+#define V_SetContentsColor        c_ref_V_SetContentsColor
+#define V_SetupFrame              c_ref_V_SetupFrame
+#define V_StartPitchDrift         c_ref_V_StartPitchDrift
+#define V_StopPitchDrift          c_ref_V_StopPitchDrift
+/* ---- end Phase 7 M7 renames ---- */
+
+#include "console.h"
+#include "screen.h"
+#include "keys.h"
+#include "input.h"
+#include "cdaudio.h"
+#include "harness.h"
+#include "view.h"
+/* ---- end Phase 7 M7 seam ---- */
+
+/* ---- Phase 7 M8 seam: the quakedef.h / glquake.h declarations host.c and
+ * host_cmd.c reach that no header in this slice supplies (task T8.1). Both
+ * files become oracle TUs here, composed by stubs/host_ref.c and
+ * stubs/host_cmd_ref.c rather than listed in build.rs's C_SOURCES; the reason
+ * (the ADR-009 trap machinery stubs.c owns under the plain Host_Error /
+ * Host_EndGame / Host_Guard / Host_Reraise names) is written out at the top of
+ * stubs/host_ref.c. Everything below is copied verbatim from the real header
+ * named on each line. ---- */
+
+#define HOST_NETITERVAL_FREQ (71.9990) /* quakedef.h:70 */
+
+/* quakedef.h:475-477. Host_Guard's real result set. stubs.c's substitute
+ * guard returns its own CTEST_GUARD_* values and says so at its definition;
+ * these three are what the REAL Host_Guard (host.c:302), now an oracle
+ * function, returns. */
+#define HOST_GUARD_OK			0
+#define HOST_GUARD_ABORTSERVER	1
+#define HOST_GUARD_SCREEN_ERROR 2
+
+extern qboolean in_update_screen; /* glquake.h:543 */
+
+/* quakedef.h:412-461 verbatim: the file-list stratum host_cmd.c defines and
+ * menu.c consumes. */
+typedef struct filelist_item_s
+{
+	char					name[32];
+	struct filelist_item_s *next;
+} filelist_item_t;
+
+extern filelist_item_t *modlist;
+extern filelist_item_t *extralevels;
+extern filelist_item_t *demolist;
+extern filelist_item_t *savelist;
+
+typedef enum
+{
+	MAPTYPE_CUSTOM_MOD_START,
+	MAPTYPE_CUSTOM_MOD_LEVEL,
+	MAPTYPE_CUSTOM_MOD_END,
+	MAPTYPE_CUSTOM_MOD_DM,
+
+	MAPTYPE_MOD_START,
+	MAPTYPE_MOD_LEVEL,
+	MAPTYPE_MOD_END,
+	MAPTYPE_MOD_DM,
+
+	MAPTYPE_CUSTOM_ID_START,
+	MAPTYPE_CUSTOM_ID_LEVEL,
+	MAPTYPE_CUSTOM_ID_END,
+	MAPTYPE_CUSTOM_ID_DM,
+
+	MAPTYPE_ID_START,
+	MAPTYPE_ID_EP1_LEVEL,
+	MAPTYPE_ID_EP2_LEVEL,
+	MAPTYPE_ID_EP3_LEVEL,
+	MAPTYPE_ID_EP4_LEVEL,
+	MAPTYPE_ID_END,
+	MAPTYPE_ID_DM,
+	MAPTYPE_ID_LEVEL,
+
+	MAPTYPE_BMODEL,
+
+	MAPTYPE_COUNT,
+} maptype_t;
+
+maptype_t	ExtraMaps_GetType (const filelist_item_t *item);
+qboolean	ExtraMaps_IsStart (maptype_t type);
+const char *ExtraMaps_GetMessage (const filelist_item_t *item);
+
+extern filelist_item_t **extralevels_sorted;
+
+const char *Modlist_GetFullName (const filelist_item_t *item);
+
+#define SAVEGAME_COMMENT_LENGTH 39 /* quakedef.h:97 */
+
+/* quakedef.h:173-207 verbatim: the mission-pack item bit sets Host_Give_f
+ * (host_cmd.c:2663) switches on. */
+typedef enum
+{
+	RIT_SHELLS = 128,
+	RIT_NAILS = 256,
+	RIT_ROCKETS = 512,
+	RIT_CELLS = 1024,
+	RIT_AXE = 2048,
+	RIT_LAVA_NAILGUN = 4096,
+	RIT_LAVA_SUPER_NAILGUN = 8192,
+	RIT_MULTI_GRENADE = 16384,
+	RIT_MULTI_ROCKET = 32768,
+	RIT_PLASMA_GUN = 65536,
+	RIT_ARMOR1 = 8388608,
+	RIT_ARMOR2 = 16777216,
+	RIT_ARMOR3 = 33554432,
+	RIT_LAVA_NAILS = 67108864,
+	RIT_PLASMA_AMMO = 134217728,
+	RIT_MULTI_ROCKETS = 268435456,
+	RIT_SHIELD = 536870912,
+	RIT_ANTIGRAV = 1073741824,
+	RIT_SUPERHEALTH = 2147483648,
+} rogueitems_t;
+
+typedef enum
+{
+	HIT_PROXIMITY_GUN_BIT = 16,
+	HIT_MJOLNIR_BIT = 7,
+	HIT_LASER_CANNON_BIT = 23,
+	HIT_PROXIMITY_GUN = (1 << HIT_PROXIMITY_GUN_BIT),
+	HIT_MJOLNIR = (1 << HIT_MJOLNIR_BIT),
+	HIT_LASER_CANNON = (1 << HIT_LASER_CANNON_BIT),
+	HIT_WETSUIT = (1 << (23 + 2)),
+	HIT_EMPATHY_SHIELDS = (1 << (23 + 3)),
+} hipnoticitems_t;
+
+/* quakedef.h:482-497 verbatim: host_cmd.c owns all of these; host.c calls
+ * four of them, so without the declarations host.c's TU falls back to
+ * implicit int. */
+void Host_Quit_f (void);
+void Host_Resetdemos (void);
+
+void ExtraMaps_Init (void);
+void Modlist_Init (void);
+void DemoList_Init (void);
+void SaveList_Init (void);
+
+void ExtraMaps_NewGame (void);
+void ExtraMaps_Clear (void);
+void ExtraMaps_ShutDown (void);
+void DemoList_Rebuild (void);
+void SaveList_Rebuild (void);
+
+#include "server.h"
+#include "client.h"
+
+/* ---- Phase 7 M10b seam: the menu.h / platform.h declarations keys.c reaches
+ * (task M10b). keys.c becomes an oracle TU here, composed by stubs/keys_ref.c
+ * rather than listed in build.rs's C_SOURCES; the reason (host.c's link
+ * doubles for Key_Init / Key_UpdateForDest / History_Shutdown /
+ * Key_WriteBindings, and the two host_differential.rs tests that assert on
+ * them) is written out at the top of stubs/keys_ref.c.
+ *
+ * menu.h is NOT included as-is: it declares M_Print/M_Draw over cb_context_t,
+ * which is Vulkan-typed (gl_context.h). platform.h is include-clean but is
+ * otherwise entirely SDL-facing, so only the one entry point keys.c calls is
+ * taken. Both groups are copied verbatim from the line named on each. ---- */
+
+extern qboolean m_is_quitting; /* menu.h:58 */
+
+void	 M_Keydown (int key);			 /* menu.h:65 */
+void	 M_Charinput (int key);			 /* menu.h:66 */
+qboolean M_TextEntry (void);			 /* menu.h:67 */
+qboolean M_WaitingForKeyBinding (void);	 /* menu.h:68 */
+void	 M_ToggleMenu_f (void);			 /* menu.h:69 */
+
+char *PL_GetClipboardData (void); /* platform.h:34 */
+
+/* ---- Phase 7 M10c seam: the draw.h / quakedef.h / tasks.h / sys.h / menu.h
+ * declarations console.c reaches (task M10c). console.c becomes an oracle TU
+ * here, composed by stubs/console_ref.c rather than listed in build.rs's
+ * C_SOURCES; the reason (stubs/stubs.c's CON_STUB capture doubles for
+ * Con_Printf and friends, which ~1100 existing assertions read back) is
+ * written out at the top of stubs/console_ref.c.
+ *
+ * draw.h is NOT included as-is: it declares the whole Vulkan-facing 2D API
+ * over gl_context.h types. Only the seven entry points and the one constant
+ * console.c draws through are taken, copied verbatim from the line named on
+ * each. Likewise tasks.h and menu.h reach SDL through q_stdinc.h. ---- */
+
+#define CHARACTER_SIZE 8 /* draw.h:26 */
+
+/* quakedef.h:238-251 */
+typedef enum
+{
+	CANVAS_NONE,
+	CANVAS_DEFAULT,
+	CANVAS_CONSOLE,
+	CANVAS_MENU,
+	CANVAS_SBAR,
+	CANVAS_WARPIMAGE,
+	CANVAS_CROSSHAIR,
+	CANVAS_BOTTOMLEFT,
+	CANVAS_TOPLEFT,
+	CANVAS_BOTTOMRIGHT,
+	CANVAS_TOPRIGHT,
+	CANVAS_CSQC,
+	CANVAS_INVALID = -1
+} canvastype;
+
+void Draw_Character (cb_context_t *cbx, float x, float y, int num);						 /* draw.h:46 */
+void Draw_ConsoleBackground (cb_context_t *cbx);										 /* draw.h:50 */
+void Draw_Pic (cb_context_t *cbx, float x, float y, qpic_t *pic, float alpha, qboolean alpha_blend); /* draw.h:47 */
+void Draw_Fill (cb_context_t *cbx, float x, float y, float w, float h, int c, float alpha); /* draw.h:52 */
+void Draw_String (cb_context_t *cbx, float x, float y, const char *str);				 /* draw.h:54 */
+void GL_SetCanvas (cb_context_t *cbx, canvastype newcanvas);							 /* draw.h:64 */
+void GL_SetCanvasColor (float r, float g, float b, float a);							 /* draw.h:65 */
+
+extern double host_rawframetime; /* quakedef.h:406 */
+
+qboolean Tasks_IsWorker (void); /* tasks.h:38 */
+
+qboolean Sys_Explore (const char *path); /* sys.h:100 */
+void	 Sys_Sleep (unsigned long msecs); /* sys.h:159 */
+
+void M_Menu_Main_f (void); /* menu.h:74 */
+
+void S_LocalSound (const char *name); /* q_sound.h:184 */
+
+
+/* ---- Phase 7 M10d seam: the draw.h / menu.h / screen.h declarations sbar.c
+ * reaches (task M10d). sbar.c becomes an oracle TU here, composed by
+ * stubs/sbar_ref.c rather than listed in build.rs's C_SOURCES; the reason
+ * (stubs/console_ref.c already owns the shared Draw_ recorder, and the two
+ * files' file-static pic tables must not collide) is written out at the top
+ * of stubs/sbar_ref.c. The doubles live in stubs/draw_ref.c.
+ *
+ * draw.h and menu.h are NOT included as-is: both are Vulkan-facing through
+ * cb_context_t. Only what sbar.c names is taken, copied verbatim from the
+ * line named on each. screen.h IS included above (:1875), so it already
+ * supplies scr_sbaralpha and scr_sbarscale; scr_style is not in any header --
+ * gl_screen.c:94 defines it and gl_draw.c:29, menu.c:119 and sbar.c:69 each
+ * re-declare it locally -- so the one declaration below is needed here. ---- */
+
+qpic_t *Draw_PicFromWad (const char *name);						  /* draw.h:44 */
+qpic_t *Draw_CachePic (const char *path);						  /* draw.h:48 */
+void	Draw_TileClear (cb_context_t *cbx, int x, int y, int w, int h); /* draw.h:51 */
+extern qpic_t *draw_disc;										  /* draw.h:31 */
+
+void M_Print (cb_context_t *cbx, int cx, int cy, const char *str); /* menu.h:78 */
+void M_DrawPic (cb_context_t *cbx, int x, int y, qpic_t *pic);	   /* menu.h:82 */
+
+extern cvar_t scr_style; /* gl_screen.c:94 */
+
+/* ---- Phase 7 M10e seam: the three declarations Quake/menu.c reaches that no
+ * header above supplies (task M10e). menu.c becomes an oracle TU here,
+ * composed by stubs/menu_ref.c rather than listed in build.rs's C_SOURCES;
+ * the reason is written out at the top of that file. menu.h is NOT force-
+ * included here -- stubs/menu_ref.c includes it itself, after its rename
+ * block, so that menu.h's prototypes are renamed in step with menu.c's
+ * definitions.
+ *
+ * The two Draw_ entries are copied verbatim from the draw.h line named on
+ * each; their doubles live in stubs/draw_ref.c beside the rest of the shared
+ * draw recorder. SDL_GetMouseState is declared with SDL2's `int *`
+ * signature because the harness builds without USE_SDL3, so menu.c:4630-4635
+ * takes the #else branch; the double is in stubs/menu_ref.c, and the port
+ * half reaches the same fixture position through Menu_Glue_GetMouseState.
+ * No Rust TU names an SDL symbol. ---- */
+
+void Draw_TransPicTranslate (cb_context_t *cbx, float x, float y, qpic_t *pic, int top, int bottom); /* draw.h:49 */
+void Draw_FadeScreen (cb_context_t *cbx);															 /* draw.h:53 */
+
+uint32_t SDL_GetMouseState (int *x, int *y); /* SDL2 SDL_mouse.h */
+
+
+/* ---- Phase 7 M10f-2 (T10.5): the r_part_fte.c oracle's rendering half ----
+ *
+ * stubs/r_part_fte_ref.c composes Quake/r_part_fte.c the way stubs/r_part_ref.c
+ * composes Quake/r_part.c. Its simulation half is the differential's subject;
+ * its rendering half (r_part_fte.c:5547-6250) and its decal clipper
+ * (:3928-4307) come along because a #include cannot take half a file. Nothing
+ * in this link calls either: PScript_DrawParticles* and the five task entry
+ * points have no caller here, and Mod_ClipDecal is reached only from
+ * PScript_EffectSpawned's decal arm, whose Q1BSP walk needs a loaded world
+ * model that this link never mounts.
+ *
+ * COMPILE-ONLY throughout -- these are spellings, not layouts. Definitions,
+ * where any are needed, live in stubs/r_part_fte_ref.c and abort. The
+ * Vulkan/texture surface the M10f-1 block above already declares is not
+ * repeated. ---- */
+
+#define VK_NULL_HANDLE						 0
+#define VK_BUFFER_USAGE_VERTEX_BUFFER_BIT	 0x00000080
+#define VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT	 0x00000002
+#define VK_MEMORY_PROPERTY_HOST_CACHED_BIT	 0x00000008
+#define VK_SHADER_STAGE_ALL_GRAPHICS		 0x0000001F
+#define TEXPREF_PREMULTIPLY					 0x1000 /* gl_texmgr.h:49 */
+
+/* FAITHFUL in spelling: glquake.h:178-190. */
+typedef enum
+{
+	VULKAN_MEMORY_TYPE_NONE,
+	VULKAN_MEMORY_TYPE_DEVICE,
+	VULKAN_MEMORY_TYPE_HOST,
+} vulkan_memory_type_t;
+typedef struct vulkan_memory_s
+{
+	VkDeviceMemory		 handle;
+	size_t				 size;
+	vulkan_memory_type_t type;
+} vulkan_memory_t;
+
+/* glquake.h:885-886, :711 and vulkan_core.h. Doubles in
+ * stubs/r_part_fte_ref.c; every one of them aborts. */
+void R_AllocateVulkanMemory (vulkan_memory_t *memory, VkMemoryAllocateInfo *memory_allocate_info, vulkan_memory_type_t type, atomic_uint32_t *num_allocations);
+void R_FreeVulkanMemory (vulkan_memory_t *memory, atomic_uint32_t *num_allocations);
+void Fog_DisableGFog (cb_context_t *cbx);
+void vkDestroyBuffer (VkDevice device, VkBuffer buffer, const void *allocator);
+VkResult vkMapMemory (VkDevice device, VkDeviceMemory memory, VkDeviceSize offset, VkDeviceSize size, VkFlags flags, void **data);
+void vkUnmapMemory (VkDevice device, VkDeviceMemory memory);
+
+/* gl_texmgr.h:111, :98 and image.h:29. TexMgr_LoadImage is already declared in
+ * the block above; these three complete P_LoadTexture's surface
+ * (r_part_fte.c:1146-1326). Doubles in stubs/r_part_fte_ref.c. */
+gltexture_t *TexMgr_FindTexture (qmodel_t *owner, const char *name);
+byte		*Image_LoadImage (const char *name, int *width, int *height, enum srcformat *fmt, unsigned int min_path_id);
+extern gltexture_t *whitetexture;
+
+/* glquake.h:123. r_part_fte.c:3476 calls it before its own definition at
+ * :3754, and glquake.h is unreachable here. */
+void PScript_EmitSkyEffectTris (qmodel_t *mod, msurface_t *fa, int ptype);
+
+/* COMPILE-ONLY mirror of glquake.h:861-864. The real one dispatches through
+ * vulkan_globals.vk_cmd_push_constants; r_part_fte.c:6217 and :6237 are the
+ * only callers in this link and neither runs. */
+static inline void R_PushConstants (cb_context_t *cbx, VkFlags stage_flags, int offset, int size, const void *data)
+{
+	(void)cbx;
+	(void)stage_flags;
+	(void)offset;
+	(void)size;
+	(void)data;
+}
+
+/* tasks.h:30, :37, :39. tasks.h is not force-included here (ADR-016 keeps
+ * tasks.c C until Phase 8 and it is not an oracle source), and
+ * r_part_fte.c:6305 sizes deferred_queues[] with TASKS_MAX_WORKERS. The two
+ * functions are defined in stubs/r_part_fte_ref.c as a single-worker task
+ * pool, which is what makes the parallel update deterministic here. */
+#define TASKS_MAX_WORKERS 32
+int Tasks_NumWorkers (void);
+int Tasks_GetWorkerIndex (void);
 
 #endif /* C_REF_PRELUDE_H */
