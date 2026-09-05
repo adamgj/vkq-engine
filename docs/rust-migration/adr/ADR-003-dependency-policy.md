@@ -137,3 +137,24 @@ adoption and its `cargo deny check` land with the milestone named):
 All four satisfy the allowlist via MIT. Each adopting milestone must run
 `cargo deny check licenses` over the full resolved tree and record the result
 in the task plan's evidence table.
+
+### Adopted at Phase 8 M2 (2026-09-05)
+
+- `crossbeam-deque` 0.8.8 with its transitives `crossbeam-epoch` 0.9.21 and
+  `crossbeam-utils` 0.8.23 (all "MIT OR Apache-2.0", taken as MIT) —
+  `quake-tasks` runtime dependencies, reaching the staticlib only under the
+  `tasks` feature. `crossbeam-utils` stays a transitive: the scheduler idles
+  on a per-slot `Mutex`/`Condvar`, so `Parker`/`Backoff` were not adopted.
+- `loom` 0.7.2 (MIT), dev-only under `[target.'cfg(loom)'.dev-dependencies]`
+  of `quake-tasks`. Its transitives are dev-only too: `generator` 0.8.9,
+  `scoped-tls` 1.0.1, `lazy_static` 1.5.0, `log` 0.4.34, `pin-project-lite`
+  0.2.17, `regex-automata` 0.4.18, `rustversion` 1.0.23, `smallvec` 1.16.0,
+  `thread_local` 1.1.10, `windows-result` 0.4.1 ("MIT OR Apache-2.0");
+  `tracing` 0.1.44, `tracing-core` 0.1.36, `tracing-log` 0.2.0,
+  `tracing-subscriber` 0.3.23, `matchers` 0.2.0, `nu-ansi-term` 0.50.3,
+  `sharded-slab` 0.1.7, `valuable` 0.1.1 (MIT); `aho-corasick` 1.1.5 and
+  `memchr` 2.8.3 ("Unlicense OR MIT", taken as MIT; both already in the
+  tree through `regex`).
+- `cargo deny check` (licenses, bans, advisories, sources) is clean in both
+  workspaces (`rust/`, `rust/fuzz`) with `deny.toml` unchanged.
+- `ash` is not yet adopted (M3).

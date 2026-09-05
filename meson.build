@@ -254,7 +254,6 @@ srcs = [
     'Quake/r_world.c',
     'Quake/steam_api.c',
 	'Quake/sys_sdl.c',
-    'Quake/tasks.c',
 	 run_generate_embedded_pak,
 ]
 
@@ -885,6 +884,23 @@ if use_rust_host
     srcs += ['Quake/r_part_fte_glue.c']
 else
     srcs += ['Quake/r_part_fte.c']
+endif
+
+# Phase 8 M2: tasks.c -> quake-tasks via quake-capi (Pattern A whole-file
+# swap, ADR-016). The Rust staticlib exports every Task_*/Tasks_* entry point
+# of tasks.h byte-for-byte (the signature gate compiles tasks.h against
+# quake_rs.h), so the glue TU is small: Quake/tasks_glue.c keeps only the
+# _DEBUG `test_tasks` command verbatim, because host.c and host_glue.c both
+# register TestTasks_f and the stress test is meant to drive the scheduler
+# through the real C ABI. tasks.c has no C-visible data symbols and no
+# raise-capable callee (Con_Printf/Con_DPrintf only), so there is no
+# Host_Guard topology to mirror. The C original stays the
+# -Duse_rust_tasks=disabled comparison oracle (build-rs-ctasks). atomics.h
+# stays: its other users are the C renderer, which retires it in Phase 9.
+if use_rust_tasks
+    srcs += ['Quake/tasks_glue.c']
+else
+    srcs += ['Quake/tasks.c']
 endif
 
 if use_rust_snd

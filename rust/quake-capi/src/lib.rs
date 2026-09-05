@@ -140,6 +140,8 @@ pub mod sv_phys; // sv_phys.c
 pub mod sv_send; // sv_send.c
 #[cfg(feature = "host")]
 pub mod sv_user; // sv_user.c
+#[cfg(feature = "tasks")]
+pub mod tasks; // tasks.c
 #[cfg(feature = "host")]
 pub mod view; // view.c
 pub mod wad;

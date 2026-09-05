@@ -35,6 +35,7 @@ pub mod sv_move;
 pub mod sv_phys;
 pub mod sv_send;
 pub mod sv_user;
+pub mod tasks;
 pub mod view;
 
 /// Engine globals whose C types cannot be represented portably in the

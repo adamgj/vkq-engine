@@ -114,11 +114,15 @@ def run_engine(exe, entry, args, label, out_dir, extra_args, renderhash=True):
     staging = tempfile.mkdtemp(prefix="vkq-r-")
     try:
         stage_basedir(args.game_data, staging)
-        # con_notifytime 0: the "Wrote <screenshot>" notify line is printed from
-        # the asynchronous end-rendering task, so it would land on a
-        # wall-clock-dependent frame (and put a timestamped filename into the
-        # next screenshot); the console itself is still hashed at startup
-        cmdlines = ["0 con_notifytime 0"]
+        # con_notifytime -1: the "Wrote <screenshot>" notify line is printed from
+        # the asynchronous end-rendering task, so it lands on a
+        # wall-clock-dependent frame (and would put a timestamped filename into
+        # the next screenshot). 0 is not enough: con_times is a float and
+        # realtime a double, so the stored time rounds above realtime about
+        # half the time and the line is drawn for one frame; -1 closes the
+        # window (Con_NotifyAlpha). Notify lines are therefore never hashed;
+        # the console proper (Con_DrawConsole while it is down) still is.
+        cmdlines = ["0 con_notifytime -1"]
         if entry.get("timedemo"):
             cmdlines.append(f"0 timedemo {entry['timedemo']}")
         elif entry.get("demo"):

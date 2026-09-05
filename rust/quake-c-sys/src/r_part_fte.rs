@@ -920,13 +920,6 @@ extern "C" {
         trace: *mut c_void,
     ) -> bool;
 
-    /// `tasks.h` -- `int Tasks_GetWorkerIndex (void)`.
-    pub fn Tasks_GetWorkerIndex() -> c_int;
-    /// `tasks.h` -- `int Tasks_NumWorkers (void)`.
-    pub fn Tasks_NumWorkers() -> c_int;
-    /// `tasks.h` -- `qboolean Tasks_IsWorker (void)`.
-    pub fn Tasks_IsWorker() -> bool;
-
     /// libc `int atoi (const char *)`.
     pub fn atoi(s: *const c_char) -> c_int;
     /// libc `double atof (const char *)`.
@@ -968,3 +961,6 @@ extern "C" {
     /// palette the effect parser reads `palrgba` bytes out of.
     pub static mut d_8to24table: [c_uint; 256];
 }
+
+// Phase 8 M2: the task-system queries live in `crate::tasks` (ADR-016).
+pub use crate::tasks::{Tasks_GetWorkerIndex, Tasks_IsWorker, Tasks_NumWorkers};

@@ -76,6 +76,26 @@ static inline int FindLastBitNonZero (const uint32_t mask)
 #include "snd_codec.h"
 #include "snd_codeci.h"
 #include "bgmusic.h"
+/* Phase 8 M2: the task-system shim (ADR-016). The real tasks.h pulls
+ * q_stdinc.h and therefore SDL.h (for TASK_TIMEOUT_INFINITE), so -- as for
+ * gl_texmgr.h below -- hand-copy the ABI slice and claim the guard, which is
+ * what quake_rs.h keys its declarations off. The engine build compiles
+ * host.c with the real tasks.h next to quake_rs.h, which catches drift. */
+#define __TASKS_H
+typedef uint64_t task_handle_t;
+typedef void (*task_func_t) (void *);
+typedef void (*task_indexed_func_t) (int, void *);
+void		  Tasks_Init (void);
+int			  Tasks_NumWorkers (void);
+qboolean	  Tasks_IsWorker (void);
+int			  Tasks_GetWorkerIndex (void);
+task_handle_t Task_Allocate (void);
+void		  Task_AssignFunc (task_handle_t handle, task_func_t func, void *payload, size_t payload_size);
+void		  Task_AssignIndexedFunc (task_handle_t handle, task_indexed_func_t func, uint32_t limit, void *payload, size_t payload_size);
+void		  Task_Submit (task_handle_t handle);
+void		  Tasks_Submit (int num_handles, task_handle_t *handles);
+void		  Task_AddDependency (task_handle_t before, task_handle_t after);
+qboolean	  Task_Join (task_handle_t handle, uint32_t timeout);
 /* Phase 6 M3: the progs interpreter shim. progs.h needs protocol.h for
  * entity_state_t (edict_t embeds it), progdefs.h for entvars_t, and
  * quakedef.h's per-level limits for freelist_t. */
