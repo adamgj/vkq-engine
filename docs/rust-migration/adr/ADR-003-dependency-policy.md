@@ -106,3 +106,34 @@ All three satisfy the allowlist via MIT (deny.toml excludes Apache-only
 licenses; none of these trees are Apache-only). The M7 PR must still run
 `cargo deny check licenses` over the full resolved tree and verify the
 `*-pc-windows-gnu` build before merging.
+
+## Amended (Phase 8 M1, 2026-09-05) — planned task-system and renderer dependencies
+
+Phase 8 plans four new direct dependencies, recorded here at phase start so
+the introduction-bar review happens before any code depends on them (each
+adoption and its `cargo deny check` land with the milestone named):
+
+- **`crossbeam-deque`** 0.8 ("MIT OR Apache-2.0" → MIT; crossbeam-rs org) —
+  the injector + per-worker deque + stealer trio the ADR-016 scheduler is
+  designed around (`quake-tasks`, M2). Its transitives `crossbeam-epoch` and
+  `crossbeam-utils` carry the same dual license. Alternatives: `rayon` (a
+  different scheduler model, not the ADR-016 design), an in-tree Chase-Lev
+  deque (unsafe we would own; rejected while a maintained one exists).
+- **`crossbeam-utils`** 0.8 (same license, already a transitive) —
+  `Parker`/`Backoff`/`CachePadded` for worker idling (M2).
+- **`loom`** 0.7 (MIT; tokio-rs org) — dev-only, declared under
+  `[target.'cfg(loom)'.dev-dependencies]` so it is never resolved into the
+  staticlib; runs the scheduler's state-machine models in the `rust.yml`
+  `loom` job (M2).
+- **`ash`** 0.38 ("MIT OR Apache-2.0" → MIT; ash-rs org) — the ADR-015 Vulkan
+  binding. `default-features = false, features = ["std", "debug"]` and
+  explicitly **not** `loaded`: the engine keeps loading through
+  `SDL_Vulkan_GetVkGetInstanceProcAddr`, so `libloading` stays out of the
+  tree and the crate has no runtime transitives. Introduced at M3 for the
+  `vulkan_memory_t` handle mirror (ADR-011); the wider API surface follows
+  from M6. Alternatives: `vulkano`/`wgpu` (ADR-015 rejects an abstraction
+  layer), unmaintained raw `vk-sys`-style bindings.
+
+All four satisfy the allowlist via MIT. Each adopting milestone must run
+`cargo deny check licenses` over the full resolved tree and record the result
+in the task plan's evidence table.

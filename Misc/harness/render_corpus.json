@@ -1,0 +1,60 @@
+{
+  "_comment": "Windowed renderer corpus (Rust migration Phase 8, ADR-015). Driven by scripts/harness/render_corpus.py. Entries with `demo`/`cmds` capture -renderhash chains and TGA screenshots; entries with `timedemo` measure fps without the fixed timestep. `ssim` thresholds are per platform_key() (mean 8x8-window SSIM, derived from C-vs-C --stability minima minus a margin); `default` applies elsewhere.",
+  "entries": [
+    {
+      "name": "demo1-frames",
+      "tier": "shareware",
+      "demo": "demo1",
+      "cmds": ["100 screenshot tga", "300 screenshot tga", "600 screenshot tga", "900 screenshot tga", "950 quit"],
+      "exitafter": 2000,
+      "requires": [{"path": "id1/pak0.pak", "sha256": "35a9c55e5e5a284a159ad2a62e0e8def23d829561fe2f54eb402dbc0a9a946af"}],
+      "ssim": {"default": 0.95, "windows-x86_64": 0.99},
+      "note": "e1m1 flythrough: world, alias entities, water, sky, particles, viewmodel"
+    },
+    {
+      "name": "demo2-frames",
+      "tier": "shareware",
+      "demo": "demo2",
+      "cmds": ["100 screenshot tga", "300 screenshot tga", "600 screenshot tga", "900 screenshot tga", "950 quit"],
+      "exitafter": 2000,
+      "requires": [{"path": "id1/pak0.pak", "sha256": "35a9c55e5e5a284a159ad2a62e0e8def23d829561fe2f54eb402dbc0a9a946af"}],
+      "ssim": {"default": 0.95, "windows-x86_64": 0.99},
+      "note": "e1m3 with slime, lava and heavy combat"
+    },
+    {
+      "name": "start-map",
+      "tier": "shareware",
+      "cmds": ["0 map start", "60 screenshot tga", "120 screenshot tga", "130 quit"],
+      "exitafter": 1000,
+      "requires": [{"path": "id1/pak0.pak", "sha256": "35a9c55e5e5a284a159ad2a62e0e8def23d829561fe2f54eb402dbc0a9a946af"}],
+      "ssim": {"default": 0.95, "windows-x86_64": 0.99},
+      "note": "static spawn view: sky, fog-free brushwork, HUD"
+    },
+    {
+      "name": "e1m1-map",
+      "tier": "shareware",
+      "cmds": ["0 map e1m1", "60 screenshot tga", "120 screenshot tga", "130 quit"],
+      "exitafter": 1000,
+      "requires": [{"path": "id1/pak0.pak", "sha256": "35a9c55e5e5a284a159ad2a62e0e8def23d829561fe2f54eb402dbc0a9a946af"}],
+      "ssim": {"default": 0.95, "windows-x86_64": 0.99},
+      "note": "spawn view with water and lightmapped corridors"
+    },
+    {
+      "name": "e1m2-map",
+      "tier": "shareware",
+      "cmds": ["0 map e1m2", "60 screenshot tga", "120 screenshot tga", "130 quit"],
+      "exitafter": 1000,
+      "requires": [{"path": "id1/pak0.pak", "sha256": "35a9c55e5e5a284a159ad2a62e0e8def23d829561fe2f54eb402dbc0a9a946af"}],
+      "ssim": {"default": 0.95, "windows-x86_64": 0.99},
+      "note": "spawn view with dynamic lights and the sky/water mix"
+    },
+    {
+      "name": "demo1-timedemo",
+      "tier": "shareware",
+      "timedemo": "demo1",
+      "exitafter": 20000,
+      "requires": [{"path": "id1/pak0.pak", "sha256": "35a9c55e5e5a284a159ad2a62e0e8def23d829561fe2f54eb402dbc0a9a946af"}],
+      "note": "fps reference: the C build's median on the same machine is the baseline"
+    }
+  ]
+}

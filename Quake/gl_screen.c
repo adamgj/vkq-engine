@@ -1207,6 +1207,8 @@ static void SCR_DrawDone (void *unused)
 	// end_rendering depends on draw_done, so this can't lose a wait from the current frame
 	rs_gpuwaittime_us = rs_gpuwaitaccum_us;
 	rs_gpuwaitaccum_us = 0;
+	if (harness_renderhash)
+		Harness_RenderDrawDone ();
 	r_framecount++;
 }
 

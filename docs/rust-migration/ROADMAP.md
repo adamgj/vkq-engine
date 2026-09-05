@@ -222,9 +222,11 @@ That first CI run also produced the strongest evidence in the phase, by a route 
 
 ---
 
-## Phase 8 — Renderer + task system (XL) `[ ]`
+## Phase 8 — Renderer + task system (XL) `[~]`
 
-Crates: `quake-tasks`, `quake-render`. The largest phase; sub-slices land behind individual switches.
+Crates: `quake-tasks`, `quake-render`. The largest phase; sub-slices land behind individual switches. Task plan: `docs/ai/plans/rust-conversion-phase-8.md`.
+
+**Status (2026-09-05):** M1 of the task plan implemented (gates first, no porting): the `use_rust_tasks`/`use_rust_render` switches with their C-oracle CI legs on all three OSes, the ADR-003 amendment for the four planned crates, the windowed render harness (`scripts/harness/render_corpus.py`, `-renderhash`, SSIM/validation/timedemo modes) with C-vs-C stability proven exact on the Windows dev box and wired to Linux CI on lavapipe, and the `loom`/`tsan` job shapes in `rust.yml`. Two amendments recorded in the plan: the two crate-level switches stay until Phase 9 like Phase 7's (the C renderer remains the SSIM/`-renderhash` oracle, so "switches removed" moves to Phase 9), and sub-slices land as commits under them rather than behind switches of their own.
 
 **Scope — in order**
 1. **`quake-tasks`** ([ADR-016](adr/ADR-016-task-system.md)): work-stealing scheduler on `crossbeam-deque`, API-compatible `Task_*` C shims, task-graph dependency semantics, indexed tasks (parallel-for), 32-worker cap + `-pinnedworkers` affinity, `Task_Join` timeout. Validated with loom models + TSan, then swapped under the C renderer.

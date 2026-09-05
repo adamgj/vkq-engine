@@ -1,0 +1,302 @@
+# Feature task plan: Rust migration Phase 8 — Renderer + task system (`quake-tasks`, `quake-render`)
+
+Status: approved (plan mode, 2026-09-05); amended 2026-09-05 with design-agent findings (see amendment log)
+Owner: adamgj / Claude Fable 5.1
+Baseline: `feature/rust-conversion-phase-8-08c302` at `da03b229` (master = merged Phase 7 + fixes)
+Last materially updated: 2026-09-05
+Commit target once approved: `docs/ai/plans/rust-conversion-phase-8.md` (first commit of M1)
+
+For Rust-migration work, this task plan is subordinate to `docs/rust-migration/PLAN.md`, `ROADMAP.md`, and applicable ADRs. It cannot change phase ordering or compatibility policy without an explicit approved documentation/ADR change.
+
+## Context
+
+Phases 0–7 are complete on `master`; the ROADMAP's next open phase is **Phase 8 — Renderer + task system (XL)** (`docs/rust-migration/ROADMAP.md:225-249`). It ports `Quake/tasks.c` (702 lines + `atomics.h`) and the whole Vulkan renderer (~37k C LOC across 23 `gl_*.c`/`r_*.c` files, incl. `gl_vidsdl.c` 5560, `gl_rmisc.c` 4911, `r_brush.c` 3803) into two crates that are currently three-line Phase-0 stubs (`rust/quake-tasks`, `rust/quake-render`). It also moves the shader pipeline and embedded pak into `xtask`.
+
+The user asked to "implement phase 8 … then review and validate". Per `CLAUDE.md`/`AGENTS.md` and `docs/ai/FABLE5_WORKFLOW.md`, an XL phase is executed as **one bounded architecture pass (this plan) followed by `/feature-implement` one milestone at a time**, each milestone leaving the tree green. Phase 7 (52k LOC) took eleven milestones across many sessions; Phase 8 is the same order of magnitude and cannot land in one session.
+
+**Scope of the session that follows approval (decision, not a question):** land **M1 (gates, switches, deps, harness) and M2 (`quake-tasks`)**, run their verification, then stop and report — exactly as `CLAUDE.md` prescribes ("when the selected milestone … is complete and verified, stop"). M3 onward are each a separate `/feature-implement docs/ai/plans/rust-conversion-phase-8.md M<n>` invocation. No agent-parallel execution is assumed (Phase 7's was a separate user authorization); subagent use stays within `CLAUDE.md` (repo-researcher, verification-diagnostician, compatibility-reviewer at the STOP points).
+
+Governing: ADR-003 (deps: four new crates, all reviewed here), ADR-004 (unsafe concentrated in `quake-render`/`quake-tasks`/`quake-capi`/`quake-c-sys`; SIMD needs scalar reference impls), ADR-007 (dual-view for `vulkan_globals` and renderer globals during the phase), ADR-009 (no longjmp through Rust frames; worker threads never host a jmp_buf), ADR-010 (per-platform parity; cull decisions exact), ADR-011 (hand-mirrored `repr(C)` for Vulkan-embedding structs, `ash::vk` handle types), ADR-013 (mimalloc across the boundary), ADR-015 (ash; port-then-modernize; SSIM tolerance policy), ADR-016 (crossbeam-deque; API-compatible shims; loom + TSan), ADR-017 (SDL2 + SDL3 both), ADR-019 (gates first; full suite at phase exit).
+
+## Objective
+
+Replace the C task system and the Vulkan renderer with Rust implementations behind two meson switches, verified against the C build by (a) loom/TSan + in-engine stress for the scheduler, (b) a bit-exact property differential for `gl_heap`, (c) exact cull-decision/draw-structure capture and an SSIM screenshot corpus for the renderer, (d) validation layers clean, (e) `timedemo` within threshold — while keeping every existing ADR-019 gate green and the C renderer as the oracle until Phase 9.
+
+## Requirements and non-goals
+
+- R1: `Task_*`/`Tasks_*` ABI and observable semantics preserved (handle = index | epoch<<8, 256 pending slots, 128-byte payload copy, ≤16 dependents, `Task_AddDependency` no-op once `before` has retired, `Task_Join(timeout)` true-on-epoch-advance, `TASKS_MAX_WORKERS 32`, `-pinnedworkers` parsing incl. its digit-validation and `% QThread_NumLogicalCores()` wrap, worker naming `Task_Worker_%d`, `Tasks_GetWorkerIndex()` < num_workers on workers and 0 on the main thread). Also: `INVALID_TASK_HANDLE` (`UINT64_MAX`) is never returned; `Task_Allocate` blocks when all 256 slots are pending (never fails); `Task_AddDependency` on an already-retired `before` is a silent no-op that must **not** decrement `after`'s dependency count (`tasks.c:585-604`); `Task_Join` with a finite timeout returns false without invalidating the handle and true on a stale handle; `Tasks_NumWorkers()` is sim-observable (I1) so its value must match C exactly for the same `-pinnedworkers`/core count; every thread reports a worker index < `TASKS_MAX_WORKERS` (32) — `r_part_fte.rs:6352-6355` relies on this in a SAFETY comment, so the shim clamps/`debug_assert!`s; there is no shutdown path (workers and the table are leaked on exit, as in C); Rust `Mutex` is non-recursive whereas `qmutex_t` is recursive — verify no re-entrant lock path at M2.
+- R2: renderer output within ADR-015 tolerance (SSIM ≥ per-scene threshold derived from C run-to-run variance), validation layers clean, cull decisions and draw-call structure **identical** on captured frames, `timedemo` within threshold.
+- R3: every existing gate (`run_corpus --check/--compare`, save/config/condump/capture/record/netreplay diffs, interop/physics matrices, formats corpus, sndhash, ctest suite, fmt/clippy/deny/audit, bindgen-smoke, capi-signature parity) stays green after every milestone.
+- R4: `gl_heap` port is bit-identical to C on randomized traces (offsets, segment indices, stats).
+- R5: build matrix keeps SDL2 and SDL3 (ADR-017), Windows/Linux/macOS, MinGW and arm64 legs.
+- NG1: no modernization (no dynamic rendering, VMA, bindless, RT pipelines) — ADR-015.
+- NG2: no `sys_sdl_*.c`, `main_sdl.c`, `in_sdl.c` port (Phase 9); no `q_thread_sdl.c` port — Rust threads are `std::thread`, but the C primitives stay for the remaining C.
+- NG3: no deletion of `gl_*.c`, `r_*.c`, `tasks.c`, `atomics.h`, `bintoc.c`, `mkpak.c` in this phase — C remains the oracle until Phase 9 (Phase 7 precedent: deletions recorded, deferred). ROADMAP's "switches removed" exit wording is amended accordingly (see D1/AL).
+- NG4: no Linux goldens (still deferred from Phase 7); no `c-reference/*` tags.
+
+## Invariants and compatibility surfaces
+
+- I1: headless harness (`-headless`, `no_rendering`) never executes renderer code, so **the corpus gates cannot observe the renderer**; renderer parity needs the new windowed harness (M1). The scheduler, however, **is** exercised headless: the BSP texture/extent fan-outs are `!no_rendering`-guarded (`gl_model.c:1029,1211`) but the alias and MD5/MD3 skin fan-outs (`gl_model.c:2011,2219`, guarded only by `!Tasks_IsWorker()`) run on every map load, which `build-linux.yml:436-448` already relies on. So `run_corpus.py --compare` with a fixed worker count is a real M2 gate, and `Tasks_NumWorkers()` is sim-observable through chunking (`gl_rmain.c:1212,1222`, `r_world.c:1046-1066`) — both sides of any comparison must pass the same `-pinnedworkers` list.
+- I2: worker threads never run under a `setjmp` frame; `Sys_Error` on a worker takes the non-longjmp path (`sys_sdl_win.c:656-719`, `sys_sdl_unix.c:566-597` gate on `Tasks_IsWorker()`). Rust worker frames therefore never have C `longjmp` through them (ADR-009). Verify at M2 (landmine L2).
+- I3: `vulkan_globals` (`glquake.h`), `gltexture_t`, `cb_context_t`, `vulkan_memory_t`, `glheapstats_t` layouts are shared C/Rust during the phase → ADR-011 mirrors with size/offset asserts in `quake-types`, verified by the ctest ABI probe (`stubs/abi_probe.c` pattern).
+- I4: savegames, demos, protocol, config, sound are untouched by this phase; every existing byte-diff gate must stay identical.
+- I5: `Tasks_IsWorker` is declared twice in c-sys with different Rust return types (`host.rs:269` `qboolean`, `r_part_fte.rs:928` `bool`); `qboolean` is `bool`/`_Bool` (`q_types.h:122,129`), so both are ABI-equal; the Rust shim exports `bool`. Consolidate the duplicates at M2.
+- Platforms/configs: Windows (clang-cl, MSVC, MinGW, arm64), Linux (gcc, ASan leg), macOS (MoltenVK); SDL2 and SDL3; meson configs `build-c`, `build-rs`, `build-rs-c<module>` legs + trace builds.
+
+## Migration authority
+
+- Roadmap phase: **Phase 8** `[ ]` → `[~]` at M1, exit block at M12.
+- ADRs: 003, 004, 007, 009, 010, 011, 013, 015, 016, 017, 019 (constraints above).
+- C oracle: `build-c` (`-Duse_rust=disabled`) and the per-switch legs `build-rs-ctasks` / `build-rs-crender`.
+- Deferred/deletion restrictions: NG2/NG3; ADR-005 formatter gaps (`%e/%g`) untouched; ADR-010 NaN-sign fence (`r_part_fte.c:7262`) becomes Rust when the render half ports at M8 — re-check the fence's observability clause then.
+
+## Repository evidence
+
+| Fact/dependency | Evidence | Confidence |
+|---|---|---|
+| Phase 8 scope/order/exit/deletes | `ROADMAP.md:225-249` | confirmed |
+| tasks.c internals (Vyukov MPMC rings, 256 slots, epoch handles, per-worker indexed counters + steal order, `WAIT_SPIN_COUNT`) | `Quake/tasks.c:41-130, 276-361, 416-455` | confirmed |
+| Task API surface + `TASK_TIMEOUT_INFINITE` SDL2/SDL3 split (`SDL_MUTEX_MAXWAIT` vs `(uint32_t)-1`, both 0xFFFFFFFF) | `Quake/tasks.h:82-88` | confirmed |
+| Task consumers: `gl_rmain.c` ~20 handles/~35 edges (`:1152-1277`), `gl_screen.c` polling join 10 ms (`:1284`), `gl_model.c` 4 join pairs, `gl_vidsdl.c:3448/3498/4269`, `r_world.c`, `r_brush.c`, `r_part_fte(.c/.rs)` per-worker `deferred_queues` | grep + inventory | confirmed |
+| Rust touches only `Host_Glue_Tasks_Init`, `Tasks_IsWorker`, `Tasks_GetWorkerIndex`, `Tasks_NumWorkers` (hand externs; `tasks.h`/`gl_heap.h`/`atomics.h` are **not** bindgen roots) | `quake-c-sys/src/host.rs:166,269`, `r_part_fte.rs:924-928`, `bindings_wrapper.h`, `gen_c_bindings.sh` | confirmed |
+| Pinning: `Sys_PinCurrentThread` (`sys_sdl_win.c:859`, `sys_sdl_unix.c:689`; no-op false on macOS/BSD) | read | confirmed |
+| `TestTasks_f`/`GL_HeapTest_f` registered via `host.c:1281-1282` and `host_glue.c:184` `host_glue_test_funcs[]` under `_DEBUG` | read | confirmed |
+| gl_heap.c external seams: `R_AllocateVulkanMemory`/`R_FreeVulkanMemory` (`gl_rmisc.c:4597/4620`), `GL_SetObjectName` (`gl_vidsdl.c:750`), `Mem_Alloc/Free`, `Sys_Error`, `Con_Printf`, `COM_SeedRand/COM_Rand`, `Q_log2/Q_nextPow2/q_align`; no direct `vulkan_globals` use | `gl_heap.c:159-948` grep | confirmed |
+| gl_heap users: `gl_mesh.c` (mesh heap, device address when `ray_query`), `gl_texmgr.c` (texture heap) | grep | confirmed |
+| `vulkan_memory_type_t`/`vulkan_memory_t` | `glquake.h:178-190` | confirmed |
+| Pattern A swap + option plumbing template | `meson.build:378-385, 399-448, 536-560, 828-861`, `meson_options.txt:18-19` | confirmed |
+| capi features/exports; `check_capi_signatures.sh`; ctest oracle TUs (`c_ref_*` rename, `C_SOURCES`, `#include`d TUs) | `quake-capi/Cargo.toml`, `quake-ctest/build.rs:8-150`, `stubs/r_part_fte_ref.c` | confirmed |
+| `c_ref_prelude.h` carries compile-only `vulkanglobals_t`/`cb_context_s`/`gltexture_s`/Vk* approximations (Phase 7 carve-out) | `quake-ctest/include/c_ref_prelude.h:1420-1610` | confirmed |
+| No TSan/loom/helgrind CI; helgrind only in `.vscode/tasks.json` and `tasks.c` `USE_HELGRIND` annotations | grep | confirmed |
+| No screenshot/SSIM/timedemo/validation harness; `harness.c` is headless-only; screenshots via `Image_WritePNG/TGA/JPG` (`gl_vidsdl.c:3895-3899`); `timedemo` prints `%i frames %5.1f seconds %5.1f fps` (`cl_demo.c:840`); `VK_LAYER_KHRONOS_validation` behind `vulkan_globals.validation` (`gl_vidsdl.c:857-902`) | grep | confirmed |
+| Linux CI: Vulkan SDK subset (headers, loader, glslang, spirv-opt) installed; no lavapipe/xvfb; existing `-pinnedworkers 0` vs `0..7` corpus step (`build-linux.yml:328-334`) | read | confirmed |
+| Harness scripts are stdlib-only Python | grep imports | confirmed |
+| `atomics.h` users beyond tasks.c: `gl_rmisc.c` (60), `gl_rmain.c`, `r_world.c`, `r_brush.c`, `host_cmd(_glue).c`, `gl_heap.c`, `r_part*(_glue).c`, `gl_model.c/.h`, `gl_sky.c`, `gl_warp.c`, `model_parse.c`, `glquake.h`, `quakedef.h` | inventory | confirmed |
+| MSVC arm of `atomics.h` `Load/StoreUInt32` are compiler barriers only; C11 arm uses `compare_exchange_weak` | inventory | confirmed |
+| Shader/pak build: `glslangValidator` + `bintoc` + `mkpak` custom targets (`meson.build:95-125`); `xtask` is a stub | read | confirmed |
+| Rust toolchain 1.97.1, `panic=abort`, workspace lints (`unsafe_op_in_unsafe_fn`, `undocumented_unsafe_blocks` deny) | `rust/Cargo.toml`, `rust-toolchain.toml` | confirmed |
+| Existing dev/runtime deps: `proptest`, `cc` (dev); `png`, `zune-jpeg`, `miniz_oxide`, `socket2`, `libc`, `windows-sys` | ADR-003 amendments | confirmed |
+| macOS CI runners have no usable Vulkan device for MoltenVK smoke; Windows CI has no GPU | assumption from runner specs | **uncertain** — settle at M1 by probing (`vulkaninfo`) in a throwaway CI step |
+
+## Architecture and decisions
+
+### D1: Two switches, sub-slices land as commits under them
+
+- Choice: `use_rust_tasks` (cargo feature `tasks`, `-DUSE_RUST_TASKS`, CI leg `build-rs-ctasks`) and `use_rust_render` (feature `render`, `-DUSE_RUST_RENDER`, leg `build-rs-crender`). Each renderer sub-slice (M3…M10) is its own Pattern-A `if use_rust_render` block and its own landing commit.
+- Why: matches the ROADMAP crate boundaries and Phase 7's switch-per-crate rationale (within-phase oracle granularity comes free while unported files stay C in both legs; a switch per sub-slice would multiply the meson/CI matrix ×10 for configurations nobody ships). Bisection unit = landing commit on `build-rs`.
+- Amendment recorded against the ROADMAP wording "sub-slices land behind individual switches" and "mixed-build switches removed": switches stay until Phase 9 like Phase 7's (C renderer remains the SSIM/cull oracle).
+- Consequence: 2 new meson options, 2 cargo features, 2 CI legs × 3 OS workflows, `common.make` untouched (C-only fallback).
+
+### D2: Dependencies (ADR-003 introduction bar, recorded in the ADR-003 amendment at M1)
+
+| Crate | License → allowlist | Use | Notes |
+|---|---|---|---|
+| `crossbeam-deque` 0.8 | MIT OR Apache-2.0 → MIT | injector + per-worker deques + stealers (`quake-tasks`) | crossbeam-rs org, maintained, transitives `crossbeam-epoch`, `crossbeam-utils` (same license) |
+| `crossbeam-utils` 0.8 | MIT OR Apache-2.0 → MIT | `Parker`/`Backoff`/`CachePadded` | already transitive |
+| `loom` 0.7 | MIT | dev-only, `cfg(loom)` model tests | never in the staticlib |
+| `ash` 0.38 | MIT OR Apache-2.0 → MIT | Vulkan binding (ADR-015) | `default-features = false, features = ["std", "debug"]` — **no `loaded`** (we load via `SDL_Vulkan_GetVkGetInstanceProcAddr`, so no `libloading`), zero runtime transitives. Introduced at **M3** (handle type for the `vulkan_memory_t` mirror per ADR-011) so the review lands before the big consumers. Design-agent note: on 64-bit C `VkDeviceMemory` is a pointer typedef, on 32-bit a `uint64_t`; `ash::vk::DeviceMemory` is `repr(transparent)` `u64` on both, matching the 64-bit pointer size and the C 32-bit path — the ABI probe row at M3 confirms `size_of == 8`; if the probe disagrees on any CI leg, M3 falls back to a `u64` newtype and defers `ash` to M6 (amendment) |
+| `libc` | already present | **not** needed for pinning — pinning calls the existing C `Sys_PinCurrentThread` via c-sys (Phase 9 ports `sys_sdl_*`) | — |
+
+Rejected: `rayon`/`tokio` (not the ADR-016 design), `vulkano`/`wgpu` (ADR-015), `gpu-allocator`/VMA (ADR-015 keeps gl_heap), `image`/`ssim` crates for the harness (Python stdlib TGA decode + in-tree SSIM keeps `scripts/harness` dependency-free).
+Each addition: `cargo deny check licenses` over the full tree + `cargo audit`, and a review paragraph in the ADR-003 amendment.
+
+### D3: `quake-tasks` = unsafe-free generic scheduler core; all FFI in `quake-capi`
+
+- Choice: `rust/quake-tasks` is `#![forbid(unsafe_code)]`, generic over a `Job` trait (`fn run(&self, index: Option<u32>)`); it owns the 256-slot table (epoch, `remaining_dependencies`, `remaining_workers`, ≤16 dependents, `indexed_limit`, per-worker counters + steal order), the dependency/epoch state machine, `Join(timeout)` on a per-slot `Mutex<u64>`+`Condvar`, the `Injector`/`Worker`/`Stealer` execution loop with `Parker`-based idling, and the `-pinnedworkers` parser (pure function over `&str`, unit-tested against the C cases). The queue is behind a small `Queue` trait with two impls: `Deque` (crossbeam) and `Mutex<VecDeque>` (loom model). `rust/quake-capi/src/tasks.rs` exports the C names directly (`#[no_mangle] pub extern "C" fn Task_Allocate…`, the `Cvar_FindVar` precedent) with a `CJob { func, indexed_func, payload: [u8; 128] }` whose `run` is the one `unsafe` FFI call; thread-locals `IS_WORKER`/`WORKER_INDEX` live in capi. `Tasks_Init` spawns `std::thread::Builder::new().name("Task_Worker_{i}")`, pins via `Sys_PinCurrentThread` (c-sys hand extern), reads `com_argc/com_argv` through `COM_CheckParm` (already bound).
+- Why: ADR-004 wants unsafe concentrated and small; making the core unsafe-free exceeds ADR-004's expectation ("bounded scheduler internals") and makes the loom model exhaustive over the actual state machine. ADR-016 explicitly allows queue mechanics to differ.
+- Observable-vs-internal (R1): observable = handle encoding, slot reuse order after free (**not** observable: C returns slots through an MPMC ring; Rust uses a free list — the only visible effect is handle values, which no caller stores across frames; recorded as accepted), dependents cap, payload copy, join semantics, worker index contract. Internal = ring queues, semaphores, spin counts, `ShuffleIndex`.
+- `Quake/tasks_glue.c` **is** needed (amended): `TestTasks_f` is referenced from both `host_glue.c:184` (`host_glue_test_funcs[]`) and `host.c:1281` under `_DEBUG`, and `use_rust_tasks` is orthogonal to `use_rust_host`, so the symbol must exist in every configuration. The glue TU keeps `TestTasks_f`/`LotsOfTasks`/`IndexedTasks` (`tasks.c:697-…`) verbatim C under `#ifdef _DEBUG`, which drives the Rust scheduler through the real C ABI and removes the `_DEBUG`⇔`engine-debug` linkage assumption (RA9 closed). tasks.c has no C-visible data symbols and no longjmp-capable callee (`Sys_Error` is not called; `Con_Printf`/`Con_Warning` only), so the glue TU carries no data views. Hand externs (`Sys_PinCurrentThread`, `QThread_NumLogicalCores`) go in a new `rust/quake-c-sys/src/tasks.rs` following the `menu.rs:350-372` precedent; `q_strsplit` is reused from `menu.rs:365`; `loom` is declared as `[target.'cfg(loom)'.dev-dependencies]`. Rust `std::thread` on Windows goes through the CRT-safe spawn path, so there is no `_beginthreadex` concern.
+- `atomics.h` is **not** retired at M2 (14 other C users incl. `gl_rmisc.c`×60); it retires with the last C renderer file (deferred with NG3).
+- `Tasks_NumWorkers()` is called before `Tasks_Init` returns nowhere; keep C's `CLAMP(1, cores, 32)` and pinned-count override.
+
+### D4: `gl_heap` as pure logic over an injected memory backend, bit-exact vs C
+
+- Choice: `rust/quake-render/src/heap.rs` ports segments/pages/small-alloc buckets/size-class bitfields/dedicated allocs verbatim (same policies, same `MAX_PAGES`, same alignment padding + split + coalesce), generic over `trait DeviceMemoryBackend { fn allocate(&self, size, memory_type_index, device_address, name) -> vk::DeviceMemory; fn free(...); }`. `quake-capi/src/gl_heap.rs` exports the `GL_Heap*` names; its backend calls C `R_AllocateVulkanMemory`/`R_FreeVulkanMemory`/`GL_SetObjectName` (hand externs, since `glquake.h` is not a bindgen root) and threads the `atomic_uint32_t *num_allocations` out-param through (Rust `AtomicU32` via pointer, same ordering as the C11 arm). `glheapallocation_t` is an opaque `Box` behind the C pointer; `glheapstats_t`, `vulkan_memory_t` (`ash::vk::DeviceMemory` + `vulkan_memory_type_t`) are `repr(C)` mirrors in `quake-types::render` with const asserts + ABI-probe rows.
+- Verification: `quake-ctest/tests/gl_heap_differential.rs` with oracle TU `stubs/gl_heap_ref.c` (`#include`s `Quake/gl_heap.c` under `c_ref_` renames; supplies `c_ref_R_AllocateVulkanMemory` returning deterministic fake handles, `GL_SetObjectName` no-op; `c_ref_prelude.h` already defines `VkDeviceSize`/`VkDeviceMemory`/`VkMemoryAllocateInfo`). Proptest traces (exponential sizes/alignments like `GL_HeapTest_f`, page sizes 4 KiB–1 MiB, segment sizes up to 256 MiB, ≤ 500 live allocs, ≤ 10k ops) compare per-op (segment handle, offset, dedicated?) and `glheapstats_t`, plus the ported `TestHeapConsistency`/`TestHeapCleanState`. The in-engine `test_gl_heap` is ported and uses the engine's real `COM_Rand`; the ctest oracle's unmasked `COM_Rand` (Phase 7 carry item) is **not** relied on — traces come from proptest.
+- Why: ADR-015 requires gl_heap property-tested vs C; the seams are exactly three functions, so the port needs no Vulkan calls.
+
+### D5: Renderer ownership flips follow ADR-007 dual-view, one file family per milestone
+
+- `vulkan_globals` becomes Rust-owned at M5 (`gl_rmisc.c`) with the C-layout view exported (`#[no_mangle] pub static mut vulkan_globals: VulkanGlobals`), ADR-007 table row added; `gltexture_t` list ownership flips at M4; `cb_context_t` arrays at M9. `c_ref_prelude.h`'s approximations of these structs are replaced by the real mirrors as each flips (Phase 7 carve-out closed).
+- Function-level carve-outs inside a file are allowed only via the glue TU (Phase 7 `r_part_fte` precedent): RT functions in `gl_mesh.c`/`r_brush.c` stay C in `gl_mesh_glue.c`/`r_brush_glue.c` at M8 and port at M10.
+
+### D6: Renderer verification harness (new, M1, C-only baseline first)
+
+- `scripts/harness/render_corpus.py`: launches a **windowed** engine (not `-headless`) with `-harnesscmds` scripted `map`/`+timedemo`/`screenshot` sequences from `Misc/harness/render_corpus.json` (shareware scenes: start, e1m1 t=0/5/10s demo1 frames, e1m2, sky/water/fog/alpha/particle/viewmodel cases, `r_rtshadows` when supported), `scr_screenshot_format tga` (pure-Python TGA reader), computes global + windowed SSIM (grayscale 8×8 windows, in-tree implementation) between two builds, and enforces per-scene thresholds stored in the corpus (`threshold = min over N C-vs-C runs − margin`).
+- `-renderhash` engine flag (C, `harness.c` + `r_world.c`/`gl_rmain.c` hooks, both languages once ported): per-frame hash of cull decisions (visible surface/leaf/entity bitsets) and draw-call structure (pipeline id, index count, instance count, descriptor set ids in submission order) — the **exact** gate ADR-015 requires, and the only parity gate that is bit-exact. Gated exactly like `-parthash` (opt-in, own golden namespace, `run_corpus.py --compare`) but needs a window; lives in `render_corpus.py`.
+- Validation: `-validation` (existing `vulkan_globals.validation` path) with `VK_LAYER_KHRONOS_validation`; the harness fails on any validation message in the condump.
+- `timedemo`: `render_corpus.py --timedemo demo1` parses the `%i frames … fps` line, N runs, median; threshold = C median × (1 − 0.10) on the same machine (reference hardware = the Windows dev box; CI lavapipe numbers are recorded, not gated).
+- CI: Linux `harness-linux` gets `mesa-vulkan-drivers` (lavapipe) + `xvfb-run`, runs the render corpus C-vs-C (stability, sets thresholds) and C-vs-mixed. Windows/macOS CI: a probe step at M1 decides (see evidence table); if no device, the three-OS SSIM exit criterion is satisfied by local runs (Windows dev box, macOS if available) recorded in the amendment log, as Phase 7 did for goldens.
+
+### D7: Scheduler/renderer verification tiers
+
+- **Loom**: `cargo test -p quake-tasks --release` with `RUSTFLAGS="--cfg loom"`; models: single dependency chain, diamond, indexed fan-out with 2–3 workers, join-timeout vs completion race, epoch reuse ABA.
+- **TSan**: new `rust.yml` job `tsan` (ubuntu, nightly, `-Zsanitizer=thread`, `-Zbuild-std`, `cargo test -p quake-tasks`); in-engine TSan (mixed build with `-Db_sanitize=thread` on the C side + Rust TSan) is attempted at M2 and recorded as run/not-run — ADR-016 says "replacing the current helgrind workflow", and there is no current helgrind CI to replace.
+- **In-engine stress**: `test_tasks` (debug), plus the existing `-pinnedworkers 0` vs `0..7` corpus step now also on `build-rs-ctasks`.
+- **Renderer**: per-slice `render_corpus.py` C-vs-mixed (SSIM + `-renderhash` + validation) locally on Windows every milestone, in CI (lavapipe) every push.
+
+### D8: Shader pipeline + embedded pak in `xtask` — Rust build only
+
+- `cargo xtask shaders` runs `glslangValidator`/`spirv-opt` with meson's exact flags (incl. the macOS `spirv-opt` skip) into `OUT_DIR`, and `quake-render` `include_bytes!`s them; `cargo xtask pak` replaces `mkpak`. Meson stops running `bintoc`/`mkpak` **when `use_rust_render` is on**; the C-only build keeps them (C oracle, NG3). Deletion of `bintoc.c`/`mkpak.c`/61 TUs is recorded for Phase 9/10.
+
+## Change boundary
+
+### Expected to change
+
+- `meson.build`, `meson_options.txt`: two options, feature list, Pattern-A blocks per slice, xtask shader path.
+- `.github/workflows/{build-linux,build-windows,build-mac,build-mingw,build-msys2-clangarm64,rust}.yml`: new legs, tsan/loom jobs, lavapipe render corpus, ADR-019 steps.
+- `rust/quake-tasks/**`, `rust/quake-render/**`, `rust/quake-types/src/render.rs` (new mirrors), `rust/quake-capi/src/{tasks,gl_heap,gl_texmgr,gl_rmisc,gl_vidsdl,gl_draw,…}.rs`, `rust/quake-c-sys/src/{tasks,render}.rs` (hand externs), `rust/quake-ctest/{build.rs,stubs/*_ref.c,tests/*_differential.rs,include/c_ref_prelude.h}`, `rust/xtask/**`, `rust/Cargo.{toml,lock}`, `rust/deny.toml` (no allowlist change expected).
+- `Quake/*_glue.c` per slice; `Quake/harness.c` (+ `-renderhash`), `Quake/r_world.c`/`gl_rmain.c` (hash hooks, C side, additive).
+- `scripts/harness/render_corpus.py` (new), `Misc/harness/render_corpus.json` (new), `Misc/harness/README.md`.
+- `docs/rust-migration/ROADMAP.md` (status), `adr/ADR-003` (amendment), `adr/ADR-007` (rows), `adr/ADR-011` (render mirrors), `adr/ADR-016`/`ADR-015` (amendment notes only if a decision here deviates), `docs/ai/plans/rust-conversion-phase-8.md` (this plan + amendment log).
+
+### Must not change without plan amendment
+
+- `Quake/tasks.h`, `Quake/gl_heap.h`, `Quake/glquake.h` public signatures (shims must match byte-for-byte; `check_capi_signatures.sh`).
+- Any existing golden, state-hash definition, savegame/config/protocol format.
+- `Quake/common.make` source lists (C-only fallback build).
+- Phase ordering; `sys_sdl_*`, `q_thread_sdl.c`, `main_sdl.c` (Phase 9).
+
+## Acceptance matrix
+
+| ID | Acceptance criterion | Verification/gate | Status |
+|---|---|---|---|
+| AC1 | Switch scaffolding: `build-rs-ctasks`/`build-rs-crender` configure, build, and pass every existing gate identically to `build-rs` | meson three-config builds + `run_corpus.py --compare` | pending |
+| AC2 | ADR-003 amendment lists the four crates with review notes; `cargo deny check` (both workspaces) + `cargo audit` clean | CI `lint`, `audit` | pending |
+| AC3 | Loom + TSan jobs exist and are green on the scheduler | `rust.yml` `loom`, `tsan` | pending |
+| AC4 | Render harness runs C-vs-C stably (SSIM ≥ threshold, `-renderhash` identical run-to-run, validation clean) on Linux CI (lavapipe) and Windows local | `render_corpus.py --stability` | pending |
+| AC5 | `quake-tasks` passes unit/loom/TSan, `test_tasks` stress, corpus 1-vs-8 workers step, and every existing gate under `build-rs` | M2 targeted + broad | pending |
+| AC6 | Windowed engine with Rust tasks under the C renderer: render corpus C-vs-mixed identical `-renderhash`, SSIM ≥ threshold, `timedemo` within 10 % | `render_corpus.py --compare` | pending |
+| AC7 | `gl_heap` differential: 10k proptest traces bit-exact, ported self-test passes in-engine | `cargo test -p quake-ctest --test gl_heap_differential`; `test_gl_heap` | pending |
+| AC8 | Each renderer slice (M4–M10): C-vs-mixed `-renderhash` identical, SSIM ≥ threshold, validation clean, all existing gates green | per-milestone | pending |
+| AC9 | `vulkan_globals`/`gltexture_t`/`cb_context_t` mirrors pass ABI probe on all CI OSes; ADR-007 rows closed | `progs_abi.rs`-style `render_abi.rs` | pending |
+| AC10 | `xtask` shader/pak output byte-identical to meson's `bintoc`/`mkpak` output | M11 differential | pending |
+| AC11 | Phase exit: full ADR-019 suite; SSIM corpus on three OSes (or recorded local coverage); `timedemo` thresholds; ROADMAP `[~]`/exit block; `/integration-review` run by the user | M12 | pending |
+
+## Milestones
+
+Graph: `M1 → M2 → M3 → M4 → M5 → M6 → M7 → M8 → M9 → M10 → M11 → M12` (strictly serial: each renderer slice consumes the previous one's Rust-owned state). STOP A (compatibility-reviewer) after M2; STOP B after M6 (device/swapchain); STOP C after M10.
+
+### M1 — Gates first (no porting)
+
+- Scope: D1 switches + cargo features (`tasks`, `render`) + CI legs on all workflows; ADR-003 amendment for `crossbeam-deque`/`crossbeam-utils`/`loom`/`ash` (adoption of each lands with its milestone); `rust.yml` `loom` and `tsan` jobs (initially over an empty `quake-tasks` test target to prove the job shape); `render_corpus.py` + `render_corpus.json` + `-renderhash` C hooks + `-validation` condump check + `timedemo` mode; Linux CI lavapipe/xvfb render-corpus step (C-vs-C stability, threshold generation); one-off CI probe of Vulkan availability on Windows/macOS runners; commit this plan as `docs/ai/plans/rust-conversion-phase-8.md`; ROADMAP Phase 8 → `[~]`.
+- Files: `meson.build`, `meson_options.txt`, workflows, `rust/quake-capi/Cargo.toml` (features only), `scripts/harness/render_corpus.py`, `Misc/harness/render_corpus.json`, `Quake/harness.c`, `Quake/gl_rmain.c`/`r_world.c`/`gl_screen.c` (hash hooks under `-renderhash` only), `Misc/harness/README.md`, ADR-003, ROADMAP, plan.
+- AC: AC1–AC4.
+- Targeted verification: `meson setup build-rs-ctasks …use_rust_tasks=disabled`, `build-rs-crender`, `build-c`, `build-rs` all build; `run_corpus.py --check` (windows-x86_64 goldens) unchanged; `render_corpus.py --stability --vkquake build-c/vkqr-engine` on the dev box; `cargo fmt/clippy/deny/test`.
+- Landmines: `-renderhash` must not touch the main state-hash chain (the M10a `-parthash` lesson); `run_corpus.py --extra-args` needs the `=` form for single-token flags.
+
+### M2 — `quake-tasks` (ADR-016), swapped under the C renderer
+
+- Scope: D3 in full. `rust/quake-tasks` (core, parser, loom models, unit tests incl. a single-worker determinism test of dependency ordering and a join-timeout bound test), `rust/quake-capi/src/tasks.rs` (`Tasks_Init`, `Tasks_NumWorkers`, `Tasks_IsWorker`, `Tasks_GetWorkerIndex`, `Task_Allocate`, `Task_AssignFunc`, `Task_AssignIndexedFunc`, `Task_Submit`, `Tasks_Submit`, `Task_AddDependency`, `Task_Join`, `TestTasks_f` under `engine-debug`), `rust/quake-c-sys/src/tasks.rs` (`Sys_PinCurrentThread`, `QThread_NumLogicalCores`; consolidate the two `Tasks_IsWorker` externs), `Quake/tasks_glue.c` (`TestTasks_f` verbatim), meson `if use_rust_tasks` block (`tasks.c` swapped for the glue TU), `Cargo.lock`, ADR-003 adoption note, ADR-016 amendment note (`atomics.h` cannot retire with `tasks.c` — 15 `.c` + 7 headers use it, retires with the last C renderer file; there is no helgrind CI workflow to replace — `helgrind.supp` appears only as a paths exclusion — so TSan is net-new), `tsan`/`loom` jobs now real.
+- AC: AC5, AC6.
+- Targeted: `cargo test -p quake-tasks` (debug + release), loom, TSan (Linux, via CI or WSL — record which), `test_tasks` in a `-Dbuildtype=debug` `build-rs`, `run_corpus.py --compare` `build-rs` vs `build-rs-ctasks` and vs `build-c` with matching `-pinnedworkers` on both sides (I1) incl. the 1-vs-8 cell, grep that no caller persists a task handle across frames (RA5), `render_corpus.py --compare build-c build-rs` (Windows dev box, C renderer + Rust tasks: `-renderhash` identical, SSIM, validation, `timedemo` within 10 %), `check_capi_signatures.sh` (needs `cc`; note if not runnable locally), all eight meson configs.
+- Landmines: L1 `tasks.h:86` `SDL_MUTEX_MAXWAIT` under SDL2 — the C header stays as-is (glue-free swap), the Rust side hard-codes `u32::MAX`; L2 verify `Sys_Error` on a worker never longjmps (I2); L3 `Task_AddDependency` reads `before`'s epoch without a lock in C — preserve the "already retired ⇒ no-op" semantics, not the race; L4 `gl_screen.c:1284` 10 ms polling join must not busy-spin the main thread; L5 `Tasks_Init` runs under `Host_Guard` from Rust host init — it must keep returning normally; L6 worker `Con_Printf` from Rust threads goes through C console locks as today.
+
+### M3 — `gl_heap.c` → `quake-render::heap` (first `use_rust_render` slice)
+
+- Scope: D4. `ash` introduced (no default features), `quake-types::render` mirrors (`vulkan_memory_t`, `vulkan_memory_type_t`, `glheapstats_t`) + `render_abi.rs` probe rows, `quake-capi/src/gl_heap.rs`, `quake-c-sys/src/render.rs` hand externs, `stubs/gl_heap_ref.c` + `tests/gl_heap_differential.rs`, meson `if use_rust_render` first block (`gl_heap.c` dropped), ported `GL_HeapTest_f` (`engine-debug`).
+- AC: AC7, AC8, AC9 (heap part).
+- Targeted: the differential (10k traces, release), ABI probe on Windows, `test_gl_heap` in-engine debug, `render_corpus.py --compare` (heap offsets are not pixel-visible, but `-renderhash` + validation catch binding errors), `check_ctest_symbols.sh` (note: `#include`d TUs are invisible to it — M10f-2 finding; rely on the MSVC leg for duplicate symbols).
+- Landmines: `stubs/r_part_fte_ref.c:1657/1663` and `stubs/r_part_ref.c:331` already define plain `R_AllocateVulkanMemory`/`R_FreeVulkanMemory`/`GL_SetObjectName` doubles, so `gl_heap_ref.c` must `#define` those seams to `c_ref_heap_*` before including `gl_heap.c`; `c_ref_prelude.h` lacks `FindFirstBitNonZero64`, `VkMemoryAllocateFlagsInfo`, `VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO`, `VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT` (add all four); `GL_HeapTest_f` stays verbatim C in `Quake/gl_heap_glue.c` under `_DEBUG` (same reasoning as `tasks_glue.c`); match C defects bit-for-bit — `GL_HeapDestroy` never frees the heap struct and `gl_heap.c:841` uses `=` instead of `==` in `TestHeapCleanState` (the Rust self-test implements the intended `==`; the differential compares allocator state, not the self-test's return value); add a targeted page-saturation unit test (`MAX_PAGES = UINT16_MAX - 1`); proptest distributions mirror `GL_HeapTest_f` (`MAX_ALLOC_SIZE` 64 KB, `MAX_ALIGNMENT_POW2` 14) and never depend on the stub `COM_Rand` (its missing `& COM_RAND_MAX` is a separate carry item).
+
+### M4 — `gl_texmgr.c`
+
+- Scope: texture manager (`gltexture_t` list Rust-owned, C view; upload/staging via the still-C `gl_rmisc.c` staging buffers through hand externs; `GL_Heap*` now Rust). Differential: texture-list ordering and mip/format decisions on the shareware corpus via a ctest driver over the loaders (formats corpus extension), plus render corpus.
+- AC: AC8, AC9. STOP-A review covers M1–M3 before this lands.
+
+### M5 — `gl_rmisc.c`
+
+- Scope: descriptor layouts, samplers, ~16 `R_Create*Pipelines` families with specialization constants, staging + dynamic ring buffers, `R_AllocateVulkanMemory`; `vulkan_globals` Rust-owned with C-layout view (ADR-007 row). The M3 backend switches from C externs to the Rust allocator. Pipeline-count/handle-order captured in `-renderhash` preamble.
+- AC: AC8, AC9.
+
+### M6 — `gl_vidsdl.c` via `ash`
+
+- Scope: instance/device/swapchain/present, extension set (ray-query bundle, present-wait2, full-screen-exclusive on Windows), `SDL_Vulkan_GetVkGetInstanceProcAddr` loading via `quake-platform` (SDL2/SDL3), MoltenVK direct link on macOS (mirror meson's link rule), validation/debug-utils wiring, video modes + `vid_*` cvars + video menu glue, `SCR_ScreenShot_f`. STOP B after landing.
+- AC: AC8; render corpus must run on all local/CI devices; SDL2 and SDL3 legs.
+
+### M7 — Draw layer
+
+- Scope: `gl_draw.c`, `gl_sky.c`, `gl_warp.c`, `gl_fog.c`, `gl_rlight.c`, `gl_refrag.c`, `r_sprite.c`, `gl_screen.c` 2D orchestration; the Phase 7 `Draw_*` shims in menu/sbar/console retire (carve-out closed).
+- AC: AC8.
+
+### M8 — World/mesh
+
+- Scope: `r_world.c` (SIMD culling via `std::arch` SSE/NEON with scalar reference + `-renderhash` exact cull parity), `r_brush.c` (lightmaps, indirect draws), `gl_mesh.c`, `r_alias.c`, particle *render* halves of `r_part.c`/`r_part_fte.c` (glue TUs shrink; ADR-010 NaN-sign fence re-checked), QC polygon builtin rendering (Phase 6 shim retired). RT functions stay in `gl_mesh_glue.c`/`r_brush_glue.c` (D5).
+- AC: AC8.
+
+### M9 — Frame graph
+
+- Scope: `gl_rmain.c`/`gl_screen.c` task graph (~20 tasks, ~35 edges, 6-way secondary CB recording, identical dependency structure — `-renderhash` gains a graph-shape digest), `cb_context_t` ownership.
+- AC: AC8; worker-utilization comparison (`timedemo` + per-worker task counts from `test_tasks`-style counters) recorded.
+
+### M10 — Ray tracing
+
+- Scope: BLAS build, TLAS + scratch, ray-query lightmap shadows, `r_rtshadows` paths; glue TUs from M8 removed. STOP C.
+- AC: AC8 (RT scenes gated only where a device supports ray query — the dev box; lavapipe lacks it, recorded).
+
+### M11 — `xtask` shader pipeline + embedded pak
+
+- Scope: D8. Byte-identity differential vs meson's `bintoc`/`mkpak` outputs; meson uses `xtask` under `use_rust_render`.
+- AC: AC10.
+
+### M12 — Phase exit
+
+- Scope: full ADR-019 suite re-run; SSIM corpus per OS (CI lavapipe + local Windows + macOS if available; record coverage honestly); validation clean; `timedemo` thresholds; loom/TSan green; unsafe inventory count per crate; ROADMAP Phase 8 status block; deletions recorded (deferred to Phase 9); `/integration-review` (user-invoked; `disable-model-invocation: true`).
+- AC: AC11.
+
+## Final verification
+
+- Formatting: `cargo fmt --all -- --check`; `./format.sh` for touched C.
+- Rust: `cargo clippy --workspace --all-targets --locked -- -D warnings`; `cargo test --workspace --locked --release` and debug; `cargo deny check` (both workspaces); `cargo audit`; loom (`RUSTFLAGS=--cfg loom cargo test -p quake-tasks --release`); TSan (nightly, Linux).
+- Meson (Windows dev box, PowerShell for MSVC per memory note): `build-c`, `build-rs`, `build-rs-ctasks`, `build-rs-crender`, `build-rs-chost`, `build-rs-cprogs`, `build-c-trace`, `build-rs-trace` (+ clang-cl pair).
+- Harness: `run_corpus.py --check` (4 combos) and `--compare` (C vs each leg, `-parthash`, `-sndhash`), `save_diff`, `config_diff`, `condump_diff`, `capture_diff`, `record_diff`, `netreplay_diff`, `interop_matrix`, `physics_matrix`, `builtin_diff`, `trace_diff`, `run_formats_corpus`, `check_capi_signatures.sh`, `check_headers.sh`, `check_ctest_symbols.sh`, **new** `render_corpus.py --stability/--compare/--timedemo`.
+- CI workflows affected: all six build workflows + `rust.yml`.
+- Cannot run locally: Linux/macOS/MinGW/arm64 legs, TSan (unless WSL), lavapipe — push after each milestone and read CI (Phase 7 M11 lesson: M3–M11 unpushed hid two Linux-only defects).
+
+## Risks, assumptions, and open questions
+
+| ID | Type | Item | Mitigation/decision | Status |
+|---|---|---|---|---|
+| RA1 | risk | Windowed harness on CI: lavapipe + xvfb + SDL2 video may not initialise, or SSIM noise floor on lavapipe differs from GPUs | C-vs-C stability run sets per-platform thresholds; Windows dev box is the reference; CI gates `-renderhash` (exact) even if SSIM is advisory there | open |
+| RA2 | risk | No Vulkan on Windows/macOS CI runners → three-OS SSIM exit criterion unsatisfiable in CI | Probe at M1; fall back to recorded local runs (Phase 7 goldens precedent), amendment-logged | open |
+| RA3 | risk | `crossbeam-deque` isn't loom-instrumented | `Queue` trait; loom covers the state machine with a mutex queue; TSan covers the real deque | decided (D3) |
+| RA4 | risk | Rust worker threads are not SDL threads: SDL-side per-thread state (`SDL_GetError`), thread naming on macOS/Windows | `std::thread::Builder::name` sets OS thread names; no worker calls SDL today (`tasks.c` never does); verify at M2 | open |
+| RA5 | risk | Handle value/slot-reuse order differs from C's ring (D3) | Documented as internal; no caller persists handles across frames (grep at M2) | decided |
+| RA6 | risk | `gl_rmisc.c` is 4.9k lines of pipeline creation with specialization constants — transliteration errors surface only as validation errors or visual diffs | `-renderhash` pipeline preamble, validation-fail gate, per-scene SSIM | open |
+| RA7 | risk | SIMD cull parity across SSE/NEON/scalar and `-ffp-contract=off` | Scalar reference impl, `-renderhash` exact cull bitsets, ADR-010 per-platform parity | open |
+| RA8 | risk | `ash` API surface vs the engine's 1.4-era extension use (present-wait2, full-screen-exclusive) | Check `ash` 0.38 coverage at M6; raw `vk::` function pointers via `ash::vk::*Fn` for anything missing (still ash types, no new crate) | open |
+| RA9 | assumption | Debug-build `_DEBUG` ⇔ cargo `engine-debug` for `TestTasks_f`/`GL_HeapTest_f` linkage | Closed by amendment: both test commands stay verbatim C in glue TUs under `#ifdef _DEBUG`, so no cross-language linkage assumption remains | closed |
+| RA10 | risk | Multi-session phase; context loss | Plan + amendment log are the durable state; one milestone per commit; push after each | accepted |
+| RA11 | scope | ROADMAP exit wording "switches removed" vs C-oracle-until-Phase-9 | Amendment (D1); Phase 7 precedent | decided, flag to owner |
+| RA12 | scope | "Individual switches" per sub-slice interpreted as per-crate switches + per-slice commits | Amendment (D1) | decided, flag to owner |
+| RA13 | risk | `atomics.h` MSVC arm has weaker ordering than C11 arm; Rust uses `SeqCst`/`AcqRel` per the C11 arm | Per-platform parity is about sim state, not memory ordering; stronger ordering is safe; TSan on Linux | accepted |
+
+## Plan amendment log
+
+| Date | Repository contradiction/evidence | Smallest amendment | Acceptance impact | Approval |
+|---|---|---|---|---|
+| 2026-09-05 | ROADMAP:248 "switches removed; renderer fully Rust" conflicts with ADR-019/Phase 7 practice of C staying the oracle until Phase 9 | Keep `use_rust_tasks`/`use_rust_render` and the C sources; record deletions | AC11 wording | approved with plan |
+| 2026-09-05 | ROADMAP:227 "sub-slices land behind individual switches" | Two crate-level switches; sub-slices are landing commits | none | approved with plan |
+| 2026-09-05 | `TestTasks_f` is referenced from `host_glue.c:184` and `host.c:1281`; `use_rust_tasks` is orthogonal to `use_rust_host` | D3: add `Quake/tasks_glue.c` carrying `TestTasks_f` verbatim C; RA9 closed | none | approved (design-agent finding, verified by grep) |
+| 2026-09-05 | Alias/MD5/MD3 skin fan-outs (`gl_model.c:2011,2219`) are not `no_rendering`-guarded and run headless; `Tasks_NumWorkers()` chunking is sim-observable | I1 rewritten: `run_corpus.py --compare` is a real M2 gate; both sides need matching `-pinnedworkers` | AC5 strengthened | approved |
+| 2026-09-05 | ADR-016 claims `atomics.h` retires with `tasks.c` (15 C + 7 header users remain) and that TSan replaces a helgrind workflow (none exists in CI) | ADR-016 amendment note at M2; TSan recorded as net-new | none | approved |
+| 2026-09-05 | Existing ctest stub TUs already define the three gl_heap seams as plain symbols; prelude lacks four gl_heap declarations; two C defects in gl_heap.c | M3 landmine list added | AC7 wording | approved |
+| 2026-09-05 (M1) | Draw-call structure is only observable at the `vk_cmd_draw*` dispatch pointers `gl_vidsdl.c` resolves; `r_world.c` has no single seam and cull decisions are made per entity in `gl_rmain.c` | `-renderhash` lives in a new `Quake/harness_render.c` (also in `common.make`): trampolines installed on the dispatch pointers after device creation (`gl_vidsdl.c`), pipeline registry (`gl_rmisc.c`), entity cull fold (`gl_rmain.c`), per-frame fold at `SCR_DrawDone` (`gl_screen.c`); `r_world.c` untouched | none (D6 file list) | applied |
+| 2026-09-05 (M1) | `R_DrawEntitiesOnList` hands entities to whichever recording task asks next, so the entity contexts' order and partition vary run to run | entity-context draws are folded commutatively (`ent=`/`en=`); every other context stays an ordered chain; draws recorded after `SCR_DrawDone` (GUI, post-process) fold into the next frame's line | AC4 unchanged (still exact) | applied |
+| 2026-09-05 (M1) | `take_screenshot` was consumed by whichever end-rendering task ran next — the previous frame's, still in flight, in ~1 of 3 runs — and that task cleared a request made after its own check, dropping screenshots | M1 engine change in `gl_vidsdl.c`: the flag is handed over on the main thread in `GL_EndRendering` via `end_rendering_parms_t.screenshot`, so a screenshot always captures the frame issued after the command. Windowed-only path, no sim state touched (state-hash goldens unaffected) | AC4 | applied |
+| 2026-09-05 (M1) | Windowed runs were non-deterministic for reasons outside the renderer: mouse-grab view delta, `S_StartSound`'s mixer-clock-dependent `COM_Rand` consumption shifting particle lifetimes, the asynchronous "Wrote …" notify landing on a wall-clock frame | `render_corpus.py` launches with `-nomouse -nosound` and a `0 con_notifytime 0` prelude; `timedemo` entries run without `-renderhash` (fixed dt would void the fps) | none | applied |
+| 2026-09-05 (M1) | `main_sdl.c` floors every non-fixed-dt harness frame at `sys_ticrate` (0.025 s, a Phase 7 two-process networking safeguard), so `--timedemo` measured 38.6 fps on every build — a pacing artifact, not renderer throughput | the floor exempts `cls.timedemo` (no server, no peer); M1 engine change in `main_sdl.c`, harness-only path | AC6/AC11 timedemo threshold now measures rendering | applied |
+| 2026-09-05 (M1) | The Linux CI Vulkan SDK subset has no validation layer; Windows/macOS runners' Vulkan availability unknown (RA2) | `--validation` is a local Windows gate; Linux CI runs `--stability` on lavapipe without it; non-fatal `render_corpus.py --runs 1` probe steps added to the Windows and macOS harness jobs — their first result decides RA2 | AC4 wording | applied |
+
+## Verification evidence and handoff
+
+| Milestone | Changed files/behavior | Check and result | Acceptance IDs | Remaining risk/next action |
+|---|---|---|---|---|
+| M1 (2026-09-05) | `meson_options.txt`/`meson.build` (`use_rust_tasks`, `use_rust_render`), `quake-capi/Cargo.toml` (features `tasks`, `render`), `common.make` + new `Quake/harness_render.c` (`-renderhash`, `-renderhashdetail`), hooks in `harness.c/.h`, `gl_vidsdl.c` (trampolines, screenshot handover), `gl_rmisc.c`, `gl_rmain.c`, `gl_screen.c`; `main_sdl.c` timedemo pacing exemption; new `scripts/harness/render_corpus.py` + `Misc/harness/render_corpus.json`; workflows `build-linux/windows/mac.yml` (ctasks/crender legs, compares, lavapipe stability step, RA2 probes), `rust.yml` (`loom`, `tsan`); ADR-003 amendment; README; ROADMAP `[~]`; this plan | **Targeted (Windows dev box, MSVC cl):** `build-c`, `build-rs`, `build-rs-ctasks`, `build-rs-crender` configure and build; `check_capi_signatures.sh` OK on all three mixed headers (run inside vcvars64 with `CC=clang-cl`); `run_corpus.py --compare` C-only vs `build-rs`, `build-rs-ctasks` (both sides `-pinnedworkers 0,1,2,3`) and `build-rs-crender`: 11/11 identical each incl. the registered-tier entries; `run_corpus.py --check`: 8 ok, 3 mismatches = the KNOWN STALE registered-tier goldens recorded in `goldens/windows-x86_64/MANIFEST.json` at Phase 7 M11 (pre-existing, frame 0 differs; the mixed builds agree with C on the same three); `render_corpus.py --stability --runs 3` (with `-renderhashdetail`) and `--runs 2 --validation`: every screenshot SSIM exactly 1.0000 (28 + 16 comparisons), `-renderhash` identical run to run on all five entries (demo1/demo2 962 frames, start/e1m1 142, e1m2 143), zero validation-layer messages; `render_corpus.py --timedemo --timedemo-compare build-rs` (3 runs each): C median 237.2 fps, mixed 237.2 fps, floor 213.5 — before the `main_sdl.c` exemption both read 38.6 fps (the `sys_ticrate` cap); `cargo fmt --check`, `cargo clippy --workspace --all-targets --locked -D warnings`, `cargo test --workspace --locked --release` (118 suites, 1491 tests, 0 failed), `RUSTFLAGS=--cfg loom cargo test -p quake-tasks --release --locked` (job shape, 0 tests) all rc=0; `clang-format --dry-run -Werror` clean on the eight touched C files. **Not run locally:** `cargo deny check` (not installed here; no `Cargo.lock` change at M1 — CI `lint`), `tsan` job (nightly + `-Zbuild-std`, Linux only), Linux/macOS/MinGW/arm64 legs, lavapipe stability step, the Windows/macOS Vulkan probes — all read from CI after push. | AC1 (targeted), AC2 (ADR text; deny via CI), AC3 (job shapes; real at M2), AC4 (Windows local exact; Linux lavapipe pending CI) | RA1/RA2 settle on the first CI run (lavapipe threshold, probe outcomes). Timedemo fps is identical to 0.1 fps across six runs and may be present-wait/display bound (~240 Hz) rather than CPU bound at 640x480 — still a valid regression floor, but a CPU regression under that bound would be invisible; revisit with a larger resolution or `vid_vsync`-free config at M2 if the Rust scheduler needs a sharper measure. The three stale registered goldens remain the Phase 7 hand-off to the owner. Next: M2 (`quake-tasks`). |
+
+## Completion gate
+
+- [ ] Requirements map to acceptance criteria (R1→AC5/6, R2→AC4/6/8/11, R3→AC1/5/8, R4→AC7, R5→AC1/6).
+- [ ] ADR-003/004/007/009/010/011/015/016/017/019 constraints satisfied and cited in commits.
+- [ ] Each milestone landed as one commit with the tree green; evidence rows filled with current tool output (targeted / broad / manual / not-run distinguished).
+- [ ] ROADMAP status and amendment log updated; `/integration-review` run by the user at M12.

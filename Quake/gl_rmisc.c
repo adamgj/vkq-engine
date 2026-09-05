@@ -2804,6 +2804,8 @@ static void R_CreateGraphicsPipeline (vulkan_pipeline_t *pipeline, pipeline_crea
 		Sys_Error ("vkCreateGraphicsPipelines failed (%s) with code %i", name, (int)err);
 	pipeline->layout = layout;
 	GL_SetObjectName ((uint64_t)pipeline->handle, VK_OBJECT_TYPE_PIPELINE, name);
+	if (harness_renderhash)
+		Harness_RenderPipelineCreated ((uint64_t)pipeline->handle, name);
 }
 
 /*
@@ -2834,6 +2836,8 @@ static void R_CreateComputePipeline (
 	if (err != VK_SUCCESS)
 		Sys_Error ("vkCreateComputePipelines failed (%s) with code %i", name, (int)err);
 	GL_SetObjectName ((uint64_t)pipeline->handle, VK_OBJECT_TYPE_PIPELINE, name);
+	if (harness_renderhash)
+		Harness_RenderPipelineCreated ((uint64_t)pipeline->handle, name);
 }
 
 /*

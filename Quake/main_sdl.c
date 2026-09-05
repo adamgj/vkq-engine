@@ -178,10 +178,12 @@ int main (int argc, char *argv[])
 			   failure this fix exists to remove. Note the floor is
 			   sys_ticrate, nominally the *dedicated server* tic rate
 			   (host.c:79): a scenario that sets it changes this client's
-			   cadence too. */
+			   cadence too. A timedemo is exempt: it has no server and no
+			   peer, and the floor would cap the fps it exists to measure
+			   (render_corpus.py --timedemo). */
 			newtime = Sys_DoubleTime ();
 			time = newtime - oldtime;
-			if (harness_active && !harness_fixed_dt)
+			if (harness_active && !harness_fixed_dt && !cls.timedemo)
 			{
 				while (time < sys_ticrate.value)
 				{
