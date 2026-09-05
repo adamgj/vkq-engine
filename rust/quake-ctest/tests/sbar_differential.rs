@@ -414,7 +414,7 @@ fn noop(_side: c_int) {}
 /// not papered over -- and the port reproduces it. A hang cannot be
 /// differentially compared.
 ///
-/// `i32::MIN`: `num = -num` (`sbar.c:367`) is signed overflow, which clang
+/// `i32::MIN`: `num = -num` (`sbar.c:368`) is signed overflow, which clang
 /// takes as licence to assume `num > 0` from there on. On the real `INT_MIN`
 /// value the `while (pow10 != 1)` exit is then unreachable, and the digit
 /// loop writes past the caller's buffer until it faults on the stack guard
