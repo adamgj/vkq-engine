@@ -850,6 +850,19 @@ fn con_checkresize_recalcs_link_offsets() {
         fresh(side);
         // SAFETY: ADR-004. A wide canvas so the link lands at a stable pixel.
         unsafe { ctest_console_set_vid(640, 480, 640, 480) };
+        // One linefeed first, off the ring-buffer wrap. `fresh` leaves
+        // con_current at con_totallines - 1, and Con_LinkPrintf captures
+        // link->begin *before* Con_Print's leading `if (!con_x) Con_Linefeed`
+        // (console.c:1175) moves the text onto the next line -- so begin sits
+        // one line behind the text. The leading-space skip that follows
+        // (console.c:1412-1423) walks that gap with a bare `text++` and never
+        // re-derives the pointer from `begin.line % con_totallines`, so
+        // crossing the last physical row reads past the end of con_text. The
+        // two sides own separate con_text allocations, so each reads different
+        // bytes there and the link range diverges. Starting one line in keeps
+        // begin and the text on physically adjacent rows, which is the case
+        // the skip loop is actually written for.
+        print(side, "\n");
         let addr = cs("/tmp/target.txt");
         let txt = cs("target.txt");
         // SAFETY: ADR-004. One fixture call per side.
