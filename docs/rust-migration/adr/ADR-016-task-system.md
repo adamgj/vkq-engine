@@ -70,3 +70,6 @@ them and the rest of the ADR stands.
   ring, Rust through a free list); the only handle held across frames,
   `prev_end_rendering_task`, is used through epoch-safe calls, so the
   difference is unobservable.
+  A null `payload` zero-fills the 128-byte copy where C leaves the slot's
+  stale bytes; no caller passes NULL (task plan RA16), so this too is
+  unobservable.

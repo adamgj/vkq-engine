@@ -95,6 +95,9 @@ def ssim(img_a, img_b, window=8):
     flat_a = [v for row in ra for v in row]
     flat_b = [v for row in rb for v in row]
     global_ssim = _ssim_block(flat_a, flat_b)
+    if wa < window or ha < window:
+        # Nothing to window over; the global value is the only measure.
+        return {"global": global_ssim, "mean": global_ssim, "min": global_ssim}
     windows = []
     for y in range(0, ha - window + 1, window):
         for x in range(0, wa - window + 1, window):
@@ -104,6 +107,22 @@ def ssim(img_a, img_b, window=8):
     return {"global": global_ssim,
             "mean": sum(windows) / len(windows),
             "min": min(windows)}
+
+
+# --- corpus entries -------------------------------------------------------------
+
+def entry_cmds(entry):
+    """The entry's `cmds`, each validated as `<frame> <command>`."""
+    cmds = entry.get("cmds", [])
+    for c in cmds:
+        parts = c.split(None, 1)
+        if len(parts) != 2 or not parts[0].isdigit():
+            raise SystemExit(f"{entry.get('name', '?')}: malformed cmds entry {c!r} (want '<frame> <command>')")
+    return cmds
+
+
+def screenshot_count(entry):
+    return sum(1 for c in entry_cmds(entry) if c.split(None, 1)[1].startswith("screenshot"))
 
 
 # --- engine runs ----------------------------------------------------------------
@@ -127,7 +146,7 @@ def run_engine(exe, entry, args, label, out_dir, extra_args, renderhash=True):
             cmdlines.append(f"0 timedemo {entry['timedemo']}")
         elif entry.get("demo"):
             cmdlines.append(f"0 playdemo {entry['demo']}")
-        cmdlines.extend(entry.get("cmds", []))
+        cmdlines.extend(entry_cmds(entry))
         with open(os.path.join(staging, "harness.cmds"), "w") as f:
             f.write("\n".join(cmdlines) + "\n")
         # -nomouse: the initial grab delta would rotate the view; -nosound: a
@@ -334,7 +353,7 @@ def main():
         report["candidate"] = os.path.abspath(args.compare)
         for entry in entries:
             name = entry["name"]
-            want = sum(1 for c in entry.get("cmds", []) if c.split(None, 1)[1].startswith("screenshot"))
+            want = screenshot_count(entry)
             a = run_engine_retry(args.vkquake, entry, args, "ref", args.out, args.extra_args, want_shots=want)
             b = run_engine_retry(args.compare, entry, args, "cand", args.out, args_b, want_shots=want)
             ok = check_run(name, "ref", a, want, args, failures) & check_run(name, "cand", b, want, args, failures)
@@ -358,7 +377,7 @@ def main():
         runs = args.runs or 2
         for entry in entries:
             name = entry["name"]
-            want = sum(1 for c in entry.get("cmds", []) if c.split(None, 1)[1].startswith("screenshot"))
+            want = screenshot_count(entry)
             results = []
             for i in range(runs):
                 res = run_engine_retry(args.vkquake, entry, args, f"run-{i}", args.out, args.extra_args, want_shots=want)

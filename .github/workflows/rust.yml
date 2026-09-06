@@ -227,12 +227,16 @@ jobs:
     - uses: dtolnay/rust-toolchain@nightly
       with:
         components: rust-src
+    # The workspace profiles set panic = "abort", but cargo test builds the
+    # test harness with unwinding; with -Zbuild-std that mismatch makes the
+    # rebuilt panic_abort fail ("does not have the panic strategy `abort`"),
+    # so the release profile is overridden to unwind for this job only.
     - name: cargo test (ThreadSanitizer)
       working-directory: rust
       env:
         RUSTFLAGS: -Zsanitizer=thread
         RUSTDOCFLAGS: -Zsanitizer=thread
-      run: cargo +nightly test -p quake-tasks --release -Zbuild-std --target x86_64-unknown-linux-gnu
+      run: cargo +nightly test -p quake-tasks --release -Zbuild-std --target x86_64-unknown-linux-gnu --config 'profile.release.panic="unwind"'
 
   # ADR-005: scheduled exhaustive conformance sweep of all 2^32 f32 patterns
   # against the platform snprintf, per CI OS

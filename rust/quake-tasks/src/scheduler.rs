@@ -105,7 +105,9 @@ struct Counter {
 struct Inner<J> {
     num_workers: usize,
     slots: Vec<Slot<J>>,
-    /// `indexed_task_counters`, indexed `slot * num_workers + worker`.
+    /// `indexed_task_counters`, indexed `worker * table_size + slot` as in
+    /// C (`IndexedTaskCounterIndex`), so the counters two workers hammer
+    /// during one fan-out sit a table apart rather than on one cache line.
     counters: Vec<Counter>,
     /// `free_task_queue`: FIFO of retired slot indices.
     free: Mutex<VecDeque<u32>>,
@@ -150,7 +152,9 @@ impl<J: Job> Scheduler<J> {
     /// models track a handful of slots instead of 256.
     pub(crate) fn with_table(num_workers: usize, table_size: usize, free_slots: usize) -> Self {
         assert!((1..=MAX_WORKERS).contains(&num_workers));
-        assert!((1..=MAX_PENDING_TASKS).contains(&table_size));
+        // A table needs at least one free slot plus the sentinel slot the
+        // ring keeps empty, so a 1-slot table is not a valid configuration.
+        assert!((2..=MAX_PENDING_TASKS).contains(&table_size));
         assert!((1..table_size).contains(&free_slots));
         let slots = (0..table_size)
             .map(|_| Slot {
@@ -273,7 +277,7 @@ impl<J: Job> Scheduler<J> {
         let count_per_worker = limit.div_ceil(num_workers);
         let mut start = 0u32;
         for w in 0..inner.num_workers {
-            let counter = &inner.counters[index * inner.num_workers + w];
+            let counter = &inner.counters[w * inner.slots.len() + index];
             counter.index.store(start, Ordering::Relaxed);
             counter
                 .limit
@@ -434,7 +438,7 @@ impl<J: Job> Inner<J> {
     fn execute_indexed(&self, w: usize, index: usize, job: &J) {
         for i in 0..self.num_workers {
             let steal_worker = (w + i) % self.num_workers;
-            let counter = &self.counters[index * self.num_workers + steal_worker];
+            let counter = &self.counters[steal_worker * self.slots.len() + index];
             let limit = counter.limit.load(Ordering::Relaxed);
             loop {
                 let i = counter.index.fetch_add(1, Ordering::AcqRel);
