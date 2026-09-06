@@ -158,8 +158,9 @@ R_CullModelForEntity -- johnfitz -- uses correct bounds based on rotation
 */
 qboolean R_CullModelForEntity (entity_t *e)
 {
-	vec3_t mins, maxs;
-	vec_t  scalefactor, *minbounds, *maxbounds;
+	vec3_t	 mins, maxs;
+	vec_t	 scalefactor, *minbounds, *maxbounds;
+	qboolean culled;
 
 	if (e->angles[0] || e->angles[2]) // pitch or roll
 	{
@@ -189,7 +190,10 @@ qboolean R_CullModelForEntity (entity_t *e)
 		VectorAdd (e->origin, maxbounds, maxs);
 	}
 
-	return R_CullBox (mins, maxs);
+	culled = R_CullBox (mins, maxs);
+	if (harness_renderhash)
+		Harness_RenderCull (e, culled);
+	return culled;
 }
 
 /*

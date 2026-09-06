@@ -81,11 +81,16 @@ jobs:
         meson setup build-rs -Duse_rust=enabled && ninja -C build-rs
         meson setup build-rs-cfs -Duse_rust=enabled -Duse_rust_fs=disabled && ninja -C build-rs-cfs
         meson setup build-rs-csnd -Duse_rust=enabled -Duse_rust_snd=disabled && ninja -C build-rs-csnd
+        # Phase 8: the C comparison oracles for the two Phase 8 switches
+        meson setup build-rs-ctasks -Duse_rust=enabled -Duse_rust_tasks=disabled && ninja -C build-rs-ctasks
+        meson setup build-rs-crender -Duse_rust=enabled -Duse_rust_render=disabled && ninja -C build-rs-crender
     - name: FFI signature parity (quake_rs.h vs engine headers)
       run: |
         ./scripts/harness/check_capi_signatures.sh build-rs/quake_rs.h
         ./scripts/harness/check_capi_signatures.sh build-rs-cfs/quake_rs.h
         ./scripts/harness/check_capi_signatures.sh build-rs-csnd/quake_rs.h
+        ./scripts/harness/check_capi_signatures.sh build-rs-ctasks/quake_rs.h
+        ./scripts/harness/check_capi_signatures.sh build-rs-crender/quake_rs.h
     # the corpus covers the map entries too, so the per-frame hash gate sees
     # real server/edict state and not just demo playback
     - name: Golden check (shareware tier, darwin-arm64)
@@ -117,6 +122,25 @@ jobs:
       run: |
         export QUAKE_GAME_DATA="$PWD/shareware-data"
         python3 scripts/harness/run_corpus.py --vkquake build-c/vkqr-engine --compare build-rs-cfs/vkqr-engine --tier shareware
+    # Phase 8: both sides pinned to the same worker count (Tasks_NumWorkers
+    # chunking is sim-observable), see the Linux job
+    - name: Mixed build identity (C tasks vs C-only)
+      run: |
+        export QUAKE_GAME_DATA="$PWD/shareware-data"
+        python3 scripts/harness/run_corpus.py --vkquake build-c/vkqr-engine --compare build-rs-ctasks/vkqr-engine --tier shareware --extra-args "-pinnedworkers 0,1,2,3" --compare-extra-args "-pinnedworkers 0,1,2,3"
+    - name: Mixed build identity (C render vs C-only)
+      run: |
+        export QUAKE_GAME_DATA="$PWD/shareware-data"
+        python3 scripts/harness/run_corpus.py --vkquake build-c/vkqr-engine --compare build-rs-crender/vkqr-engine --tier shareware
+    # Phase 8 M1 probe (task plan RA2): does this runner have a Metal device
+    # MoltenVK can drive? One windowed run of the smallest render-corpus
+    # entry; non-fatal, its outcome decides whether the SSIM gate can run
+    # here or stays a locally recorded gate (Phase 7 goldens precedent).
+    - name: Vulkan device probe (render corpus, non-fatal)
+      continue-on-error: true
+      run: |
+        export QUAKE_GAME_DATA="$PWD/shareware-data"
+        python3 scripts/harness/render_corpus.py --vkquake build-c/vkqr-engine --stability --runs 1 --entry start-map --timeout 300 --out render-probe
     # macOS is the platform whose users actually get the CoreAudio path, so
     # mirror the Linux sound-oracle legs here rather than leaving
     # -Duse_rust_snd=disabled Linux-only

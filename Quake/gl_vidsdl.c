@@ -217,10 +217,13 @@ VkBool32 VKAPI_PTR DebugMessageCallback (
 static uint32_t current_swapchain_buffer;
 
 // Screenshots
-qboolean	take_screenshot = false;
-static char screenshot_ext[4];
-char		screenshot_imagename[MAX_OSPATH]; // johnfitz -- was [80]
-int			screenshot_quality;
+// set by SCR_ScreenShot_f and consumed by GL_EndRendering, both on the main
+// thread, so the request always applies to the next submitted frame (the
+// asynchronous end-rendering task of the previous frame must not see it)
+static qboolean take_screenshot = false;
+static char		screenshot_ext[4];
+char			screenshot_imagename[MAX_OSPATH]; // johnfitz -- was [80]
+int				screenshot_quality;
 
 task_handle_t prev_end_rendering_task = INVALID_TASK_HANDLE;
 
@@ -1448,6 +1451,9 @@ static void GL_InitDevice (void)
 	GET_GLOBAL_DEVICE_PROC_ADDR (vk_cmd_pipeline_barrier, vkCmdPipelineBarrier);
 	GET_GLOBAL_DEVICE_PROC_ADDR (vk_cmd_copy_buffer_to_image, vkCmdCopyBufferToImage);
 	GET_GLOBAL_DEVICE_PROC_ADDR (vk_cmd_dispatch, vkCmdDispatch);
+
+	if (harness_renderhash)
+		Harness_RenderInstallHooks ();
 }
 
 /*
@@ -3605,6 +3611,7 @@ typedef struct end_rendering_parms_s
 	qboolean	 ray_debug	   : 1;
 	uint32_t	 render_scale  : 4;
 	uint32_t	 vid_height	   : 20;
+	qboolean	 screenshot	   : 1;
 	float		 time;
 	VkClearValue color_clear_value;
 	uint8_t		 v_blend[4];
@@ -4122,7 +4129,8 @@ static void GL_EndRenderingTask (end_rendering_parms_t *parms)
 
 	VkBuffer screenshot_buffer = VK_NULL_HANDLE;
 	ZEROED_STRUCT (vulkan_memory_t, screenshot_memory);
-	if (take_screenshot)
+	const qboolean screenshot = parms->screenshot;
+	if (screenshot)
 	{
 		ScheduleScreenshotCopy (render_passes_cb, &screenshot_buffer, &screenshot_memory);
 	}
@@ -4162,11 +4170,10 @@ static void GL_EndRenderingTask (end_rendering_parms_t *parms)
 
 	vulkan_globals.device_idle = false;
 
-	if (take_screenshot && (screenshot_buffer != VK_NULL_HANDLE))
+	if (screenshot && (screenshot_buffer != VK_NULL_HANDLE))
 	{
 		WriteScreenshot (screenshot_buffer, screenshot_memory);
 	}
-	take_screenshot = false;
 
 	if (swapchain_acquired == true)
 	{
@@ -4233,6 +4240,7 @@ task_handle_t GL_EndRendering (qboolean use_tasks, qboolean swapchain)
 		.render_scale = CLAMP (0, render_scale, 8),
 		.vid_width = vid.width,
 		.vid_height = vid.height,
+		.screenshot = take_screenshot,
 		.time = fmod (cl.time, 2.0 * M_PI),
 		.color_clear_value = vulkan_globals.color_clear_value,
 		.v_blend[0] = v_blend[0],
@@ -4264,6 +4272,7 @@ task_handle_t GL_EndRendering (qboolean use_tasks, qboolean swapchain)
 				-vulkan_globals.view_matrix[9],
 			},
 	};
+	take_screenshot = false;
 	task_handle_t end_rendering_task = INVALID_TASK_HANDLE;
 	if (use_tasks)
 		end_rendering_task = Task_AllocateAndAssignFunc ((task_func_t)GL_EndRenderingTask, &parms, sizeof (parms));

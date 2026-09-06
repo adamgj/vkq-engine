@@ -232,6 +232,7 @@ srcs = [
     'Quake/gl_vidsdl.c',
     'Quake/gl_warp.c',
     'Quake/harness.c',
+    'Quake/harness_render.c',
     'Quake/q_thread_sdl.c',
     'Quake/pr_trace.c',
     'Quake/image.c',
@@ -253,7 +254,6 @@ srcs = [
     'Quake/r_world.c',
     'Quake/steam_api.c',
 	'Quake/sys_sdl.c',
-    'Quake/tasks.c',
 	 run_generate_embedded_pak,
 ]
 
@@ -383,6 +383,19 @@ if get_option('use_rust_host').enabled() and not use_rust
     error('-Duse_rust_host=enabled requires -Duse_rust=enabled (the client/server simulation ships in libquake_rs.a)')
 endif
 use_rust_host = use_rust and not get_option('use_rust_host').disabled()
+# Phase 8: the task system and the Vulkan renderer. Two crate-level switches
+# (task plan D1): renderer sub-slices land as commits under use_rust_render,
+# and the C originals stay the SSIM/-renderhash oracle under
+# -Duse_rust_tasks=disabled / -Duse_rust_render=disabled until Phase 9. Same
+# auto-follows-use_rust rule as above
+if get_option('use_rust_tasks').enabled() and not use_rust
+    error('-Duse_rust_tasks=enabled requires -Duse_rust=enabled (the task system ships in libquake_rs.a)')
+endif
+use_rust_tasks = use_rust and not get_option('use_rust_tasks').disabled()
+if get_option('use_rust_render').enabled() and not use_rust
+    error('-Duse_rust_render=enabled requires -Duse_rust=enabled (the renderer ships in libquake_rs.a)')
+endif
+use_rust_render = use_rust and not get_option('use_rust_render').disabled()
 # the Rust filesystem does not implement the DO_USERDIRS lookup branches yet
 # (quake-capi fails this combination with a compile_error!); say so here
 # rather than several minutes into a cargo build
@@ -428,6 +441,18 @@ if use_rust
     endif
     if use_rust_host
         rust_feature_list += 'host'
+    endif
+    # Phase 8: the feature and the -DUSE_RUST_* define land with the switch
+    # (M1); the per-file source swaps follow with each slice (tasks.c at M2,
+    # gl_heap.c at M3, ...) as `if use_rust_tasks` / `if use_rust_render`
+    # blocks next to the other Pattern-A swaps below.
+    if use_rust_tasks
+        rust_feature_list += 'tasks'
+        cflags += '-DUSE_RUST_TASKS'
+    endif
+    if use_rust_render
+        rust_feature_list += 'render'
+        cflags += '-DUSE_RUST_RENDER'
     endif
     # Phase 7 M5: the server- and client-coupled pr_cmds.c/pr_ext.c builtins
     # and the ED_Parse* dispatchers straddle both strata -- the builtin tables
@@ -859,6 +884,23 @@ if use_rust_host
     srcs += ['Quake/r_part_fte_glue.c']
 else
     srcs += ['Quake/r_part_fte.c']
+endif
+
+# Phase 8 M2: tasks.c -> quake-tasks via quake-capi (Pattern A whole-file
+# swap, ADR-016). The Rust staticlib exports every Task_*/Tasks_* entry point
+# of tasks.h byte-for-byte (the signature gate compiles tasks.h against
+# quake_rs.h), so the glue TU is small: Quake/tasks_glue.c keeps only the
+# _DEBUG `test_tasks` command verbatim, because host.c and host_glue.c both
+# register TestTasks_f and the stress test is meant to drive the scheduler
+# through the real C ABI. tasks.c has no C-visible data symbols and no
+# raise-capable callee (Con_Printf/Con_DPrintf only), so there is no
+# Host_Guard topology to mirror. The C original stays the
+# -Duse_rust_tasks=disabled comparison oracle (build-rs-ctasks). atomics.h
+# stays: its other users are the C renderer, which retires it in Phase 9.
+if use_rust_tasks
+    srcs += ['Quake/tasks_glue.c']
+else
+    srcs += ['Quake/tasks.c']
 endif
 
 if use_rust_snd

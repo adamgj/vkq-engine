@@ -266,7 +266,6 @@ extern "C" {
 
     /* Plain C callees host.c reaches that had no Rust declaration. All are
      * raise-free, so they are called straight through (ADR-009 rule 4). */
-    pub fn Tasks_IsWorker() -> qboolean;
     pub fn Cbuf_Waited();
     pub fn Sys_ConsoleInput() -> *const c_char;
     pub fn Sys_SendKeyEvents();
@@ -290,3 +289,6 @@ extern "C" {
     pub fn strtoul(s: *const c_char, end: *mut *mut c_char, base: c_int) -> core::ffi::c_ulong;
     pub fn printf(fmt: *const c_char, ...) -> c_int;
 }
+
+// Phase 8 M2: the task-system queries live in `crate::tasks` (ADR-016).
+pub use crate::tasks::Tasks_IsWorker;

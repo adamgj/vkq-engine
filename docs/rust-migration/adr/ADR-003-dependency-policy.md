@@ -106,3 +106,55 @@ All three satisfy the allowlist via MIT (deny.toml excludes Apache-only
 licenses; none of these trees are Apache-only). The M7 PR must still run
 `cargo deny check licenses` over the full resolved tree and verify the
 `*-pc-windows-gnu` build before merging.
+
+## Amended (Phase 8 M1, 2026-09-05) — planned task-system and renderer dependencies
+
+Phase 8 plans four new direct dependencies, recorded here at phase start so
+the introduction-bar review happens before any code depends on them (each
+adoption and its `cargo deny check` land with the milestone named):
+
+- **`crossbeam-deque`** 0.8 ("MIT OR Apache-2.0" → MIT; crossbeam-rs org) —
+  the injector + per-worker deque + stealer trio the ADR-016 scheduler is
+  designed around (`quake-tasks`, M2). Its transitives `crossbeam-epoch` and
+  `crossbeam-utils` carry the same dual license. Alternatives: `rayon` (a
+  different scheduler model, not the ADR-016 design), an in-tree Chase-Lev
+  deque (unsafe we would own; rejected while a maintained one exists).
+- **`crossbeam-utils`** 0.8 (same license, already a transitive) —
+  `Parker`/`Backoff`/`CachePadded` for worker idling (M2).
+- **`loom`** 0.7 (MIT; tokio-rs org) — dev-only, declared under
+  `[target.'cfg(loom)'.dev-dependencies]` so it is never resolved into the
+  staticlib; runs the scheduler's state-machine models in the `rust.yml`
+  `loom` job (M2).
+- **`ash`** 0.38 ("MIT OR Apache-2.0" → MIT; ash-rs org) — the ADR-015 Vulkan
+  binding. `default-features = false, features = ["std", "debug"]` and
+  explicitly **not** `loaded`: the engine keeps loading through
+  `SDL_Vulkan_GetVkGetInstanceProcAddr`, so `libloading` stays out of the
+  tree and the crate has no runtime transitives. Introduced at M3 for the
+  `vulkan_memory_t` handle mirror (ADR-011); the wider API surface follows
+  from M6. Alternatives: `vulkano`/`wgpu` (ADR-015 rejects an abstraction
+  layer), unmaintained raw `vk-sys`-style bindings.
+
+All four satisfy the allowlist via MIT. Each adopting milestone must run
+`cargo deny check licenses` over the full resolved tree and record the result
+in the task plan's evidence table.
+
+### Adopted at Phase 8 M2 (2026-09-05)
+
+- `crossbeam-deque` 0.8.8 with its transitives `crossbeam-epoch` 0.9.21 and
+  `crossbeam-utils` 0.8.23 (all "MIT OR Apache-2.0", taken as MIT) —
+  `quake-tasks` runtime dependencies, reaching the staticlib only under the
+  `tasks` feature. `crossbeam-utils` stays a transitive: the scheduler idles
+  on a per-slot `Mutex`/`Condvar`, so `Parker`/`Backoff` were not adopted.
+- `loom` 0.7.2 (MIT), dev-only under `[target.'cfg(loom)'.dev-dependencies]`
+  of `quake-tasks`. Its transitives are dev-only too: `generator` 0.8.9,
+  `scoped-tls` 1.0.1, `lazy_static` 1.5.0, `log` 0.4.34, `pin-project-lite`
+  0.2.17, `regex-automata` 0.4.18, `rustversion` 1.0.23, `smallvec` 1.16.0,
+  `thread_local` 1.1.10, `windows-result` 0.4.1 ("MIT OR Apache-2.0");
+  `tracing` 0.1.44, `tracing-core` 0.1.36, `tracing-log` 0.2.0,
+  `tracing-subscriber` 0.3.23, `matchers` 0.2.0, `nu-ansi-term` 0.50.3,
+  `sharded-slab` 0.1.7, `valuable` 0.1.1 (MIT); `aho-corasick` 1.1.5 and
+  `memchr` 2.8.3 ("Unlicense OR MIT", taken as MIT; both already in the
+  tree through `regex`).
+- `cargo deny check` (licenses, bans, advisories, sources) is clean in both
+  workspaces (`rust/`, `rust/fuzz`) with `deny.toml` unchanged.
+- `ash` is not yet adopted (M3).

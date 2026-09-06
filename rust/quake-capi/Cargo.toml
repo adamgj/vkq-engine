@@ -31,6 +31,8 @@ quake-net = { path = "../quake-net" }
 quake-progs = { path = "../quake-progs" }
 quake-c-sys = { path = "../quake-c-sys" }
 quake-platform = { path = "../quake-platform" }
+# Phase 8 M2 (ADR-016): the scheduler core, linked only under `tasks`
+quake-tasks = { path = "../quake-tasks", optional = true }
 
 [target.'cfg(unix)'.dependencies]
 # Phase 5 M7b (ADR-003): errno constants for the UDP landriver shims
@@ -85,6 +87,13 @@ cvar = []
 # by Meson when -Duse_rust_host is enabled, and by quake-ctest for the
 # differential suites
 host = []
+# the Phase 8 task-system shims (Task_*/Tasks_*, ADR-016); set by Meson when
+# -Duse_rust_tasks is enabled (M2; the core is the quake-tasks crate)
+tasks = ["dep:quake-tasks"]
+# the Phase 8 renderer slices (gl_heap, gl_texmgr, gl_rmisc, gl_vidsdl, the
+# draw layer, world/mesh, frame graph, ray tracing -- ADR-015); set by Meson
+# when -Duse_rust_render is enabled. Empty until M3 lands the first slice.
+render = []
 # codec-availability flags mirroring the C build's USE_CODEC_* defines; the
 # Rust codec registry (ADR-014) registers exactly the wrappers Meson links
 codec-wave = []

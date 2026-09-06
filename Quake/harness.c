@@ -108,10 +108,13 @@ void Harness_CheckArgs (void)
 	if (COM_CheckParm ("-headless"))
 		no_rendering = true;
 	if (COM_CheckParm ("-headless") || COM_CheckParm ("-demohash") || COM_CheckParm ("-exitafter") || COM_CheckParm ("-harnesscmds") ||
-		COM_CheckParm ("-netcapture") || COM_CheckParm ("-sndhash") || COM_CheckParm ("-netreplay") || COM_CheckParm ("-parthash"))
+		COM_CheckParm ("-netcapture") || COM_CheckParm ("-sndhash") || COM_CheckParm ("-netreplay") || COM_CheckParm ("-parthash") ||
+		COM_CheckParm ("-renderhash"))
 		harness_active = true;
-	if (COM_CheckParm ("-demohash") || COM_CheckParm ("-sndhash") || COM_CheckParm ("-netreplay"))
+	if (COM_CheckParm ("-demohash") || COM_CheckParm ("-sndhash") || COM_CheckParm ("-netreplay") || COM_CheckParm ("-renderhash"))
 		harness_fixed_dt = true;
+	if (COM_CheckParm ("-renderhash"))
+		harness_renderhash = true;
 	if (COM_CheckParm ("-netreplay"))
 		harness_netreplay = true;
 	if (COM_CheckParm ("-sndhash"))
@@ -176,6 +179,8 @@ void Harness_Init (void)
 
 	COM_SeedRand (HARNESS_RAND_SEED);
 	cls.demonum = -1; /* no attract-loop chaining after a demo ends */
+	if (harness_renderhash)
+		Harness_RenderInit ();
 
 	i = COM_CheckParm ("-demohash");
 	if (i && i < com_argc - 1)
@@ -413,6 +418,8 @@ void Harness_Shutdown (void)
 		fclose (harness_capturefile);
 		harness_capturefile = NULL;
 	}
+	if (harness_renderhash)
+		Harness_RenderShutdown ();
 }
 
 void Harness_NetCapture (int direction, int driver, int kind, const byte *data, int len)

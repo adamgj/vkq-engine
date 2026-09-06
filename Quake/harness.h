@@ -92,6 +92,25 @@ extern unsigned int harness_badread_count;
 /* fixed timestep fed to Host_Frame when harness_active */
 double Harness_FrameTime (void);
 
+/* -renderhash <file> (Rust migration Phase 8, ADR-015 "cull decisions and
+   draw-call structure identical"): per-frame chained hash of the renderer's
+   entity cull decisions, the world surface visibility bitset and the draw
+   calls recorded on every command-buffer context (pipeline name, canvas,
+   counts -- never buffer offsets, which parallel ring allocation makes
+   order-dependent). Needs a window (the headless client never renders);
+   forces the fixed timestep so two runs replay the same demo frames.
+   Separate from the -demohash chain: it must never feed the state hash.
+   The instrument lives in harness_render.c so this header and harness.c
+   stay Vulkan-free; every hook below is guarded by harness_renderhash. */
+extern qboolean harness_renderhash;
+
+void Harness_RenderInit (void);			/* from Harness_Init */
+void Harness_RenderShutdown (void);		/* from Harness_Shutdown */
+void Harness_RenderInstallHooks (void); /* end of GL_InitDevice: wraps the vkCmdDraw* pointers */
+void Harness_RenderPipelineCreated (uint64_t handle, const char *name);
+void Harness_RenderCull (const struct entity_s *e, qboolean culled);
+void Harness_RenderDrawDone (void); /* SCR_DrawDone: fold and write the frame line */
+
 /* deterministic DMA backend for -sndhash: fixed 44100 Hz / 16-bit / stereo,
    sample position derived from host_framecount so headless runs need no audio
    device and two runs of the same script produce identical mixer output */

@@ -7,5 +7,19 @@ rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
+[dependencies]
+# ADR-003 (Phase 8 amendment): both "MIT OR Apache-2.0", taken under MIT.
+# crossbeam-deque supplies the injector + per-worker deques + stealers of
+# the ADR-016 design; crossbeam-utils is its transitive and is named here
+# only so the version is pinned alongside it.
+crossbeam-deque = "0.8"
+crossbeam-utils = "0.8"
+
+# ADR-016: loom model checking of the dependency/epoch state machine. A
+# dev-dependency only reachable under `RUSTFLAGS=--cfg loom` (rust.yml
+# `loom` job); never linked into the staticlib.
+[target.'cfg(loom)'.dev-dependencies]
+loom = "0.7"
+
 [lints]
 workspace = true

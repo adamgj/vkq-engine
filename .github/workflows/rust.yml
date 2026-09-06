@@ -194,6 +194,50 @@ jobs:
       working-directory: rust
       run: cargo run -p quake-ctest --release --locked --bin snprintf_sweep
 
+  # Phase 8 (ADR-016): the quake-tasks scheduler under loom's exhaustive
+  # interleaving model. The models are cfg(loom)-gated so they enter neither
+  # the staticlib nor the ordinary test run; --cfg loom also swaps the
+  # crossbeam queue for the model's mutex queue. Job shape lands at M1 over
+  # the stub crate, the models at M2.
+  loom:
+    name: loom (quake-tasks)
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v6
+    - uses: dtolnay/rust-toolchain@stable
+      with:
+        toolchain: 1.97.1
+    - name: cargo test (cfg loom)
+      working-directory: rust
+      env:
+        RUSTFLAGS: --cfg loom
+      run: cargo test -p quake-tasks --release --locked
+
+  # ADR-016: ThreadSanitizer over the scheduler's real (crossbeam) queues,
+  # which loom cannot model. Nightly-only: -Zsanitizer needs the standard
+  # library rebuilt with the same instrumentation (-Zbuild-std), and that
+  # rebuild resolves std's own lockfile, so this job cannot pass --locked.
+  # Net-new: there is no helgrind workflow for it to replace (helgrind.supp
+  # is only a paths exclusion).
+  tsan:
+    name: tsan (quake-tasks)
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v6
+    - uses: dtolnay/rust-toolchain@nightly
+      with:
+        components: rust-src
+    # The workspace profiles set panic = "abort", but cargo test builds the
+    # test harness with unwinding; with -Zbuild-std that mismatch makes the
+    # rebuilt panic_abort fail ("does not have the panic strategy `abort`"),
+    # so the release profile is overridden to unwind for this job only.
+    - name: cargo test (ThreadSanitizer)
+      working-directory: rust
+      env:
+        RUSTFLAGS: -Zsanitizer=thread
+        RUSTDOCFLAGS: -Zsanitizer=thread
+      run: cargo +nightly test -p quake-tasks --release -Zbuild-std --target x86_64-unknown-linux-gnu --config 'profile.release.panic="unwind"'
+
   # ADR-005: scheduled exhaustive conformance sweep of all 2^32 f32 patterns
   # against the platform snprintf, per CI OS
   conformance-exhaustive:

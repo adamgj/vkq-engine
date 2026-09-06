@@ -252,6 +252,7 @@ OBJS := strlcat.o \
 	steam.o \
 	steam_api.o \
 	harness.o \
+	harness_render.o \
 	q_thread_sdl.o \
 	host.o \
 	host_cmd.o \

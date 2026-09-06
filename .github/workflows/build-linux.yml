@@ -81,7 +81,8 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y meson ninja-build libsdl2-dev \
-          libvorbis-dev libflac-dev libopus-dev libopusfile-dev libmpg123-dev lhasa
+          libvorbis-dev libflac-dev libopus-dev libopusfile-dev libmpg123-dev lhasa \
+          mesa-vulkan-drivers xvfb
     - name: Cache Vulkan SDK tools
       id: cache-vulkan
       uses: actions/cache@v4
@@ -141,6 +142,10 @@ jobs:
         # glue files -- so it fails on its own when a C original stops
         # building. See meson.build's Phase 7 comments.
         meson setup build-rs-chost -Duse_sdl3=disabled -Duse_rust=enabled -Duse_rust_cvar=disabled -Duse_rust_host=disabled && ninja -C build-rs-chost
+        # Phase 8: the C comparison oracles for the two Phase 8 switches
+        # (tasks.c at M2, then each renderer file as its slice lands)
+        meson setup build-rs-ctasks -Duse_sdl3=disabled -Duse_rust=enabled -Duse_rust_tasks=disabled && ninja -C build-rs-ctasks
+        meson setup build-rs-crender -Duse_sdl3=disabled -Duse_rust=enabled -Duse_rust_render=disabled && ninja -C build-rs-crender
         # ADR-019 gate 3: the -Dtrace=true pair the progs differ compares
         meson setup build-c-trace -Duse_sdl3=disabled -Duse_rust=disabled -Dtrace=true && ninja -C build-c-trace
         meson setup build-rs-trace -Duse_sdl3=disabled -Duse_rust=enabled -Dtrace=true && ninja -C build-rs-trace
@@ -154,6 +159,8 @@ jobs:
         ./scripts/harness/check_capi_signatures.sh build-rs-cnet/quake_rs.h
         ./scripts/harness/check_capi_signatures.sh build-rs-cprogs/quake_rs.h
         ./scripts/harness/check_capi_signatures.sh build-rs-chost/quake_rs.h
+        ./scripts/harness/check_capi_signatures.sh build-rs-ctasks/quake_rs.h
+        ./scripts/harness/check_capi_signatures.sh build-rs-crender/quake_rs.h
     # no linux-x86_64 goldens yet, so gate on run-to-run stability and on the
     # mixed build matching C-only; both cover the map entries, i.e. real
     # server/edict state rather than demo playback alone
@@ -193,6 +200,18 @@ jobs:
       run: |
         export QUAKE_GAME_DATA="$PWD/shareware-data"
         python3 scripts/harness/run_corpus.py --vkquake build-c/vkqr-engine --compare build-rs-chost/vkqr-engine --tier shareware
+    # Phase 8: the scheduler is exercised headless (alias/MD5 skin fan-outs run
+    # on every map load), so these legs are real gates once M2 swaps tasks.c;
+    # both sides must see the same worker count (Tasks_NumWorkers chunking is
+    # sim-observable), hence the explicit -pinnedworkers on each
+    - name: Mixed build identity (C tasks vs C-only)
+      run: |
+        export QUAKE_GAME_DATA="$PWD/shareware-data"
+        python3 scripts/harness/run_corpus.py --vkquake build-c/vkqr-engine --compare build-rs-ctasks/vkqr-engine --tier shareware --extra-args "-pinnedworkers 0,1,2,3" --compare-extra-args "-pinnedworkers 0,1,2,3"
+    - name: Mixed build identity (C render vs C-only)
+      run: |
+        export QUAKE_GAME_DATA="$PWD/shareware-data"
+        python3 scripts/harness/run_corpus.py --vkquake build-c/vkqr-engine --compare build-rs-crender/vkqr-engine --tier shareware
     # Phase 6 (ADR-019 gate 3): instruction-level trace parity, the gate the
     # progs VM port is verified against. Demo playback never starts a server
     # and so emits zero records -- the oracle scenarios are maps, and
@@ -332,6 +351,26 @@ jobs:
           --compare build-rs/vkqr-engine --tier shareware \
           --extra-args "-pinnedworkers 0" \
           --compare-extra-args "-pinnedworkers 0,1,2,3,4,5,6,7"
+    # Phase 8 M1 (ADR-015 / ADR-019): the windowed render harness, on lavapipe
+    # (mesa-vulkan-drivers) under xvfb. C-vs-C stability: the -renderhash
+    # chains (cull decisions + draw-call structure) must be identical run to
+    # run and the screenshot SSIM must clear the entry threshold; this is also
+    # what sets the per-platform SSIM floor. The validation layer is not in the
+    # SDK subset installed above, so --validation is a local (Windows) gate.
+    # C-vs-mixed compares arrive with each Phase 8 slice.
+    - name: Render corpus stability (C-only, lavapipe, run-twice)
+      run: |
+        export QUAKE_GAME_DATA="$PWD/shareware-data"
+        xvfb-run -a -s "-screen 0 1280x1024x24" python3 scripts/harness/render_corpus.py --vkquake build-c/vkqr-engine --stability --runs 2 --timeout 1200 --out render-out
+    - name: Upload render corpus report
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: render-corpus-linux
+        path: |
+          render-out/report.json
+          render-out/*/*/stdout*.txt
+        if-no-files-found: ignore
     # Phase 3 M7 (D9 / AC4-7): drive every model/image asset of the shareware
     # id1 through both the c_ref C loaders and the Rust ports in-process and
     # assert bit-for-bit parity of the parsed structs, console log, and
