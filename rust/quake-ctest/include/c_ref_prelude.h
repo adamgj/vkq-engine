@@ -204,7 +204,7 @@ static inline int FindLastBitNonZero (const uint32_t mask)
 #ifdef _MSC_VER
 static inline int FindFirstBitNonZero64 (const uint64_t mask)
 {
-	unsigned long result;
+	unsigned long result = 0; /* the C never calls it with 0 */
 	_BitScanForward64 (&result, mask);
 	return (int)result;
 }
@@ -1580,7 +1580,16 @@ typedef struct
 typedef int VkResult;
 #define VK_SUCCESS 0
 typedef struct VkDevice_T		*VkDevice;
+/* vulkan_core.h's VK_DEFINE_NON_DISPATCHABLE_HANDLE: a pointer where
+ * VK_USE_64_BIT_PTR_DEFINES is 1 (the same condition as the real header),
+ * a uint64_t elsewhere. Hand copy, so abi_probe.c's sizeof row measures
+ * this typedef, not the SDK's. */
+#if defined(__LP64__) || defined(_WIN64) || (defined(__x86_64__) && !defined(__ILP32__)) || defined(_M_X64) || defined(__ia64) || \
+	defined(_M_IA64) || defined(__aarch64__) || defined(__powerpc64__) || (defined(__riscv) && __riscv_xlen == 64)
 typedef struct VkDeviceMemory_T *VkDeviceMemory;
+#else
+typedef uint64_t VkDeviceMemory;
+#endif
 typedef uint32_t				 VkFlags;
 typedef int						 VkStructureType;
 typedef int						 VkObjectType;

@@ -87,16 +87,25 @@ impl DeviceMemoryBackend for CBackend {
 /// `glheap_t`
 pub type GlHeap = Heap<CBackend>;
 
-/// `gl_heap.h` -- `GL_HeapCreate`.
+/// `gl_heap.h` -- `GL_HeapCreate`. `memory_type` crosses as the C `int`
+/// the enum is and is checked here: a value outside the enum is an engine
+/// bug the C would carry silently, and the Rust enum must never hold one.
 #[no_mangle]
 pub extern "C" fn GL_HeapCreate(
     segment_size: u64,
     page_size: u32,
     memory_type_index: u32,
-    memory_type: VulkanMemoryType,
+    memory_type: c_int,
     device_address: bool,
     heap_name: *const c_char,
 ) -> *mut GlHeap {
+    let memory_type = match memory_type {
+        0 => VulkanMemoryType::None,
+        1 => VulkanMemoryType::Device,
+        2 => VulkanMemoryType::Host,
+        // SAFETY: Sys_Error never returns (ADR-009: it terminates, no longjmp).
+        _ => unsafe { c::Sys_Error(c"GL_HeapCreate: bad vulkan_memory_type_t".as_ptr()) },
+    };
     Box::into_raw(Box::new(Heap::new(
         CBackend { name: heap_name },
         segment_size,
@@ -131,6 +140,10 @@ pub unsafe extern "C" fn GL_HeapAllocate(
     alignment: u64,
     num_allocations: *mut c_void,
 ) -> *mut Allocation {
+    // The C asserts are `assert ()` (compiled out under NDEBUG); these stay
+    // on in every profile. No caller passes 0 (gl_mesh.c/gl_texmgr.c size
+    // from Vulkan memory requirements), and the workspace's `panic = "abort"`
+    // makes a trip a plain abort rather than an unwind across the ABI.
     assert!(size > 0);
     assert!(alignment > 0);
     // SAFETY: per the contract above.
@@ -179,12 +192,14 @@ pub unsafe extern "C" fn GL_HeapGetAllocationOffset(allocation: *mut Allocation)
 }
 
 /// `gl_heap.h` -- `GL_HeapGetStats`. The pointer is into the boxed heap, as
-/// stable as the C `&heap->stats`.
+/// stable as the C `&heap->stats`, and derived from the raw heap pointer
+/// (not through a `&mut`) so writes through it by C are within its
+/// provenance.
 ///
 /// # Safety
 /// `heap` came from `GL_HeapCreate`.
 #[no_mangle]
 pub unsafe extern "C" fn GL_HeapGetStats(heap: *mut GlHeap) -> *mut GlHeapStats {
     // SAFETY: per the contract above.
-    unsafe { ptr::from_ref((*heap).stats()).cast_mut() }
+    unsafe { Heap::stats_ptr(heap) }
 }

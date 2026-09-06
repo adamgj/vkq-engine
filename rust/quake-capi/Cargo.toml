@@ -98,7 +98,7 @@ tasks = ["dep:quake-tasks"]
 # the Phase 8 renderer slices (gl_heap, gl_texmgr, gl_rmisc, gl_vidsdl, the
 # draw layer, world/mesh, frame graph, ray tracing -- ADR-015); set by Meson
 # when -Duse_rust_render is enabled (M3: the gl_heap slice)
-render = ["dep:quake-render", "dep:ash"]
+render = ["dep:quake-render", "dep:ash", "quake-types/render"]
 # codec-availability flags mirroring the C build's USE_CODEC_* defines; the
 # Rust codec registry (ADR-014) registers exactly the wrappers Meson links
 codec-wave = []

@@ -1,9 +1,16 @@
-//! ABI cross-check: the `quake_types::render` mirrors vs what the engine's own
-//! `gl_heap.h`/`glquake.h` say on this platform (Phase 8 M3, ADR-011). Under
-//! `-Duse_rust_render` the Rust heap hands `glheapstats_t` back through
-//! `GL_HeapGetStats` and fills `vulkan_memory_t` for the C
-//! `R_AllocateVulkanMemory` seam, so mirror drift is silent memory
-//! corruption rather than a link error.
+//! ABI cross-check: the `quake_types::render` mirrors vs the C probe
+//! (Phase 8 M3, ADR-011). Under `-Duse_rust_render` the Rust heap hands
+//! `glheapstats_t` back through `GL_HeapGetStats` and fills
+//! `vulkan_memory_t` for the C `R_AllocateVulkanMemory` seam, so mirror
+//! drift is silent memory corruption rather than a link error.
+//!
+//! What the probe measures: `glheapstats_t` is the engine's own `gl_heap.h`;
+//! `vulkan_memory_t`, `vulkan_memory_type_t` and `VkDeviceMemory` are the
+//! prelude's hand copies of `glquake.h:178-190` and `vulkan_core.h`
+//! (`c_ref_prelude.h`), because the real headers pull in the Vulkan SDK.
+//! Those rows therefore check mirror-vs-copy; the check against the real
+//! `glquake.h` is the `COMPILE_TIME_ASSERT`s in `Quake/gl_heap_glue.c`,
+//! which the `use_rust_render` build compiles with the SDK header in scope.
 //!
 //! Name-keyed like the Phase 3/4 probes so this consumer and the C table can't
 //! drift by index; an unknown key returns usize::MAX and fails the assert.
@@ -80,7 +87,9 @@ fn render_mirrors_match_engine_headers() {
 
     check_size!(VulkanMemoryType, "vulkan_memory_type_t");
     // D2: ash's DeviceMemory is a repr(transparent) u64 on every target; the
-    // C handle is a pointer on 64-bit and a uint64_t on 32-bit
+    // prelude's VkDeviceMemory follows vulkan_core.h's
+    // VK_USE_64_BIT_PTR_DEFINES rule (pointer on 64-bit, uint64_t
+    // otherwise). Only 64-bit targets have run this so far.
     assert_eq!(
         size_of::<ash::vk::DeviceMemory>(),
         c_abi("sizeof.VkDeviceMemory")

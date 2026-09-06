@@ -3,12 +3,18 @@
 //! Rust `gl_heap` fills `vulkan_memory_t` through the C
 //! `R_AllocateVulkanMemory` and hands `glheapstats_t` back to C readers
 //! (`gl_mesh.c`, `gl_texmgr.c`), so layout drift is silent memory
-//! corruption. Verified per-platform by `quake-ctest/tests/render_abi.rs`
-//! against the engine's own headers.
+//! corruption. Verified by `quake-ctest/tests/render_abi.rs` (`glheapstats_t`
+//! against the engine's `gl_heap.h`; the `glquake.h`/Vulkan types against
+//! the prelude's hand copies) and, against the real `glquake.h`, by the
+//! `COMPILE_TIME_ASSERT`s in `Quake/gl_heap_glue.c`, which every
+//! `-Duse_rust_render` build compiles. The const asserts below pin the
+//! same numbers on the Rust side.
 //!
-//! `VkDeviceMemory` is a pointer typedef on 64-bit C and a `uint64_t` on
-//! 32-bit; `ash::vk::DeviceMemory` is a `repr(transparent)` `u64` on both,
-//! which the ABI probe's `sizeof` row confirms (task plan D2).
+//! `VkDeviceMemory` is a pointer typedef where `vulkan_core.h`'s
+//! `VK_USE_64_BIT_PTR_DEFINES` is 1 and a `uint64_t` elsewhere;
+//! `ash::vk::DeviceMemory` is a `repr(transparent)` `u64` on both (task plan
+//! D2). Only 64-bit targets have been checked; a 32-bit leg would take the
+//! D2 fallback (a `u64` newtype) if its probe disagreed.
 
 use core::ffi::c_int;
 
@@ -53,6 +59,9 @@ const _: () = {
     assert!(core::mem::size_of::<VulkanMemoryType>() == core::mem::size_of::<c_int>());
     assert!(core::mem::size_of::<ash::vk::DeviceMemory>() == 8);
     assert!(core::mem::size_of::<VulkanMemory>() == 8 + core::mem::size_of::<usize>() * 2);
+    assert!(core::mem::offset_of!(VulkanMemory, handle) == 0);
+    assert!(core::mem::offset_of!(VulkanMemory, size) == 8);
+    assert!(core::mem::offset_of!(VulkanMemory, type_) == 8 + core::mem::size_of::<usize>());
     assert!(core::mem::size_of::<GlHeapStats>() == 64);
     assert!(core::mem::offset_of!(GlHeapStats, num_bytes_allocated) == 40);
 };

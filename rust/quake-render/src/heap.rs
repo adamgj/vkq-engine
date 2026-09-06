@@ -52,8 +52,12 @@ pub trait DeviceMemoryBackend {
     fn free(&mut self, memory: &mut VulkanMemory, counter: Self::Counter);
 }
 
-/// `Q_log2` (`mathlib.h`): `FindLastBitNonZero`, undefined for 0 in C.
+/// `Q_log2` (`mathlib.h`): `FindLastBitNonZero`, undefined for 0 in C. Every
+/// caller here passes a non-zero value (`q_next_pow2` guards `val > 1`, the
+/// size-class lookups take a page count of at least 1); 0 would give
+/// `u32::MAX`, so it is a debug assertion rather than a defined result.
 fn q_log2(val: u32) -> u32 {
+    debug_assert!(val > 0, "Q_log2 (0) is undefined");
     31u32.wrapping_sub(val.leading_zeros())
 }
 
@@ -590,6 +594,12 @@ impl<B: DeviceMemoryBackend> Heap<B> {
     /// `GL_HeapDestroy`: releases every segment's device memory. The C
     /// leaves the heap struct itself allocated; whether this value lives on
     /// is the caller's business.
+    ///
+    /// Divergence, documented (plan amendment, M3 review): the C frees the
+    /// segment structs but leaves `heap->segments` and `num_segments` as
+    /// they were, so a destroyed C heap dangles; this drops the segments,
+    /// so a destroyed `Heap` is an empty one. No caller touches a heap
+    /// after `GL_HeapDestroy` (its only caller is the `_DEBUG` self-test).
     pub fn destroy(&mut self, counter: B::Counter) {
         for seg in &mut self.segments {
             self.backend.free(&mut seg.memory, counter);
@@ -721,6 +731,24 @@ impl<B: DeviceMemoryBackend> Heap<B> {
         }
     }
 
+    /// `GL_HeapGetStats` for the C ABI: recomputes the totals like
+    /// [`Heap::stats`] and returns a raw pointer to the heap's own stats
+    /// block (the C hands out `&heap->stats`). The pointer is derived from
+    /// `this` rather than from a `&mut Heap`, so it keeps the provenance of
+    /// the heap pointer the caller holds and stays valid until the next
+    /// call that touches the stats.
+    ///
+    /// # Safety
+    /// `this` points to a live `Heap` and no reference into it is alive.
+    pub unsafe fn stats_ptr(this: *mut Self) -> *mut GlHeapStats {
+        // SAFETY: per the contract above; the reference `stats` creates
+        // ends before the raw pointer is formed.
+        unsafe {
+            (*this).stats();
+            core::ptr::addr_of_mut!((*this).stats)
+        }
+    }
+
     /// `GL_HeapGetStats`: recomputes the page/byte totals and returns the
     /// heap's own stats block (the C hands out a pointer into `glheap_t`).
     pub fn stats(&mut self) -> &GlHeapStats {
@@ -772,7 +800,9 @@ impl<B: DeviceMemoryBackend> Heap<B> {
 
     /// `TestHeapConsistency` (gl_heap.c, `_DEBUG`): walks every segment's
     /// block chain and cross-checks it with the free bitfields, the page
-    /// counters and the stats.
+    /// counters and the stats. The `Zero-sized block` check is an addition:
+    /// the C walk would loop forever on a zero-sized header, this reports
+    /// it instead. The alloc-counter sum wraps like the C `uint32_t` sum.
     pub fn check_consistency(&mut self) -> Result<(), &'static str> {
         let num_pages = u32::from(self.cfg.num_pages_per_segment);
         for seg in &self.segments {
@@ -817,9 +847,10 @@ impl<B: DeviceMemoryBackend> Heap<B> {
         }
         let stats = self.stats();
         if stats.num_allocations
-            != stats.num_small_allocations
-                + stats.num_block_allocations
-                + stats.num_dedicated_allocations
+            != stats
+                .num_small_allocations
+                .wrapping_add(stats.num_block_allocations)
+                .wrapping_add(stats.num_dedicated_allocations)
         {
             return Err("Invalid alloc counter");
         }
@@ -828,8 +859,11 @@ impl<B: DeviceMemoryBackend> Heap<B> {
 
     /// `TestHeapCleanState` (gl_heap.c, `_DEBUG`): every segment is one
     /// free block again and every counter is back to zero. The C's first
-    /// block check is `=` where `==` is meant (gl_heap.c:841); this is the
-    /// intended comparison.
+    /// block check is `=` where `==` is meant (gl_heap.c:841): it assigns
+    /// `num_pages_per_segment` into the first header (repairing a wrong
+    /// value rather than reporting it) and passes whenever that is
+    /// non-zero. This compares and reports, so it is stricter than the C
+    /// (and never mutates the heap).
     pub fn check_clean_state(&mut self) -> Result<(), &'static str> {
         let num_pages = self.cfg.num_pages_per_segment;
         for seg in &self.segments {

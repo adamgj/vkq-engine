@@ -30,6 +30,21 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include "quakedef.h"
 #include "gl_heap.h"
 
+// The layout the Rust mirrors (rust/quake-types/src/render.rs) assume,
+// checked here against the real glquake.h/gl_heap.h/vulkan_core.h; the
+// quake-ctest probe sees hand copies of the glquake.h types (ADR-011).
+COMPILE_TIME_ASSERT (vk_device_memory, sizeof (VkDeviceMemory) == 8);
+COMPILE_TIME_ASSERT (vulkan_memory_type, sizeof (vulkan_memory_type_t) == sizeof (int));
+COMPILE_TIME_ASSERT (vulkan_memory_type_none, VULKAN_MEMORY_TYPE_NONE == 0);
+COMPILE_TIME_ASSERT (vulkan_memory_type_device, VULKAN_MEMORY_TYPE_DEVICE == 1);
+COMPILE_TIME_ASSERT (vulkan_memory_type_host, VULKAN_MEMORY_TYPE_HOST == 2);
+COMPILE_TIME_ASSERT (vulkan_memory_size, sizeof (vulkan_memory_t) == 8 + 2 * sizeof (size_t));
+COMPILE_TIME_ASSERT (vulkan_memory_handle, offsetof (vulkan_memory_t, handle) == 0);
+COMPILE_TIME_ASSERT (vulkan_memory_size_off, offsetof (vulkan_memory_t, size) == 8);
+COMPILE_TIME_ASSERT (vulkan_memory_type_off, offsetof (vulkan_memory_t, type) == 8 + sizeof (size_t));
+COMPILE_TIME_ASSERT (glheapstats_size, sizeof (glheapstats_t) == 64);
+COMPILE_TIME_ASSERT (glheapstats_bytes_allocated, offsetof (glheapstats_t, num_bytes_allocated) == 40);
+
 #ifdef _DEBUG
 /*
 =================

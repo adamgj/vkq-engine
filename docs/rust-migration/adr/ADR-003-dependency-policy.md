@@ -165,12 +165,19 @@ in the task plan's evidence table.
   `default-features = false, features = ["std", "debug"]` — no `loaded`
   feature, so no `libloading`; the crate brings **zero** transitive
   dependencies into either workspace (`cargo tree -p ash` is a single
-  line). It reaches the staticlib only under `quake-capi`'s `render`
-  feature (via `quake-render`, which uses it for the `vk::DeviceMemory`
-  handle in the `vulkan_memory_t` mirror and for the
+  line). It reaches a build only through a `render` feature: it is an
+  optional dependency of `quake-types` behind that crate's `render`
+  feature (which also gates the `quake_types::render` mirrors), which
+  `quake-render` turns on unconditionally (the `vk::DeviceMemory` handle
+  in the `vulkan_memory_t` mirror and the
   `VkMemoryAllocateInfo`/`VkMemoryAllocateFlagsInfo` structs the heap
-  backend hands `R_AllocateVulkanMemory`); `quake-ctest` takes the same
-  feature set as a dev-only dependency for the differential.
+  backend hands `R_AllocateVulkanMemory`), `quake-capi`'s `render` feature
+  turns on together with `quake-render`, and `quake-ctest` turns on for
+  the differential and the ABI probe. A build without `render` (the
+  `use_rust_render=disabled` staticlib, the fuzz workspace) does not
+  compile ash; the fuzz `Cargo.lock` carries no `ash` entry. (The PR #34
+  review caught the first cut, which had `quake-types` depend on ash
+  unconditionally.)
 - The ADR-011 size probe (`quake-ctest/tests/render_abi.rs`) confirms
   `size_of::<ash::vk::DeviceMemory>() == sizeof (VkDeviceMemory)` on the
   Windows x86_64 leg; the D2 fallback (a `u64` newtype) was not needed.

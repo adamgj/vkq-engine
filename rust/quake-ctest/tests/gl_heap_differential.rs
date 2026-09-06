@@ -174,7 +174,10 @@ fn op_strategy(segment_size: u64) -> impl Strategy<Value = Op> {
 fn config_strategy() -> impl Strategy<Value = (u32, u64, bool)> {
     (
         prop_oneof![Just(128u32), Just(4096u32), Just(65536u32)],
-        prop_oneof![Just(16u64), Just(256u64), Just(4096u64)],
+        // 8192 pages puts the second 64-word skip group (gl_heap.c
+        // `mask_offset >= 64`) in reach of the random traces; the MAX_PAGES
+        // extreme is the fixed `large_segment_trace_matches_c` below
+        prop_oneof![Just(16u64), Just(256u64), Just(4096u64), Just(8192u64)],
         any::<bool>(),
     )
         .prop_map(|(page_size, pages, device_address)| {
@@ -253,10 +256,12 @@ fn run_trace(
     }
     assert_eq!(c.stats(), *rs.stats(), "final stats");
     // TestHeapCleanState expects bit 0 set in all eight size-class
-    // bitfields; GL_HeapCreate sets them all (gl_heap.c:227) but a coalesced
-    // free block only re-sets classes up to log2(size_in_pages) (:159-162),
-    // so the C's own check holds only for segments of >= 2^7 pages. The Rust
-    // reproduces that exactly; the stats comparison above covers the rest.
+    // bitfields (gl_heap.c:847-848); GL_HeapCreate sets them all
+    // (:223-227) but GL_HeapMarkBlockFree only re-sets classes up to
+    // `q_min (Q_log2 (size_in_pages), NUM_BLOCK_SIZE_CLASSES - 1)`
+    // (:157-162), so the C's own check holds only for segments of >= 2^7
+    // pages. The Rust reproduces that exactly; the stats comparison above
+    // covers the rest.
     if segment_size / u64::from(page_size) >= 128 {
         rs.check_clean_state().unwrap();
     }
@@ -297,6 +302,134 @@ proptest! {
             .collect();
         run_trace(page_size, segment_size, device_address, &ops);
     }
+}
+
+/// A `MAX_PAGES` (65534) segment of 128-byte pages, driven far past page
+/// 4096 so the outer `mask_offset` loop of `GL_HeapAllocateBlockFromSegment`
+/// (gl_heap.c:250) visits its second and later 64-word skip groups on both
+/// sides, then a free block parked at page 65500 against a 128-page
+/// alignment so the `uint16_t` `q_align` wrap (heap.rs `q_align_u16`) is
+/// exercised: the wrapped candidate is rejected and a second segment opens.
+/// Consistency is checked every 512 ops (a full walk is 65534 pages).
+#[test]
+fn large_segment_trace_matches_c() {
+    const PAGE_SIZE: u32 = 128;
+    const PAGES: u64 = 65534;
+    const SEGMENT_SIZE: u64 = PAGE_SIZE as u64 * PAGES;
+
+    let _guard = C_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let c = CHeap::create(SEGMENT_SIZE, PAGE_SIZE, false);
+    let mut rs: Heap<FakeBackend> = Heap::new(
+        FakeBackend::default(),
+        SEGMENT_SIZE,
+        PAGE_SIZE,
+        0,
+        VulkanMemoryType::None,
+        false,
+    );
+    let mut live: Vec<(*mut c_void, quake_render::heap::Allocation)> = Vec::new();
+    let mut step = 0usize;
+    let mut lcg: u64 = 0x2545_F491_4F6C_DD1D;
+    let mut next = || {
+        lcg = lcg
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
+        (lcg >> 33) as u32
+    };
+    let check = |c: &CHeap, rs: &mut Heap<FakeBackend>, step: usize, what: &str| {
+        assert_eq!(c.stats(), *rs.stats(), "step {step} stats after {what}");
+        if step.is_multiple_of(512) {
+            rs.check_consistency().unwrap();
+        }
+    };
+
+    // fill: blocks of 1..=8 pages, byte alignments up to 2^14
+    for _ in 0..6000 {
+        let size = u64::from(PAGE_SIZE) * u64::from(1 + next() % 8) - u64::from(next() % 64);
+        let alignment = 1u64 << (next() % 15);
+        let ca = c.allocate(size, alignment);
+        let ra = rs.allocate(size, alignment, ()).unwrap();
+        assert_eq!(c_alloc_offset(ca), ra.offset(), "step {step} offset");
+        assert_eq!(
+            c_alloc_memory(ca),
+            ra.memory().as_raw(),
+            "step {step} memory"
+        );
+        live.push((ca, ra));
+        step += 1;
+        check(&c, &mut rs, step, "fill alloc");
+    }
+    assert!(
+        rs.stats().num_pages_allocated > 4096 * 2,
+        "trace must pass page 4096"
+    );
+    // free every other one, then refill the holes with a different mix
+    let mut i = 0;
+    while i < live.len() {
+        let (ca, ra) = live.swap_remove(i);
+        c.free(ca);
+        rs.free(ra, ());
+        i += 1;
+        step += 1;
+        check(&c, &mut rs, step, "interleaved free");
+    }
+    for _ in 0..3000 {
+        let size = u64::from(PAGE_SIZE) * u64::from(1 + next() % 16);
+        let alignment = 1u64 << (next() % 15);
+        let ca = c.allocate(size, alignment);
+        let ra = rs.allocate(size, alignment, ()).unwrap();
+        assert_eq!(c_alloc_offset(ca), ra.offset(), "step {step} offset");
+        assert_eq!(
+            c_alloc_memory(ca),
+            ra.memory().as_raw(),
+            "step {step} memory"
+        );
+        live.push((ca, ra));
+        step += 1;
+        check(&c, &mut rs, step, "refill alloc");
+    }
+    for (ca, ra) in live.drain(..) {
+        c.free(ca);
+        rs.free(ra, ());
+        step += 1;
+        check(&c, &mut rs, step, "drain free");
+    }
+    rs.check_consistency().unwrap();
+    rs.check_clean_state().unwrap();
+
+    // the q_align wrap: one block leaves a 34-page free block at page 65500;
+    // a 128-page alignment aligns 65500 to 65536, which is 0 in uint16_t,
+    // so the candidate is rejected and the allocation opens segment 2
+    let big = c.allocate(u64::from(PAGE_SIZE) * 65500, 1);
+    let big_rs = rs.allocate(u64::from(PAGE_SIZE) * 65500, 1, ()).unwrap();
+    assert_eq!(c_alloc_offset(big), big_rs.offset());
+    assert_eq!(c_alloc_memory(big), big_rs.memory().as_raw());
+    check(&c, &mut rs, 1, "big alloc");
+    let wrap = c.allocate(u64::from(PAGE_SIZE), 1 << 14);
+    let wrap_rs = rs.allocate(u64::from(PAGE_SIZE), 1 << 14, ()).unwrap();
+    assert_eq!(c_alloc_offset(wrap), wrap_rs.offset());
+    assert_eq!(c_alloc_memory(wrap), wrap_rs.memory().as_raw());
+    assert_ne!(
+        wrap_rs.memory().as_raw(),
+        big_rs.memory().as_raw(),
+        "wrap must open a new segment"
+    );
+    assert_eq!(rs.stats().num_segments, 2);
+    check(&c, &mut rs, 1, "wrap alloc");
+    c.free(wrap);
+    rs.free(wrap_rs, ());
+    c.free(big);
+    rs.free(big_rs, ());
+    check(&c, &mut rs, 1, "wrap frees");
+    rs.check_consistency().unwrap();
+    rs.check_clean_state().unwrap();
+
+    c.destroy();
+    rs.destroy(());
+    let (next_handle, num_live, _, num_named) = CHeap::globals();
+    assert_eq!(num_live, 0);
+    assert_eq!(next_handle, rs.backend().next_handle);
+    assert_eq!(num_named, next_handle as u32);
 }
 
 /// `GL_HeapTest_f`'s loop shape (1 MiB / 4096, stride-3 alloc/free waves,
