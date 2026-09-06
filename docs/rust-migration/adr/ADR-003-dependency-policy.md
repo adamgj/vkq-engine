@@ -158,3 +158,21 @@ in the task plan's evidence table.
 - `cargo deny check` (licenses, bans, advisories, sources) is clean in both
   workspaces (`rust/`, `rust/fuzz`) with `deny.toml` unchanged.
 - `ash` is not yet adopted (M3).
+
+### Adopted at Phase 8 M3 (2026-09-06)
+
+- `ash` 0.38.0+1.3.281 ("MIT OR Apache-2.0", taken as MIT) with
+  `default-features = false, features = ["std", "debug"]` — no `loaded`
+  feature, so no `libloading`; the crate brings **zero** transitive
+  dependencies into either workspace (`cargo tree -p ash` is a single
+  line). It reaches the staticlib only under `quake-capi`'s `render`
+  feature (via `quake-render`, which uses it for the `vk::DeviceMemory`
+  handle in the `vulkan_memory_t` mirror and for the
+  `VkMemoryAllocateInfo`/`VkMemoryAllocateFlagsInfo` structs the heap
+  backend hands `R_AllocateVulkanMemory`); `quake-ctest` takes the same
+  feature set as a dev-only dependency for the differential.
+- The ADR-011 size probe (`quake-ctest/tests/render_abi.rs`) confirms
+  `size_of::<ash::vk::DeviceMemory>() == sizeof (VkDeviceMemory)` on the
+  Windows x86_64 leg; the D2 fallback (a `u64` newtype) was not needed.
+- `cargo deny check` is clean in both workspaces with `deny.toml`
+  unchanged.

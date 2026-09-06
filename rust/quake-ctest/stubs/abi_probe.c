@@ -1426,3 +1426,43 @@ size_t ctest_abi_host_lookup (const char *key)
 			return ctest_abi_host_table[i].value;
 	return (size_t)-1;
 }
+
+/* Phase 8 M3 render ABI (gl_heap.h, glquake.h:178-190): the Rust heap hands
+ * glheapstats_t back through GL_HeapGetStats and fills vulkan_memory_t for
+ * the C R_AllocateVulkanMemory seam; see tests/render_abi.rs. gl_heap.h's
+ * q_render_types.h include is guarded out by the prelude. */
+#include "gl_heap.h"
+
+static const ctest_abi_entry_t ctest_abi_render_table[] = {
+	SZ ("glheapstats_t", glheapstats_t),
+	OFF ("glheapstats_t", glheapstats_t, num_segments),
+	OFF ("glheapstats_t", glheapstats_t, num_allocations),
+	OFF ("glheapstats_t", glheapstats_t, num_small_allocations),
+	OFF ("glheapstats_t", glheapstats_t, num_block_allocations),
+	OFF ("glheapstats_t", glheapstats_t, num_dedicated_allocations),
+	OFF ("glheapstats_t", glheapstats_t, num_blocks_used),
+	OFF ("glheapstats_t", glheapstats_t, num_blocks_free),
+	OFF ("glheapstats_t", glheapstats_t, num_pages_allocated),
+	OFF ("glheapstats_t", glheapstats_t, num_pages_free),
+	OFF ("glheapstats_t", glheapstats_t, num_bytes_allocated),
+	OFF ("glheapstats_t", glheapstats_t, num_bytes_free),
+	OFF ("glheapstats_t", glheapstats_t, num_bytes_wasted),
+	SZ ("vulkan_memory_t", vulkan_memory_t),
+	OFF ("vulkan_memory_t", vulkan_memory_t, handle),
+	OFF ("vulkan_memory_t", vulkan_memory_t, size),
+	OFF ("vulkan_memory_t", vulkan_memory_t, type),
+	SZ ("vulkan_memory_type_t", vulkan_memory_type_t),
+	SZ ("VkDeviceMemory", VkDeviceMemory),
+	{"const.VULKAN_MEMORY_TYPE_NONE", VULKAN_MEMORY_TYPE_NONE},
+	{"const.VULKAN_MEMORY_TYPE_DEVICE", VULKAN_MEMORY_TYPE_DEVICE},
+	{"const.VULKAN_MEMORY_TYPE_HOST", VULKAN_MEMORY_TYPE_HOST},
+};
+
+size_t ctest_abi_render_lookup (const char *key)
+{
+	size_t i;
+	for (i = 0; i < sizeof (ctest_abi_render_table) / sizeof (ctest_abi_render_table[0]); i++)
+		if (!strcmp (ctest_abi_render_table[i].name, key))
+			return ctest_abi_render_table[i].value;
+	return (size_t)-1;
+}

@@ -41,6 +41,8 @@ pub mod cvar; // cvar.c
 pub mod fs;
 #[cfg(feature = "fs")]
 pub mod fs_stdio;
+#[cfg(feature = "render")]
+pub mod gl_heap; // gl_heap.c
 pub mod hash_map;
 #[cfg(feature = "host")]
 pub mod host; // host.c

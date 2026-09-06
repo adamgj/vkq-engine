@@ -7,6 +7,11 @@ rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
+[dependencies]
+# Phase 8 M3 (ADR-003, ADR-011): `ash::vk::DeviceMemory` is the handle type
+# of the `vulkan_memory_t` mirror; no default features (see quake-render)
+ash = { version = "0.38", default-features = false, features = ["std", "debug"] }
+
 [lints]
 workspace = true
 

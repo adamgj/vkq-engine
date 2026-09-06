@@ -69,3 +69,28 @@ three bookkeeping fields), so the mirror is gated on the `engine-debug` cargo
 feature and the probe publishes `const.ENGINE_DEBUG`. The suite asserts the
 two agree *before* checking any offset — a mismatch there would otherwise make
 every subsequent assertion compare against the wrong C layout.
+
+## Amended (Phase 8 M3, 2026-09-06)
+
+`glquake.h` and `gl_heap.h` join the not-a-bindgen-root list: both include
+`<vulkan/vulkan_core.h>` (and `glquake.h` pulls SDL through `q_stdinc.h`),
+so the renderer ABI is hand-mirrored in `quake-types::render` as the phase
+ports it. M3 adds `vulkan_memory_type_t`, `vulkan_memory_t` and
+`glheapstats_t`; the `VkDeviceMemory` field is `ash::vk::DeviceMemory`
+(`#[repr(transparent)]` over `u64`, the ADR's Vulkan-handle rule), which
+matches the C typedef on 64-bit targets (a pointer) and on 32-bit ones (a
+`uint64_t`). `quake-ctest/tests/render_abi.rs` checks every size and offset,
+plus `sizeof (VkDeviceMemory)` and the enum values, against a probe compiled
+from the engine's own headers (`stubs/abi_probe.c`,
+`ctest_abi_render_lookup`). The three C callees the Rust heap needs
+(`R_AllocateVulkanMemory`, `R_FreeVulkanMemory`, `GL_SetObjectName`) are
+hand externs in `quake-c-sys/src/render.rs` with `void *` parameters; the
+typed side lives in `quake-capi/src/gl_heap.rs`, where the mirrors and the
+`ash::vk` structs are in scope.
+
+`glheap_t` and `glheapallocation_t` are opaque to C and are boxed Rust
+`Heap`/`Allocation` values; cbindgen cannot spell the Vulkan and
+`glquake.h` types their seven entry points take, so those declarations are
+hand-written in `cbindgen.toml`'s preamble under `gl_heap.h`'s include
+guard and cross-checked by `check_capi_signatures.sh` (the `tasks.h`
+precedent from M2).

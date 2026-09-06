@@ -215,6 +215,20 @@ void GLMesh_DeleteMeshBuffers (aliashdr_t *mainhdr);
 @SERVER_LIMITS@
 #include "net.h"
 #include "server.h"
+/* Phase 8 M3: gl_heap.h's seven GL_Heap* declarations are compiled here
+ * next to quake_rs.h's hand-written copies. gl_heap.h's own include
+ * (q_render_types.h) is guarded out above; it needs two Vulkan spellings and
+ * glquake.h's vulkan_memory_type_t (glquake.h itself is claimed above, so
+ * the enum is hand-copied from glquake.h:178-183). */
+typedef uint64_t VkDeviceSize;
+typedef struct VkDeviceMemory_T *VkDeviceMemory;
+typedef enum
+{
+	VULKAN_MEMORY_TYPE_NONE,
+	VULKAN_MEMORY_TYPE_DEVICE,
+	VULKAN_MEMORY_TYPE_HOST,
+} vulkan_memory_type_t;
+#include "gl_heap.h"
 #include "quake_rs.h"
 EOF
 
