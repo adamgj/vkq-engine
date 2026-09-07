@@ -64,17 +64,20 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 // The gltexture_t layout the Rust mirror (rust/quake-types/src/render.rs)
 // assumes, checked against the real gl_texmgr.h/vulkan_core.h (ADR-011);
-// the quake-ctest probe measures the same header.
-COMPILE_TIME_ASSERT (gltexture_size, sizeof (gltexture_t) == 6 * sizeof (void *) + 192);
-COMPILE_TIME_ASSERT (gltexture_name, offsetof (gltexture_t, name) == 2 * sizeof (void *));
-COMPILE_TIME_ASSERT (gltexture_path_id, offsetof (gltexture_t, path_id) == 2 * sizeof (void *) + 64);
-COMPILE_TIME_ASSERT (gltexture_flags, offsetof (gltexture_t, flags) == 2 * sizeof (void *) + 76);
-COMPILE_TIME_ASSERT (gltexture_source_file, offsetof (gltexture_t, source_file) == 2 * sizeof (void *) + 80);
-COMPILE_TIME_ASSERT (gltexture_source_offset, offsetof (gltexture_t, source_offset) == 2 * sizeof (void *) + 144);
-COMPILE_TIME_ASSERT (gltexture_source_crc, offsetof (gltexture_t, source_crc) == 3 * sizeof (void *) + 156);
-COMPILE_TIME_ASSERT (gltexture_pants, offsetof (gltexture_t, pants) == 3 * sizeof (void *) + 159);
-COMPILE_TIME_ASSERT (gltexture_image, offsetof (gltexture_t, image) == 3 * sizeof (void *) + 160);
-COMPILE_TIME_ASSERT (gltexture_storage_set, offsetof (gltexture_t, storage_descriptor_set) == 4 * sizeof (void *) + 200);
+// the quake-ctest probe measures the same header. Guarded on a 64-bit
+// target like the Rust asserts: the 32-bit layout (64-bit handles realign)
+// is unverified on both sides, so -Duse_rust_render is 64-bit only.
+#define TEXMGR_LAYOUT_64(expr) (sizeof (void *) != 8 || (expr))
+COMPILE_TIME_ASSERT (gltexture_size, TEXMGR_LAYOUT_64 (sizeof (gltexture_t) == 6 * sizeof (void *) + 192));
+COMPILE_TIME_ASSERT (gltexture_name, TEXMGR_LAYOUT_64 (offsetof (gltexture_t, name) == 2 * sizeof (void *)));
+COMPILE_TIME_ASSERT (gltexture_path_id, TEXMGR_LAYOUT_64 (offsetof (gltexture_t, path_id) == 2 * sizeof (void *) + 64));
+COMPILE_TIME_ASSERT (gltexture_flags, TEXMGR_LAYOUT_64 (offsetof (gltexture_t, flags) == 2 * sizeof (void *) + 76));
+COMPILE_TIME_ASSERT (gltexture_source_file, TEXMGR_LAYOUT_64 (offsetof (gltexture_t, source_file) == 2 * sizeof (void *) + 80));
+COMPILE_TIME_ASSERT (gltexture_source_offset, TEXMGR_LAYOUT_64 (offsetof (gltexture_t, source_offset) == 2 * sizeof (void *) + 144));
+COMPILE_TIME_ASSERT (gltexture_source_crc, TEXMGR_LAYOUT_64 (offsetof (gltexture_t, source_crc) == 3 * sizeof (void *) + 156));
+COMPILE_TIME_ASSERT (gltexture_pants, TEXMGR_LAYOUT_64 (offsetof (gltexture_t, pants) == 3 * sizeof (void *) + 159));
+COMPILE_TIME_ASSERT (gltexture_image, TEXMGR_LAYOUT_64 (offsetof (gltexture_t, image) == 3 * sizeof (void *) + 160));
+COMPILE_TIME_ASSERT (gltexture_storage_set, TEXMGR_LAYOUT_64 (offsetof (gltexture_t, storage_descriptor_set) == 4 * sizeof (void *) + 200));
 COMPILE_TIME_ASSERT (srcformat_indexed, SRC_INDEXED == 0);
 COMPILE_TIME_ASSERT (srcformat_lightmap, SRC_LIGHTMAP == 1);
 COMPILE_TIME_ASSERT (srcformat_rgba, SRC_RGBA == 2);
@@ -118,7 +121,7 @@ typedef struct texmgr_glue_env_s
 	void		*single_texture_cs_write_set_layout;
 } texmgr_glue_env_t;
 
-COMPILE_TIME_ASSERT (texmgr_glue_env_size, sizeof (texmgr_glue_env_t) == 3 * sizeof (void *) + 56);
+COMPILE_TIME_ASSERT (texmgr_glue_env_size, TEXMGR_LAYOUT_64 (sizeof (texmgr_glue_env_t) == 3 * sizeof (void *) + 56));
 COMPILE_TIME_ASSERT (texmgr_glue_env_format, sizeof (VkFormat) == sizeof (int));
 
 /*

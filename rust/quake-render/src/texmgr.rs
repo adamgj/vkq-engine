@@ -61,8 +61,9 @@ pub const TEXTURE_HEAP_PAGE_SIZE: u32 = 16384;
 const TOP_RANGE: usize = 16;
 const BOTTOM_RANGE: usize = 96;
 
-/// The `vulkan_globals` members `gl_texmgr.c` reads, sampled fresh at each
-/// use because `vid_restart`/`vid_anisotropic` recreate the samplers.
+/// The `vulkan_globals` members `gl_texmgr.c` reads, sampled once per
+/// `TexMgr_*` entry point: `vid_restart`/`vid_anisotropic` recreate the
+/// samplers, but only on the main thread between entry points.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Env {
     pub max_image_dimension_2d: u32,
@@ -537,8 +538,12 @@ impl<B: TexMgrBackend> TexMgrLock<B> for Direct<'_, B> {
 /// `numgltextures`, `texmgr_heap`, the garbage ring.
 pub struct TexMgr<B: TexMgrBackend> {
     /// The `MAX_GLTEXTURES` array `TexMgr_Init` allocates; every
-    /// `gltexture_t *` C sees points into it.
-    arena: Box<[GlTexture]>,
+    /// `gltexture_t *` C sees points into it. Held raw (`Box::into_raw`,
+    /// freed in `drop`) so no `&mut` to the allocation is ever formed after
+    /// the first texture pointer is derived from it: under Stacked and Tree
+    /// Borrows a `Box` move or `&mut` through it would retag the allocation
+    /// and invalidate every pointer C holds.
+    arena: *mut [GlTexture],
     active: *mut GlTexture,
     free: *mut GlTexture,
     numgltextures: i32,
@@ -547,10 +552,17 @@ pub struct TexMgr<B: TexMgrBackend> {
     garbage: [Vec<TextureGarbage>; 2],
 }
 
-// SAFETY: the raw pointers are into `arena`, owned by this value; the
-// engine shim serialises access with its mutex exactly as the C does with
+// SAFETY: `arena` is a heap allocation owned by this value (freed once, in
+// `drop`) and the other raw pointers point into it; the engine shim
+// serialises access with its mutex exactly as the C does with
 // `texmgr_mutex`.
 unsafe impl<B: TexMgrBackend + Send> Send for TexMgr<B> where Heap<B::HeapBackend>: Send {}
+
+impl<B: TexMgrBackend> Drop for TexMgr<B> {
+    fn drop(&mut self) {
+        self.release_arena();
+    }
+}
 
 impl<B: TexMgrBackend> Default for TexMgr<B> {
     fn default() -> Self {
@@ -562,7 +574,7 @@ impl<B: TexMgrBackend> TexMgr<B> {
     /// The state before `TexMgr_Init`: no arena, no heap.
     pub fn new() -> Self {
         Self {
-            arena: Box::default(),
+            arena: Self::empty_arena(),
             active: ptr::null_mut(),
             free: ptr::null_mut(),
             numgltextures: 0,
@@ -572,16 +584,44 @@ impl<B: TexMgrBackend> TexMgr<B> {
         }
     }
 
-    /// `TexMgr_Init`'s list setup: allocate the arena and thread the free
-    /// list through it.
-    pub fn init_list(&mut self) {
-        let mut arena = vec![GlTexture::ZEROED; MAX_GLTEXTURES].into_boxed_slice();
-        let base = arena.as_mut_ptr();
-        for i in 0..MAX_GLTEXTURES - 1 {
-            // SAFETY: `i + 1 < MAX_GLTEXTURES`, inside the arena.
-            arena[i].next = unsafe { base.add(i + 1) };
+    /// The "no arena" value: a zero-length slice that `release_arena` and
+    /// `drop` leave alone.
+    fn empty_arena() -> *mut [GlTexture] {
+        ptr::slice_from_raw_parts_mut(ptr::NonNull::<GlTexture>::dangling().as_ptr(), 0)
+    }
+
+    /// Free the arena, if any. Every texture pointer derived from it (the
+    /// list links, the pointers C holds) is dangling afterwards.
+    fn release_arena(&mut self) {
+        if self.arena.len() != 0 {
+            // SAFETY: a non-empty `arena` came from `Box::into_raw` in
+            // `init_list`, is released exactly once (here, then replaced),
+            // and no reference into it exists: the manager only ever holds
+            // raw pointers.
+            unsafe { drop(Box::from_raw(self.arena)) };
+            self.arena = Self::empty_arena();
         }
-        arena[MAX_GLTEXTURES - 1].next = ptr::null_mut();
+        self.active = ptr::null_mut();
+        self.free = ptr::null_mut();
+        self.numgltextures = 0;
+    }
+
+    /// `TexMgr_Init`'s list setup: allocate the arena and thread the free
+    /// list through it. The links are written through the raw allocation,
+    /// never through a `Box` or slice reference, so the pointers stay valid
+    /// under Stacked and Tree Borrows (checked by the Miri smoke test).
+    pub fn init_list(&mut self) {
+        self.release_arena();
+        let arena: *mut [GlTexture] =
+            Box::into_raw(vec![GlTexture::ZEROED; MAX_GLTEXTURES].into_boxed_slice());
+        let base = arena.cast::<GlTexture>();
+        for i in 0..MAX_GLTEXTURES - 1 {
+            // SAFETY: `i + 1 < MAX_GLTEXTURES`, inside the arena, and no
+            // reference to the arena exists (`into_raw` consumed the `Box`).
+            unsafe { (*base.add(i)).next = base.add(i + 1) };
+        }
+        // SAFETY: the last slot of the arena.
+        unsafe { (*base.add(MAX_GLTEXTURES - 1)).next = ptr::null_mut() };
         self.arena = arena;
         self.free = base;
         self.active = ptr::null_mut();
@@ -934,17 +974,28 @@ impl<B: TexMgrBackend> TexMgr<B> {
     /// # Safety
     /// `data` is null (warp images) or the texture's pixels: `width *
     /// height` RGBA8 for 2D formats, six such faces behind six pointers for
-    /// `SRC_RGBA_CUBEMAP`. It is modified in place as the C does.
+    /// `SRC_RGBA_CUBEMAP`. The pixels are 4-byte aligned (`unsigned *` in
+    /// C) and are modified in place as the C does.
     pub unsafe fn load_image32_prepare(backend: &B, glt: &mut GlTexture, data: *mut u32) -> Prep32 {
         let env = backend.env();
         let cvars = backend.cvars();
+        // For a cubemap `data` is the six-entry face pointer table, so the
+        // C's `TEXPREF_PREMULTIPLY`/`TEXPREF_ALPHA` passes over `width *
+        // height * 4` bytes would walk off it. No caller reaches that path
+        // (`gl_sky.c` loads its cubemap with `TEXPREF_NONE`); it is skipped
+        // rather than reproduced, since a slice past the table is UB here.
+        let is_cube = glt.source_format == SrcFormat::RgbaCubemap as c_int;
         // do this before any rescaling
-        if glt.flags & TEXPREF_PREMULTIPLY != 0 {
+        if glt.flags & TEXPREF_PREMULTIPLY != 0 && !is_cube {
             let n = glt.width as usize * glt.height as usize * 4;
             // SAFETY: per the contract (a 2D RGBA8 buffer of that size).
             premultiply32(unsafe { core::slice::from_raw_parts_mut(data.cast::<u8>(), n) });
         }
         // mipmap down
+        // COMPAT: C's `(int)gl_picmip.value` is undefined for out-of-range
+        // floats and `width >> picmip` for `picmip >= 32`; Rust saturates the
+        // cast and masks the shift count, which matches what x86-64/AArch64
+        // builds of the C do in practice (ADR-010 per-platform parity).
         let picmip = if glt.flags & TEXPREF_NOPICMIP != 0 {
             0
         } else {
@@ -952,7 +1003,6 @@ impl<B: TexMgrBackend> TexMgr<B> {
         };
         let mut mipwidth = glt.width.wrapping_shr(picmip as u32).max(1) as i32;
         let mut mipheight = glt.height.wrapping_shr(picmip as u32).max(1) as i32;
-        let is_cube = glt.source_format == SrcFormat::RgbaCubemap as c_int;
         let mut maxsize = if is_cube {
             env.max_image_dimension_cube
         } else {
@@ -1018,10 +1068,10 @@ impl<B: TexMgrBackend> TexMgr<B> {
             }
             glt.width = mipwidth as u32;
             glt.height = mipheight as u32;
-            if glt.flags & TEXPREF_ALPHA != 0 {
+            if glt.flags & TEXPREF_ALPHA != 0 && !is_cube {
                 let n = glt.width as usize * glt.height as usize * 4;
-                // SAFETY: per the contract; for a cubemap this reads the face
-                // pointer array as pixels, exactly as gl_texmgr.c:1076 does.
+                // SAFETY: per the contract (a 2D RGBA8 buffer of that size;
+                // the cubemap table is skipped above).
                 alpha_edge_fix(
                     unsafe { core::slice::from_raw_parts_mut(data.cast::<u8>(), n) },
                     glt.width as usize,
@@ -1477,9 +1527,15 @@ impl<B: TexMgrBackend> TexMgr<B> {
             }
         };
 
-        // convert to 32bit (`TexMgr_8to32`; an index past a short miptex
-        // palette is an out-of-bounds read in C and an abort here)
-        let mut converted: Vec<u32> = data.iter().map(|&i| usepal[usize::from(i)]).collect();
+        // convert to 32bit (`TexMgr_8to32`)
+        // COMPAT: a Valve miptex whose indices exceed its own palette count
+        // reads past the palette in C (garbage colours, the map still loads);
+        // that read is out of bounds here, so such an index degrades to
+        // transparent black instead of aborting on mod content.
+        let mut converted: Vec<u32> = data
+            .iter()
+            .map(|&i| usepal.get(usize::from(i)).copied().unwrap_or(0))
+            .collect();
 
         // fix edges
         if glt.flags & TEXPREF_ALPHA != 0 {
@@ -1532,12 +1588,18 @@ impl<B: TexMgrBackend> TexMgr<B> {
         glt: *mut GlTexture,
         data: *mut u8,
     ) {
-        // SAFETY: arena pointer; the C writes the fields unlocked too.
-        let t = unsafe { &mut *glt };
-        match SrcFormat::from_raw(t.source_format) {
+        // No `&mut GlTexture` is held across `lock.with`: `delete_texture`
+        // writes the same texture through its own pointer, which would
+        // invalidate an earlier reference under Stacked/Tree Borrows. The C
+        // writes the fields unlocked too.
+        // SAFETY: arena pointer (contract).
+        let source_format = unsafe { (*glt).source_format };
+        match SrcFormat::from_raw(source_format) {
             Some(SrcFormat::Indexed) => {
                 // SAFETY: `glt` is an arena texture (contract).
                 lock.with(|m| unsafe { m.delete_texture(backend, glt) });
+                // SAFETY: arena pointer; nothing else references it now.
+                let t = unsafe { &mut *glt };
                 // SAFETY: per the contract.
                 let mut converted =
                     unsafe { Self::load_image8_convert(backend, pal, t, data, None) };
@@ -1545,10 +1607,13 @@ impl<B: TexMgrBackend> TexMgr<B> {
                 unsafe { Self::load_image32_with(lock, backend, glt, converted.as_mut_ptr()) };
             }
             Some(SrcFormat::IndexedPalette) => {
-                // SAFETY: per the contract.
-                let usepal = unsafe { Self::load_image8_valve_palette(backend, t, data) };
+                // SAFETY: per the contract; the shared reference ends before
+                // the delete below.
+                let usepal = unsafe { Self::load_image8_valve_palette(backend, &*glt, data) };
                 // SAFETY: `glt` is an arena texture (contract).
                 lock.with(|m| unsafe { m.delete_texture(backend, glt) });
+                // SAFETY: arena pointer; nothing else references it now.
+                let t = unsafe { &mut *glt };
                 // SAFETY: per the contract.
                 let mut converted =
                     unsafe { Self::load_image8_convert(backend, pal, t, data, Some(&usepal)) };
@@ -1578,7 +1643,10 @@ impl<B: TexMgrBackend> TexMgr<B> {
     ) {
         // SAFETY: `glt` is an arena texture (contract).
         lock.with(|m| unsafe { m.delete_texture(backend, glt) });
-        // SAFETY: arena pointer.
+        // SAFETY: arena pointer, derived after the delete (which wrote the
+        // texture through its own pointer); `load_image32_create` touches
+        // the texture only through this reborrow, so it stays valid across
+        // the `&mut TexMgr` (the arena is held raw, not as a `Box`).
         let t = unsafe { &mut *glt };
         // SAFETY: per the contract.
         let mut prep = unsafe { Self::load_image32_prepare(backend, t, data) };
@@ -1594,7 +1662,8 @@ impl<B: TexMgrBackend> TexMgr<B> {
     /// `data` matches `format` and `width x height`: indices for
     /// `SRC_INDEXED`/`SRC_INDEXED_PALETTE` (the latter a whole Valve miptex),
     /// RGBA8 for `SRC_RGBA`/`SRC_LIGHTMAP`, `R32` for `SRC_SURF_INDICES`, six
-    /// face pointers for `SRC_RGBA_CUBEMAP`; null only for warp images.
+    /// face pointers for `SRC_RGBA_CUBEMAP`; null only for warp images. The
+    /// 32-bit formats are 4-byte aligned (the C reads them as `unsigned *`).
     /// `owner` is null or a live `qmodel_t`.
     #[allow(clippy::too_many_arguments)]
     pub unsafe fn load_image_with<L: TexMgrLock<B>>(
@@ -2010,13 +2079,14 @@ impl<B: TexMgrBackend> TexMgr<B> {
                 FLAGS,
             )
         };
-        let mut bluenoise_rgba = vec![0u8; BLUENOISE_DATA.len() * 4];
-        for (i, &v) in BLUENOISE_DATA.iter().enumerate() {
-            for j in 0..3 {
-                bluenoise_rgba[i * 4 + j] = v;
-            }
-        }
-        // SAFETY: `bluenoise_rgba` holds 64x64 RGBA8 pixels.
+        // `u32` pixels (same bytes as the C's `byte[4]` fill): the RGBA
+        // path reads them as `unsigned *`, so a `Vec<u8>` would only be
+        // aligned by luck of the allocator
+        let mut bluenoise_rgba: Vec<u32> = BLUENOISE_DATA
+            .iter()
+            .map(|&v| u32::from_ne_bytes([v, v, v, 0]))
+            .collect();
+        // SAFETY: `bluenoise_rgba` holds 64x64 RGBA8 pixels, 4-byte aligned.
         let bluenoisetexture = unsafe {
             self.load_image(
                 backend,
@@ -2026,7 +2096,7 @@ impl<B: TexMgrBackend> TexMgr<B> {
                 64,
                 64,
                 rgba,
-                bluenoise_rgba.as_mut_ptr(),
+                bluenoise_rgba.as_mut_ptr().cast(),
                 c"",
                 greytexture_data as usize,
                 FLAGS,
@@ -2099,5 +2169,332 @@ mod tests {
         alpha_edge_fix(&mut data, 2, 1);
         assert_eq!(&data[..3], &[100, 50, 10]);
         assert_eq!(data[3], 0);
+    }
+
+    /// A backend that hands out counted handles and a real staging arena
+    /// so the whole manager runs without Vulkan -- the Miri smoke test's
+    /// backend (`cargo miri test -p quake-render`), which checks the raw
+    /// arena/list pointers and the `&mut GlTexture` reborrows across
+    /// `TexMgrLock::with` under Stacked/Tree Borrows.
+    struct SmokeBackend {
+        next_handle: core::cell::Cell<u64>,
+        staging: RefCell<Vec<u8>>,
+    }
+
+    #[derive(Default)]
+    struct SmokeHeap {
+        next_handle: u64,
+    }
+
+    impl DeviceMemoryBackend for SmokeHeap {
+        type Counter = ();
+        fn allocate(
+            &mut self,
+            memory: &mut quake_types::render::VulkanMemory,
+            size: u64,
+            _memory_type_index: u32,
+            memory_type: VulkanMemoryType,
+            _device_address: bool,
+            (): (),
+        ) {
+            self.next_handle += 1;
+            memory.handle = vk::DeviceMemory::from_raw(self.next_handle);
+            memory.size = size as usize;
+            memory.type_ = memory_type;
+        }
+        fn free(&mut self, memory: &mut quake_types::render::VulkanMemory, (): ()) {
+            *memory = quake_types::render::VulkanMemory::default();
+        }
+    }
+
+    impl SmokeBackend {
+        fn new() -> Self {
+            Self {
+                next_handle: core::cell::Cell::new(0),
+                staging: RefCell::new(vec![0u8; 1 << 20]),
+            }
+        }
+        fn handle(&self) -> u64 {
+            self.next_handle.set(self.next_handle.get() + 1);
+            self.next_handle.get()
+        }
+    }
+
+    impl TexMgrBackend for SmokeBackend {
+        type HeapBackend = SmokeHeap;
+        fn new_heap_backend(&self) -> SmokeHeap {
+            SmokeHeap::default()
+        }
+        fn heap_counter(&self) {}
+        fn env(&self) -> Env {
+            Env {
+                max_image_dimension_2d: 4096,
+                max_image_dimension_cube: 4096,
+                color_format: vk::Format::B8G8R8A8_UNORM,
+                point_sampler_lod_bias: vk::Sampler::from_raw(11),
+                linear_sampler_lod_bias: vk::Sampler::from_raw(12),
+                point_aniso_sampler_lod_bias: vk::Sampler::from_raw(13),
+                linear_aniso_sampler_lod_bias: vk::Sampler::from_raw(14),
+                warp_render_pass: vk::RenderPass::from_raw(15),
+            }
+        }
+        fn cvars(&self) -> Cvars {
+            Cvars {
+                gl_fullbrights: 1.0,
+                vid_filter: 0.0,
+                vid_anisotropic: 0.0,
+                gl_max_size: 0.0,
+                gl_picmip: 0.0,
+            }
+        }
+        fn no_rendering(&self) -> bool {
+            false
+        }
+        fn in_update_screen(&self) -> bool {
+            false
+        }
+        fn create_image(&self, _info: &vk::ImageCreateInfo<'_>) -> Result<vk::Image, i32> {
+            Ok(vk::Image::from_raw(self.handle()))
+        }
+        fn destroy_image(&self, _image: vk::Image) {}
+        fn image_memory_requirements(&self, _image: vk::Image) -> vk::MemoryRequirements {
+            vk::MemoryRequirements {
+                size: 65536,
+                alignment: 256,
+                memory_type_bits: 0xff,
+            }
+        }
+        fn bind_image_memory(&self, _: vk::Image, _: vk::DeviceMemory, _: u64) -> Result<(), i32> {
+            Ok(())
+        }
+        fn create_image_view(
+            &self,
+            _info: &vk::ImageViewCreateInfo<'_>,
+        ) -> Result<vk::ImageView, i32> {
+            Ok(vk::ImageView::from_raw(self.handle()))
+        }
+        fn destroy_image_view(&self, _view: vk::ImageView) {}
+        fn create_framebuffer(
+            &self,
+            _info: &vk::FramebufferCreateInfo<'_>,
+        ) -> Result<vk::Framebuffer, i32> {
+            Ok(vk::Framebuffer::from_raw(self.handle()))
+        }
+        fn destroy_framebuffer(&self, _framebuffer: vk::Framebuffer) {}
+        fn update_descriptor_set(&self, _write: &DescriptorWrite) {}
+        fn allocate_descriptor_set(&self, _layout: DescLayout) -> vk::DescriptorSet {
+            vk::DescriptorSet::from_raw(self.handle())
+        }
+        fn free_descriptor_set(&self, _set: vk::DescriptorSet, _layout: DescLayout) {}
+        fn set_object_name(&self, _object: u64, _object_type: vk::ObjectType, _name: &str) {}
+        fn memory_type_from_properties(
+            &self,
+            _type_bits: u32,
+            _required: vk::MemoryPropertyFlags,
+            _preferred: vk::MemoryPropertyFlags,
+        ) -> u32 {
+            0
+        }
+        fn wait_for_device_idle(&self) {}
+        fn staging_allocate(&self, size: i32, _alignment: i32) -> Staging {
+            let mut arena = self.staging.borrow_mut();
+            assert!(size as usize <= arena.len());
+            Staging {
+                memory: arena.as_mut_ptr(),
+                command_buffer: vk::CommandBuffer::from_raw(0x1000),
+                buffer: vk::Buffer::from_raw(0x2000),
+                offset: 0,
+            }
+        }
+        fn staging_begin_copy(&self) {}
+        fn staging_end_copy(&self) {}
+        fn cmd_pipeline_barrier(
+            &self,
+            _: vk::CommandBuffer,
+            _: vk::PipelineStageFlags,
+            _: vk::PipelineStageFlags,
+            _: &vk::ImageMemoryBarrier<'_>,
+        ) {
+        }
+        fn cmd_copy_buffer_to_image(
+            &self,
+            _: vk::CommandBuffer,
+            _: vk::Buffer,
+            _: vk::Image,
+            _: vk::ImageLayout,
+            _: &[vk::BufferImageCopy],
+        ) {
+        }
+        unsafe fn downsample(&self, data: *mut u32, iw: i32, ih: i32, ow: i32, oh: i32) {
+            // nearest neighbour stands in for stb's filter: the smoke test
+            // checks memory safety, not pixels
+            let (iw, ih, ow, oh) = (iw as usize, ih as usize, ow as usize, oh as usize);
+            // SAFETY: per the trait contract (`iw * ih` pixels at `data`).
+            let src = unsafe { core::slice::from_raw_parts(data, iw * ih) };
+            let out: Vec<u32> = (0..oh)
+                .flat_map(|y| (0..ow).map(move |x| (x, y)))
+                .map(|(x, y)| src[(y * ih / oh) * iw + x * iw / ow])
+                .collect();
+            // SAFETY: `ow * oh <= iw * ih` (contract); `out` is a separate
+            // buffer, so `src` is no longer used.
+            unsafe { core::ptr::copy_nonoverlapping(out.as_ptr(), data, out.len()) };
+        }
+        fn read_source(&self, _name: &CStr, _offset: usize, _size: usize) -> SourceRead {
+            SourceRead::NotFound
+        }
+        fn image_load(&self, _name: &CStr, _min_path_id: u32) -> Option<LoadedImage> {
+            None
+        }
+        unsafe fn free_loaded(&self, _data: *mut u8) {}
+        unsafe fn owner_path_id(&self, _owner: *mut c_void) -> u32 {
+            0
+        }
+        fn con_printf(&self, _msg: &str) {}
+        fn sys_error(&self, msg: &str) -> ! {
+            panic!("Sys_Error: {msg}");
+        }
+    }
+
+    /// The manager's life cycle over the fake backend: arena setup, indexed,
+    /// RGBA and Valve-palette uploads (including the overwrite cache hit and
+    /// an index past a short palette), the reload of a texture in place,
+    /// descriptor refresh, the garbage ring, and teardown. Meant for Miri.
+    #[test]
+    fn texmgr_smoke() {
+        let backend = SmokeBackend::new();
+        let mut lump = [0u8; 768];
+        for (i, b) in lump.iter_mut().enumerate() {
+            *b = (i % 251) as u8;
+        }
+        let palettes = Palettes::from_lump(&lump);
+        let pal = palettes.refs();
+        let mut m = TexMgr::<SmokeBackend>::new();
+        m.init_list();
+        m.init_heap(&backend);
+        assert_eq!(m.num_textures(), 0);
+
+        let mut indexed: Vec<u8> = (0..64u8)
+            .map(|i| if i % 5 == 0 { 255 } else { i })
+            .collect();
+        // `u32` pixels: `TexMgr_LoadImage32` takes `unsigned *`, so the
+        // RGBA paths require 4-byte alignment (Miri checks it)
+        let mut rgba: Vec<u32> = (0..4 * 4).map(|i| i * 0x0107_0b0d).collect();
+        let mut rgba8: Vec<u32> = (0..8 * 8).map(|i| i * 0x0301_0507).collect();
+        // an 8x8 Valve miptex with a four-colour palette and indices past it
+        let mut valve = vec![0u8; 85 + 2 + 4 * 3];
+        for (i, b) in valve[..64].iter_mut().enumerate() {
+            *b = (i % 9) as u8;
+        }
+        valve[85] = 4;
+        for (i, b) in valve[87..].iter_mut().enumerate() {
+            *b = (i * 20) as u8;
+        }
+
+        let (first, second, third, fourth) = {
+            let lock = Direct::new(&mut m);
+            // SAFETY: `indexed` holds 8x8 indices; no owner.
+            let first = unsafe {
+                TexMgr::load_image_with(
+                    &lock,
+                    &backend,
+                    &pal,
+                    ptr::null_mut(),
+                    c"smoke_indexed",
+                    8,
+                    8,
+                    SrcFormat::Indexed as c_int,
+                    indexed.as_mut_ptr(),
+                    c"",
+                    0,
+                    TEXPREF_MIPMAP | TEXPREF_ALPHA | TEXPREF_OVERWRITE,
+                )
+            };
+            // SAFETY: `rgba` holds 4x4 RGBA8 pixels.
+            let second = unsafe {
+                TexMgr::load_image_with(
+                    &lock,
+                    &backend,
+                    &pal,
+                    ptr::null_mut(),
+                    c"smoke_rgba",
+                    4,
+                    4,
+                    SrcFormat::Rgba as c_int,
+                    rgba.as_mut_ptr().cast(),
+                    c"",
+                    0,
+                    TEXPREF_MIPMAP | TEXPREF_ALPHA | TEXPREF_OVERWRITE | TEXPREF_PREMULTIPLY,
+                )
+            };
+            // SAFETY: same data again -> the cache hit returns `second`.
+            let third = unsafe {
+                TexMgr::load_image_with(
+                    &lock,
+                    &backend,
+                    &pal,
+                    ptr::null_mut(),
+                    c"smoke_rgba",
+                    4,
+                    4,
+                    SrcFormat::Rgba as c_int,
+                    rgba.as_mut_ptr().cast(),
+                    c"",
+                    0,
+                    TEXPREF_MIPMAP | TEXPREF_ALPHA | TEXPREF_OVERWRITE | TEXPREF_PREMULTIPLY,
+                )
+            };
+            // SAFETY: `valve` is a whole 8x8 Valve miptex.
+            let fourth = unsafe {
+                TexMgr::load_image_with(
+                    &lock,
+                    &backend,
+                    &pal,
+                    ptr::null_mut(),
+                    c"smoke_valve",
+                    8,
+                    8,
+                    SrcFormat::IndexedPalette as c_int,
+                    valve.as_mut_ptr(),
+                    c"",
+                    0,
+                    TEXPREF_MIPMAP,
+                )
+            };
+            // SAFETY: `first` is live and 8x8, which `rgba8` covers;
+            // overwrite it in place through the other lock granularity
+            // (`TexMgr_LoadImage32` on an existing texture).
+            unsafe { TexMgr::load_image32_with(&lock, &backend, first, rgba8.as_mut_ptr()) };
+            (first, second, third, fourth)
+        };
+        assert!(!first.is_null() && !second.is_null() && !fourth.is_null());
+        assert!(ptr::eq(second, third));
+        assert_eq!(m.num_textures(), 3);
+        assert_eq!(m.active_textures().count(), 3);
+        assert!(ptr::eq(
+            m.find_texture(ptr::null_mut(), Some(c"smoke_valve")),
+            fourth
+        ));
+        // SAFETY: arena pointers, no live references.
+        unsafe {
+            assert_eq!((*first).width, 8);
+            assert_eq!((*second).width, 4);
+            assert_eq!((*fourth).source_format, SrcFormat::IndexedPalette as c_int);
+        }
+
+        m.update_texture_descriptor_sets(&backend);
+        m.collect_garbage(&backend);
+        m.collect_garbage(&backend);
+        // SAFETY: `second` is on the active list.
+        unsafe { m.free_texture(&backend, second) };
+        assert_eq!(m.num_textures(), 2);
+        m.free_textures(&backend, 0, 0);
+        assert_eq!(m.num_textures(), 0);
+        m.collect_garbage(&backend);
+        m.collect_garbage(&backend);
+        m.delete_texture_objects(&backend);
+        m.init_list();
+        assert_eq!(m.num_textures(), 0);
+        drop(m);
+        drop(TexMgr::<SmokeBackend>::new());
     }
 }

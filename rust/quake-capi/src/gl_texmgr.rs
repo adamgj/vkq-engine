@@ -95,10 +95,32 @@ impl GlueEnv {
 /// `vulkan_globals.device` read through the glue), `gl_rmisc.c`/`gl_vidsdl.c`
 /// for staging, descriptor sets and memory types, the file system and image
 /// loader for sources, and the glue for everything `glquake.h`-shaped.
-pub struct EngineBackend;
+pub struct EngineBackend {
+    /// One `TexMgr_Glue_VulkanEnv` snapshot per exported entry point. The C
+    /// read `vulkan_globals` in place; the device and samplers only change
+    /// between entry points (`vid_restart` on the main thread), so a fetch
+    /// per `TexMgr_*` call keeps each `vk*` call at a field read instead of
+    /// an 80-byte FFI round trip per texture.
+    glue: GlueEnv,
+}
 
-fn device() -> *mut c_void {
-    GlueEnv::fetch().device
+// SAFETY: `TexMgr<EngineBackend>` sits behind the `TEXMGR` mutex, whose
+// `Send` impl asks for `EngineBackend: Send`. The only field is the glue
+// snapshot: an opaque `VkDevice` (the C reads `vulkan_globals.device` from
+// any thread already) and plain handles, none dereferenced by Rust; each
+// snapshot lives on the entry point's stack and never crosses a thread.
+unsafe impl Send for EngineBackend {}
+
+impl EngineBackend {
+    fn snapshot() -> Self {
+        Self {
+            glue: GlueEnv::fetch(),
+        }
+    }
+
+    fn device(&self) -> *mut c_void {
+        self.glue.device
+    }
 }
 
 fn cstring(s: &str) -> CString {
@@ -117,7 +139,7 @@ impl TexMgrBackend for EngineBackend {
     }
 
     fn env(&self) -> Env {
-        let e = GlueEnv::fetch();
+        let e = &self.glue;
         Env {
             max_image_dimension_2d: e.max_image_dimension_2d,
             max_image_dimension_cube: e.max_image_dimension_cube,
@@ -161,7 +183,7 @@ impl TexMgrBackend for EngineBackend {
         // outlives the call; the device is the engine's.
         let r = unsafe {
             g::vkCreateImage(
-                device(),
+                self.device(),
                 ptr::from_ref(info).cast(),
                 ptr::null(),
                 &mut image,
@@ -176,7 +198,7 @@ impl TexMgrBackend for EngineBackend {
 
     fn destroy_image(&self, image: vk::Image) {
         // SAFETY: `image` came from `create_image` and is destroyed once.
-        unsafe { g::vkDestroyImage(device(), image.as_raw(), ptr::null()) }
+        unsafe { g::vkDestroyImage(self.device(), image.as_raw(), ptr::null()) }
     }
 
     fn image_memory_requirements(&self, image: vk::Image) -> vk::MemoryRequirements {
@@ -184,7 +206,7 @@ impl TexMgrBackend for EngineBackend {
         // SAFETY: `image` is live; `reqs` is a `VkMemoryRequirements`.
         unsafe {
             g::vkGetImageMemoryRequirements(
-                device(),
+                self.device(),
                 image.as_raw(),
                 ptr::from_mut(&mut reqs).cast(),
             )
@@ -199,7 +221,8 @@ impl TexMgrBackend for EngineBackend {
         offset: u64,
     ) -> Result<(), i32> {
         // SAFETY: `image` and `memory` are live handles of this device.
-        let r = unsafe { g::vkBindImageMemory(device(), image.as_raw(), memory.as_raw(), offset) };
+        let r =
+            unsafe { g::vkBindImageMemory(self.device(), image.as_raw(), memory.as_raw(), offset) };
         if r == 0 {
             Ok(())
         } else {
@@ -211,7 +234,12 @@ impl TexMgrBackend for EngineBackend {
         let mut view = 0u64;
         // SAFETY: as in `create_image`.
         let r = unsafe {
-            g::vkCreateImageView(device(), ptr::from_ref(info).cast(), ptr::null(), &mut view)
+            g::vkCreateImageView(
+                self.device(),
+                ptr::from_ref(info).cast(),
+                ptr::null(),
+                &mut view,
+            )
         };
         if r == 0 {
             Ok(vk::ImageView::from_raw(view))
@@ -222,7 +250,7 @@ impl TexMgrBackend for EngineBackend {
 
     fn destroy_image_view(&self, view: vk::ImageView) {
         // SAFETY: `view` came from `create_image_view` and is destroyed once.
-        unsafe { g::vkDestroyImageView(device(), view.as_raw(), ptr::null()) }
+        unsafe { g::vkDestroyImageView(self.device(), view.as_raw(), ptr::null()) }
     }
 
     fn create_framebuffer(
@@ -232,7 +260,12 @@ impl TexMgrBackend for EngineBackend {
         let mut fb = 0u64;
         // SAFETY: as in `create_image`; the attachment array outlives the call.
         let r = unsafe {
-            g::vkCreateFramebuffer(device(), ptr::from_ref(info).cast(), ptr::null(), &mut fb)
+            g::vkCreateFramebuffer(
+                self.device(),
+                ptr::from_ref(info).cast(),
+                ptr::null(),
+                &mut fb,
+            )
         };
         if r == 0 {
             Ok(vk::Framebuffer::from_raw(fb))
@@ -243,7 +276,7 @@ impl TexMgrBackend for EngineBackend {
 
     fn destroy_framebuffer(&self, framebuffer: vk::Framebuffer) {
         // SAFETY: `framebuffer` came from `create_framebuffer`, destroyed once.
-        unsafe { g::vkDestroyFramebuffer(device(), framebuffer.as_raw(), ptr::null()) }
+        unsafe { g::vkDestroyFramebuffer(self.device(), framebuffer.as_raw(), ptr::null()) }
     }
 
     fn update_descriptor_set(&self, w: &DescriptorWrite) {
@@ -261,12 +294,18 @@ impl TexMgrBackend for EngineBackend {
         // SAFETY: one complete `VkWriteDescriptorSet` whose image-info array
         // outlives the call, no copies.
         unsafe {
-            g::vkUpdateDescriptorSets(device(), 1, ptr::from_ref(&write).cast(), 0, ptr::null())
+            g::vkUpdateDescriptorSets(
+                self.device(),
+                1,
+                ptr::from_ref(&write).cast(),
+                0,
+                ptr::null(),
+            )
         }
     }
 
     fn allocate_descriptor_set(&self, layout: DescLayout) -> vk::DescriptorSet {
-        let e = GlueEnv::fetch();
+        let e = &self.glue;
         let l = match layout {
             DescLayout::SingleTexture => e.single_texture_set_layout,
             DescLayout::SingleTextureCsWrite => e.single_texture_cs_write_set_layout,
@@ -276,7 +315,7 @@ impl TexMgrBackend for EngineBackend {
     }
 
     fn free_descriptor_set(&self, set: vk::DescriptorSet, layout: DescLayout) {
-        let e = GlueEnv::fetch();
+        let e = &self.glue;
         let l = match layout {
             DescLayout::SingleTexture => e.single_texture_set_layout,
             DescLayout::SingleTextureCsWrite => e.single_texture_cs_write_set_layout,
@@ -471,8 +510,6 @@ impl TexMgrBackend for EngineBackend {
     }
 }
 
-const BACKEND: EngineBackend = EngineBackend;
-
 /// `texmgr_mutex` and everything it guards.
 static TEXMGR: LazyLock<Mutex<TexMgr<EngineBackend>>> = LazyLock::new(|| Mutex::new(TexMgr::new()));
 
@@ -532,7 +569,7 @@ fn store_palettes(p: &Palettes) {
 /// `gl_texmgr.h` -- `void TexMgr_InitHeap (void)`
 #[no_mangle]
 pub extern "C" fn TexMgr_InitHeap() {
-    lock().init_heap(&BACKEND);
+    lock().init_heap(&EngineBackend::snapshot());
 }
 
 /// `gl_texmgr.h` -- `gltexture_t *TexMgr_FindTexture (qmodel_t *owner, const
@@ -564,45 +601,45 @@ pub extern "C" fn TexMgr_NewTexture() -> *mut GlTexture {
 #[no_mangle]
 pub unsafe extern "C" fn TexMgr_FreeTexture(kill: *mut GlTexture) {
     // SAFETY: per the contract.
-    unsafe { lock().free_texture(&BACKEND, kill) }
+    unsafe { lock().free_texture(&EngineBackend::snapshot(), kill) }
 }
 
 /// `gl_texmgr.h` -- `void TexMgr_FreeTextures (unsigned int flags, unsigned
 /// int mask)`
 #[no_mangle]
 pub extern "C" fn TexMgr_FreeTextures(flags: c_uint, mask: c_uint) {
-    lock().free_textures(&BACKEND, flags, mask);
+    lock().free_textures(&EngineBackend::snapshot(), flags, mask);
 }
 
 /// `gl_texmgr.h` -- `void TexMgr_FreeTexturesForOwner (qmodel_t *owner)`
 #[no_mangle]
 pub extern "C" fn TexMgr_FreeTexturesForOwner(owner: *mut c_void) {
-    lock().free_textures_for_owner(&BACKEND, owner);
+    lock().free_textures_for_owner(&EngineBackend::snapshot(), owner);
 }
 
 /// `gl_texmgr.h` -- `void TexMgr_NewGame (void)`
 #[no_mangle]
 pub extern "C" fn TexMgr_NewGame() {
-    lock().new_game_free(&BACKEND);
+    lock().new_game_free(&EngineBackend::snapshot());
     TexMgr_LoadPalette();
 }
 
 /// `gl_texmgr.h` -- `void TexMgr_DeleteTextureObjects (void)`
 #[no_mangle]
 pub extern "C" fn TexMgr_DeleteTextureObjects() {
-    lock().delete_texture_objects(&BACKEND);
+    lock().delete_texture_objects(&EngineBackend::snapshot());
 }
 
 /// `gl_texmgr.h` -- `void TexMgr_CollectGarbage (void)`
 #[no_mangle]
 pub extern "C" fn TexMgr_CollectGarbage() {
-    lock().collect_garbage(&BACKEND);
+    lock().collect_garbage(&EngineBackend::snapshot());
 }
 
 /// `gl_texmgr.h` -- `void TexMgr_LoadPalette (void)`
 #[no_mangle]
 pub extern "C" fn TexMgr_LoadPalette() {
-    let p = TexMgr::<EngineBackend>::load_palette(&BACKEND);
+    let p = TexMgr::<EngineBackend>::load_palette(&EngineBackend::snapshot());
     store_palettes(&p);
 }
 
@@ -612,8 +649,9 @@ pub extern "C" fn TexMgr_LoadPalette() {
 ///
 /// # Safety
 /// `name` and `source_file` are NUL-terminated; `data` holds the image
-/// `format` describes at `width x height` (or is null for
-/// `SRC_SURF_INDICES`); `owner` is null or a live `qmodel_t`.
+/// `format` describes at `width x height`, 4-byte aligned for the 32-bit
+/// formats (null only for a `TEXPREF_WARPIMAGE` texture, which uploads
+/// nothing); `owner` is null or a live `qmodel_t`.
 #[no_mangle]
 pub unsafe extern "C" fn TexMgr_LoadImage(
     owner: *mut c_void,
@@ -630,7 +668,7 @@ pub unsafe extern "C" fn TexMgr_LoadImage(
     unsafe {
         TexMgr::load_image_with(
             &EngineLock,
-            &BACKEND,
+            &EngineBackend::snapshot(),
             &palettes(),
             owner,
             CStr::from_ptr(name),
@@ -653,19 +691,28 @@ pub unsafe extern "C" fn TexMgr_LoadImage(
 #[no_mangle]
 pub unsafe extern "C" fn TexMgr_ReloadImage(glt: *mut GlTexture, shirt: c_int, pants: c_int) {
     // SAFETY: per the contract.
-    unsafe { TexMgr::reload_image_with(&EngineLock, &BACKEND, &palettes(), glt, shirt, pants) }
+    unsafe {
+        TexMgr::reload_image_with(
+            &EngineLock,
+            &EngineBackend::snapshot(),
+            &palettes(),
+            glt,
+            shirt,
+            pants,
+        )
+    }
 }
 
 /// `gl_texmgr.h` -- `void TexMgr_ReloadNobrightImages (void)`
 #[no_mangle]
 pub extern "C" fn TexMgr_ReloadNobrightImages() {
-    lock().reload_nobright_images(&BACKEND, &palettes());
+    lock().reload_nobright_images(&EngineBackend::snapshot(), &palettes());
 }
 
 /// `gl_texmgr.h` -- `void TexMgr_UpdateTextureDescriptorSets (void)`
 #[no_mangle]
 pub extern "C" fn TexMgr_UpdateTextureDescriptorSets() {
-    lock().update_texture_descriptor_sets(&BACKEND);
+    lock().update_texture_descriptor_sets(&EngineBackend::snapshot());
 }
 
 /// `gl_texmgr.h` -- `glheapstats_t *TexMgr_GetHeapStats (void)`. The stats
@@ -688,7 +735,7 @@ pub extern "C" fn quake_rs_texmgr_init() -> c_int {
     {
         let mut m = lock();
         m.init_list();
-        let p = TexMgr::<EngineBackend>::load_palette(&BACKEND);
+        let p = TexMgr::<EngineBackend>::load_palette(&EngineBackend::snapshot());
         store_palettes(&p);
     }
     // SAFETY: Host_Guard thunks over the glue-owned cvars/command.
@@ -701,7 +748,7 @@ pub extern "C" fn quake_rs_texmgr_init() -> c_int {
     if r != 0 {
         return r;
     }
-    let b = lock().load_builtin_textures(&BACKEND, &palettes());
+    let b = lock().load_builtin_textures(&EngineBackend::snapshot(), &palettes());
     // SAFETY: main-thread writes of the six glue-owned pointers, followed
     // by the glue's `r_notexture_mip` assignment; `notexture` is the arena
     // pointer the C would store.

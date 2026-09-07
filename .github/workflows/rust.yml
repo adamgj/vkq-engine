@@ -213,6 +213,29 @@ jobs:
         RUSTFLAGS: --cfg loom
       run: cargo test -p quake-tasks --release --locked
 
+  # ADR-019 sanitizer tier (Miri on pure crates), ADR-004: Miri over
+  # quake-render's own tests, which include a TexMgr smoke test over a fake
+  # backend. The texture arena and list are raw pointers whose &mut
+  # GlTexture reborrows the differential harness cannot check; both aliasing
+  # models run so a Stacked Borrows retag rule and its Tree Borrows
+  # counterpart are each exercised. Nightly-only (miri).
+  miri:
+    name: miri (quake-render)
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v6
+    - uses: dtolnay/rust-toolchain@nightly
+      with:
+        components: miri
+    - name: cargo miri test (Stacked Borrows)
+      working-directory: rust
+      run: cargo +nightly miri test -p quake-render --locked
+    - name: cargo miri test (Tree Borrows)
+      working-directory: rust
+      env:
+        MIRIFLAGS: -Zmiri-tree-borrows
+      run: cargo +nightly miri test -p quake-render --locked
+
   # ADR-016: ThreadSanitizer over the scheduler's real (crossbeam) queues,
   # which loom cannot model. Nightly-only: -Zsanitizer needs the standard
   # library rebuilt with the same instrumentation (-Zbuild-std), and that

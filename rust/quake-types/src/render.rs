@@ -185,8 +185,11 @@ impl Default for GlTexture {
 const _: () = {
     use core::mem::{offset_of, size_of};
     assert!(size_of::<SrcFormat>() == size_of::<c_int>());
-    // 64-bit layout (gl_texmgr.h:66-93); a 32-bit target shrinks the pointer
-    // and handle-typed members and is checked by the probe instead.
+    // 64-bit layout (gl_texmgr.h:66-93). A 32-bit target shrinks the
+    // pointer-typed members and realigns the 64-bit handles; that layout is
+    // unverified (the ctest probe measures the host, and every CI leg is
+    // 64-bit), so `-Duse_rust_render` is 64-bit only until a 32-bit leg
+    // measures it. The glue's COMPILE_TIME_ASSERTs are guarded the same way.
     assert!(size_of::<usize>() != 8 || size_of::<GlTexture>() == 240);
     assert!(size_of::<usize>() != 8 || offset_of!(GlTexture, name) == 16);
     assert!(size_of::<usize>() != 8 || offset_of!(GlTexture, path_id) == 80);
