@@ -51,7 +51,7 @@ jobs:
     # but only this pass lints it.
     - name: cargo clippy (progs feature)
       working-directory: rust
-      run: cargo clippy -p quake-capi --features progs --all-targets --locked -- -D warnings
+      run: cargo clippy -p quake-capi --features progs,render --all-targets --locked -- -D warnings
     - name: cargo deny
       uses: EmbarkStudios/cargo-deny-action@v2
       with:
@@ -83,7 +83,7 @@ jobs:
       run: cargo clippy --workspace --all-targets --locked -- -D warnings
     - name: cargo clippy (progs feature)
       working-directory: rust
-      run: cargo clippy -p quake-capi --features progs --all-targets --locked -- -D warnings
+      run: cargo clippy -p quake-capi --features progs,render --all-targets --locked -- -D warnings
 
   # cargo-deny's advisories check already covers RustSec on every PR; this
   # standalone audit only adds value on the weekly cron

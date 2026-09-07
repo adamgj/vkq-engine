@@ -508,6 +508,22 @@ void quake_rs_key_write_bindings(FILE *f);
 #ifdef _QUAKE_MENU_H
 void quake_rs_menu_get_crosshair_def(float crosshair_def_value, crosshair_t *out);
 #endif
+/* Phase 8 M3: gl_heap.c's seven entry points. glheap_t/glheapallocation_t
+ * are opaque in C (boxed Rust Heap/Allocation), VkDeviceMemory/VkDeviceSize
+ * come from vulkan_core.h and vulkan_memory_type_t/glheapstats_t from
+ * glquake.h/gl_heap.h, none of which this header can spell, so they are
+ * declared by hand here, guarded on gl_heap.h's own include guard (gl_heap.h
+ * declares them too; the redeclarations must agree, which
+ * check_capi_signatures.sh checks). */
+#ifdef __HEAP__
+glheap_t *GL_HeapCreate(VkDeviceSize segment_size, uint32_t page_size, uint32_t memory_type_index, vulkan_memory_type_t memory_type, qboolean device_address, const char *heap_name);
+void GL_HeapDestroy(glheap_t *heap, atomic_uint32_t *num_allocations);
+glheapallocation_t *GL_HeapAllocate(glheap_t *heap, VkDeviceSize size, VkDeviceSize alignment, atomic_uint32_t *num_allocations);
+void GL_HeapFree(glheap_t *heap, glheapallocation_t *allocation, atomic_uint32_t *num_allocations);
+VkDeviceMemory GL_HeapGetAllocationMemory(glheapallocation_t *allocation);
+VkDeviceSize GL_HeapGetAllocationOffset(glheapallocation_t *allocation);
+glheapstats_t *GL_HeapGetStats(glheap_t *heap);
+#endif
 #ifdef __cplusplus
 } /* extern "C" -- these hand-written declarations sit outside cbindgen's own
    * cpp_compat guard, so they carry their own */
@@ -722,4 +738,12 @@ exclude = [
     "quake_rs_hostcmd_extra_maps_get_message",
     "quake_rs_hostcmd_modlist_get_full_name",
     "FileListItem",
+    # Phase 8 M3 -- declared by hand above, guarded on gl_heap.h. The heap and
+    # allocation are opaque boxes and the parameter types are Vulkan/glquake.h
+    # spellings this header cannot reach, so cbindgen's own declarations would
+    # be syntax errors in every C TU that includes the header.
+    "GL_HeapCreate", "GL_HeapDestroy", "GL_HeapAllocate", "GL_HeapFree",
+    "GL_HeapGetAllocationMemory", "GL_HeapGetAllocationOffset", "GL_HeapGetStats",
+    "GlHeap", "Heap", "Allocation", "CBackend", "GlHeapStats",
+    "VulkanMemoryType", "VulkanMemory", "DeviceMemory",
 ]

@@ -219,7 +219,6 @@ srcs = [
     'Quake/common.c',
     'Quake/gl_draw.c',
     'Quake/gl_fog.c',
-    'Quake/gl_heap.c',
     'Quake/gl_mesh.c',
     'Quake/gl_model.c',
     'Quake/gl_refrag.c',
@@ -901,6 +900,21 @@ if use_rust_tasks
     srcs += ['Quake/tasks_glue.c']
 else
     srcs += ['Quake/tasks.c']
+endif
+
+# Phase 8 M3: gl_heap.c -> quake-render::heap via quake-capi (Pattern A
+# whole-file swap, ADR-015; first use_rust_render slice). The Rust staticlib
+# exports the seven GL_Heap* entry points of gl_heap.h and calls back into
+# the still-C R_AllocateVulkanMemory / R_FreeVulkanMemory / GL_SetObjectName
+# seams. Quake/gl_heap_glue.c keeps only the _DEBUG `test_gl_heap` command
+# (host.c and host_glue.c both register GL_HeapTest_f), reduced to the public
+# API because the heap is opaque across the ABI. The C original stays the
+# -Duse_rust_render=disabled comparison oracle (build-rs-crender) and the
+# quake-ctest differential oracle.
+if use_rust_render
+    srcs += ['Quake/gl_heap_glue.c']
+else
+    srcs += ['Quake/gl_heap.c']
 endif
 
 if use_rust_snd

@@ -7,6 +7,13 @@ rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
+[dependencies]
+# Phase 8 M3 (ADR-003, ADR-011): `ash::vk::DeviceMemory` is the handle type
+# of the `vulkan_memory_t` mirror; no default features (see quake-render).
+# Optional so that ash reaches a build only through the `render` feature
+# (quake-render, quake-ctest, and quake-capi's `render` feature turn it on).
+ash = { version = "0.38", default-features = false, features = ["std", "debug"], optional = true }
+
 [lints]
 workspace = true
 
@@ -15,3 +22,5 @@ workspace = true
 # `edict_t` grows three bookkeeping fields under it (Quake/progs.h), so the
 # progs mirrors are build-profile dependent.
 engine-debug = []
+# Phase 8 M3: the renderer mirrors (`render` module) and their ash dependency
+render = ["dep:ash"]

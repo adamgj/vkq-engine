@@ -10,12 +10,19 @@ publish.workspace = true
 [dependencies]
 quake-util = { path = "../quake-util" }
 quake-math = { path = "../quake-math" }
-quake-types = { path = "../quake-types" }
+# Phase 8 M3: `render` for the gl_heap mirrors (render_abi, gl_heap_differential)
+quake-types = { path = "../quake-types", features = ["render"] }
 quake-snd = { path = "../quake-snd" }
 quake-net = { path = "../quake-net" }
 # Phase 6 M2: the arena/string-table differentials drive quake-progs directly
 # (it is deliberately quake-c-sys-free, so there are no capi shims yet)
 quake-progs = { path = "../quake-progs" }
+# Phase 8 M3: the gl_heap differential drives quake-render::heap directly
+# with a fake memory backend (the C oracle gets a matching fake)
+quake-render = { path = "../quake-render" }
+# Phase 8 M3 (ADR-003): the differential reads the ash handle the heap
+# stores; same feature set as quake-render (no defaults, no new transitives)
+ash = { version = "0.38", default-features = false, features = ["std", "debug"] }
 quake-c-sys = { path = "../quake-c-sys" }
 # Phase 2: the differential suites compare the fs shims against the c_ref_*
 # build of common_fs.c/steam.c, so the fs feature must be on

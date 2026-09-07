@@ -199,6 +199,21 @@ static inline int FindLastBitNonZero (const uint32_t mask)
 	return 31 ^ __builtin_clz (mask);
 }
 #endif
+/* quakedef.h:261/:313's 64-bit forward scan; gl_heap.c walks its bitfields
+ * with it (Phase 8 M3, stubs/gl_heap_ref.c) */
+#ifdef _MSC_VER
+static inline int FindFirstBitNonZero64 (const uint64_t mask)
+{
+	unsigned long result = 0; /* the C never calls it with 0 */
+	_BitScanForward64 (&result, mask);
+	return (int)result;
+}
+#else
+static inline int FindFirstBitNonZero64 (const uint64_t mask)
+{
+	return __builtin_ctzll (mask);
+}
+#endif
 
 /* crc.c */
 #define CRC_Init			  c_ref_CRC_Init
@@ -1565,7 +1580,16 @@ typedef struct
 typedef int VkResult;
 #define VK_SUCCESS 0
 typedef struct VkDevice_T		*VkDevice;
+/* vulkan_core.h's VK_DEFINE_NON_DISPATCHABLE_HANDLE: a pointer where
+ * VK_USE_64_BIT_PTR_DEFINES is 1 (the same condition as the real header),
+ * a uint64_t elsewhere. Hand copy, so abi_probe.c's sizeof row measures
+ * this typedef, not the SDK's. */
+#if defined(__LP64__) || defined(_WIN64) || (defined(__x86_64__) && !defined(__ILP32__)) || defined(_M_X64) || defined(__ia64) || \
+	defined(_M_IA64) || defined(__aarch64__) || defined(__powerpc64__) || (defined(__riscv) && __riscv_xlen == 64)
 typedef struct VkDeviceMemory_T *VkDeviceMemory;
+#else
+typedef uint64_t VkDeviceMemory;
+#endif
 typedef uint32_t				 VkFlags;
 typedef int						 VkStructureType;
 typedef int						 VkObjectType;
@@ -1602,6 +1626,17 @@ typedef struct
 	VkDeviceSize	allocationSize;
 	uint32_t		memoryTypeIndex;
 } VkMemoryAllocateInfo;
+/* vulkan_core.h: the pNext gl_heap.c chains onto a segment allocation when
+ * the heap was created with device_address (Phase 8 M3) */
+typedef struct
+{
+	VkStructureType sType;
+	const void	   *pNext;
+	VkFlags			flags;
+	uint32_t		deviceMask;
+} VkMemoryAllocateFlagsInfo;
+#define VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO 1000060000
+#define VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT		 0x00000002
 typedef struct
 {
 	VkDeviceSize srcOffset;

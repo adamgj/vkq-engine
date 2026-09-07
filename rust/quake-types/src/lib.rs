@@ -15,6 +15,8 @@ pub mod modelgen;
 pub mod net;
 pub mod plane;
 pub mod progs;
+#[cfg(feature = "render")]
+pub mod render;
 pub mod sound;
 pub mod spritegn;
 pub mod wad;

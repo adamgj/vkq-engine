@@ -1426,3 +1426,49 @@ size_t ctest_abi_host_lookup (const char *key)
 			return ctest_abi_host_table[i].value;
 	return (size_t)-1;
 }
+
+/* Phase 8 M3 render ABI: the Rust heap hands glheapstats_t back through
+ * GL_HeapGetStats and fills vulkan_memory_t for the C R_AllocateVulkanMemory
+ * seam; see tests/render_abi.rs. glheapstats_t comes from the real
+ * gl_heap.h (its q_render_types.h include is guarded out by the prelude);
+ * vulkan_memory_type_t, vulkan_memory_t and VkDeviceMemory come from the
+ * prelude's hand copies of glquake.h:178-190 and vulkan_core.h, so those
+ * rows check the Rust mirror against the copy, not against the SDK header.
+ * The engine-header check for them is the COMPILE_TIME_ASSERTs in
+ * Quake/gl_heap_glue.c, compiled with the real glquake.h under
+ * -Duse_rust_render. */
+#include "gl_heap.h"
+
+static const ctest_abi_entry_t ctest_abi_render_table[] = {
+	SZ ("glheapstats_t", glheapstats_t),
+	OFF ("glheapstats_t", glheapstats_t, num_segments),
+	OFF ("glheapstats_t", glheapstats_t, num_allocations),
+	OFF ("glheapstats_t", glheapstats_t, num_small_allocations),
+	OFF ("glheapstats_t", glheapstats_t, num_block_allocations),
+	OFF ("glheapstats_t", glheapstats_t, num_dedicated_allocations),
+	OFF ("glheapstats_t", glheapstats_t, num_blocks_used),
+	OFF ("glheapstats_t", glheapstats_t, num_blocks_free),
+	OFF ("glheapstats_t", glheapstats_t, num_pages_allocated),
+	OFF ("glheapstats_t", glheapstats_t, num_pages_free),
+	OFF ("glheapstats_t", glheapstats_t, num_bytes_allocated),
+	OFF ("glheapstats_t", glheapstats_t, num_bytes_free),
+	OFF ("glheapstats_t", glheapstats_t, num_bytes_wasted),
+	SZ ("vulkan_memory_t", vulkan_memory_t),
+	OFF ("vulkan_memory_t", vulkan_memory_t, handle),
+	OFF ("vulkan_memory_t", vulkan_memory_t, size),
+	OFF ("vulkan_memory_t", vulkan_memory_t, type),
+	SZ ("vulkan_memory_type_t", vulkan_memory_type_t),
+	SZ ("VkDeviceMemory", VkDeviceMemory),
+	{"const.VULKAN_MEMORY_TYPE_NONE", VULKAN_MEMORY_TYPE_NONE},
+	{"const.VULKAN_MEMORY_TYPE_DEVICE", VULKAN_MEMORY_TYPE_DEVICE},
+	{"const.VULKAN_MEMORY_TYPE_HOST", VULKAN_MEMORY_TYPE_HOST},
+};
+
+size_t ctest_abi_render_lookup (const char *key)
+{
+	size_t i;
+	for (i = 0; i < sizeof (ctest_abi_render_table) / sizeof (ctest_abi_render_table[0]); i++)
+		if (!strcmp (ctest_abi_render_table[i].name, key))
+			return ctest_abi_render_table[i].value;
+	return (size_t)-1;
+}
