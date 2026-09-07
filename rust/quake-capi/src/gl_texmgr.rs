@@ -529,7 +529,7 @@ fn store_palettes(p: &Palettes) {
     }
 }
 
-/// `gl_texmgr.h` -- `void TexMgr_InitHeap ()`
+/// `gl_texmgr.h` -- `void TexMgr_InitHeap (void)`
 #[no_mangle]
 pub extern "C" fn TexMgr_InitHeap() {
     lock().init_heap(&BACKEND);

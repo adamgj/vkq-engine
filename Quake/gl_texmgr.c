@@ -556,7 +556,7 @@ void TexMgr_DeleteTextureObjects (void)
 TexMgr_InitHeap
 ================
 */
-void TexMgr_InitHeap ()
+void TexMgr_InitHeap (void)
 {
 	ZEROED_STRUCT (VkImageCreateInfo, image_create_info);
 	image_create_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;

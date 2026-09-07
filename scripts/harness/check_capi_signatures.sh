@@ -190,9 +190,7 @@ gltexture_t *TexMgr_LoadImage (
 	qmodel_t *owner, const char *name, int width, int height, enum srcformat format, byte *data, const char *source_file, src_offset_t source_offset,
 	unsigned flags);
 /* Phase 8 M4: the rest of the TexMgr_* ABI, hand-copied from gl_texmgr.h
- * (TexMgr_GetHeapStats joins below, after gl_heap.h; TexMgr_InitHeap is
- * spelled (void) here so the model is a real prototype -- gl_texmgr.h's
- * old-style () would accept any drifted signature). */
+ * (TexMgr_GetHeapStats joins below, after gl_heap.h). */
 void		 TexMgr_InitHeap (void);
 gltexture_t *TexMgr_FindTexture (qmodel_t *owner, const char *name);
 gltexture_t *TexMgr_NewTexture (void);
