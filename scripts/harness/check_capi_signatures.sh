@@ -189,6 +189,21 @@ typedef struct gltexture_s gltexture_t;
 gltexture_t *TexMgr_LoadImage (
 	qmodel_t *owner, const char *name, int width, int height, enum srcformat format, byte *data, const char *source_file, src_offset_t source_offset,
 	unsigned flags);
+/* Phase 8 M4: the rest of the TexMgr_* ABI, hand-copied from gl_texmgr.h
+ * (TexMgr_GetHeapStats joins below, after gl_heap.h). */
+void		 TexMgr_InitHeap ();
+gltexture_t *TexMgr_FindTexture (qmodel_t *owner, const char *name);
+gltexture_t *TexMgr_NewTexture (void);
+void		 TexMgr_FreeTexture (gltexture_t *kill);
+void		 TexMgr_FreeTextures (unsigned int flags, unsigned int mask);
+void		 TexMgr_FreeTexturesForOwner (qmodel_t *owner);
+void		 TexMgr_NewGame (void);
+void		 TexMgr_DeleteTextureObjects (void);
+void		 TexMgr_CollectGarbage (void);
+void		 TexMgr_LoadPalette (void);
+void		 TexMgr_ReloadImage (gltexture_t *glt, int shirt, int pants);
+void		 TexMgr_ReloadNobrightImages (void);
+void		 TexMgr_UpdateTextureDescriptorSets (void);
 /* Phase 3 M5: the MD3/MD5 loaders hand their buffers to gl_mesh.c. The real
  * glquake.h pulls Vulkan and tasks.h, so -- as for gl_texmgr.h above --
  * hand-copy the two declarations the seam needs and claim the header's
@@ -229,6 +244,7 @@ typedef enum
 	VULKAN_MEMORY_TYPE_HOST,
 } vulkan_memory_type_t;
 #include "gl_heap.h"
+glheapstats_t *TexMgr_GetHeapStats (void);
 #include "quake_rs.h"
 EOF
 

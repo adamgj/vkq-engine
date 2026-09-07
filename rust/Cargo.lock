@@ -456,6 +456,7 @@ version = "0.1.0"
 dependencies = [
  "ash",
  "quake-types",
+ "quake-util",
 ]
 
 [[package]]

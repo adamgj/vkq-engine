@@ -26,6 +26,18 @@ pub struct CBackend {
     name: *const c_char,
 }
 
+impl CBackend {
+    /// `name` is a string literal (or otherwise `'static`), as at both C
+    /// call sites and the Rust texture manager's `c"Texture Heap"`.
+    pub fn new(name: *const c_char) -> Self {
+        Self { name }
+    }
+}
+
+// SAFETY: the only field is the `'static` name pointer (see `new`), which is
+// never written through; the texture manager keeps its heap behind a Mutex.
+unsafe impl Send for CBackend {}
+
 // The counter is forwarded to C untouched, never dereferenced here; its
 // validity is the `GL_Heap*` callers' contract (see their `# Safety`).
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
@@ -107,7 +119,7 @@ pub extern "C" fn GL_HeapCreate(
         _ => unsafe { c::Sys_Error(c"GL_HeapCreate: bad vulkan_memory_type_t".as_ptr()) },
     };
     Box::into_raw(Box::new(Heap::new(
-        CBackend { name: heap_name },
+        CBackend::new(heap_name),
         segment_size,
         page_size,
         memory_type_index,

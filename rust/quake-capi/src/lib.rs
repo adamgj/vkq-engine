@@ -43,6 +43,8 @@ pub mod fs;
 pub mod fs_stdio;
 #[cfg(feature = "render")]
 pub mod gl_heap; // gl_heap.c
+#[cfg(feature = "render")]
+pub mod gl_texmgr; // gl_texmgr.c
 pub mod hash_map;
 #[cfg(feature = "host")]
 pub mod host; // host.c

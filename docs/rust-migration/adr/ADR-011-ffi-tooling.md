@@ -104,3 +104,7 @@ typed side lives in `quake-capi/src/gl_heap.rs`, where the mirrors and the
 hand-written in `cbindgen.toml`'s preamble under `gl_heap.h`'s include
 guard and cross-checked by `check_capi_signatures.sh` (the `tasks.h`
 precedent from M2).
+
+## Amended (Phase 8 M4, 2026-09-07)
+
+`gltexture_t` (`gl_texmgr.h`) embeds `VkImage`/`VkImageView`/`VkFramebuffer`/`VkDescriptorSet` handles and `enum srcformat`, so it is a hand-mirrored `#[repr(C)] GlTexture` in `quake-types::render` (with `SrcFormat` and the `TEXPREF_*` bits). Two checks keep the mirror honest: the `quake-ctest` ABI probe (`render_abi.rs` + `abi_probe.c`) measures the 22 field offsets, the size, `sizeof (enum srcformat)`, the six `SRC_*` and the fourteen `TEXPREF_*` values against the prelude's copy of the header, and `Quake/gl_texmgr_glue.c` carries a `COMPILE_TIME_ASSERT` block over the real `gl_texmgr.h`/`vulkan_core.h` for the same layout, so a header change breaks the mixed build before it can reach a Rust write. The eleven `vulkan_globals` members `gl_texmgr.c` reads cross through `texmgr_glue_env_t` (glue) / `GlueEnv` (`quake-capi/src/gl_texmgr.rs`), size-asserted on both sides, until the M5 ownership flip makes `vulkan_globals` itself a mirror. The Vulkan loader entry points the texture manager calls are declared by hand in `quake-c-sys::render` as `extern "system"` (matching `VKAPI_CALL`) with handles as `u64`/`*mut c_void`; the `ash::vk` structs are built on the `quake-capi` side and passed as `*const c_void`.

@@ -12,13 +12,23 @@
 //! `glquake.h` is the `COMPILE_TIME_ASSERT`s in `Quake/gl_heap_glue.c`,
 //! which the `use_rust_render` build compiles with the SDK header in scope.
 //!
+//! Phase 8 M4 adds `gltexture_t` (the Rust texture manager's list node,
+//! read by every C renderer file through the C view) and its `srcformat` /
+//! `textureflags_t` constants, again against the prelude's copy of
+//! `gl_texmgr.h` with the engine-header check in `Quake/gl_texmgr_glue.c`.
+//!
 //! Name-keyed like the Phase 3/4 probes so this consumer and the C table can't
 //! drift by index; an unknown key returns usize::MAX and fails the assert.
 
 use core::mem::{offset_of, size_of};
 
 use quake_ctest as _;
-use quake_types::render::{GlHeapStats, VulkanMemory, VulkanMemoryType};
+use quake_types::render::{
+    GlHeapStats, GlTexture, SrcFormat, VulkanMemory, VulkanMemoryType, TEXPREF_ALPHA,
+    TEXPREF_ALPHAPIXELS, TEXPREF_CONCHARS, TEXPREF_FULLBRIGHT, TEXPREF_LINEAR, TEXPREF_MIPMAP,
+    TEXPREF_NEAREST, TEXPREF_NOBRIGHT, TEXPREF_NOPICMIP, TEXPREF_OVERWRITE, TEXPREF_PAD,
+    TEXPREF_PERSIST, TEXPREF_PREMULTIPLY, TEXPREF_WARPIMAGE,
+};
 
 extern "C" {
     fn ctest_abi_render_lookup(key: *const core::ffi::c_char) -> usize;
@@ -110,4 +120,66 @@ fn render_consts_match_engine_headers() {
         VulkanMemoryType::Host as usize,
         c_abi("const.VULKAN_MEMORY_TYPE_HOST")
     );
+}
+
+#[test]
+fn texture_mirror_matches_engine_headers() {
+    check_size!(GlTexture, "gltexture_t");
+    check_offsets!(
+        GlTexture,
+        "gltexture_t",
+        [
+            next,
+            owner,
+            name,
+            path_id,
+            width,
+            height,
+            flags,
+            source_file,
+            source_offset,
+            source_format,
+            source_width,
+            source_height,
+            source_crc,
+            shirt,
+            pants,
+            image,
+            image_view,
+            target_image_view,
+            allocation,
+            descriptor_set,
+            frame_buffer,
+            storage_descriptor_set,
+        ]
+    );
+    assert_eq!(size_of::<SrcFormat>(), c_abi("sizeof.enum srcformat"));
+}
+
+#[test]
+fn texture_consts_match_engine_headers() {
+    for (name, value) in [
+        ("SRC_INDEXED", SrcFormat::Indexed as usize),
+        ("SRC_LIGHTMAP", SrcFormat::Lightmap as usize),
+        ("SRC_RGBA", SrcFormat::Rgba as usize),
+        ("SRC_SURF_INDICES", SrcFormat::SurfIndices as usize),
+        ("SRC_RGBA_CUBEMAP", SrcFormat::RgbaCubemap as usize),
+        ("SRC_INDEXED_PALETTE", SrcFormat::IndexedPalette as usize),
+        ("TEXPREF_MIPMAP", TEXPREF_MIPMAP as usize),
+        ("TEXPREF_LINEAR", TEXPREF_LINEAR as usize),
+        ("TEXPREF_NEAREST", TEXPREF_NEAREST as usize),
+        ("TEXPREF_ALPHA", TEXPREF_ALPHA as usize),
+        ("TEXPREF_PAD", TEXPREF_PAD as usize),
+        ("TEXPREF_PERSIST", TEXPREF_PERSIST as usize),
+        ("TEXPREF_OVERWRITE", TEXPREF_OVERWRITE as usize),
+        ("TEXPREF_NOPICMIP", TEXPREF_NOPICMIP as usize),
+        ("TEXPREF_FULLBRIGHT", TEXPREF_FULLBRIGHT as usize),
+        ("TEXPREF_NOBRIGHT", TEXPREF_NOBRIGHT as usize),
+        ("TEXPREF_CONCHARS", TEXPREF_CONCHARS as usize),
+        ("TEXPREF_WARPIMAGE", TEXPREF_WARPIMAGE as usize),
+        ("TEXPREF_PREMULTIPLY", TEXPREF_PREMULTIPLY as usize),
+        ("TEXPREF_ALPHAPIXELS", TEXPREF_ALPHAPIXELS as usize),
+    ] {
+        assert_eq!(value, c_abi(&format!("const.{name}")), "{name}");
+    }
 }
