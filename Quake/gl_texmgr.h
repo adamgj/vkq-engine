@@ -107,7 +107,7 @@ extern unsigned int d_8to24table_conchars[256];
 
 // TEXTURE MANAGER
 
-void		 TexMgr_InitHeap ();
+void		 TexMgr_InitHeap (void);
 gltexture_t *TexMgr_FindTexture (qmodel_t *owner, const char *name);
 gltexture_t *TexMgr_NewTexture (void);
 void		 TexMgr_FreeTexture (gltexture_t *kill);

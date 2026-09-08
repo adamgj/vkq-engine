@@ -21,6 +21,7 @@ The engine is anchored on global singletons read/written across modules: `cl`/`c
 | `cl`/`cls` | P7 | P6 – P7 M7 (qcvm field) | P7 (**closed at M7**, the client stratum; storage is now `rust/quake-capi/src/cl_main.rs`) |
 | `vid`, `r_refdef` | P8 | P8 sub-slices | P8 |
 | `vulkan_globals` | P8 | P8 sub-slices (C-layout view) | P8 |
+| texmgr C-visible data: `d_8to24table*` (6 palettes), the six well-known `gltexture_t *` (`notexture` etc.), `gl_max_size`/`gl_picmip` | P8 M4 | P8 M4-M9: storage stays C in `Quake/gl_texmgr_glue.c` for the plain-extern readers across the C renderer; Rust (`quake-capi/src/gl_texmgr.rs`) is the only writer, through hand externs. The `gltexture_t` list itself is Rust-owned from M4 (`quake-render::texmgr`); C holds pointers into it | P8 (last C reader ports, M7-M9) |
 | `mod_known[]` | P3 (data) / P8 (vk members) | P3–P8 | P8 |
 | sound globals (`shm`/`sn`, `snd_channels[]`/`total_channels`, timing, listener vectors, the 16 sound cvars, `snd_mutex`) | P4 | P4–P9: storage stays C in `snd_glue.c` for the direct C readers (menu.c cvar storage, cl_demo.c channel iteration, gl_screen timing); all *logic* is Rust, reaching the storage via `quake_c_sys` under the recursive `snd_mutex` on the main thread | P9 (host inversion) |
 | mixer/sfx-registry internals (paintbuffer, scaletable, filters, underwater, `known_sfx[]`, DMA wrap counters) | — | none: Rust-owned statics from P4, never visible to C | P4 |

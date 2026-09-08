@@ -151,6 +151,25 @@ extern trivertx_t *poseverts[MAXALIASFRAMES];
 gltexture_t *TexMgr_LoadImage(
 	qmodel_t *owner, const char *name, int width, int height, enum srcformat format, byte *data, const char *source_file, src_offset_t source_offset,
 	unsigned flags);
+/* Phase 8 M4 -- the rest of gl_texmgr.h's TexMgr_* ABI (TexMgr_Init stays in
+ * Quake/gl_texmgr_glue.c for the ADR-009 re-raise); gl_texmgr.h declares
+ * them too and check_capi_signatures.sh checks the two agree */
+void TexMgr_InitHeap(void);
+gltexture_t *TexMgr_FindTexture(qmodel_t *owner, const char *name);
+gltexture_t *TexMgr_NewTexture(void);
+void TexMgr_FreeTexture(gltexture_t *kill);
+void TexMgr_FreeTextures(unsigned int flags, unsigned int mask);
+void TexMgr_FreeTexturesForOwner(qmodel_t *owner);
+void TexMgr_NewGame(void);
+void TexMgr_DeleteTextureObjects(void);
+void TexMgr_CollectGarbage(void);
+void TexMgr_LoadPalette(void);
+void TexMgr_ReloadImage(gltexture_t *glt, int shirt, int pants);
+void TexMgr_ReloadNobrightImages(void);
+void TexMgr_UpdateTextureDescriptorSets(void);
+#endif
+#if defined(_GL_TEXMAN_H) && defined(__HEAP__)
+glheapstats_t *TexMgr_GetHeapStats(void);
 #endif
 /* likewise glquake.h, for the MD3/MD5 mesh upload the Rust loaders call */
 #ifdef GLQUAKE_H
@@ -746,4 +765,14 @@ exclude = [
     "GL_HeapGetAllocationMemory", "GL_HeapGetAllocationOffset", "GL_HeapGetStats",
     "GlHeap", "Heap", "Allocation", "CBackend", "GlHeapStats",
     "VulkanMemoryType", "VulkanMemory", "DeviceMemory",
+    # Phase 8 M4 -- gl_texmgr.c: declared by hand above under _GL_TEXMAN_H
+    # (gltexture_t / qmodel_t / src_offset_t / glheapstats_t spellings)
+    "TexMgr_InitHeap", "TexMgr_FindTexture", "TexMgr_NewTexture",
+    "TexMgr_FreeTexture", "TexMgr_FreeTextures", "TexMgr_FreeTexturesForOwner",
+    "TexMgr_NewGame", "TexMgr_DeleteTextureObjects", "TexMgr_CollectGarbage",
+    "TexMgr_LoadPalette", "TexMgr_ReloadImage", "TexMgr_ReloadNobrightImages",
+    "TexMgr_UpdateTextureDescriptorSets", "TexMgr_GetHeapStats",
+    "TexMgr_Rust_Imagelist_f", "TexMgr_Rust_Imagelist_Completion_f",
+    "GlTexture", "SrcFormat", "EngineBackend", "GlueEnv", "TexMgr",
+    "Palettes", "PaletteRefs",
 ]

@@ -227,7 +227,6 @@ srcs = [
     'Quake/gl_rmisc.c',
     'Quake/gl_screen.c',
     'Quake/gl_sky.c',
-    'Quake/gl_texmgr.c',
     'Quake/gl_vidsdl.c',
     'Quake/gl_warp.c',
     'Quake/harness.c',
@@ -915,6 +914,20 @@ if use_rust_render
     srcs += ['Quake/gl_heap_glue.c']
 else
     srcs += ['Quake/gl_heap.c']
+endif
+
+# Phase 8 M4: gl_texmgr.c -> quake-render::texmgr via quake-capi (Pattern A
+# whole-file swap, ADR-015). The Rust staticlib exports the TexMgr_* entry
+# points of gl_texmgr.h except TexMgr_Init, which stays in
+# Quake/gl_texmgr_glue.c so the ADR-009 Host_Reraise of a caught
+# Cvar_RegisterVariable / Cmd_AddCommand Host_Error happens in a C frame.
+# The glue TU also owns the C-visible data (palettes, well-known texture
+# pointers, the two cvars), the stb_image_resize implementation and the
+# vulkan_globals accessor the Rust side reads through until M5.
+if use_rust_render
+    srcs += ['Quake/gl_texmgr_glue.c']
+else
+    srcs += ['Quake/gl_texmgr.c']
 endif
 
 if use_rust_snd

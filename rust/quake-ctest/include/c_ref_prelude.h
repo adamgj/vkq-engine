@@ -625,14 +625,25 @@ enum srcformat
 	SRC_RGBA_CUBEMAP,
 	SRC_INDEXED_PALETTE,
 };
-#define TEXPREF_MIPMAP	 0x0001
-#define TEXPREF_ALPHA	 0x0008
-#define TEXPREF_PAD		 0x0010
-#define TEXPREF_NOPICMIP 0x0080
-/* gl_texmgr.h:38-42; r_part.c's R_InitParticleTextures names these three. */
-#define TEXPREF_LINEAR	 0x0002
-#define TEXPREF_NEAREST	 0x0004
-#define TEXPREF_PERSIST	 0x0020
+/* FAITHFUL: gl_texmgr.h:35-51 (Phase 8 M4 replaced the TEXPREF_ #defines). */
+typedef enum
+{
+	TEXPREF_NONE = 0x0000,
+	TEXPREF_MIPMAP = 0x0001,
+	TEXPREF_LINEAR = 0x0002,
+	TEXPREF_NEAREST = 0x0004,
+	TEXPREF_ALPHA = 0x0008,
+	TEXPREF_PAD = 0x0010,
+	TEXPREF_PERSIST = 0x0020,
+	TEXPREF_OVERWRITE = 0x0040,
+	TEXPREF_NOPICMIP = 0x0080,
+	TEXPREF_FULLBRIGHT = 0x0100,
+	TEXPREF_NOBRIGHT = 0x0200,
+	TEXPREF_CONCHARS = 0x0400,
+	TEXPREF_WARPIMAGE = 0x0800,
+	TEXPREF_PREMULTIPLY = 0x1000,
+	TEXPREF_ALPHAPIXELS = 0x2000,
+} textureflags_t;
 typedef struct gltexture_s gltexture_t;
 gltexture_t *TexMgr_LoadImage (
 	qmodel_t *owner, const char *name, int width, int height, enum srcformat format, byte *data, const char *source_file, src_offset_t source_offset,
@@ -1587,8 +1598,14 @@ typedef struct VkDevice_T		*VkDevice;
 #if defined(__LP64__) || defined(_WIN64) || (defined(__x86_64__) && !defined(__ILP32__)) || defined(_M_X64) || defined(__ia64) || \
 	defined(_M_IA64) || defined(__aarch64__) || defined(__powerpc64__) || (defined(__riscv) && __riscv_xlen == 64)
 typedef struct VkDeviceMemory_T *VkDeviceMemory;
+typedef struct VkImage_T		*VkImage;
+typedef struct VkImageView_T	*VkImageView;
+typedef struct VkFramebuffer_T	*VkFramebuffer;
 #else
 typedef uint64_t VkDeviceMemory;
+typedef uint64_t VkImage;
+typedef uint64_t VkImageView;
+typedef uint64_t VkFramebuffer;
 #endif
 typedef uint32_t				 VkFlags;
 typedef int						 VkStructureType;
@@ -1769,11 +1786,35 @@ typedef struct particle_s
 	ptype_t			   type;
 } particle_t;
 
-/* COMPILE-ONLY: gl_texmgr.h's gltexture_s is completed here with just the one
- * member pr_ext.c:4945 reads off char_texture. The real struct has ~20 more. */
+/* FAITHFUL: gl_texmgr.h's gltexture_s (Phase 8 M4 replaced the Phase 7
+ * compile-only one-member version; abi_probe.c measures this layout against
+ * the quake-types mirror). gl_heap.h spells the same glheapallocation_t
+ * typedef; C11 permits the identical redeclaration. */
+typedef struct glheapallocation_s glheapallocation_t;
 struct gltexture_s
 {
-	VkDescriptorSet descriptor_set;
+	struct gltexture_s *next;
+	qmodel_t		   *owner;
+	char				name[64];
+	unsigned int		path_id;
+	unsigned int		width;
+	unsigned int		height;
+	textureflags_t		flags;
+	char				source_file[MAX_QPATH];
+	src_offset_t		source_offset;
+	enum srcformat		source_format;
+	unsigned int		source_width;
+	unsigned int		source_height;
+	unsigned short		source_crc;
+	signed char			shirt;
+	signed char			pants;
+	VkImage				image;
+	VkImageView			image_view;
+	VkImageView			target_image_view;
+	glheapallocation_t *allocation;
+	VkDescriptorSet		descriptor_set;
+	VkFramebuffer		frame_buffer;
+	VkDescriptorSet		storage_descriptor_set;
 };
 
 /* FAITHFUL: glquake.h:625-630 */
@@ -2419,7 +2460,6 @@ uint32_t SDL_GetMouseState (int *x, int *y); /* SDL2 SDL_mouse.h */
 #define VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT	 0x00000002
 #define VK_MEMORY_PROPERTY_HOST_CACHED_BIT	 0x00000008
 #define VK_SHADER_STAGE_ALL_GRAPHICS		 0x0000001F
-#define TEXPREF_PREMULTIPLY					 0x1000 /* gl_texmgr.h:49 */
 
 /* FAITHFUL in spelling: glquake.h:178-190. */
 typedef enum

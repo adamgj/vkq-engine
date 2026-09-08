@@ -152,6 +152,7 @@ fn main() {
         "Quake/r_part.c",
         "Quake/r_part_fte.c",
         "Quake/gl_heap.c",
+        "Quake/gl_texmgr.c",
     ] {
         println!("cargo:rerun-if-changed={}", repo_root.join(src).display());
     }
@@ -208,6 +209,7 @@ fn main() {
         "r_part_ref.c",
         "r_part_fte_ref.c",
         "gl_heap_ref.c",
+        "gl_texmgr_ref.c",
     ] {
         let path = manifest.join("stubs").join(stub);
         println!("cargo:rerun-if-changed={}", path.display());

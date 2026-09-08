@@ -9,6 +9,8 @@ publish.workspace = true
 
 [dependencies]
 quake-types = { path = "../quake-types", features = ["render"] }
+# Phase 8 M4: `crc_block` for the texmgr cache check / shot1sid patch.
+quake-util = { path = "../quake-util" }
 # Phase 8 M3 (ADR-003, ADR-015): the Vulkan binding. No default features --
 # no `loaded` (the engine loads Vulkan through SDL, so no libloading) -- so
 # ash reaches the staticlib with zero runtime transitives. "MIT OR

@@ -1000,7 +1000,10 @@ mod tests {
 
     /// Fills a `MAX_PAGES` segment page by page, then frees it back to one
     /// block.
+    // 65534 page allocations: minutes under Miri for no aliasing coverage
+    // the other heap tests lack.
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn page_saturation_at_max_pages() {
         let page_size = 128u32;
         let mut h = heap(u64::from(MAX_PAGES) * u64::from(page_size), page_size);
