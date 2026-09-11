@@ -370,7 +370,7 @@ def main():
                     if s["mean"] < threshold:
                         failures.append(f"{name} shot {i}: mean window SSIM {s['mean']:.4f} < {threshold}")
                 if not diff:
-                    print(f"{name}: -renderhash identical over {rec['hash_lines']} frames")
+                    print(f"{name}: -renderhash identical over {rec['hash_lines']} lines (R/P/END)")
             report["entries"][name] = rec
 
     else:  # stability
@@ -403,7 +403,7 @@ def main():
                     rec["suggested_threshold"] = round(min(mins) - args.ssim_margin, 4)
                     print(f"{name}: suggested {plat} threshold {rec['suggested_threshold']} "
                           f"(observed min mean-window SSIM {min(mins):.4f}, entry has {entry_threshold(entry, plat, None)})")
-                print(f"{name}: -renderhash stable over {rec['hash_lines']} frames x {runs} runs")
+                print(f"{name}: -renderhash stable over {rec['hash_lines']} lines (R/P/END) x {runs} runs")
             report["entries"][name] = rec
 
     with open(os.path.join(args.out, "report.json"), "w") as f:

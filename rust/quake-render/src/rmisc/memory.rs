@@ -42,8 +42,11 @@ impl<E: Engine> Ctx<'_, E> {
         requirements_mask: vk::MemoryPropertyFlags,
         preferred_mask: vk::MemoryPropertyFlags,
     ) -> u32 {
+        // SAFETY: a field-level reference; `memory_properties` is written
+        // once by `gl_vidsdl.c` before any port function runs.
+        let memory_properties = unsafe { &(*self.vg.as_ptr()).memory_properties };
         match memory_type_from_properties(
-            &self.vg.memory_properties,
+            memory_properties,
             type_bits,
             requirements_mask,
             preferred_mask,
@@ -153,7 +156,7 @@ pub fn create_buffer<E: Engine>(
     device_address: bool,
     name: &str,
 ) -> (vk::Buffer, Option<vk::DeviceAddress>) {
-    let get_device_address = ctx.vg.vk_get_buffer_device_address.is_some() && device_address;
+    let get_device_address = ctx.has_buffer_device_address() && device_address;
     if get_device_address {
         usage |= vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS_KHR;
     }
@@ -239,7 +242,7 @@ pub fn create_buffers<E: Engine>(
     num_allocations: Option<&AtomicU32>,
     memory_name: &CStr,
 ) -> (u64, Vec<BufferResult>) {
-    let has_get_address = ctx.vg.vk_get_buffer_device_address.is_some();
+    let has_get_address = ctx.has_buffer_device_address();
     let mut get_device_address = false;
     let mut usage_union = vk::BufferUsageFlags::empty();
     let mut usages = Vec::with_capacity(requests.len());

@@ -9,11 +9,39 @@
 //! player skins, worldspawn parsing, `vkmemstats`) stays in
 //! `Quake/gl_rmisc_glue.c`.
 
+use core::cell::UnsafeCell;
 use core::ffi::CStr;
+use core::marker::PhantomData;
+use core::ptr::NonNull;
 use core::sync::atomic::{AtomicU32, AtomicU64};
 
 use ash::vk;
 use quake_types::render::VulkanGlobals;
+
+/// Reads one `vulkan_globals` field by value through [`Ctx::vg`] without
+/// forming a reference to the whole struct (see [`VgPtr`]).
+macro_rules! vg {
+    ($ctx:expr, $($field:tt)+) => {
+        // SAFETY: `VgPtr` is valid for its lifetime; the place expression
+        // reads only this field (no reference to the struct is formed).
+        unsafe { (*$ctx.vg.as_ptr()).$($field)+ }
+    };
+}
+
+/// A short-lived `&mut` to one `vulkan_globals` field through [`Ctx::vg`],
+/// for `*vg_mut!(ctx, field) = value;`. The right-hand side is evaluated
+/// before the place, so the reference never overlaps a C callback made
+/// while computing the value.
+macro_rules! vg_mut {
+    ($ctx:expr, $($field:tt)+) => {
+        // SAFETY: `VgPtr` is valid for its lifetime; the reference covers
+        // only this field and is dropped at the end of the statement. The
+        // fields written are main-thread-only (see `VgPtr`).
+        unsafe { &mut (*$ctx.vg.as_ptr()).$($field)+ }
+    };
+}
+
+pub(crate) use {vg, vg_mut};
 
 pub mod descriptors;
 pub mod dynbuf;
@@ -86,11 +114,61 @@ pub struct Counters<'a> {
     pub total_host: &'a AtomicU64,
 }
 
+/// The port's view of `vulkan_globals` (ADR-007 dual view): a raw pointer,
+/// never a Rust reference to the whole struct.
+///
+/// The struct is reachable from C through the exported symbol the whole
+/// time a port function runs, and not all of that is single-threaded:
+/// `R_StagingAllocate`/`R_StagingEndCopy`, `R_AllocateVulkanMemory` and
+/// the `R_*Allocate` ring allocators run on task workers (`gl_model.c`
+/// miptex loads, `r_alias.c` uniform allocations) while the main thread
+/// reads and writes the same object (`GL_WaitForDeviceIdle` toggles
+/// `device_idle`), and init-time functions re-enter through C callbacks
+/// (`R_InitSamplers` -> `GL_WaitForDeviceIdle` -> `R_SubmitStagingBuffers`).
+/// A `&`/`&mut VulkanGlobals` spanning any of that would alias, so every
+/// access goes through [`vg!`]/[`vg_mut!`] (one field, one statement) or a
+/// reference explicitly scoped to a region with no C callback and no
+/// worker running. The only fields a worker writes are `device_idle` and
+/// `staging_buffer_size`, which the Rust side accesses atomically
+/// (`staging.rs`); every other field is written on the main thread only,
+/// in the same phases as the C.
+#[derive(Clone, Copy)]
+pub struct VgPtr<'a> {
+    ptr: NonNull<VulkanGlobals>,
+    _marker: PhantomData<&'a UnsafeCell<VulkanGlobals>>,
+}
+
+impl<'a> VgPtr<'a> {
+    /// # Safety
+    /// `ptr` points to a `VulkanGlobals` that stays valid and correctly
+    /// aligned for `'a`, and the access discipline documented on [`VgPtr`]
+    /// holds for it.
+    pub unsafe fn from_raw(ptr: *mut VulkanGlobals) -> Self {
+        VgPtr {
+            // SAFETY: non-null per the contract.
+            ptr: unsafe { NonNull::new_unchecked(ptr) },
+            _marker: PhantomData,
+        }
+    }
+
+    /// A view over Rust-owned globals (tests).
+    pub fn from_mut(vg: &'a mut VulkanGlobals) -> Self {
+        VgPtr {
+            ptr: NonNull::from(vg),
+            _marker: PhantomData,
+        }
+    }
+
+    pub fn as_ptr(self) -> *mut VulkanGlobals {
+        self.ptr.as_ptr()
+    }
+}
+
 /// Everything a `gl_rmisc.c` function reaches for.
 pub struct Ctx<'a, E: Engine> {
     pub engine: &'a E,
     pub device: &'a ash::Device,
-    pub vg: &'a mut VulkanGlobals,
+    pub vg: VgPtr<'a>,
     pub counters: Counters<'a>,
 }
 
@@ -110,14 +188,20 @@ impl<E: Engine> Ctx<'_, E> {
     /// engine's loaded entry point, not ash's, so the two builds resolve the
     /// same function.
     pub fn buffer_device_address(&self, buffer: vk::Buffer) -> vk::DeviceAddress {
-        let Some(get) = self.vg.vk_get_buffer_device_address else {
+        let Some(get) = vg!(self, vk_get_buffer_device_address) else {
             self.engine
                 .sys_error("vkGetBufferDeviceAddress is not loaded");
         };
         let info = vk::BufferDeviceAddressInfo::default().buffer(buffer);
+        let device = vg!(self, device);
         // SAFETY: `get` is the entry point `gl_vidsdl.c` loaded from the
         // device `vg.device` names; `info` is a complete, live structure.
-        unsafe { get(self.vg.device, &info) }
+        unsafe { get(device, &info) }
+    }
+
+    /// `vulkan_globals.vk_get_buffer_device_address != NULL`.
+    pub fn has_buffer_device_address(&self) -> bool {
+        vg!(self, vk_get_buffer_device_address).is_some()
     }
 }
 

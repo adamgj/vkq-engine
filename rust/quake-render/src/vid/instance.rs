@@ -10,7 +10,7 @@ use core::ffi::{c_char, CStr};
 use core::ptr;
 
 use ash::vk;
-use quake_types::render::{CbContext, VulkanGlobals, PCBX_NUM};
+use quake_types::render::{CbContext, PCBX_NUM};
 
 use super::{
     device_proc, fail, instance_proc, PhysicalDevicePresentId2FeaturesKHR,
@@ -20,7 +20,7 @@ use super::{
     STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_ID_2_FEATURES_KHR,
     STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_WAIT_2_FEATURES_KHR,
 };
-use crate::rmisc::Ctx;
+use crate::rmisc::{vg, vg_mut, Ctx, VgPtr};
 
 fn lossy(s: Result<&CStr, core::ffi::FromBytesUntilNulError>) -> String {
     s.map(|c| c.to_string_lossy().into_owned())
@@ -34,8 +34,8 @@ fn extension_present(props: &[vk::ExtensionProperties], name: &CStr) -> bool {
 }
 
 /// `GL_InitInstance`.
-pub fn init_instance<E: VidEngine>(engine: &E, vg: &mut VulkanGlobals, vid: &mut VidState) {
-    vg.debug_utils = false;
+pub fn init_instance<E: VidEngine>(engine: &E, vg: VgPtr<'_>, vid: &mut VidState) {
+    *vgp_mut!(vg, debug_utils) = false;
 
     let sdl_extensions = engine.instance_extensions();
     let mut instance_extensions: Vec<*const c_char> =
@@ -50,44 +50,53 @@ pub fn init_instance<E: VidEngine>(engine: &E, vg: &mut VulkanGlobals, vid: &mut
         })
     };
 
-    vg.get_surface_capabilities_2 = false;
-    vg.get_physical_device_properties_2 = false;
+    *vgp_mut!(vg, get_surface_capabilities_2) = false;
+    *vgp_mut!(vg, get_physical_device_properties_2) = false;
     // SAFETY: no Vulkan state is required for the global command.
     let extension_props =
         unsafe { entry.enumerate_instance_extension_properties(None) }.unwrap_or_default();
     if extension_present(&extension_props, ash::khr::get_surface_capabilities2::NAME) {
-        vg.get_surface_capabilities_2 = true;
+        *vgp_mut!(vg, get_surface_capabilities_2) = true;
     }
     if extension_present(
         &extension_props,
         ash::khr::get_physical_device_properties2::NAME,
     ) {
-        vg.get_physical_device_properties_2 = true;
+        *vgp_mut!(vg, get_physical_device_properties_2) = true;
     }
     if cfg!(feature = "engine-debug")
         && extension_present(&extension_props, ash::ext::debug_utils::NAME)
     {
-        vg.debug_utils = true;
+        *vgp_mut!(vg, debug_utils) = true;
     }
     drop(extension_props);
 
-    vg.vulkan_1_1_available = false;
+    *vgp_mut!(vg, vulkan_1_1_available) = false;
     vid.procs = Procs::default();
     vid.procs.get_instance_proc_addr = Some(get_instance_proc_addr);
-    let enumerate_instance_version: vk::PFN_vkEnumerateInstanceVersion = instance_proc(
-        engine,
-        get_instance_proc_addr,
-        vk::Instance::null(),
-        c"vkEnumerateInstanceVersion",
-    );
-    {
+    // `vkEnumerateInstanceVersion` is absent from a Vulkan 1.0 loader, so
+    // this lookup is optional (`gl_vidsdl.c:826-836` checks the pointer);
+    // a missing entry point means Vulkan 1.0.
+    // SAFETY: the loader entry point accepts a null instance for the global
+    // commands; the name is NUL-terminated.
+    let enumerate_instance_version = unsafe {
+        get_instance_proc_addr(vk::Instance::null(), c"vkEnumerateInstanceVersion".as_ptr())
+    };
+    if let Some(f) = enumerate_instance_version {
+        // SAFETY: the loader returned the entry point for
+        // `vkEnumerateInstanceVersion`, whose prototype this is.
+        let enumerate_instance_version = unsafe {
+            core::mem::transmute::<unsafe extern "system" fn(), vk::PFN_vkEnumerateInstanceVersion>(
+                f,
+            )
+        };
         let mut api_version = 0u32;
         // SAFETY: the loader entry point writes one `u32`; the result is
         // deliberately unchecked like the C.
         let _ = unsafe { enumerate_instance_version(&mut api_version) };
         if api_version >= vk::make_api_version(0, 1, 1, 0) {
             engine.con_printf("Using Vulkan 1.1\n");
-            vg.vulkan_1_1_available = true;
+            *vgp_mut!(vg, vulkan_1_1_available) = true;
         }
     }
 
@@ -96,26 +105,26 @@ pub fn init_instance<E: VidEngine>(engine: &E, vg: &mut VulkanGlobals, vid: &mut
         .application_version(1)
         .engine_name(c"vkqr-engine")
         .engine_version(1)
-        .api_version(if vg.vulkan_1_1_available {
+        .api_version(if vgp!(vg, vulkan_1_1_available) {
             vk::make_api_version(0, 1, 1, 0)
         } else {
             vk::make_api_version(0, 1, 0, 0)
         });
 
-    if vg.get_surface_capabilities_2 {
+    if vgp!(vg, get_surface_capabilities_2) {
         instance_extensions.push(ash::khr::get_surface_capabilities2::NAME.as_ptr());
     }
-    if vg.get_physical_device_properties_2 {
+    if vgp!(vg, get_physical_device_properties_2) {
         instance_extensions.push(ash::khr::get_physical_device_properties2::NAME.as_ptr());
     }
     #[cfg_attr(not(feature = "engine-debug"), allow(unused_mut))]
     let mut layer_names: Vec<*const c_char> = Vec::new();
     #[cfg(feature = "engine-debug")]
     {
-        if vg.debug_utils {
+        if vgp!(vg, debug_utils) {
             instance_extensions.push(ash::ext::debug_utils::NAME.as_ptr());
         }
-        if vg.validation {
+        if vgp!(vg, validation) {
             engine.con_printf("Using VK_LAYER_KHRONOS_validation\n");
             layer_names.push(c"VK_LAYER_KHRONOS_validation".as_ptr());
         }
@@ -171,7 +180,7 @@ pub fn init_instance<E: VidEngine>(engine: &E, vg: &mut VulkanGlobals, vid: &mut
         handle,
         c"vkGetSwapchainImagesKHR",
     ));
-    if vg.get_physical_device_properties_2 {
+    if vgp!(vg, get_physical_device_properties_2) {
         procs.get_physical_device_properties2 = Some(instance_proc(
             engine,
             get_instance_proc_addr,
@@ -185,7 +194,7 @@ pub fn init_instance<E: VidEngine>(engine: &E, vg: &mut VulkanGlobals, vid: &mut
             c"vkGetPhysicalDeviceFeatures2",
         ));
     }
-    if vg.get_surface_capabilities_2 {
+    if vgp!(vg, get_surface_capabilities_2) {
         procs.get_physical_device_surface_capabilities2 = Some(instance_proc(
             engine,
             get_instance_proc_addr,
@@ -204,7 +213,7 @@ pub fn init_instance<E: VidEngine>(engine: &E, vg: &mut VulkanGlobals, vid: &mut
     engine.con_printf("\n");
 
     #[cfg(feature = "engine-debug")]
-    if vg.validation {
+    if vgp!(vg, validation) {
         engine.con_printf("Creating debug report callback\n");
         let create: vk::PFN_vkCreateDebugUtilsMessengerEXT = instance_proc(
             engine,
@@ -266,12 +275,8 @@ fn vendor_from_vendor_id(vendor_id: u32) -> Option<&'static str> {
 }
 
 /// `GL_InitDevice`. Returns the ash device for the caller to keep; the raw
-/// handle is stored in `vg.device`.
-pub fn init_device<E: VidEngine>(
-    engine: &E,
-    vg: &mut VulkanGlobals,
-    vid: &mut VidState,
-) -> ash::Device {
+/// handle is stored in `vgp!(vg, device)`.
+pub fn init_device<E: VidEngine>(engine: &E, vg: VgPtr<'_>, vid: &mut VidState) -> ash::Device {
     let instance = vid
         .instance
         .as_ref()
@@ -316,19 +321,21 @@ pub fn init_device<E: VidEngine>(
     vid.physical_device = physical_device;
 
     let mut found_swapchain_extension = false;
-    vg.dedicated_allocation = false;
-    vg.full_screen_exclusive = false;
-    vg.swap_chain_full_screen_acquired = false;
-    vg.screen_effects_sops = false;
-    vg.ray_query = false;
+    *vgp_mut!(vg, dedicated_allocation) = false;
+    *vgp_mut!(vg, full_screen_exclusive) = false;
+    *vgp_mut!(vg, swap_chain_full_screen_acquired) = false;
+    *vgp_mut!(vg, screen_effects_sops) = false;
+    *vgp_mut!(vg, ray_query) = false;
     let mut push_descriptor = false;
     let mut subgroup_size_control = false;
 
     // SAFETY: `physical_device` is one the instance enumerated.
-    unsafe {
-        vg.memory_properties = instance.get_physical_device_memory_properties(physical_device);
-        vg.device_properties = instance.get_physical_device_properties(physical_device);
-    }
+    let memory_properties =
+        unsafe { instance.get_physical_device_memory_properties(physical_device) };
+    *vgp_mut!(vg, memory_properties) = memory_properties;
+    // SAFETY: as above.
+    let device_properties = unsafe { instance.get_physical_device_properties(physical_device) };
+    *vgp_mut!(vg, device_properties) = device_properties;
 
     let mut driver_properties_available = false;
     let mut present_id = false;
@@ -346,9 +353,9 @@ pub fn init_device<E: VidEngine>(
             found_swapchain_extension = true;
         }
         if name == ash::khr::dedicated_allocation::NAME {
-            vg.dedicated_allocation = true;
+            *vgp_mut!(vg, dedicated_allocation) = true;
         }
-        if vg.get_physical_device_properties_2 && name == ash::khr::driver_properties::NAME {
+        if vgp!(vg, get_physical_device_properties_2) && name == ash::khr::driver_properties::NAME {
             driver_properties_available = true;
         }
         if name == ash::ext::subgroup_size_control::NAME {
@@ -356,13 +363,13 @@ pub fn init_device<E: VidEngine>(
         }
         #[cfg(windows)]
         if name == ash::ext::full_screen_exclusive::NAME {
-            vg.full_screen_exclusive = true;
+            *vgp_mut!(vg, full_screen_exclusive) = true;
         }
         if name == ash::khr::push_descriptor::NAME {
             push_descriptor = true;
         }
         if name == ash::khr::ray_query::NAME {
-            vg.ray_query = true;
+            *vgp_mut!(vg, ray_query) = true;
         }
         if name == KHR_PRESENT_ID_2_EXTENSION_NAME {
             present_id = true;
@@ -388,18 +395,18 @@ pub fn init_device<E: VidEngine>(
         vendor = vendor_from_driver_id(driver_properties.driver_id);
     }
     if vendor.is_none() {
-        vendor = vendor_from_vendor_id(vg.device_properties.vendor_id);
+        vendor = vendor_from_vendor_id(vgp!(vg, device_properties.vendor_id));
     }
     match vendor {
         Some(vendor) => engine.con_printf(&format!("Vendor: {vendor}\n")),
         None => engine.con_printf(&format!(
             "Vendor: Unknown (0x{:x})\n",
-            vg.device_properties.vendor_id
+            vgp!(vg, device_properties.vendor_id)
         )),
     }
     engine.con_printf(&format!(
         "Device: {}\n",
-        lossy(vg.device_properties.device_name_as_c_str())
+        lossy(vgp!(vg, device_properties).device_name_as_c_str())
     ));
     if driver_properties_available {
         engine.con_printf(&format!(
@@ -441,7 +448,7 @@ pub fn init_device<E: VidEngine>(
             && queue_supports_present[i] != vk::FALSE
         {
             found_graphics_queue = true;
-            vg.gfx_queue_family_index = i as u32;
+            *vgp_mut!(vg, gfx_queue_family_index) = i as u32;
             break;
         }
     }
@@ -453,7 +460,7 @@ pub fn init_device<E: VidEngine>(
 
     let queue_priorities = [0.0f32];
     let queue_create_info = vk::DeviceQueueCreateInfo::default()
-        .queue_family_index(vg.gfx_queue_family_index)
+        .queue_family_index(vgp!(vg, gfx_queue_family_index))
         .queue_priorities(&queue_priorities);
 
     let mut physical_device_subgroup_properties = vk::PhysicalDeviceSubgroupProperties::default();
@@ -476,10 +483,10 @@ pub fn init_device<E: VidEngine>(
         p_next: ptr::null_mut(),
         present_wait2: vk::FALSE,
     };
-    vg.physical_device_acceleration_structure_properties =
+    *vgp_mut!(vg, physical_device_acceleration_structure_properties) =
         vk::PhysicalDeviceAccelerationStructurePropertiesKHR::default();
 
-    if vg.vulkan_1_1_available {
+    if vgp!(vg, vulkan_1_1_available) {
         let get_properties2 = vid
             .procs
             .get_physical_device_properties2
@@ -495,20 +502,22 @@ pub fn init_device<E: VidEngine>(
                 .push_next(&mut physical_device_subgroup_size_control_properties)
                 .push_next(&mut physical_device_subgroup_properties);
         }
-        if vg.ray_query {
-            properties2 =
-                properties2.push_next(&mut vg.physical_device_acceleration_structure_properties);
+        if vgp!(vg, ray_query) {
+            properties2 = properties2.push_next(vgp_mut!(
+                vg,
+                physical_device_acceleration_structure_properties
+            ));
         }
         // SAFETY: the chain only holds live locals and the `vg` field; the
         // entry point was loaded from this instance.
         unsafe { get_properties2(physical_device, &mut properties2) };
-        vg.physical_device_acceleration_structure_properties.p_next = ptr::null_mut();
+        *vgp_mut!(vg, physical_device_acceleration_structure_properties.p_next) = ptr::null_mut();
 
         let mut features2 = vk::PhysicalDeviceFeatures2::default();
         if subgroup_size_control {
             features2 = features2.push_next(&mut subgroup_size_control_features);
         }
-        if vg.ray_query {
+        if vgp!(vg, ray_query) {
             features2 = features2
                 .push_next(&mut buffer_device_address_features)
                 .push_next(&mut acceleration_structure_features)
@@ -521,10 +530,11 @@ pub fn init_device<E: VidEngine>(
         }
         // SAFETY: as above.
         unsafe { get_features2(physical_device, &mut features2) };
-        vg.device_features = features2.features;
+        *vgp_mut!(vg, device_features) = features2.features;
     } else {
         // SAFETY: as above.
-        vg.device_features = unsafe { instance.get_physical_device_features(physical_device) };
+        *vgp_mut!(vg, device_features) =
+            unsafe { instance.get_physical_device_features(physical_device) };
     }
     // The query chained these; `vkCreateDevice` gets a fresh chain below
     // (`push_next` needs unlinked structs). Deliberate deviation from
@@ -541,10 +551,10 @@ pub fn init_device<E: VidEngine>(
 
     // MoltenVK lies about this
     if cfg!(target_vendor = "apple") {
-        vg.device_features.sample_rate_shading = vk::FALSE;
+        *vgp_mut!(vg, device_features.sample_rate_shading) = vk::FALSE;
     }
 
-    vg.screen_effects_sops = vg.vulkan_1_1_available
+    *vgp_mut!(vg, screen_effects_sops) = vgp!(vg, vulkan_1_1_available)
         && subgroup_size_control
         && subgroup_size_control_features.subgroup_size_control != vk::FALSE
         && subgroup_size_control_features.compute_full_subgroups != vk::FALSE
@@ -556,46 +566,46 @@ pub fn init_device<E: VidEngine>(
             .contains(vk::SubgroupFeatureFlags::SHUFFLE)
         && physical_device_subgroup_size_control_properties.min_subgroup_size >= 4
         && physical_device_subgroup_size_control_properties.max_subgroup_size <= 64;
-    if vg.screen_effects_sops {
+    if vgp!(vg, screen_effects_sops) {
         engine.con_printf("Using subgroup operations\n");
     }
 
-    vg.ray_query = vg.ray_query
+    *vgp_mut!(vg, ray_query) = vgp!(vg, ray_query)
         && push_descriptor
         && acceleration_structure_features.acceleration_structure != vk::FALSE
         && ray_query_features.ray_query != vk::FALSE
         && buffer_device_address_features.buffer_device_address != vk::FALSE;
-    if vg.ray_query {
+    if vgp!(vg, ray_query) {
         engine.con_printf("Using ray queries\n");
     }
 
-    vg.present_wait = vg.vulkan_1_1_available
-        && vg.get_surface_capabilities_2
+    *vgp_mut!(vg, present_wait) = vgp!(vg, vulkan_1_1_available)
+        && vgp!(vg, get_surface_capabilities_2)
         && present_id
         && present_wait
         && present_id_features.present_id2 != vk::FALSE
         && present_wait_features.present_wait2 != vk::FALSE;
-    if vg.present_wait {
+    if vgp!(vg, present_wait) {
         engine.con_printf("Using present wait\n");
     }
 
     let mut enabled_extensions: Vec<&CStr> = vec![ash::khr::swapchain::NAME];
-    if vg.dedicated_allocation {
+    if vgp!(vg, dedicated_allocation) {
         enabled_extensions.push(ash::khr::get_memory_requirements2::NAME);
         enabled_extensions.push(ash::khr::dedicated_allocation::NAME);
     }
-    if vg.screen_effects_sops {
+    if vgp!(vg, screen_effects_sops) {
         enabled_extensions.push(ash::ext::subgroup_size_control::NAME);
     }
     #[cfg(windows)]
-    if vg.full_screen_exclusive {
+    if vgp!(vg, full_screen_exclusive) {
         enabled_extensions.push(ash::ext::full_screen_exclusive::NAME);
     }
-    if vg.present_wait {
+    if vgp!(vg, present_wait) {
         enabled_extensions.push(KHR_PRESENT_ID_2_EXTENSION_NAME);
         enabled_extensions.push(KHR_PRESENT_WAIT_2_EXTENSION_NAME);
     }
-    if vg.ray_query {
+    if vgp!(vg, ray_query) {
         // COMPAT: the C list names VK_KHR_acceleration_structure twice.
         enabled_extensions.push(ash::khr::acceleration_structure::NAME);
         enabled_extensions.push(ash::khr::push_descriptor::NAME);
@@ -610,32 +620,32 @@ pub fn init_device<E: VidEngine>(
     let enabled_extension_ptrs: Vec<*const c_char> =
         enabled_extensions.iter().map(|s| s.as_ptr()).collect();
 
-    let extended_format_support = vg.device_features.shader_storage_image_extended_formats;
+    let extended_format_support = vgp!(vg, device_features.shader_storage_image_extended_formats);
     let mut device_features = vk::PhysicalDeviceFeatures::default();
     device_features.shader_storage_image_extended_formats = extended_format_support;
-    device_features.independent_blend = vg.device_features.independent_blend;
-    device_features.sampler_anisotropy = vg.device_features.sampler_anisotropy;
-    device_features.sample_rate_shading = vg.device_features.sample_rate_shading;
-    device_features.fill_mode_non_solid = vg.device_features.fill_mode_non_solid;
-    device_features.multi_draw_indirect = vg.device_features.multi_draw_indirect;
-    vg.non_solid_fill = device_features.fill_mode_non_solid == vk::TRUE;
-    vg.multi_draw_indirect = device_features.multi_draw_indirect == vk::TRUE;
+    device_features.independent_blend = vgp!(vg, device_features.independent_blend);
+    device_features.sampler_anisotropy = vgp!(vg, device_features.sampler_anisotropy);
+    device_features.sample_rate_shading = vgp!(vg, device_features.sample_rate_shading);
+    device_features.fill_mode_non_solid = vgp!(vg, device_features.fill_mode_non_solid);
+    device_features.multi_draw_indirect = vgp!(vg, device_features.multi_draw_indirect);
+    *vgp_mut!(vg, non_solid_fill) = device_features.fill_mode_non_solid == vk::TRUE;
+    *vgp_mut!(vg, multi_draw_indirect) = device_features.multi_draw_indirect == vk::TRUE;
 
     let queue_create_infos = [queue_create_info];
     let mut device_create_info = vk::DeviceCreateInfo::default()
         .queue_create_infos(&queue_create_infos)
         .enabled_extension_names(&enabled_extension_ptrs)
         .enabled_features(&device_features);
-    if vg.screen_effects_sops {
+    if vgp!(vg, screen_effects_sops) {
         device_create_info = device_create_info.push_next(&mut subgroup_size_control_features);
     }
-    if vg.ray_query {
+    if vgp!(vg, ray_query) {
         device_create_info = device_create_info
             .push_next(&mut buffer_device_address_features)
             .push_next(&mut acceleration_structure_features)
             .push_next(&mut ray_query_features);
     }
-    if vg.present_wait {
+    if vgp!(vg, present_wait) {
         device_create_info = device_create_info
             .push_next(&mut present_id_features)
             .push_next(&mut present_wait_features);
@@ -647,7 +657,7 @@ pub fn init_device<E: VidEngine>(
         Err(err) => fail(engine, "Couldn't create Vulkan device", err),
     };
     let dev = device.handle();
-    vg.device = dev;
+    *vgp_mut!(vg, device) = dev;
 
     let procs = &mut vid.procs;
     procs.create_swapchain = Some(device_proc(
@@ -687,7 +697,7 @@ pub fn init_device<E: VidEngine>(
     }
 
     #[cfg(windows)]
-    if vg.full_screen_exclusive {
+    if vgp!(vg, full_screen_exclusive) {
         procs.acquire_full_screen_exclusive_mode = Some(device_proc(
             engine,
             get_device_proc_addr,
@@ -701,7 +711,7 @@ pub fn init_device<E: VidEngine>(
             c"vkReleaseFullScreenExclusiveModeEXT",
         ));
     }
-    if vg.present_wait {
+    if vgp!(vg, present_wait) {
         procs.wait_for_present2 = Some(device_proc(
             engine,
             get_device_proc_addr,
@@ -709,44 +719,44 @@ pub fn init_device<E: VidEngine>(
             c"vkWaitForPresent2KHR",
         ));
     }
-    if vg.ray_query {
-        vg.vk_get_buffer_device_address = Some(device_proc(
+    if vgp!(vg, ray_query) {
+        *vgp_mut!(vg, vk_get_buffer_device_address) = Some(device_proc(
             engine,
             get_device_proc_addr,
             dev,
             c"vkGetBufferDeviceAddressKHR",
         ));
-        vg.vk_get_acceleration_structure_build_sizes = Some(device_proc(
+        *vgp_mut!(vg, vk_get_acceleration_structure_build_sizes) = Some(device_proc(
             engine,
             get_device_proc_addr,
             dev,
             c"vkGetAccelerationStructureBuildSizesKHR",
         ));
-        vg.vk_create_acceleration_structure = Some(device_proc(
+        *vgp_mut!(vg, vk_create_acceleration_structure) = Some(device_proc(
             engine,
             get_device_proc_addr,
             dev,
             c"vkCreateAccelerationStructureKHR",
         ));
-        vg.vk_destroy_acceleration_structure = Some(device_proc(
+        *vgp_mut!(vg, vk_destroy_acceleration_structure) = Some(device_proc(
             engine,
             get_device_proc_addr,
             dev,
             c"vkDestroyAccelerationStructureKHR",
         ));
-        vg.vk_cmd_build_acceleration_structures = Some(device_proc(
+        *vgp_mut!(vg, vk_cmd_build_acceleration_structures) = Some(device_proc(
             engine,
             get_device_proc_addr,
             dev,
             c"vkCmdBuildAccelerationStructuresKHR",
         ));
-        vg.vk_cmd_push_descriptor_set = Some(device_proc(
+        *vgp_mut!(vg, vk_cmd_push_descriptor_set) = Some(device_proc(
             engine,
             get_device_proc_addr,
             dev,
             c"vkCmdPushDescriptorSetKHR",
         ));
-        vg.vk_get_acceleration_structure_device_address = Some(device_proc(
+        *vgp_mut!(vg, vk_get_acceleration_structure_device_address) = Some(device_proc(
             engine,
             get_device_proc_addr,
             dev,
@@ -754,7 +764,7 @@ pub fn init_device<E: VidEngine>(
         ));
     }
     #[cfg(feature = "engine-debug")]
-    if vg.debug_utils {
+    if vgp!(vg, debug_utils) {
         let handle = instance.handle();
         procs.set_debug_utils_object_name = Some(instance_proc(
             engine,
@@ -762,13 +772,13 @@ pub fn init_device<E: VidEngine>(
             handle,
             c"vkSetDebugUtilsObjectNameEXT",
         ));
-        vg.vk_cmd_begin_debug_utils_label = Some(instance_proc(
+        *vgp_mut!(vg, vk_cmd_begin_debug_utils_label) = Some(instance_proc(
             engine,
             get_instance_proc_addr,
             handle,
             c"vkCmdBeginDebugUtilsLabelEXT",
         ));
-        vg.vk_cmd_end_debug_utils_label = Some(instance_proc(
+        *vgp_mut!(vg, vk_cmd_end_debug_utils_label) = Some(instance_proc(
             engine,
             get_instance_proc_addr,
             handle,
@@ -778,11 +788,12 @@ pub fn init_device<E: VidEngine>(
     #[cfg(not(feature = "engine-debug"))]
     let _ = get_instance_proc_addr;
 
+    let gfx_queue_family_index = vgp!(vg, gfx_queue_family_index);
     // SAFETY: the queue family index was validated against the device.
-    vg.queue = unsafe { device.get_device_queue(vg.gfx_queue_family_index, 0) };
+    *vgp_mut!(vg, queue) = unsafe { device.get_device_queue(gfx_queue_family_index, 0) };
 
     // SAFETY (all format queries below): `physical_device` is live.
-    vg.color_format = vk::Format::R8G8B8A8_UNORM;
+    *vgp_mut!(vg, color_format) = vk::Format::R8G8B8A8_UNORM;
     if extended_format_support == vk::TRUE {
         // SAFETY: as above.
         let format_properties = unsafe {
@@ -796,7 +807,7 @@ pub fn init_device<E: VidEngine>(
             .contains(REQUIRED_COLOR_BUFFER_FEATURES);
         if a2_b10_g10_r10_support {
             engine.con_printf("Using A2B10G10R10 color buffer format\n");
-            vg.color_format = vk::Format::A2B10G10R10_UNORM_PACK32;
+            *vgp_mut!(vg, color_format) = vk::Format::A2B10G10R10_UNORM_PACK32;
         }
     }
 
@@ -817,13 +828,13 @@ pub fn init_device<E: VidEngine>(
         .optimal_tiling_features
         .contains(vk::FormatFeatureFlags::DEPTH_STENCIL_ATTACHMENT);
 
-    vg.depth_format = vk::Format::UNDEFINED;
+    *vgp_mut!(vg, depth_format) = vk::Format::UNDEFINED;
     if d32_support {
         engine.con_printf("Using D32_S8 depth buffer format\n");
-        vg.depth_format = vk::Format::D32_SFLOAT_S8_UINT;
+        *vgp_mut!(vg, depth_format) = vk::Format::D32_SFLOAT_S8_UINT;
     } else if x8_d24_support {
         engine.con_printf("Using D24_S8 depth buffer format\n");
-        vg.depth_format = vk::Format::D24_UNORM_S8_UINT;
+        *vgp_mut!(vg, depth_format) = vk::Format::D24_UNORM_S8_UINT;
     } else {
         engine.sys_error(
             "Cannot find VK_FORMAT_D24_UNORM_S8_UINT or VK_FORMAT_D32_SFLOAT_S8_UINT depth buffer format",
@@ -832,62 +843,62 @@ pub fn init_device<E: VidEngine>(
 
     engine.con_printf("\n");
 
-    vg.vk_cmd_bind_pipeline = Some(device_proc(
+    *vgp_mut!(vg, vk_cmd_bind_pipeline) = Some(device_proc(
         engine,
         get_device_proc_addr,
         dev,
         c"vkCmdBindPipeline",
     ));
-    vg.vk_cmd_push_constants = Some(device_proc(
+    *vgp_mut!(vg, vk_cmd_push_constants) = Some(device_proc(
         engine,
         get_device_proc_addr,
         dev,
         c"vkCmdPushConstants",
     ));
-    vg.vk_cmd_bind_descriptor_sets = Some(device_proc(
+    *vgp_mut!(vg, vk_cmd_bind_descriptor_sets) = Some(device_proc(
         engine,
         get_device_proc_addr,
         dev,
         c"vkCmdBindDescriptorSets",
     ));
-    vg.vk_cmd_bind_index_buffer = Some(device_proc(
+    *vgp_mut!(vg, vk_cmd_bind_index_buffer) = Some(device_proc(
         engine,
         get_device_proc_addr,
         dev,
         c"vkCmdBindIndexBuffer",
     ));
-    vg.vk_cmd_bind_vertex_buffers = Some(device_proc(
+    *vgp_mut!(vg, vk_cmd_bind_vertex_buffers) = Some(device_proc(
         engine,
         get_device_proc_addr,
         dev,
         c"vkCmdBindVertexBuffers",
     ));
-    vg.vk_cmd_draw = Some(device_proc(engine, get_device_proc_addr, dev, c"vkCmdDraw"));
-    vg.vk_cmd_draw_indexed = Some(device_proc(
+    *vgp_mut!(vg, vk_cmd_draw) = Some(device_proc(engine, get_device_proc_addr, dev, c"vkCmdDraw"));
+    *vgp_mut!(vg, vk_cmd_draw_indexed) = Some(device_proc(
         engine,
         get_device_proc_addr,
         dev,
         c"vkCmdDrawIndexed",
     ));
-    vg.vk_cmd_draw_indexed_indirect = Some(device_proc(
+    *vgp_mut!(vg, vk_cmd_draw_indexed_indirect) = Some(device_proc(
         engine,
         get_device_proc_addr,
         dev,
         c"vkCmdDrawIndexedIndirect",
     ));
-    vg.vk_cmd_pipeline_barrier = Some(device_proc(
+    *vgp_mut!(vg, vk_cmd_pipeline_barrier) = Some(device_proc(
         engine,
         get_device_proc_addr,
         dev,
         c"vkCmdPipelineBarrier",
     ));
-    vg.vk_cmd_copy_buffer_to_image = Some(device_proc(
+    *vgp_mut!(vg, vk_cmd_copy_buffer_to_image) = Some(device_proc(
         engine,
         get_device_proc_addr,
         dev,
         c"vkCmdCopyBufferToImage",
     ));
-    vg.vk_cmd_dispatch = Some(device_proc(
+    *vgp_mut!(vg, vk_cmd_dispatch) = Some(device_proc(
         engine,
         get_device_proc_addr,
         dev,
@@ -921,7 +932,7 @@ pub fn init_command_buffers<E: VidEngine>(ctx: &mut Ctx<'_, E>, vid: &mut VidSta
 
     let info = vk::CommandPoolCreateInfo::default()
         .flags(vk::CommandPoolCreateFlags::TRANSIENT)
-        .queue_family_index(ctx.vg.gfx_queue_family_index);
+        .queue_family_index(vg!(ctx, gfx_queue_family_index));
     // SAFETY (all calls below): the device is live and the create infos
     // are complete locals.
     // SAFETY: as above.
@@ -932,7 +943,7 @@ pub fn init_command_buffers<E: VidEngine>(ctx: &mut Ctx<'_, E>, vid: &mut VidSta
 
     let info = vk::CommandPoolCreateInfo::default()
         .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER)
-        .queue_family_index(ctx.vg.gfx_queue_family_index);
+        .queue_family_index(vg!(ctx, gfx_queue_family_index));
 
     for pcbx_index in 0..PCBX_NUM {
         // SAFETY: as above.
@@ -958,7 +969,7 @@ pub fn init_command_buffers<E: VidEngine>(ctx: &mut Ctx<'_, E>, vid: &mut VidSta
     }
 
     for (scbx_index, multiplicity) in SECONDARY_CB_MULTIPLICITY.iter().copied().enumerate() {
-        ctx.vg.secondary_cb_contexts[scbx_index] = alloc_cb_contexts(multiplicity);
+        *vg_mut!(ctx, secondary_cb_contexts[scbx_index]) = alloc_cb_contexts(multiplicity);
         for i in 0..multiplicity {
             // SAFETY: as above.
             let pool = match unsafe { ctx.device.create_command_pool(&info, None) } {
@@ -994,7 +1005,7 @@ pub fn init_command_buffers<E: VidEngine>(ctx: &mut Ctx<'_, E>, vid: &mut VidSta
         };
     }
 
-    let limits = &ctx.vg.device_properties.limits;
+    let limits = &vg!(ctx, device_properties.limits);
     if vid.timestamp_query_pool == vk::QueryPool::null()
         && limits.timestamp_compute_and_graphics != vk::FALSE
         && limits.timestamp_period > 0.0

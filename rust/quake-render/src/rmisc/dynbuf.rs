@@ -187,7 +187,7 @@ impl DynBuffers {
             Kind::Uniform => (vk::BufferUsageFlags::UNIFORM_BUFFER, false),
             Kind::Storage => {
                 let mut usage = vk::BufferUsageFlags::STORAGE_BUFFER;
-                let gda = ctx.vg.ray_query;
+                let gda = vg!(ctx, ray_query);
                 if gda {
                     usage |= vk::BufferUsageFlags::ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_KHR;
                 }
@@ -217,7 +217,8 @@ impl DynBuffers {
             ctx.device
                 .get_buffer_memory_requirements(ring.buffers[0].buffer)
         };
-        let aligned_size = q_align(ring.current_size as u64, requirements.alignment);
+        // `gl_rmisc.c:868` aligns the *reported* size (see `staging.rs`).
+        let aligned_size = q_align(requirements.size, requirements.alignment);
 
         let mut flags_info =
             vk::MemoryAllocateFlagsInfo::default().flags(vk::MemoryAllocateFlags::DEVICE_ADDRESS);
@@ -273,7 +274,7 @@ impl DynBuffers {
         }
 
         if ring.kind == Kind::Uniform {
-            let layout = ctx.vg.ubo_set_layout;
+            let layout = vg!(ctx, ubo_set_layout);
             for (db, set) in ring.buffers.iter().zip(&mut ring.descriptor_sets) {
                 *set = allocate_descriptor_set(ctx, &layout);
                 let buffer_info = [vk::DescriptorBufferInfo::default()
@@ -300,17 +301,15 @@ impl DynBuffers {
             .size(buffer_size as u64)
             .usage(vk::BufferUsageFlags::INDEX_BUFFER | vk::BufferUsageFlags::TRANSFER_DST);
         // SAFETY: `info` is complete and the device is live.
-        ctx.vg.fan_index_buffer = match unsafe { ctx.device.create_buffer(&info, None) } {
+        let fan_index_buffer = match unsafe { ctx.device.create_buffer(&info, None) } {
             Ok(buffer) => buffer,
             Err(err) => ctx.vk_fail("vkCreateBuffer", err),
         };
-        ctx.name_object(ctx.vg.fan_index_buffer, c"Quad Index Buffer");
+        *vg_mut!(ctx, fan_index_buffer) = fan_index_buffer;
+        ctx.name_object(fan_index_buffer, c"Quad Index Buffer");
 
         // SAFETY: the buffer was just created.
-        let requirements = unsafe {
-            ctx.device
-                .get_buffer_memory_requirements(ctx.vg.fan_index_buffer)
-        };
+        let requirements = unsafe { ctx.device.get_buffer_memory_requirements(fan_index_buffer) };
         let alloc = vk::MemoryAllocateInfo::default()
             .allocation_size(requirements.size)
             .memory_type_index(ctx.memory_type_from_properties(
@@ -329,10 +328,7 @@ impl DynBuffers {
             Err(err) => ctx.vk_fail("vkAllocateMemory", err),
         };
         // SAFETY: the buffer is unbound and `memory` is a fresh allocation of `requirements.size`.
-        if let Err(err) = unsafe {
-            ctx.device
-                .bind_buffer_memory(ctx.vg.fan_index_buffer, memory, 0)
-        } {
+        if let Err(err) = unsafe { ctx.device.bind_buffer_memory(fan_index_buffer, memory, 0) } {
             ctx.vk_fail("vkBindBufferMemory", err);
         }
 
@@ -347,7 +343,7 @@ impl DynBuffers {
             ctx.device.cmd_copy_buffer(
                 allocation.command_buffer,
                 allocation.buffer,
-                ctx.vg.fan_index_buffer,
+                fan_index_buffer,
                 &[region],
             )
         };
@@ -446,7 +442,7 @@ impl DynBuffers {
         let frame = core::mem::take(&mut garbage.frames[collect]);
         drop(garbage);
 
-        let layout = ctx.vg.ubo_set_layout;
+        let layout = vg!(ctx, ubo_set_layout);
         for set in frame.descriptor_sets {
             free_descriptor_set(ctx, set, &layout);
         }
@@ -504,11 +500,10 @@ impl DynBuffers {
         if size as usize > MAX_UNIFORM_ALLOC {
             ctx.engine.sys_error("Increase MAX_UNIFORM_ALLOC");
         }
-        let alignment = ctx
-            .vg
-            .device_properties
-            .limits
-            .min_uniform_buffer_offset_alignment as u32;
+        let alignment = vg!(
+            ctx,
+            device_properties.limits.min_uniform_buffer_offset_alignment
+        ) as u32;
         self.allocate(
             ctx,
             Kind::Uniform,
@@ -520,11 +515,10 @@ impl DynBuffers {
 
     /// `R_StorageAllocate`.
     pub fn storage_allocate<E: Engine>(&self, ctx: &mut Ctx<'_, E>, size: u32) -> DynAllocation {
-        let alignment = ctx
-            .vg
-            .device_properties
-            .limits
-            .min_storage_buffer_offset_alignment as u32;
+        let alignment = vg!(
+            ctx,
+            device_properties.limits.min_storage_buffer_offset_alignment
+        ) as u32;
         self.allocate(ctx, Kind::Storage, size, alignment, 0)
     }
 }

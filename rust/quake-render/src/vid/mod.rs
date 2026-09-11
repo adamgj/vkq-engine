@@ -18,6 +18,27 @@ use std::ffi::CString;
 use ash::vk;
 use quake_types::render::{CbContext, VulkanGlobals, VulkanMemory, SCBX_NUM};
 
+use crate::rmisc::VgPtr;
+
+/// [`vg!`](crate::rmisc::vg) over a bare [`VgPtr`], for `init_instance` and
+/// `init_device`, which run before a `Ctx` (an `ash::Device`) exists.
+macro_rules! vgp {
+    ($vg:expr, $($field:tt)+) => {
+        // SAFETY: as for `rmisc::vg!`: the pointer is valid for its lifetime
+        // and the place expression reads only this field.
+        unsafe { (*$vg.as_ptr()).$($field)+ }
+    };
+}
+
+/// [`vg_mut!`](crate::rmisc::vg_mut) over a bare [`VgPtr`].
+macro_rules! vgp_mut {
+    ($vg:expr, $($field:tt)+) => {
+        // SAFETY: as for `rmisc::vg_mut!`: one field, one statement; the
+        // init functions write on the main thread before any worker runs.
+        unsafe { &mut (*$vg.as_ptr()).$($field)+ }
+    };
+}
+
 use crate::rmisc::{dynbuf::DynBuffers, staging::Staging, Engine};
 
 pub mod frame;
@@ -547,24 +568,26 @@ pub(crate) fn scbx_slots(first: c_int, last: c_int) -> impl Iterator<Item = (usi
         .skip(first as usize)
 }
 
-/// The `i`-th `cb_context_t` of secondary command-buffer slot `scbx`.
-pub(crate) fn scbx_mut(vg: &mut VulkanGlobals, scbx: usize, i: usize) -> &mut CbContext {
-    debug_assert!(i < SECONDARY_CB_MULTIPLICITY[scbx]);
+/// The `i`-th `cb_context_t` of secondary command-buffer slot `scbx`, for
+/// the init/teardown paths (`create_render_resources`,
+/// `destroy_render_resources`): main thread, no render task in flight, so
+/// nothing else touches the context for the returned lifetime.
+pub(crate) fn scbx_mut<'a>(vg: VgPtr<'a>, scbx: usize, i: usize) -> &'a mut CbContext {
     // SAFETY: `init_command_buffers` allocates `secondary_cb_contexts[scbx]`
-    // with `SECONDARY_CB_MULTIPLICITY[scbx]` entries that are never freed;
-    // the `&mut vg` borrow keeps the array exclusive for the returned
-    // lifetime.
-    unsafe { &mut *vg.secondary_cb_contexts[scbx].add(i) }
+    // with `SECONDARY_CB_MULTIPLICITY[scbx]` entries that are never freed
+    // (see `scbx_ptr`); the callers' phase guarantees exclusivity.
+    unsafe { &mut *scbx_ptr(vg.as_ptr(), scbx, i) }
 }
 
 /// A raw pointer to the `i`-th `cb_context_t` of secondary slot `scbx`, for
 /// the per-frame path, which has to read `vulkan_globals` while a secondary
 /// context is live (the callers document why no other reference exists).
-pub(crate) fn scbx_ptr(vg: &VulkanGlobals, scbx: usize, i: usize) -> *mut CbContext {
+pub(crate) fn scbx_ptr(vg: *const VulkanGlobals, scbx: usize, i: usize) -> *mut CbContext {
     debug_assert!(i < SECONDARY_CB_MULTIPLICITY[scbx]);
-    // SAFETY: an in-bounds offset within the allocation `init_command_buffers`
-    // made for `secondary_cb_contexts[scbx]` (see `scbx_mut`).
-    unsafe { vg.secondary_cb_contexts[scbx].add(i) }
+    // SAFETY: `vg` is a `VgPtr` (valid, aligned); the field read forms no
+    // reference to the struct, and the offset is in bounds of the
+    // allocation `init_command_buffers` made for `secondary_cb_contexts[scbx]`.
+    unsafe { (*vg).secondary_cb_contexts[scbx].add(i) }
 }
 
 /// `Sys_Error ("<what> with code %i", err)`.

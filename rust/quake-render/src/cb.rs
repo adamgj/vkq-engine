@@ -9,7 +9,9 @@
 use core::ffi::CStr;
 
 use ash::vk;
-use quake_types::render::{CbContext, VulkanGlobals, VulkanPipeline};
+use quake_types::render::{CbContext, VulkanPipeline};
+
+use crate::rmisc::{vg, VgPtr};
 
 use crate::vid::RENDER_PASS_INDEX_MBOIT_COMPOSITE;
 
@@ -32,16 +34,20 @@ pub struct CmdProcs {
 }
 
 impl CmdProcs {
-    pub fn new(vg: &VulkanGlobals) -> Self {
+    pub fn new(vg: VgPtr<'_>) -> Self {
+        struct Holder<'a> {
+            vg: VgPtr<'a>,
+        }
+        let h = Holder { vg };
         Self {
-            bind_pipeline: vg.vk_cmd_bind_pipeline,
-            push_constants: vg.vk_cmd_push_constants,
-            bind_descriptor_sets: vg.vk_cmd_bind_descriptor_sets,
+            bind_pipeline: vg!(h, vk_cmd_bind_pipeline),
+            push_constants: vg!(h, vk_cmd_push_constants),
+            bind_descriptor_sets: vg!(h, vk_cmd_bind_descriptor_sets),
             #[cfg(feature = "engine-debug")]
-            begin_debug_utils_label: vg.vk_cmd_begin_debug_utils_label,
+            begin_debug_utils_label: vg!(h, vk_cmd_begin_debug_utils_label),
             #[cfg(feature = "engine-debug")]
-            end_debug_utils_label: vg.vk_cmd_end_debug_utils_label,
-            mboit_input_attachment_descriptor_set: vg.mboit_input_attachment_descriptor_set,
+            end_debug_utils_label: vg!(h, vk_cmd_end_debug_utils_label),
+            mboit_input_attachment_descriptor_set: vg!(h, mboit_input_attachment_descriptor_set),
         }
     }
 }

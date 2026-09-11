@@ -146,7 +146,15 @@ impl ShaderModules {
     fn create<E: Engine>(ctx: &Ctx<'_, E>, shader: Shader) -> vk::ShaderModule {
         let bytes = ctx.engine.shader_spv(shader);
         // `bintoc` emits `unsigned char[]`, so the blob is not 4-aligned;
-        // copy into words rather than casting.
+        // copy into words rather than casting. The C passes `codeSize`
+        // verbatim and lets validation reject a non-multiple-of-4 blob;
+        // `chunks_exact` would silently drop the tail instead.
+        debug_assert_eq!(
+            bytes.len() % 4,
+            0,
+            "{}: SPIR-V size is not a multiple of 4",
+            shader.name().to_string_lossy()
+        );
         let code: Vec<u32> = bytes
             .chunks_exact(4)
             .map(|w| u32::from_ne_bytes([w[0], w[1], w[2], w[3]]))
@@ -163,14 +171,16 @@ impl ShaderModules {
 
     /// `R_CreateShaderModules`.
     pub fn create_all<E: Engine>(&mut self, ctx: &Ctx<'_, E>) {
-        let vg = &*ctx.vg;
+        let msaa = vg!(ctx, sample_count) != vk::SampleCountFlags::TYPE_1;
+        let sops = vg!(ctx, screen_effects_sops);
+        let ray_query = vg!(ctx, ray_query);
         for shader in Shader::ALL {
             let wanted = match shader.cond() {
                 Cond::Always => true,
-                Cond::Msaa => vg.sample_count != vk::SampleCountFlags::TYPE_1,
-                Cond::Sops => vg.screen_effects_sops,
-                Cond::RayQuery => vg.ray_query,
-                Cond::DebugRayQuery => cfg!(feature = "engine-debug") && vg.ray_query,
+                Cond::Msaa => msaa,
+                Cond::Sops => sops,
+                Cond::RayQuery => ray_query,
+                Cond::DebugRayQuery => cfg!(feature = "engine-debug") && ray_query,
             };
             self.modules[shader as usize] = if wanted {
                 Self::create(ctx, shader)

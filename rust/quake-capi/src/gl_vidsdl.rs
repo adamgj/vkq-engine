@@ -19,7 +19,7 @@ use std::ffi::CString;
 use ash::vk::{self, Handle};
 use quake_c_sys as c;
 use quake_c_sys::render as g;
-use quake_render::rmisc::{DynBuffers, Engine, Staging};
+use quake_render::rmisc::{DynBuffers, Engine, Staging, VgPtr};
 use quake_render::vid::frame::{self, EndRenderingParms};
 use quake_render::vid::{self, instance, resources, VidEngine, VidState};
 use quake_types::render::{CbContext, GlTexture};
@@ -502,12 +502,12 @@ const _: () = assert!(
 #[no_mangle]
 pub extern "C" fn GL_EndRendering(use_tasks: bool, use_swapchain: bool) -> u64 {
     let engine = CEngine;
-    // SAFETY: every global sampled here is a main-thread-only C/Rust global
-    // (`vulkan_globals` is read through the exported symbol -- ADR-007 dual
-    // view, see `with_ctx`).
+    // SAFETY: every global sampled here is a main-thread-only C/Rust global;
+    // `view_matrix` is read by value through the exported symbol without
+    // forming a reference to `vulkan_globals` (ADR-007 dual view, see
+    // `with_ctx`: the begin-rendering task may be writing other fields).
     let parms = unsafe {
-        let vg = &*ptr::addr_of!(vulkan_globals);
-        let vm = &vg.view_matrix;
+        let vm = ptr::addr_of!((*ptr::addr_of!(vulkan_globals)).view_matrix).read();
         let (vid_width, vid_height) = engine.vid_size();
         let mut origin = [0.0f32; 3];
         g::VID_Glue_ViewOrg(origin.as_mut_ptr());
@@ -525,11 +525,14 @@ pub extern "C" fn GL_EndRendering(use_tasks: bool, use_swapchain: bool) -> u64 {
             #[cfg(not(feature = "engine-debug"))]
             ray_debug: false,
             screenshot: g::VID_Glue_TakeScreenshot(),
-            render_scale: ptr::addr_of!(c::view::render_scale).read() as u32,
+            // `CLAMP (0, render_scale, 8)` (`gl_vidsdl.c:4240`) before the
+            // 4-bit field: a negative cvar value must not select the 8x path.
+            render_scale: ptr::addr_of!(c::view::render_scale).read().clamp(0, 8) as u32,
             vid_width,
             vid_height,
             time: (g::VID_Glue_ClTime() % (2.0 * core::f64::consts::PI)) as f32,
-            color_clear_value: vg.color_clear_value,
+            color_clear_value: ptr::addr_of!((*ptr::addr_of!(vulkan_globals)).color_clear_value)
+                .read(),
             v_blend: ptr::addr_of!(c::view::v_blend).read(),
             origin,
             forward: [-vm[2], -vm[6], -vm[10]],
@@ -572,10 +575,11 @@ pub extern "C" fn GL_WaitForDeviceIdle() {
 /// `SDL_Vulkan_LoadLibrary` are the glue's job before this runs.
 #[no_mangle]
 pub extern "C" fn GL_InitInstance() {
-    // SAFETY: `VID_Init` runs on the main thread before any renderer state
-    // exists; `vulkan_globals` is reached through the exported static (see
-    // `with_ctx`'s ADR-007 note).
-    let vg = unsafe { &mut *ptr::addr_of_mut!(vulkan_globals) };
+    // SAFETY: the exported static is live and aligned for the whole process;
+    // the port reads and writes it field by field through the `VgPtr` (see
+    // `with_ctx`'s ADR-007 note -- `init_device`'s harness callback rewrites
+    // the `vk_cmd_draw*` hooks from C while the port runs).
+    let vg = unsafe { VgPtr::from_raw(ptr::addr_of_mut!(vulkan_globals)) };
     instance::init_instance(&CEngine, vg, vid_state());
 }
 
@@ -584,7 +588,7 @@ pub extern "C" fn GL_InitInstance() {
 #[no_mangle]
 pub extern "C" fn GL_InitDevice() {
     // SAFETY: as for `GL_InitInstance`.
-    let vg = unsafe { &mut *ptr::addr_of_mut!(vulkan_globals) };
+    let vg = unsafe { VgPtr::from_raw(ptr::addr_of_mut!(vulkan_globals)) };
     let device = instance::init_device(&CEngine, vg, vid_state());
     let _ = DEVICE.set(device);
 }

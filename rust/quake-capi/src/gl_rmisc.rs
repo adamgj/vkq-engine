@@ -27,7 +27,7 @@ use quake_c_sys as c;
 use quake_c_sys::render as g;
 use quake_render::rmisc::shaders::ShaderModules;
 use quake_render::rmisc::{
-    self, BufferRequest, Counters, Ctx, DynBuffers, Engine, Shader, Staging,
+    self, BufferRequest, Counters, Ctx, DynBuffers, Engine, Shader, Staging, VgPtr,
 };
 use quake_types::render::{
     BufferCreateInfo, DynBuffer, VulkanDescSetLayout, VulkanGlobals, VulkanMemory, VulkanMemoryType,
@@ -452,18 +452,21 @@ impl Engine for CEngine {
 /// Builds the [`Ctx`] over the C-visible globals and runs `f` with it.
 ///
 /// ADR-007 dual view: while `f` runs, `vulkan_globals` is reachable both
-/// through `ctx.vg` and through the exported symbol -- and the callbacks the
-/// port makes (`GL_WaitForDeviceIdle` writes `device_idle` and
-/// `GL_SetObjectName` reads `device`/`debug_utils`, both Rust exports in
-/// `gl_vidsdl.rs` since M6; the C `TexMgr_UpdateTextureDescriptorSets` reads
-/// the samplers) do touch the struct through the latter. All of that is
-/// single-threaded and the fields involved are plain scalars; the
-/// `&mut VulkanGlobals` is a struct field, not a function parameter, so no
-/// `noalias` assumption is made on it. Recorded in the ADR-007 table row.
+/// through `ctx.vg` and through the exported symbol, and that is not
+/// single-threaded: the staging, memory and ring allocators run on task
+/// workers (`gl_model.c` miptex loads, `r_alias.c` uniform allocations) while
+/// the main thread touches the same object, and the C callbacks the port
+/// makes (`GL_WaitForDeviceIdle` writes `device_idle` and re-enters
+/// `R_SubmitStagingBuffers`, `GL_SetObjectName` reads `device`/`debug_utils`,
+/// `TexMgr_UpdateTextureDescriptorSets` reads the samplers) touch it through
+/// the symbol. So no `&`/`&mut VulkanGlobals` is formed here: `ctx.vg` is a
+/// raw-pointer [`VgPtr`] and the port reads and writes single fields through
+/// it (ADR-004; `device_idle` atomically). Recorded in the ADR-007 table row.
 pub(crate) fn with_ctx<R>(f: impl FnOnce(&mut Ctx<'_, CEngine>) -> R) -> R {
     let engine = CEngine;
-    // SAFETY: see the ADR-007 note above; the pointer is to the exported static.
-    let vg = unsafe { &mut *ptr::addr_of_mut!(vulkan_globals) };
+    // SAFETY: the exported static is live and aligned for the whole process;
+    // the `VgPtr` access discipline is what the port's modules follow.
+    let vg = unsafe { VgPtr::from_raw(ptr::addr_of_mut!(vulkan_globals)) };
     let mut ctx = Ctx {
         engine: &engine,
         device: device(),
@@ -671,7 +674,7 @@ pub unsafe extern "C" fn R_CreateBuffers(
     let (size, results) = with_ctx(|ctx| {
         // C ORs `VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT_KHR` into the
         // caller's `create_infos[i].usage` in place; keep that visible.
-        let has_get_address = ctx.vg.vk_get_buffer_device_address.is_some();
+        let has_get_address = ctx.has_buffer_device_address();
         for ci in infos.iter_mut() {
             if has_get_address && !ci.address.is_null() {
                 ci.usage |= vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS_KHR;

@@ -28,7 +28,7 @@ use super::{
 };
 use crate::cb::{self, CmdProcs};
 use crate::rmisc::memory::{create_buffer, free_buffer};
-use crate::rmisc::Ctx;
+use crate::rmisc::{vg, vg_mut, Ctx};
 
 /// `end_rendering_parms_t`: what `GL_EndRendering` samples on the main thread
 /// for the `GL_EndRenderingTask` payload (the C bitfields are plain fields;
@@ -164,7 +164,7 @@ pub fn begin_rendering_task<E: VidEngine>(ctx: &mut Ctx<'_, E>, vid: &mut VidSta
                 )
             };
             if got.is_ok() {
-                let period = ctx.vg.device_properties.limits.timestamp_period as f64;
+                let period = vg!(ctx, device_properties.limits.timestamp_period) as f64;
                 engine.set_gpu_time_us(
                     (timestamps[1].wrapping_sub(timestamps[0]) as f64 * period / 1000.0) as u32,
                 );
@@ -181,7 +181,7 @@ pub fn begin_rendering_task<E: VidEngine>(ctx: &mut Ctx<'_, E>, vid: &mut VidSta
 
     for pcbx in 0..PCBX_NUM {
         let cb = vid.primary_command_buffers[pcbx][cur];
-        let cbx = &mut ctx.vg.primary_cb_contexts[pcbx];
+        let cbx = vg_mut!(ctx, primary_cb_contexts[pcbx]);
         cbx.cb = cb;
         cbx.current_canvas = CANVAS_INVALID;
         cbx.current_pipeline = VulkanPipeline::ZEROED;
@@ -193,11 +193,15 @@ pub fn begin_rendering_task<E: VidEngine>(ctx: &mut Ctx<'_, E>, vid: &mut VidSta
         if let Err(err) = unsafe { ctx.device.begin_command_buffer(cb, &begin_info) } {
             ctx.vk_fail("vkBeginCommandBuffer", err);
         }
-        cb::begin_debug_utils_label(&procs, &ctx.vg.primary_cb_contexts[pcbx], c"Primary CB");
+        cb::begin_debug_utils_label(
+            &procs,
+            &*vg_mut!(ctx, primary_cb_contexts[pcbx]),
+            c"Primary CB",
+        );
     }
 
     if vid.timestamp_query_pool != vk::QueryPool::null() {
-        let first_cb = ctx.vg.primary_cb_contexts[0].cb;
+        let first_cb = vg!(ctx, primary_cb_contexts[0].cb);
         // SAFETY: `first_cb` is recording; the queries are this frame's pair.
         unsafe {
             ctx.device
@@ -227,7 +231,7 @@ pub fn begin_rendering_task<E: VidEngine>(ctx: &mut Ctx<'_, E>, vid: &mut VidSta
     } else {
         MAIN_RENDER_PASS_NO_STENCIL
     };
-    let main_render_pass = ctx.vg.main_render_pass[variant][stencil];
+    let main_render_pass = vg!(ctx, main_render_pass[variant][stencil]);
     let scissor = vk::Rect2D {
         offset: vk::Offset2D { x: 0, y: 0 },
         extent: vk::Extent2D {
@@ -253,7 +257,7 @@ pub fn begin_rendering_task<E: VidEngine>(ctx: &mut Ctx<'_, E>, vid: &mut VidSta
             // from `vulkan_globals` (see `scbx_mut`); this task is the only
             // code touching them until the frame's recording tasks, which
             // depend on it, start.
-            let cbx = unsafe { &mut *scbx_ptr(ctx.vg, scbx, i) };
+            let cbx = unsafe { &mut *scbx_ptr(ctx.vg.as_ptr(), scbx, i) };
             cbx.cb = cb;
             cbx.current_canvas = CANVAS_INVALID;
             cbx.current_pipeline = VulkanPipeline::ZEROED;
@@ -290,7 +294,7 @@ pub fn begin_rendering_task<E: VidEngine>(ctx: &mut Ctx<'_, E>, vid: &mut VidSta
             }
 
             if scbx_index != SCBX_OIT_RESOLVE && !(scbx_index == SCBX_FTE_PARTICLES_BLEND && oit) {
-                let pipeline = ctx.vg.basic_blend_pipeline[cbx.render_pass_index as usize];
+                let pipeline = vg!(ctx, basic_blend_pipeline[cbx.render_pass_index as usize]);
                 if pipeline.handle != vk::Pipeline::null() {
                     cb::bind_pipeline(&procs, cbx, vk::PipelineBindPoint::GRAPHICS, pipeline);
                     engine.set_canvas(cbx, CANVAS_NONE);
@@ -329,30 +333,31 @@ pub fn acquire_next_swap_chain_image<E: VidEngine>(
 
     #[cfg(windows)]
     {
-        let vg = &mut *ctx.vg;
         if engine.fullscreen()
-            && vg.want_full_screen_exclusive
-            && vg.swap_chain_full_screen_exclusive
-            && !vg.swap_chain_full_screen_acquired
+            && vg!(ctx, want_full_screen_exclusive)
+            && vg!(ctx, swap_chain_full_screen_exclusive)
+            && !vg!(ctx, swap_chain_full_screen_acquired)
         {
             let acquire = vid.procs.acquire_full_screen_exclusive_mode.expect(
                 "GL_InitDevice loads vkAcquireFullScreenExclusiveModeEXT with the extension",
             );
+            let device = vg!(ctx, device);
             // SAFETY: the swap chain was created with the exclusive-mode chain.
-            if unsafe { acquire(vg.device, vid.swapchain) } == vk::Result::SUCCESS {
-                vg.swap_chain_full_screen_acquired = true;
+            if unsafe { acquire(device, vid.swapchain) } == vk::Result::SUCCESS {
+                *vg_mut!(ctx, swap_chain_full_screen_acquired) = true;
                 engine.sys_printf("Full screen exclusive acquired\n");
             }
-        } else if !vg.want_full_screen_exclusive
-            && vg.swap_chain_full_screen_exclusive
-            && vg.swap_chain_full_screen_acquired
+        } else if !vg!(ctx, want_full_screen_exclusive)
+            && vg!(ctx, swap_chain_full_screen_exclusive)
+            && vg!(ctx, swap_chain_full_screen_acquired)
         {
             let release = vid.procs.release_full_screen_exclusive_mode.expect(
                 "GL_InitDevice loads vkReleaseFullScreenExclusiveModeEXT with the extension",
             );
+            let device = vg!(ctx, device);
             // SAFETY: as above; exclusive mode is currently acquired.
-            if unsafe { release(vg.device, vid.swapchain) } == vk::Result::SUCCESS {
-                vg.swap_chain_full_screen_acquired = false;
+            if unsafe { release(device, vid.swapchain) } == vk::Result::SUCCESS {
+                *vg_mut!(ctx, swap_chain_full_screen_acquired) = false;
                 engine.sys_printf("Full screen exclusive released\n");
             }
         }
@@ -362,11 +367,12 @@ pub fn acquire_next_swap_chain_image<E: VidEngine>(
         .procs
         .acquire_next_image
         .expect("GL_InitDevice loads vkAcquireNextImageKHR");
+    let device = vg!(ctx, device);
     // SAFETY: the swap chain and semaphore are live objects of this device;
     // the out-pointer is a `VidState` field.
     let err = unsafe {
         acquire_next_image(
-            ctx.vg.device,
+            device,
             vid.swapchain,
             u64::MAX,
             vid.image_aquired_semaphores[vid.current_cb_index],
@@ -399,7 +405,7 @@ fn screen_effects<E: VidEngine>(
     parms: &EndRenderingParms,
 ) {
     let engine = ctx.engine;
-    let cb = ctx.vg.primary_cb_contexts[PCBX_RENDER_PASSES].cb;
+    let cb = vg!(ctx, primary_cb_contexts[PCBX_RENDER_PASSES].cb);
 
     if !enabled {
         let barrier = vk::MemoryBarrier::default()
@@ -426,7 +432,7 @@ fn screen_effects<E: VidEngine>(
 
     cb::begin_debug_utils_label(
         procs,
-        &ctx.vg.primary_cb_contexts[PCBX_RENDER_PASSES],
+        &*vg_mut!(ctx, primary_cb_contexts[PCBX_RENDER_PASSES]),
         c"Screen Effects",
     );
 
@@ -443,14 +449,14 @@ fn screen_effects<E: VidEngine>(
             .dst_access_mask(vk::AccessFlags::SHADER_WRITE)
             .old_layout(vk::ImageLayout::UNDEFINED)
             .new_layout(vk::ImageLayout::GENERAL)
-            .image(ctx.vg.color_buffers[0])
+            .image(vg!(ctx, color_buffers[0]))
             .subresource_range(subresource_range),
         vk::ImageMemoryBarrier::default()
             .src_access_mask(vk::AccessFlags::COLOR_ATTACHMENT_WRITE)
             .dst_access_mask(vk::AccessFlags::SHADER_READ)
             .old_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
             .new_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
-            .image(ctx.vg.color_buffers[1])
+            .image(vg!(ctx, color_buffers[1]))
             .subresource_range(subresource_range),
     ];
     // SAFETY: `cb` is recording outside a render pass; the images are the
@@ -468,28 +474,28 @@ fn screen_effects<E: VidEngine>(
     };
 
     engine.set_canvas(
-        &mut ctx.vg.primary_cb_contexts[PCBX_RENDER_PASSES],
+        vg_mut!(ctx, primary_cb_contexts[PCBX_RENDER_PASSES]),
         CANVAS_NONE,
     );
 
     let pipeline = if cfg!(feature = "engine-debug") && parms.ray_debug {
-        ctx.vg.ray_debug_pipeline
+        vg!(ctx, ray_debug_pipeline)
     } else if parms.render_scale >= 2 {
-        if ctx.vg.screen_effects_sops && engine.r_usesops() != 0.0 {
-            ctx.vg.screen_effects_scale_sops_pipeline
+        if vg!(ctx, screen_effects_sops) && engine.r_usesops() != 0.0 {
+            vg!(ctx, screen_effects_scale_sops_pipeline)
         } else {
-            ctx.vg.screen_effects_scale_pipeline
+            vg!(ctx, screen_effects_scale_pipeline)
         }
     } else {
-        ctx.vg.screen_effects_pipeline
+        vg!(ctx, screen_effects_pipeline)
     };
     cb::bind_pipeline(
         procs,
-        &mut ctx.vg.primary_cb_contexts[PCBX_RENDER_PASSES],
+        vg_mut!(ctx, primary_cb_contexts[PCBX_RENDER_PASSES]),
         vk::PipelineBindPoint::COMPUTE,
         pipeline,
     );
-    let cbx = &ctx.vg.primary_cb_contexts[PCBX_RENDER_PASSES];
+    let cbx = &*vg_mut!(ctx, primary_cb_contexts[PCBX_RENDER_PASSES]);
 
     let width = parms.vid_width;
     let height = parms.vid_height;
@@ -501,6 +507,7 @@ fn screen_effects<E: VidEngine>(
         && parms.ray_debug
         && engine.bmodel_tlas() != vk::AccelerationStructureKHR::null();
     if !ray_debug {
+        let screen_effects_desc_set = vg!(ctx, screen_effects_desc_set);
         // SAFETY: `cb` is recording with `pipeline` bound; the set is live.
         unsafe {
             ctx.device.cmd_bind_descriptor_sets(
@@ -508,7 +515,7 @@ fn screen_effects<E: VidEngine>(
                 vk::PipelineBindPoint::COMPUTE,
                 pipeline.layout.handle,
                 0,
-                &[ctx.vg.screen_effects_desc_set],
+                &[screen_effects_desc_set],
                 &[],
             )
         };
@@ -554,6 +561,7 @@ fn screen_effects<E: VidEngine>(
     } else {
         #[cfg(feature = "engine-debug")]
         {
+            let ray_debug_desc_set = vg!(ctx, ray_debug_desc_set);
             // SAFETY: as above.
             unsafe {
                 ctx.device.cmd_bind_descriptor_sets(
@@ -561,7 +569,7 @@ fn screen_effects<E: VidEngine>(
                     vk::PipelineBindPoint::COMPUTE,
                     pipeline.layout.handle,
                     0,
-                    &[ctx.vg.ray_debug_desc_set],
+                    &[ray_debug_desc_set],
                     &[],
                 )
             };
@@ -573,9 +581,7 @@ fn screen_effects<E: VidEngine>(
                 .dst_binding(0)
                 .descriptor_count(1)
                 .descriptor_type(vk::DescriptorType::ACCELERATION_STRUCTURE_KHR);
-            let push_descriptor_set = ctx
-                .vg
-                .vk_cmd_push_descriptor_set
+            let push_descriptor_set = vg!(ctx, vk_cmd_push_descriptor_set)
                 .expect("ray debug requires VK_KHR_push_descriptor");
             // SAFETY: `cb` is recording with `pipeline` bound; the write and
             // its chain are locals that outlive the call.
@@ -621,7 +627,7 @@ fn screen_effects<E: VidEngine>(
         )
         .old_layout(vk::ImageLayout::GENERAL)
         .new_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
-        .image(ctx.vg.color_buffers[0])
+        .image(vg!(ctx, color_buffers[0]))
         .subresource_range(subresource_range);
     // SAFETY: as for the barriers above.
     unsafe {
@@ -755,7 +761,7 @@ fn write_screenshot<E: VidEngine>(
     let engine = ctx.engine;
     // SAFETY: only this task submits work; C ignores the result too.
     let _ = unsafe { ctx.device.device_wait_idle() };
-    ctx.vg.device_idle = true;
+    *vg_mut!(ctx, device_idle) = true;
 
     let size = u64::from(width) * u64::from(height) * 4;
     // SAFETY: `memory` is the host-visible allocation `schedule_screenshot_copy`
@@ -776,8 +782,8 @@ fn write_screenshot<E: VidEngine>(
     // SAFETY: the mapping covers `size` bytes the GPU finished writing (the
     // device is idle) and stays mapped until the buffer is freed below.
     let pixels = unsafe { slice::from_raw_parts_mut(mapped.cast::<u8>(), size as usize) };
-    let bgra = ctx.vg.swap_chain_format == vk::Format::B8G8R8A8_UNORM
-        || ctx.vg.swap_chain_format == vk::Format::B8G8R8A8_SRGB;
+    let bgra = vg!(ctx, swap_chain_format) == vk::Format::B8G8R8A8_UNORM
+        || vg!(ctx, swap_chain_format) == vk::Format::B8G8R8A8_SRGB;
     if bgra {
         for pixel in pixels.chunks_exact_mut(4) {
             pixel.swap(0, 2);
@@ -800,7 +806,7 @@ fn submit_contexts<E: VidEngine>(
         for i in 0..multiplicity {
             // SAFETY: see `begin_rendering_task`; the recording tasks this
             // task depends on have finished with the context.
-            let secondary = unsafe { (*scbx_ptr(ctx.vg, scbx, i)).cb };
+            let secondary = unsafe { (*scbx_ptr(ctx.vg.as_ptr(), scbx, i)).cb };
             // SAFETY: `cb` is inside a render pass begun with
             // `SECONDARY_COMMAND_BUFFERS`; `secondary` was ended by
             // `end_rendering_task`.
@@ -823,7 +829,7 @@ fn record_oit_resolve_context<E: VidEngine>(
     }
     // SAFETY: see `submit_contexts`; nothing else records into this context
     // once the recording tasks have finished.
-    let cbx = unsafe { &mut *scbx_ptr(ctx.vg, SCBX_OIT_RESOLVE as usize, 0) };
+    let cbx = unsafe { &mut *scbx_ptr(ctx.vg.as_ptr(), SCBX_OIT_RESOLVE as usize, 0) };
     let viewport = vk::Viewport {
         x: 0.0,
         y: 0.0,
@@ -839,12 +845,12 @@ fn record_oit_resolve_context<E: VidEngine>(
     }
     let (pipeline, descriptor_set) = if parms.use_mboit {
         (
-            ctx.vg.mboit_resolve_pipeline,
-            ctx.vg.mboit_input_attachment_descriptor_set,
+            vg!(ctx, mboit_resolve_pipeline),
+            vg!(ctx, mboit_input_attachment_descriptor_set),
         )
     } else {
         (
-            ctx.vg.wboit_resolve_pipeline,
+            vg!(ctx, wboit_resolve_pipeline),
             vid.wboit_resolve_descriptor_set,
         )
     };
@@ -905,8 +911,9 @@ pub fn end_rendering_task<E: VidEngine>(
             .procs
             .wait_for_present2
             .expect("swapchain_present_wait implies vkWaitForPresent2KHR was loaded");
+        let device = vg!(ctx, device);
         // SAFETY: `wait_info` is a local; the result is ignored like C.
-        let _ = unsafe { wait_for_present2(ctx.vg.device, vid.swapchain, &wait_info) };
+        let _ = unsafe { wait_for_present2(device, vid.swapchain, &wait_info) };
     }
 
     let swapchain_acquired = parms.swapchain && acquire_next_swap_chain_image(ctx, vid);
@@ -917,10 +924,10 @@ pub fn end_rendering_task<E: VidEngine>(
     if swapchain_acquired {
         let (vid_width, vid_height) = engine.vid_size();
         // SAFETY: see `submit_contexts`.
-        let cbx = unsafe { &mut *scbx_ptr(ctx.vg, SCBX_POST_PROCESS as usize, 0) };
+        let cbx = unsafe { &mut *scbx_ptr(ctx.vg.as_ptr(), SCBX_POST_PROCESS as usize, 0) };
         engine.viewport(cbx, 0.0, 0.0, vid_width as f32, vid_height as f32, 0.0, 1.0);
         let postprocess_values = [engine.vid_gamma(), engine.vid_contrast().clamp(1.0, 2.0)];
-        let pipeline = ctx.vg.postprocess_pipeline;
+        let pipeline = vg!(ctx, postprocess_pipeline);
         cb::bind_pipeline(&procs, cbx, vk::PipelineBindPoint::GRAPHICS, pipeline);
         // SAFETY: `cbx.cb` is recording with `pipeline` bound; the set is live.
         unsafe {
@@ -949,7 +956,7 @@ pub fn end_rendering_task<E: VidEngine>(
     for (scbx, multiplicity) in SECONDARY_CB_MULTIPLICITY.iter().copied().enumerate() {
         for i in 0..multiplicity {
             // SAFETY: see `submit_contexts`.
-            let cbx = unsafe { &*scbx_ptr(ctx.vg, scbx, i) };
+            let cbx = unsafe { &*scbx_ptr(ctx.vg.as_ptr(), scbx, i) };
             cb::end_debug_utils_label(&procs, cbx);
             // SAFETY: `cbx.cb` is recording.
             if let Err(err) = unsafe { ctx.device.end_command_buffer(cbx.cb) } {
@@ -958,7 +965,7 @@ pub fn end_rendering_task<E: VidEngine>(
         }
     }
 
-    let render_passes_cb = ctx.vg.primary_cb_contexts[PCBX_RENDER_PASSES].cb;
+    let render_passes_cb = vg!(ctx, primary_cb_contexts[PCBX_RENDER_PASSES].cb);
 
     let screen_effects_enabled = parms.render_warp
         || parms.render_scale >= 2
@@ -966,7 +973,7 @@ pub fn end_rendering_task<E: VidEngine>(
         || (parms.polyblend && parms.v_blend[3] != 0)
         || parms.menu
         || parms.ray_debug;
-    let resolve = ctx.vg.sample_count != vk::SampleCountFlags::TYPE_1;
+    let resolve = vg!(ctx, sample_count) != vk::SampleCountFlags::TYPE_1;
     let use_mboit = parms.use_mboit;
     let use_wboit = parms.use_oit && !use_mboit;
     let scene_color_index = if resolve { 2 } else { 0 };
@@ -1030,7 +1037,7 @@ pub fn end_rendering_task<E: VidEngine>(
         MAIN_RENDER_PASS_NO_STENCIL
     };
     let render_pass_begin_info = vk::RenderPassBeginInfo::default()
-        .render_pass(ctx.vg.main_render_pass[variant][stencil])
+        .render_pass(vg!(ctx, main_render_pass[variant][stencil]))
         .framebuffer(vid.main_framebuffers[usize::from(screen_effects_enabled)])
         .render_area(render_area)
         .clear_values(&clear_values[..clear_value_count]);
@@ -1118,11 +1125,11 @@ pub fn end_rendering_task<E: VidEngine>(
 
     // SAFETY: see `submit_contexts`.
     let (gui_cb, gui_render_pass) = unsafe {
-        let gui = &*scbx_ptr(ctx.vg, SCBX_GUI as usize, 0);
+        let gui = &*scbx_ptr(ctx.vg.as_ptr(), SCBX_GUI as usize, 0);
         (gui.cb, gui.render_pass)
     };
     // SAFETY: as above.
-    let post_process_cb = unsafe { (*scbx_ptr(ctx.vg, SCBX_POST_PROCESS as usize, 0)).cb };
+    let post_process_cb = unsafe { (*scbx_ptr(ctx.vg.as_ptr(), SCBX_POST_PROCESS as usize, 0)).cb };
     let ui_render_pass_begin_info = vk::RenderPassBeginInfo::default()
         .render_pass(gui_render_pass)
         .framebuffer(vid.ui_framebuffers[vid.current_swapchain_buffer as usize])
@@ -1172,7 +1179,7 @@ pub fn end_rendering_task<E: VidEngine>(
 
     let mut submit_cbs = [vk::CommandBuffer::null(); PCBX_NUM];
     for (pcbx, submit_cb) in submit_cbs.iter_mut().enumerate() {
-        let cbx = &ctx.vg.primary_cb_contexts[pcbx];
+        let cbx = &*vg_mut!(ctx, primary_cb_contexts[pcbx]);
         *submit_cb = cbx.cb;
         cb::end_debug_utils_label(&procs, cbx);
         // SAFETY: `cbx.cb` is recording.
@@ -1190,18 +1197,16 @@ pub fn end_rendering_task<E: VidEngine>(
         .wait_semaphores(&wait_semaphores[..semaphore_count])
         .signal_semaphores(&signal_semaphores[..semaphore_count])
         .wait_dst_stage_mask(&wait_dst_stage_mask[..semaphore_count]);
+    let queue = vg!(ctx, queue);
     // SAFETY: every buffer was ended above; the fence was reset by
     // `begin_rendering_task`; the semaphores are this frame's pair.
     if let Err(err) = unsafe {
-        ctx.device.queue_submit(
-            ctx.vg.queue,
-            &[submit_info],
-            vid.command_buffer_fences[cb_index],
-        )
+        ctx.device
+            .queue_submit(queue, &[submit_info], vid.command_buffer_fences[cb_index])
     } {
         ctx.vk_fail("vkQueueSubmit", err);
     }
-    ctx.vg.device_idle = false;
+    *vg_mut!(ctx, device_idle) = false;
 
     if let Some((buffer, memory)) = screenshot {
         if buffer != vk::Buffer::null() {
@@ -1230,9 +1235,10 @@ pub fn end_rendering_task<E: VidEngine>(
             .procs
             .queue_present
             .expect("GL_InitDevice loads vkQueuePresentKHR");
+        let queue = vg!(ctx, queue);
         // SAFETY: `present_info` and everything it points at are locals that
         // outlive the call; the image was acquired this frame.
-        let err = unsafe { queue_present(ctx.vg.queue, &present_info) };
+        let err = unsafe { queue_present(queue, &present_info) };
         if vid.swapchain_present_wait {
             vid.current_present_id = next_present_id;
         }
@@ -1262,10 +1268,10 @@ pub fn end_rendering_task<E: VidEngine>(
 pub fn wait_for_device_idle<E: VidEngine>(ctx: &mut Ctx<'_, E>) {
     let engine = ctx.engine;
     engine.synchronize_end_rendering_task();
-    if !ctx.vg.device_idle {
+    if !vg!(ctx, device_idle) {
         engine.staging().submit(ctx);
         // SAFETY: nothing else is submitting; C ignores the result too.
         let _ = unsafe { ctx.device.device_wait_idle() };
     }
-    ctx.vg.device_idle = true;
+    *vg_mut!(ctx, device_idle) = true;
 }

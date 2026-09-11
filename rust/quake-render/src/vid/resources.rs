@@ -21,13 +21,13 @@ use crate::rmisc::memory::{
     allocate_vulkan_memory, c_string, create_buffers, free_vulkan_memory, BufferRequest,
 };
 use crate::rmisc::shaders::ShaderModules;
-use crate::rmisc::{create_pipelines, destroy_pipelines, Ctx, Staging};
+use crate::rmisc::{create_pipelines, destroy_pipelines, vg, vg_mut, Ctx, Staging};
 
 const MAIN_RENDER_PASS_VARIANT_COUNT: usize = quake_types::render::MAIN_RENDER_PASS_VARIANT_COUNT;
 const MAIN_RENDER_PASS_STENCIL_COUNT: usize = quake_types::render::MAIN_RENDER_PASS_STENCIL_COUNT;
 
 fn resolve<E: VidEngine>(ctx: &Ctx<'_, E>) -> bool {
-    ctx.vg.sample_count != vk::SampleCountFlags::TYPE_1
+    vg!(ctx, sample_count) != vk::SampleCountFlags::TYPE_1
 }
 
 /// The image/memory/view triple every attachment in `gl_vidsdl.c` is built
@@ -75,7 +75,7 @@ fn create_attachment<E: VidEngine>(
             vk::MemoryPropertyFlags::DEVICE_LOCAL,
             vk::MemoryPropertyFlags::empty(),
         ));
-    if ctx.vg.dedicated_allocation {
+    if vg!(ctx, dedicated_allocation) {
         memory_allocate_info = memory_allocate_info.push_next(&mut dedicated);
     }
     let mut memory = NULL_MEMORY;
@@ -162,7 +162,7 @@ pub fn create_render_passes<E: VidEngine>(ctx: &mut Ctx<'_, E>) {
             initial_layout: vk::ImageLayout::UNDEFINED,
             final_layout: vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
             samples: vk::SampleCountFlags::TYPE_1,
-            format: ctx.vg.color_format,
+            format: vg!(ctx, color_format),
             load_op: if resolve {
                 vk::AttachmentLoadOp::DONT_CARE
             } else {
@@ -175,8 +175,8 @@ pub fn create_render_passes<E: VidEngine>(ctx: &mut Ctx<'_, E>) {
         attachment_descriptions[1] = vk::AttachmentDescription {
             initial_layout: vk::ImageLayout::UNDEFINED,
             final_layout: vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-            samples: ctx.vg.sample_count,
-            format: ctx.vg.depth_format,
+            samples: vg!(ctx, sample_count),
+            format: vg!(ctx, depth_format),
             load_op: vk::AttachmentLoadOp::CLEAR,
             store_op: if use_oit {
                 vk::AttachmentStoreOp::STORE
@@ -192,8 +192,8 @@ pub fn create_render_passes<E: VidEngine>(ctx: &mut Ctx<'_, E>) {
             attachment_descriptions[scene_color_attachment_index] = vk::AttachmentDescription {
                 initial_layout: vk::ImageLayout::UNDEFINED,
                 final_layout: vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
-                samples: ctx.vg.sample_count,
-                format: ctx.vg.color_format,
+                samples: vg!(ctx, sample_count),
+                format: vg!(ctx, color_format),
                 load_op: vk::AttachmentLoadOp::CLEAR,
                 store_op: if use_oit {
                     vk::AttachmentStoreOp::DONT_CARE
@@ -207,7 +207,7 @@ pub fn create_render_passes<E: VidEngine>(ctx: &mut Ctx<'_, E>) {
         let oit_attachment = |format: vk::Format| vk::AttachmentDescription {
             initial_layout: vk::ImageLayout::UNDEFINED,
             final_layout: vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
-            samples: ctx.vg.sample_count,
+            samples: vg!(ctx, sample_count),
             format,
             load_op: vk::AttachmentLoadOp::CLEAR,
             store_op: vk::AttachmentStoreOp::DONT_CARE,
@@ -459,15 +459,17 @@ pub fn create_render_passes<E: VidEngine>(ctx: &mut Ctx<'_, E>) {
                     err.as_raw()
                 )),
             };
-            ctx.vg.main_render_pass[variant][stencil] = render_pass;
+            *vg_mut!(ctx, main_render_pass[variant][stencil]) = render_pass;
             ctx.name_object(render_pass, name);
         }
     }
 
     for (scbx_index, multiplicity) in scbx_slots(SCBX_WORLD, SCBX_MAIN_PASS_LAST) {
         for i in 0..multiplicity {
-            let render_pass =
-                ctx.vg.main_render_pass[MAIN_RENDER_PASS_STANDARD][MAIN_RENDER_PASS_STENCIL_CLEAR];
+            let render_pass = vg!(
+                ctx,
+                main_render_pass[MAIN_RENDER_PASS_STANDARD][MAIN_RENDER_PASS_STENCIL_CLEAR]
+            );
             let cbx = scbx_mut(ctx.vg, scbx_index, i);
             cbx.render_pass = render_pass;
             cbx.render_pass_index = RENDER_PASS_INDEX_MAIN;
@@ -476,8 +478,10 @@ pub fn create_render_passes<E: VidEngine>(ctx: &mut Ctx<'_, E>) {
     }
 
     {
-        let render_pass =
-            ctx.vg.main_render_pass[MAIN_RENDER_PASS_OIT][MAIN_RENDER_PASS_STENCIL_CLEAR];
+        let render_pass = vg!(
+            ctx,
+            main_render_pass[MAIN_RENDER_PASS_OIT][MAIN_RENDER_PASS_STENCIL_CLEAR]
+        );
         let wboit_resolve_cbx = scbx_mut(ctx.vg, SCBX_OIT_RESOLVE as usize, 0);
         wboit_resolve_cbx.render_pass = render_pass;
         wboit_resolve_cbx.render_pass_index = RENDER_PASS_INDEX_MAIN_OIT;
@@ -491,7 +495,7 @@ pub fn create_render_passes<E: VidEngine>(ctx: &mut Ctx<'_, E>) {
                 initial_layout: vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
                 final_layout: vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
                 samples: vk::SampleCountFlags::TYPE_1,
-                format: ctx.vg.color_format,
+                format: vg!(ctx, color_format),
                 load_op: vk::AttachmentLoadOp::LOAD,
                 store_op: vk::AttachmentStoreOp::DONT_CARE,
                 ..Default::default()
@@ -500,7 +504,7 @@ pub fn create_render_passes<E: VidEngine>(ctx: &mut Ctx<'_, E>) {
                 initial_layout: vk::ImageLayout::UNDEFINED,
                 final_layout: vk::ImageLayout::PRESENT_SRC_KHR,
                 samples: vk::SampleCountFlags::TYPE_1,
-                format: ctx.vg.swap_chain_format,
+                format: vg!(ctx, swap_chain_format),
                 load_op: vk::AttachmentLoadOp::DONT_CARE,
                 store_op: vk::AttachmentStoreOp::STORE,
                 ..Default::default()
@@ -587,7 +591,7 @@ pub fn create_render_passes<E: VidEngine>(ctx: &mut Ctx<'_, E>) {
     }
 
     // Warp render pass
-    if ctx.vg.warp_render_pass == vk::RenderPass::null() {
+    if vg!(ctx, warp_render_pass) == vk::RenderPass::null() {
         let attachment_description = vk::AttachmentDescription {
             format: vk::Format::R8G8B8A8_UNORM,
             load_op: vk::AttachmentLoadOp::DONT_CARE,
@@ -634,7 +638,7 @@ pub fn create_render_passes<E: VidEngine>(ctx: &mut Ctx<'_, E>) {
             .dependencies(&subpass_dependencies);
 
         // SAFETY: as for the main pass above.
-        ctx.vg.warp_render_pass = match unsafe {
+        *vg_mut!(ctx, warp_render_pass) = match unsafe {
             ctx.device
                 .create_render_pass(&render_pass_create_info, None)
         } {
@@ -644,7 +648,7 @@ pub fn create_render_passes<E: VidEngine>(ctx: &mut Ctx<'_, E>) {
                 err.as_raw()
             )),
         };
-        ctx.name_object(ctx.vg.warp_render_pass, c"warp");
+        ctx.name_object(vg!(ctx, warp_render_pass), c"warp");
     }
 }
 
@@ -658,8 +662,8 @@ pub fn create_depth_buffer<E: VidEngine>(ctx: &mut Ctx<'_, E>, vid: &mut VidStat
 
     vid.depth_buffer = create_attachment(
         ctx,
-        ctx.vg.depth_format,
-        ctx.vg.sample_count,
+        vg!(ctx, depth_format),
+        vg!(ctx, sample_count),
         vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT,
         vk::ImageAspectFlags::DEPTH,
         c"Depth Buffer",
@@ -683,7 +687,7 @@ pub fn create_color_buffer<E: VidEngine>(ctx: &mut Ctx<'_, E>, vid: &mut VidStat
         let view_name = c_string(&format!("Color Buffer View {i}"));
         let set = create_attachment(
             ctx,
-            ctx.vg.color_format,
+            vg!(ctx, color_format),
             vk::SampleCountFlags::TYPE_1,
             usage,
             vk::ImageAspectFlags::COLOR,
@@ -691,22 +695,23 @@ pub fn create_color_buffer<E: VidEngine>(ctx: &mut Ctx<'_, E>, vid: &mut VidStat
             &name,
             Some(&view_name),
         );
-        ctx.vg.color_buffers[i] = set.image;
+        *vg_mut!(ctx, color_buffers[i]) = set.image;
         vid.color_buffers_memory[i] = set.memory;
         vid.color_buffers_view[i] = set.view;
     }
 
-    ctx.vg.sample_count = vk::SampleCountFlags::TYPE_1;
-    ctx.vg.supersampling = false;
+    *vg_mut!(ctx, sample_count) = vk::SampleCountFlags::TYPE_1;
+    *vg_mut!(ctx, supersampling) = false;
 
     let fsaa = ctx.engine.vid_fsaa() as i32;
 
+    let color_format = vg!(ctx, color_format);
     // SAFETY: `vid.physical_device` is the device `init_device` selected on
     // this instance.
     let image_format_properties = unsafe {
         vid.instance().get_physical_device_image_format_properties(
             vid.physical_device,
-            ctx.vg.color_format,
+            color_format,
             vk::ImageType::TYPE_2D,
             vk::ImageTiling::OPTIMAL,
             usage,
@@ -719,18 +724,18 @@ pub fn create_color_buffer<E: VidEngine>(ctx: &mut Ctx<'_, E>, vid: &mut VidStat
     let sample_counts = image_format_properties.sample_counts;
     if fsaa >= 16
         && sample_counts.contains(vk::SampleCountFlags::TYPE_16)
-        && ctx.vg.device_properties.vendor_id != 0x8086
+        && vg!(ctx, device_properties.vendor_id) != 0x8086
     {
-        ctx.vg.sample_count = vk::SampleCountFlags::TYPE_16;
+        *vg_mut!(ctx, sample_count) = vk::SampleCountFlags::TYPE_16;
     } else if fsaa >= 8 && sample_counts.contains(vk::SampleCountFlags::TYPE_8) {
-        ctx.vg.sample_count = vk::SampleCountFlags::TYPE_8;
+        *vg_mut!(ctx, sample_count) = vk::SampleCountFlags::TYPE_8;
     } else if fsaa >= 4 && sample_counts.contains(vk::SampleCountFlags::TYPE_4) {
-        ctx.vg.sample_count = vk::SampleCountFlags::TYPE_4;
+        *vg_mut!(ctx, sample_count) = vk::SampleCountFlags::TYPE_4;
     } else if fsaa >= 2 && sample_counts.contains(vk::SampleCountFlags::TYPE_2) {
-        ctx.vg.sample_count = vk::SampleCountFlags::TYPE_2;
+        *vg_mut!(ctx, sample_count) = vk::SampleCountFlags::TYPE_2;
     }
 
-    match ctx.vg.sample_count {
+    match vg!(ctx, sample_count) {
         vk::SampleCountFlags::TYPE_2 => ctx.engine.sys_printf("2 AA Samples\n"),
         vk::SampleCountFlags::TYPE_4 => ctx.engine.sys_printf("4 AA Samples\n"),
         vk::SampleCountFlags::TYPE_8 => ctx.engine.sys_printf("8 AA Samples\n"),
@@ -738,18 +743,18 @@ pub fn create_color_buffer<E: VidEngine>(ctx: &mut Ctx<'_, E>, vid: &mut VidStat
         _ => {}
     }
 
-    if ctx.vg.sample_count != vk::SampleCountFlags::TYPE_1 {
-        ctx.vg.supersampling = ctx.vg.device_features.sample_rate_shading != vk::FALSE
+    if vg!(ctx, sample_count) != vk::SampleCountFlags::TYPE_1 {
+        *vg_mut!(ctx, supersampling) = vg!(ctx, device_features.sample_rate_shading) != vk::FALSE
             && ctx.engine.vid_fsaamode() >= 1.0;
 
-        if ctx.vg.supersampling {
+        if vg!(ctx, supersampling) {
             ctx.engine.sys_printf("Supersampling enabled\n");
         }
 
         vid.msaa_color_buffer = create_attachment(
             ctx,
-            ctx.vg.color_format,
-            ctx.vg.sample_count,
+            vg!(ctx, color_format),
+            vg!(ctx, sample_count),
             vk::ImageUsageFlags::COLOR_ATTACHMENT,
             vk::ImageAspectFlags::COLOR,
             c"MSAA Color Buffer",
@@ -772,7 +777,7 @@ fn create_oit_image<E: VidEngine>(ctx: &Ctx<'_, E>, format: vk::Format, name: &s
     create_attachment(
         ctx,
         format,
-        ctx.vg.sample_count,
+        vg!(ctx, sample_count),
         vk::ImageUsageFlags::COLOR_ATTACHMENT | vk::ImageUsageFlags::INPUT_ATTACHMENT,
         vk::ImageAspectFlags::COLOR,
         &image_name,
@@ -785,19 +790,19 @@ fn create_oit_image<E: VidEngine>(ctx: &Ctx<'_, E>, format: vk::Format, name: &s
 fn create_oit_buffers<E: VidEngine>(ctx: &mut Ctx<'_, E>, vid: &mut VidState) {
     if use_wboit(ctx.engine) {
         let accum = create_oit_image(ctx, vk::Format::R16G16B16A16_SFLOAT, "OIT Accum Buffer");
-        ctx.vg.oit_accum_buffer = accum.image;
+        *vg_mut!(ctx, oit_accum_buffer) = accum.image;
         vid.oit_accum_buffer_memory = accum.memory;
         vid.oit_accum_buffer_view = accum.view;
 
         let reveal = create_oit_image(ctx, vk::Format::R8_UNORM, "OIT Reveal Buffer");
-        ctx.vg.oit_reveal_buffer = reveal.image;
+        *vg_mut!(ctx, oit_reveal_buffer) = reveal.image;
         vid.oit_reveal_buffer_memory = reveal.memory;
         vid.oit_reveal_buffer_view = reveal.view;
     }
 
     if use_mboit(ctx.engine) {
         let b0 = create_oit_image(ctx, vk::Format::R32_SFLOAT, "MBOIT B0 Buffer");
-        ctx.vg.mboit_b0_buffer = b0.image;
+        *vg_mut!(ctx, mboit_b0_buffer) = b0.image;
         vid.mboit_b0_buffer_memory = b0.memory;
         vid.mboit_b0_buffer_view = b0.view;
 
@@ -806,12 +811,12 @@ fn create_oit_buffers<E: VidEngine>(ctx: &mut Ctx<'_, E>, vid: &mut VidState) {
             vk::Format::R32G32B32A32_SFLOAT,
             "MBOIT Moments 0 Buffer",
         );
-        ctx.vg.mboit_moments0_buffer = moments0.image;
+        *vg_mut!(ctx, mboit_moments0_buffer) = moments0.image;
         vid.mboit_moments0_buffer_memory = moments0.memory;
         vid.mboit_moments0_buffer_view = moments0.view;
 
         let color = create_oit_image(ctx, vk::Format::R16G16B16A16_SFLOAT, "MBOIT Color Buffer");
-        ctx.vg.mboit_color_buffer = color.image;
+        *vg_mut!(ctx, mboit_color_buffer) = color.image;
         vid.mboit_color_buffer_memory = color.memory;
         vid.mboit_color_buffer_view = color.view;
     }
@@ -841,50 +846,50 @@ fn destroy_oit_image<E: VidEngine>(
 
 /// `GL_DestroyOITBuffers`.
 fn destroy_oit_buffers<E: VidEngine>(ctx: &mut Ctx<'_, E>, vid: &mut VidState) {
-    let mut accum = ctx.vg.oit_accum_buffer;
+    let mut accum = vg!(ctx, oit_accum_buffer);
     destroy_oit_image(
         ctx,
         &mut vid.oit_accum_buffer_view,
         &mut accum,
         &mut vid.oit_accum_buffer_memory,
     );
-    ctx.vg.oit_accum_buffer = accum;
+    *vg_mut!(ctx, oit_accum_buffer) = accum;
 
-    let mut reveal = ctx.vg.oit_reveal_buffer;
+    let mut reveal = vg!(ctx, oit_reveal_buffer);
     destroy_oit_image(
         ctx,
         &mut vid.oit_reveal_buffer_view,
         &mut reveal,
         &mut vid.oit_reveal_buffer_memory,
     );
-    ctx.vg.oit_reveal_buffer = reveal;
+    *vg_mut!(ctx, oit_reveal_buffer) = reveal;
 
-    let mut b0 = ctx.vg.mboit_b0_buffer;
+    let mut b0 = vg!(ctx, mboit_b0_buffer);
     destroy_oit_image(
         ctx,
         &mut vid.mboit_b0_buffer_view,
         &mut b0,
         &mut vid.mboit_b0_buffer_memory,
     );
-    ctx.vg.mboit_b0_buffer = b0;
+    *vg_mut!(ctx, mboit_b0_buffer) = b0;
 
-    let mut moments0 = ctx.vg.mboit_moments0_buffer;
+    let mut moments0 = vg!(ctx, mboit_moments0_buffer);
     destroy_oit_image(
         ctx,
         &mut vid.mboit_moments0_buffer_view,
         &mut moments0,
         &mut vid.mboit_moments0_buffer_memory,
     );
-    ctx.vg.mboit_moments0_buffer = moments0;
+    *vg_mut!(ctx, mboit_moments0_buffer) = moments0;
 
-    let mut color = ctx.vg.mboit_color_buffer;
+    let mut color = vg!(ctx, mboit_color_buffer);
     destroy_oit_image(
         ctx,
         &mut vid.mboit_color_buffer_view,
         &mut color,
         &mut vid.mboit_color_buffer_memory,
     );
-    ctx.vg.mboit_color_buffer = color;
+    *vg_mut!(ctx, mboit_color_buffer) = color;
 }
 
 /// `GL_UpdateDescriptorSets`: the post-process, OIT-resolve, screen-effects
@@ -900,11 +905,11 @@ pub fn update_descriptor_sets<E: VidEngine>(ctx: &mut Ctx<'_, E>, vid: &mut VidS
         free_descriptor_set(
             ctx,
             vid.postprocess_descriptor_set,
-            &ctx.vg.input_attachment_set_layout,
+            &vg!(ctx, input_attachment_set_layout),
         );
     }
     vid.postprocess_descriptor_set =
-        allocate_descriptor_set(ctx, &ctx.vg.input_attachment_set_layout);
+        allocate_descriptor_set(ctx, &vg!(ctx, input_attachment_set_layout));
 
     let postprocess_image_info = vk::DescriptorImageInfo {
         sampler: vk::Sampler::null(),
@@ -924,22 +929,22 @@ pub fn update_descriptor_sets<E: VidEngine>(ctx: &mut Ctx<'_, E>, vid: &mut VidS
         free_descriptor_set(
             ctx,
             vid.wboit_resolve_descriptor_set,
-            &ctx.vg.oit_input_attachment_set_layout,
+            &vg!(ctx, oit_input_attachment_set_layout),
         );
         vid.wboit_resolve_descriptor_set = vk::DescriptorSet::null();
     }
-    if ctx.vg.mboit_input_attachment_descriptor_set != vk::DescriptorSet::null() {
+    if vg!(ctx, mboit_input_attachment_descriptor_set) != vk::DescriptorSet::null() {
         free_descriptor_set(
             ctx,
-            ctx.vg.mboit_input_attachment_descriptor_set,
-            &ctx.vg.mboit_input_attachment_set_layout,
+            vg!(ctx, mboit_input_attachment_descriptor_set),
+            &vg!(ctx, mboit_input_attachment_set_layout),
         );
-        ctx.vg.mboit_input_attachment_descriptor_set = vk::DescriptorSet::null();
+        *vg_mut!(ctx, mboit_input_attachment_descriptor_set) = vk::DescriptorSet::null();
     }
 
     if use_wboit(ctx.engine) {
         vid.wboit_resolve_descriptor_set =
-            allocate_descriptor_set(ctx, &ctx.vg.oit_input_attachment_set_layout);
+            allocate_descriptor_set(ctx, &vg!(ctx, oit_input_attachment_set_layout));
 
         let image_infos = [
             vk::DescriptorImageInfo {
@@ -970,8 +975,8 @@ pub fn update_descriptor_sets<E: VidEngine>(ctx: &mut Ctx<'_, E>, vid: &mut VidS
         // SAFETY: as above.
         unsafe { ctx.device.update_descriptor_sets(&writes, &[]) };
     } else if use_mboit(ctx.engine) {
-        ctx.vg.mboit_input_attachment_descriptor_set =
-            allocate_descriptor_set(ctx, &ctx.vg.mboit_input_attachment_set_layout);
+        *vg_mut!(ctx, mboit_input_attachment_descriptor_set) =
+            allocate_descriptor_set(ctx, &vg!(ctx, mboit_input_attachment_set_layout));
 
         let image_infos = [
             vk::DescriptorImageInfo {
@@ -990,7 +995,7 @@ pub fn update_descriptor_sets<E: VidEngine>(ctx: &mut Ctx<'_, E>, vid: &mut VidS
                 image_layout: vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
             },
         ];
-        let set = ctx.vg.mboit_input_attachment_descriptor_set;
+        let set = vg!(ctx, mboit_input_attachment_descriptor_set);
         let writes = [
             vk::WriteDescriptorSet::default()
                 .dst_binding(0)
@@ -1015,20 +1020,20 @@ pub fn update_descriptor_sets<E: VidEngine>(ctx: &mut Ctx<'_, E>, vid: &mut VidS
         unsafe { ctx.device.update_descriptor_sets(&writes, &[]) };
     }
 
-    if ctx.vg.screen_effects_desc_set != vk::DescriptorSet::null() {
+    if vg!(ctx, screen_effects_desc_set) != vk::DescriptorSet::null() {
         free_descriptor_set(
             ctx,
-            ctx.vg.screen_effects_desc_set,
-            &ctx.vg.screen_effects_set_layout,
+            vg!(ctx, screen_effects_desc_set),
+            &vg!(ctx, screen_effects_set_layout),
         );
     }
-    ctx.vg.screen_effects_desc_set =
-        allocate_descriptor_set(ctx, &ctx.vg.screen_effects_set_layout);
+    *vg_mut!(ctx, screen_effects_desc_set) =
+        allocate_descriptor_set(ctx, &vg!(ctx, screen_effects_set_layout));
 
     let input_image_info = vk::DescriptorImageInfo {
         image_view: vid.color_buffers_view[1],
         image_layout: vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
-        sampler: ctx.vg.linear_sampler,
+        sampler: vg!(ctx, linear_sampler),
     };
     let output_image_info = vk::DescriptorImageInfo {
         image_view: vid.color_buffers_view[0],
@@ -1043,11 +1048,11 @@ pub fn update_descriptor_sets<E: VidEngine>(ctx: &mut Ctx<'_, E>, vid: &mut VidS
     let blue_noise_image_info = vk::DescriptorImageInfo {
         image_view: ctx.engine.bluenoise_image_view(),
         image_layout: vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
-        sampler: ctx.vg.linear_sampler,
+        sampler: vg!(ctx, linear_sampler),
     };
     let palette_buffer_view = [vid.palette_buffer_view];
 
-    let set = ctx.vg.screen_effects_desc_set;
+    let set = vg!(ctx, screen_effects_desc_set);
     let screen_effects_writes = [
         vk::WriteDescriptorSet::default()
             .dst_binding(0)
@@ -1087,17 +1092,22 @@ pub fn update_descriptor_sets<E: VidEngine>(ctx: &mut Ctx<'_, E>, vid: &mut VidS
     };
 
     #[cfg(feature = "engine-debug")]
-    if ctx.vg.ray_query {
-        if ctx.vg.ray_debug_desc_set != vk::DescriptorSet::null() {
-            free_descriptor_set(ctx, ctx.vg.ray_debug_desc_set, &ctx.vg.ray_debug_set_layout);
+    if vg!(ctx, ray_query) {
+        if vg!(ctx, ray_debug_desc_set) != vk::DescriptorSet::null() {
+            free_descriptor_set(
+                ctx,
+                vg!(ctx, ray_debug_desc_set),
+                &vg!(ctx, ray_debug_set_layout),
+            );
         }
-        ctx.vg.ray_debug_desc_set = allocate_descriptor_set(ctx, &ctx.vg.ray_debug_set_layout);
+        *vg_mut!(ctx, ray_debug_desc_set) =
+            allocate_descriptor_set(ctx, &vg!(ctx, ray_debug_set_layout));
 
         let ray_debug_writes = [vk::WriteDescriptorSet::default()
             .dst_binding(0)
             .dst_array_element(0)
             .descriptor_type(vk::DescriptorType::STORAGE_IMAGE)
-            .dst_set(ctx.vg.ray_debug_desc_set)
+            .dst_set(vg!(ctx, ray_debug_desc_set))
             .image_info(core::slice::from_ref(&output_image_info))];
         // SAFETY: as above.
         unsafe { ctx.device.update_descriptor_sets(&ray_debug_writes, &[]) };
@@ -1157,7 +1167,10 @@ fn create_main_frame_buffers<E: VidEngine>(ctx: &mut Ctx<'_, E>, vid: &mut VidSt
         }
 
         let framebuffer_create_info = vk::FramebufferCreateInfo::default()
-            .render_pass(ctx.vg.main_render_pass[variant][MAIN_RENDER_PASS_STENCIL_CLEAR])
+            .render_pass(vg!(
+                ctx,
+                main_render_pass[variant][MAIN_RENDER_PASS_STENCIL_CLEAR]
+            ))
             .attachments(&attachments[..attachment_count])
             .width(width)
             .height(height)
@@ -1239,14 +1252,12 @@ pub fn create_render_resources<E: VidEngine>(ctx: &mut Ctx<'_, E>, vid: &mut Vid
 fn destroy_main_render_passes<E: VidEngine>(ctx: &mut Ctx<'_, E>) {
     for variant in 0..MAIN_RENDER_PASS_VARIANT_COUNT {
         for stencil in 0..MAIN_RENDER_PASS_STENCIL_COUNT {
-            if ctx.vg.main_render_pass[variant][stencil] != vk::RenderPass::null() {
+            let render_pass = vg!(ctx, main_render_pass[variant][stencil]);
+            if render_pass != vk::RenderPass::null() {
                 // SAFETY: created on `ctx.device`; the device is idle.
-                unsafe {
-                    ctx.device
-                        .destroy_render_pass(ctx.vg.main_render_pass[variant][stencil], None)
-                };
+                unsafe { ctx.device.destroy_render_pass(render_pass, None) };
             }
-            ctx.vg.main_render_pass[variant][stencil] = vk::RenderPass::null();
+            *vg_mut!(ctx, main_render_pass[variant][stencil]) = vk::RenderPass::null();
         }
     }
 
@@ -1269,7 +1280,7 @@ pub fn destroy_render_resources<E: VidEngine>(ctx: &mut Ctx<'_, E>, vid: &mut Vi
         free_descriptor_set(
             ctx,
             vid.postprocess_descriptor_set,
-            &ctx.vg.input_attachment_set_layout,
+            &vg!(ctx, input_attachment_set_layout),
         );
         vid.postprocess_descriptor_set = vk::DescriptorSet::null();
     }
@@ -1277,25 +1288,25 @@ pub fn destroy_render_resources<E: VidEngine>(ctx: &mut Ctx<'_, E>, vid: &mut Vi
         free_descriptor_set(
             ctx,
             vid.wboit_resolve_descriptor_set,
-            &ctx.vg.oit_input_attachment_set_layout,
+            &vg!(ctx, oit_input_attachment_set_layout),
         );
         vid.wboit_resolve_descriptor_set = vk::DescriptorSet::null();
     }
-    if ctx.vg.mboit_input_attachment_descriptor_set != vk::DescriptorSet::null() {
+    if vg!(ctx, mboit_input_attachment_descriptor_set) != vk::DescriptorSet::null() {
         free_descriptor_set(
             ctx,
-            ctx.vg.mboit_input_attachment_descriptor_set,
-            &ctx.vg.mboit_input_attachment_set_layout,
+            vg!(ctx, mboit_input_attachment_descriptor_set),
+            &vg!(ctx, mboit_input_attachment_set_layout),
         );
-        ctx.vg.mboit_input_attachment_descriptor_set = vk::DescriptorSet::null();
+        *vg_mut!(ctx, mboit_input_attachment_descriptor_set) = vk::DescriptorSet::null();
     }
-    if ctx.vg.screen_effects_desc_set != vk::DescriptorSet::null() {
+    if vg!(ctx, screen_effects_desc_set) != vk::DescriptorSet::null() {
         free_descriptor_set(
             ctx,
-            ctx.vg.screen_effects_desc_set,
-            &ctx.vg.screen_effects_set_layout,
+            vg!(ctx, screen_effects_desc_set),
+            &vg!(ctx, screen_effects_set_layout),
         );
-        ctx.vg.screen_effects_desc_set = vk::DescriptorSet::null();
+        *vg_mut!(ctx, screen_effects_desc_set) = vk::DescriptorSet::null();
     }
 
     destroy_main_frame_buffers(ctx, vid);
@@ -1308,14 +1319,14 @@ pub fn destroy_render_resources<E: VidEngine>(ctx: &mut Ctx<'_, E>, vid: &mut Vi
 
     for i in 0..NUM_COLOR_BUFFERS {
         let mut set = ImageSet {
-            image: ctx.vg.color_buffers[i],
+            image: vg!(ctx, color_buffers[i]),
             memory: vid.color_buffers_memory[i],
             view: vid.color_buffers_view[i],
         };
         destroy_attachment(ctx, &mut set);
         vid.color_buffers_view[i] = set.view;
         vid.color_buffers_memory[i] = set.memory;
-        ctx.vg.color_buffers[i] = set.image;
+        *vg_mut!(ctx, color_buffers[i]) = set.image;
     }
 
     destroy_attachment(ctx, &mut vid.depth_buffer);
@@ -1354,9 +1365,10 @@ pub fn destroy_render_resources<E: VidEngine>(ctx: &mut Ctx<'_, E>, vid: &mut Vi
         .procs
         .destroy_swapchain
         .expect("vkDestroySwapchainKHR is loaded with the device");
-    // SAFETY: `vid.swapchain` was created on `ctx.vg.device` by
+    let device = vg!(ctx, device);
+    // SAFETY: `vid.swapchain` was created on `device` by
     // `create_swap_chain`; every image view and semaphore over it is gone.
-    unsafe { destroy_swapchain(ctx.vg.device, vid.swapchain, core::ptr::null()) };
+    unsafe { destroy_swapchain(device, vid.swapchain, core::ptr::null()) };
     vid.swapchain = vk::SwapchainKHR::null();
 
     let ui_render_pass = scbx_mut(ctx.vg, SCBX_GUI as usize, 0).render_pass;

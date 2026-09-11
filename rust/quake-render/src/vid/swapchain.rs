@@ -13,7 +13,7 @@ use super::{
     STRUCTURE_TYPE_SURFACE_CAPABILITIES_PRESENT_WAIT_2_KHR, SWAPCHAIN_CREATE_PRESENT_ID_2_BIT_KHR,
     SWAPCHAIN_CREATE_PRESENT_WAIT_2_BIT_KHR,
 };
-use crate::rmisc::Ctx;
+use crate::rmisc::{vg, vg_mut, Ctx};
 
 /// `GL_CreateSwapChain`; `false` when the surface's current extent disagrees
 /// with `vid.width`/`vid.height` (the caller retries next frame).
@@ -32,8 +32,8 @@ pub fn create_swap_chain<E: VidEngine>(ctx: &mut Ctx<'_, E>, vid: &mut VidState)
     let surface_capabilities: vk::SurfaceCapabilitiesKHR;
 
     #[cfg(windows)]
-    let try_use_exclusive_full_screen = ctx.vg.full_screen_exclusive
-        && ctx.vg.want_full_screen_exclusive
+    let try_use_exclusive_full_screen = vg!(ctx, full_screen_exclusive)
+        && vg!(ctx, want_full_screen_exclusive)
         && engine.has_focus()
         && engine.fullscreen();
     #[cfg(not(windows))]
@@ -107,7 +107,7 @@ pub fn create_swap_chain<E: VidEngine>(ctx: &mut Ctx<'_, E>, vid: &mut VidState)
     }
 
     vid.swapchain_present_wait = false;
-    if ctx.vg.present_wait {
+    if vg!(ctx, present_wait) {
         let mut present_id_2_capabilities = SurfaceCapabilitiesPresentId2KHR {
             s_type: STRUCTURE_TYPE_SURFACE_CAPABILITIES_PRESENT_ID_2_KHR,
             p_next: core::ptr::null_mut(),
@@ -283,16 +283,16 @@ pub fn create_swap_chain<E: VidEngine>(ctx: &mut Ctx<'_, E>, vid: &mut VidState)
             SWAPCHAIN_CREATE_PRESENT_ID_2_BIT_KHR | SWAPCHAIN_CREATE_PRESENT_WAIT_2_BIT_KHR;
     }
 
-    ctx.vg.swap_chain_full_screen_exclusive = false;
-    ctx.vg.swap_chain_full_screen_acquired = false;
+    *vg_mut!(ctx, swap_chain_full_screen_exclusive) = false;
+    *vg_mut!(ctx, swap_chain_full_screen_acquired) = false;
     #[cfg(windows)]
     if use_exclusive_full_screen {
         swapchain_create_info.p_next =
             (&full_screen_exclusive_info as *const vk::SurfaceFullScreenExclusiveInfoEXT).cast();
-        ctx.vg.swap_chain_full_screen_exclusive = true;
+        *vg_mut!(ctx, swap_chain_full_screen_exclusive) = true;
     }
 
-    ctx.vg.swap_chain_format = swap_chain_format;
+    *vg_mut!(ctx, swap_chain_format) = swap_chain_format;
     drop(surface_formats);
 
     debug_assert!(vid.swapchain == vk::SwapchainKHR::null());
@@ -300,12 +300,13 @@ pub fn create_swap_chain<E: VidEngine>(ctx: &mut Ctx<'_, E>, vid: &mut VidState)
         .procs
         .create_swapchain
         .expect("GL_InitDevice loads vkCreateSwapchainKHR");
+    let device = vg!(ctx, device);
     #[cfg_attr(not(windows), allow(unused_mut))] // the retry below is Windows-only
     // SAFETY: `swapchain_create_info` and its (optional) exclusive-mode chain
     // are locals that outlive the call.
     let mut err = unsafe {
         create_swapchain(
-            ctx.vg.device,
+            device,
             &swapchain_create_info,
             core::ptr::null(),
             &mut vid.swapchain,
@@ -315,11 +316,11 @@ pub fn create_swap_chain<E: VidEngine>(ctx: &mut Ctx<'_, E>, vid: &mut VidState)
         #[cfg(windows)]
         if use_exclusive_full_screen {
             swapchain_create_info.p_next = core::ptr::null();
-            ctx.vg.swap_chain_full_screen_exclusive = false;
+            *vg_mut!(ctx, swap_chain_full_screen_exclusive) = false;
             // SAFETY: as above, without the exclusive-mode chain.
             err = unsafe {
                 create_swapchain(
-                    ctx.vg.device,
+                    device,
                     &swapchain_create_info,
                     core::ptr::null(),
                     &mut vid.swapchain,
@@ -343,10 +344,11 @@ pub fn create_swap_chain<E: VidEngine>(ctx: &mut Ctx<'_, E>, vid: &mut VidState)
         .get_swapchain_images
         .expect("GL_InitDevice loads vkGetSwapchainImagesKHR");
     let mut num_swap_chain_images = vid.num_swap_chain_images as u32;
+    let device = vg!(ctx, device);
     // SAFETY: count query with a null array.
     let err = unsafe {
         get_swapchain_images(
-            ctx.vg.device,
+            device,
             vid.swapchain,
             &mut num_swap_chain_images,
             core::ptr::null_mut(),
@@ -359,7 +361,7 @@ pub fn create_swap_chain<E: VidEngine>(ctx: &mut Ctx<'_, E>, vid: &mut VidState)
     // count was just bounded by it; C ignores this result.
     let _ = unsafe {
         get_swapchain_images(
-            ctx.vg.device,
+            device,
             vid.swapchain,
             &mut num_swap_chain_images,
             vid.swapchain_images.as_mut_ptr(),
@@ -368,7 +370,7 @@ pub fn create_swap_chain<E: VidEngine>(ctx: &mut Ctx<'_, E>, vid: &mut VidState)
     vid.num_swap_chain_images = num_swap_chain_images as usize;
 
     let mut image_view_create_info = vk::ImageViewCreateInfo::default()
-        .format(ctx.vg.swap_chain_format)
+        .format(vg!(ctx, swap_chain_format))
         .components(vk::ComponentMapping {
             r: vk::ComponentSwizzle::R,
             g: vk::ComponentSwizzle::G,
