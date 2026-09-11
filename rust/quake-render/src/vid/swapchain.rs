@@ -300,6 +300,7 @@ pub fn create_swap_chain<E: VidEngine>(ctx: &mut Ctx<'_, E>, vid: &mut VidState)
         .procs
         .create_swapchain
         .expect("GL_InitDevice loads vkCreateSwapchainKHR");
+    #[cfg_attr(not(windows), allow(unused_mut))] // the retry below is Windows-only
     // SAFETY: `swapchain_create_info` and its (optional) exclusive-mode chain
     // are locals that outlive the call.
     let mut err = unsafe {
