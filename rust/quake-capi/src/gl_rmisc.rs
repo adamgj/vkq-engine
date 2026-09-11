@@ -81,15 +81,15 @@ pub static total_host_vulkan_allocation_size: AtomicU64 = AtomicU64::new(0);
 
 /// The staging ring (`gl_rmisc.c:506-836`) and the dynamic vertex/index/
 /// uniform/storage rings (`gl_rmisc.c:837-1292`), formerly file statics.
-static STAGING: Staging = Staging::new();
-static DYN: DynBuffers = DynBuffers::new();
+pub(crate) static STAGING: Staging = Staging::new();
+pub(crate) static DYN: DynBuffers = DynBuffers::new();
 
 /// The `ash::Device` dispatch table, loaded through `vkGetDeviceProcAddr`
 /// from the `VkDevice` `gl_vidsdl.c` stores in `vulkan_globals.device`
 /// (created once, never destroyed -- there is no `vkDestroyDevice` path).
-static DEVICE: OnceLock<ash::Device> = OnceLock::new();
+pub(crate) static DEVICE: OnceLock<ash::Device> = OnceLock::new();
 
-fn device() -> &'static ash::Device {
+pub(crate) fn device() -> &'static ash::Device {
     // SAFETY: `vulkan_globals.device` is a plain handle read; C only writes it
     // during `GL_CreateDevice`, before any of these entry points run.
     let handle = unsafe { (*ptr::addr_of!(vulkan_globals)).device };
@@ -119,9 +119,9 @@ fn device() -> &'static ash::Device {
 
 /* ---- Engine seams ---- */
 
-struct CEngine;
+pub(crate) struct CEngine;
 
-fn cstring(s: &str) -> CString {
+pub(crate) fn cstring(s: &str) -> CString {
     CString::new(s.replace('\0', "?")).expect("no interior NUL")
 }
 
@@ -146,9 +146,9 @@ impl Engine for CEngine {
     }
 
     fn set_object_name(&self, handle: u64, object_type: vk::ObjectType, name: &CStr) {
-        // SAFETY: `GL_SetObjectName` (`gl_vidsdl.c`) reads `vulkan_globals.
-        // debug_utils`/`device` and the NUL-terminated `name`.
-        unsafe { g::GL_SetObjectName(handle, object_type.as_raw(), name.as_ptr()) }
+        // SAFETY: `GL_SetObjectName` (`gl_vidsdl.rs`) takes a NUL-terminated
+        // `name`.
+        unsafe { crate::gl_vidsdl::GL_SetObjectName(handle, object_type.as_raw(), name.as_ptr()) }
     }
 
     fn pipeline_created(&self, handle: u64, name: &CStr) {
@@ -163,8 +163,7 @@ impl Engine for CEngine {
     }
 
     fn wait_for_device_idle(&self) {
-        // SAFETY: `GL_WaitForDeviceIdle` (`gl_vidsdl.c`) has no preconditions.
-        unsafe { g::GL_WaitForDeviceIdle() }
+        crate::gl_vidsdl::GL_WaitForDeviceIdle();
     }
 
     fn update_texture_descriptor_sets(&self) {
@@ -453,14 +452,15 @@ impl Engine for CEngine {
 /// Builds the [`Ctx`] over the C-visible globals and runs `f` with it.
 ///
 /// ADR-007 dual view: while `f` runs, `vulkan_globals` is reachable both
-/// through `ctx.vg` and through the exported symbol -- and the C callbacks the
-/// port makes (`GL_WaitForDeviceIdle` writes `device_idle`, `GL_SetObjectName`
-/// reads `device`/`debug_utils`, `TexMgr_UpdateTextureDescriptorSets` reads
+/// through `ctx.vg` and through the exported symbol -- and the callbacks the
+/// port makes (`GL_WaitForDeviceIdle` writes `device_idle` and
+/// `GL_SetObjectName` reads `device`/`debug_utils`, both Rust exports in
+/// `gl_vidsdl.rs` since M6; the C `TexMgr_UpdateTextureDescriptorSets` reads
 /// the samplers) do touch the struct through the latter. All of that is
 /// single-threaded and the fields involved are plain scalars; the
 /// `&mut VulkanGlobals` is a struct field, not a function parameter, so no
 /// `noalias` assumption is made on it. Recorded in the ADR-007 table row.
-fn with_ctx<R>(f: impl FnOnce(&mut Ctx<'_, CEngine>) -> R) -> R {
+pub(crate) fn with_ctx<R>(f: impl FnOnce(&mut Ctx<'_, CEngine>) -> R) -> R {
     let engine = CEngine;
     // SAFETY: see the ADR-007 note above; the pointer is to the exported static.
     let vg = unsafe { &mut *ptr::addr_of_mut!(vulkan_globals) };

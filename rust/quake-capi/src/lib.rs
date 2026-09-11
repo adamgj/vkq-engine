@@ -46,7 +46,9 @@ pub mod gl_heap; // gl_heap.c
 #[cfg(feature = "render")]
 pub mod gl_rmisc; // gl_rmisc.c
 #[cfg(feature = "render")]
-pub mod gl_texmgr; // gl_texmgr.c
+pub mod gl_texmgr;
+#[cfg(feature = "render")]
+pub mod gl_vidsdl; // gl_vidsdl.c (Vulkan half) // gl_texmgr.c
 pub mod hash_map;
 #[cfg(feature = "host")]
 pub mod host; // host.c

@@ -231,6 +231,23 @@ void R_InitGPUBuffers (void);
 void R_SwapDynamicBuffers (void);
 void R_FlushDynamicBuffers (void);
 void R_CollectDynamicBufferGarbage (void);
+/* Phase 8 M6: the Vulkan-free slice of gl_vidsdl.c's glquake.h block
+ * (glquake.h:33-39, 701); GL_SetObjectName (VkObjectType) and
+ * R_CreatePaletteOctreeBuffers (palette.h) are checked by the engine build.
+ * task_handle_t is tasks.h's typedef (this TU has no tasks.h, see above). */
+typedef uint64_t task_handle_t;
+void		  GL_WaitForDeviceIdle (void);
+qboolean	  GL_BeginRendering (qboolean use_tasks, task_handle_t *begin_rendering_task, int *width, int *height);
+qboolean	  GL_AcquireNextSwapChainImage (void);
+task_handle_t GL_EndRendering (qboolean use_tasks, qboolean use_swapchain);
+void		  GL_SynchronizeEndRenderingTask (void);
+void		  GL_UpdateDescriptorSets (void);
+extern task_handle_t prev_end_rendering_task;
+void		  GL_InitInstance (void);
+void		  GL_InitDevice (void);
+void		  GL_InitCommandBuffers (void);
+void		  GL_CreateRenderResources (void);
+void		  GL_DestroyRenderResources (void);
 #include "mathlib.h"
 #include "model_parse.h"
 /* Phase 7 M3: the world/collision seam. world.h needs edict_t from

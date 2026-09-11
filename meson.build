@@ -226,7 +226,6 @@ srcs = [
     'Quake/gl_rmain.c',
     'Quake/gl_screen.c',
     'Quake/gl_sky.c',
-    'Quake/gl_vidsdl.c',
     'Quake/gl_warp.c',
     'Quake/harness.c',
     'Quake/harness_render.c',
@@ -944,6 +943,21 @@ if use_rust_render
     srcs += ['Quake/gl_rmisc_glue.c']
 else
     srcs += ['Quake/gl_rmisc.c']
+endif
+
+# Phase 8 M6: gl_vidsdl.c -> quake-render::vid via quake-capi (Pattern A
+# whole-file swap, ADR-015, ash for the Vulkan calls). The Rust staticlib
+# owns the instance/device/swapchain/present state and prev_end_rendering_task
+# and exports the Vulkan half of glquake.h's gl_vidsdl.c block
+# (GL_BeginRendering / GL_EndRendering / GL_AcquireNextSwapChainImage /
+# GL_WaitForDeviceIdle / GL_SetObjectName / ...). Quake/gl_vidsdl_glue.c
+# keeps the SDL window, mode list, vid_* cvars, video menu, screenshot
+# command and VID_Init / VID_Restart (they Sys_Error / Host_Error, ADR-009)
+# plus the VID_Glue_* accessors the Rust half reads SDL state through.
+if use_rust_render
+    srcs += ['Quake/gl_vidsdl_glue.c']
+else
+    srcs += ['Quake/gl_vidsdl.c']
 endif
 
 if use_rust_snd

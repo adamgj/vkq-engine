@@ -327,7 +327,7 @@ impl TexMgrBackend for EngineBackend {
         let name = cstring(name);
         // SAFETY: `name` is NUL-terminated and outlives the call, which
         // copies it.
-        unsafe { g::GL_SetObjectName(object, object_type.as_raw(), name.as_ptr()) }
+        unsafe { crate::gl_vidsdl::GL_SetObjectName(object, object_type.as_raw(), name.as_ptr()) }
     }
 
     fn memory_type_from_properties(
@@ -344,8 +344,7 @@ impl TexMgrBackend for EngineBackend {
     }
 
     fn wait_for_device_idle(&self) {
-        // SAFETY: no preconditions beyond a live device.
-        unsafe { g::GL_WaitForDeviceIdle() }
+        crate::gl_vidsdl::GL_WaitForDeviceIdle();
     }
 
     fn staging_allocate(&self, size: i32, alignment: i32) -> Staging {
