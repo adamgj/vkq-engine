@@ -4008,6 +4008,8 @@ R_DestroyPipelines
 void R_DestroyPipelines (void)
 {
 	int i;
+	if (harness_renderhash)
+		Harness_RenderPipelinesDestroyed ();
 	for (i = 0; i < RENDER_PASS_INDEX_COUNT; ++i)
 	{
 		vkDestroyPipeline (vulkan_globals.device, vulkan_globals.basic_alphatest_pipeline[i].handle, NULL);

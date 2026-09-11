@@ -216,14 +216,11 @@ typedef struct
 #define BOTTOM_RANGE 96
 #endif
 
-typedef struct
-{
-	int which; /* 0 single_texture, 1 single_texture_cs_write */
-} vulkan_desc_set_layout_t;
-
 /* The vulkan_globals members gl_texmgr.c reads (glquake.h). The prelude's
  * compile-only vulkanglobals_t has none of them, so this TU carries its own
- * and renames the global. */
+ * and renames the global. vulkan_desc_set_layout_t is the prelude's real
+ * copy since M5; num_storage_images tells the two layouts apart in the
+ * trace, as the real single_texture_cs_write layout has one. */
 typedef struct
 {
 	VkDevice device;
@@ -244,7 +241,7 @@ typedef struct
 	vulkan_desc_set_layout_t single_texture_set_layout;
 	vulkan_desc_set_layout_t single_texture_cs_write_set_layout;
 } c_ref_texmgr_globals_t;
-c_ref_texmgr_globals_t c_ref_texmgr_globals = {(VkDevice)0x10, {{4096, 4096}}, VK_FORMAT_R8G8B8A8_UNORM, 0, 0, 0, 0, 0, {0}, {1}};
+c_ref_texmgr_globals_t c_ref_texmgr_globals = {(VkDevice)0x10, {{4096, 4096}}, VK_FORMAT_R8G8B8A8_UNORM, 0, 0, 0, 0, 0, {0}, {.num_storage_images = 1}};
 #define vulkan_globals c_ref_texmgr_globals
 
 /* ---- the process globals gl_texmgr.c touches ---------------------------- */
@@ -508,13 +505,13 @@ static void c_ref_texmgr_GL_WaitForDeviceIdle (void)
 static VkDescriptorSet c_ref_texmgr_R_AllocateDescriptorSet (vulkan_desc_set_layout_t *layout)
 {
 	uint64_t handle = ++next_handle;
-	trace_append ("AllocateDescriptorSet %s -> %llu", layout->which ? "cs_write" : "single", (unsigned long long)handle);
+	trace_append ("AllocateDescriptorSet %s -> %llu", layout->num_storage_images ? "cs_write" : "single", (unsigned long long)handle);
 	return (VkDescriptorSet)(uintptr_t)handle;
 }
 
 static void c_ref_texmgr_R_FreeDescriptorSet (VkDescriptorSet set, vulkan_desc_set_layout_t *layout)
 {
-	trace_append ("FreeDescriptorSet %llu %s", H64 (set), layout->which ? "cs_write" : "single");
+	trace_append ("FreeDescriptorSet %llu %s", H64 (set), layout->num_storage_images ? "cs_write" : "single");
 }
 
 /* A bump arena stands in for the staging ring; the copy the C makes into it

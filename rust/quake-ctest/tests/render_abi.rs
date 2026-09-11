@@ -17,6 +17,15 @@
 //! `textureflags_t` constants, again against the prelude's copy of
 //! `gl_texmgr.h` with the engine-header check in `Quake/gl_texmgr_glue.c`.
 //!
+//! Phase 8 M5 adds the structs the Rust `gl_rmisc.c` hands across the seam
+//! by pointer (`dynbuffer_t`, `vulkan_desc_set_layout_t`,
+//! `buffer_create_info_t`) and the two pipeline structs, against the
+//! prelude's copies of `glquake.h`. `vulkanglobals_t` and `cb_context_t`
+//! are not probed here -- their prelude copies are compile-only cut-downs
+//! (the real shapes need most of `vulkan_core.h`) -- so their only check is
+//! the `COMPILE_TIME_ASSERT` block in `Quake/gl_rmisc_glue.c`, which the
+//! `use_rust_render` build compiles against the real header on every CI leg.
+//!
 //! Name-keyed like the Phase 3/4 probes so this consumer and the C table can't
 //! drift by index; an unknown key returns usize::MAX and fails the assert.
 
@@ -24,7 +33,8 @@ use core::mem::{offset_of, size_of};
 
 use quake_ctest as _;
 use quake_types::render::{
-    GlHeapStats, GlTexture, SrcFormat, VulkanMemory, VulkanMemoryType, TEXPREF_ALPHA,
+    BufferCreateInfo, DynBuffer, GlHeapStats, GlTexture, SrcFormat, VulkanDescSetLayout,
+    VulkanMemory, VulkanMemoryType, VulkanPipeline, VulkanPipelineLayout, TEXPREF_ALPHA,
     TEXPREF_ALPHAPIXELS, TEXPREF_CONCHARS, TEXPREF_FULLBRIGHT, TEXPREF_LINEAR, TEXPREF_MIPMAP,
     TEXPREF_NEAREST, TEXPREF_NOBRIGHT, TEXPREF_NOPICMIP, TEXPREF_OVERWRITE, TEXPREF_PAD,
     TEXPREF_PERSIST, TEXPREF_PREMULTIPLY, TEXPREF_WARPIMAGE,
@@ -182,4 +192,52 @@ fn texture_consts_match_engine_headers() {
     ] {
         assert_eq!(value, c_abi(&format!("const.{name}")), "{name}");
     }
+}
+
+#[test]
+fn rmisc_mirrors_match_engine_headers() {
+    check_size!(DynBuffer, "dynbuffer_t");
+    check_offsets!(
+        DynBuffer,
+        "dynbuffer_t",
+        [buffer, current_offset, data, device_address]
+    );
+    check_size!(VulkanPipelineLayout, "vulkan_pipeline_layout_t");
+    check_offsets!(
+        VulkanPipelineLayout,
+        "vulkan_pipeline_layout_t",
+        [handle, push_constant_range, mboit_input_attachment_set]
+    );
+    check_size!(VulkanPipeline, "vulkan_pipeline_t");
+    check_offsets!(VulkanPipeline, "vulkan_pipeline_t", [handle, layout]);
+    check_size!(VulkanDescSetLayout, "vulkan_desc_set_layout_t");
+    check_offsets!(
+        VulkanDescSetLayout,
+        "vulkan_desc_set_layout_t",
+        [
+            handle,
+            num_combined_image_samplers,
+            num_ubos,
+            num_ubos_dynamic,
+            num_storage_buffers,
+            num_input_attachments,
+            num_storage_images,
+            num_sampled_images,
+            num_acceleration_structures,
+        ]
+    );
+    check_size!(BufferCreateInfo, "buffer_create_info_t");
+    check_offsets!(
+        BufferCreateInfo,
+        "buffer_create_info_t",
+        [buffer, size, alignment, usage, mapped, address, name]
+    );
+    assert_eq!(
+        size_of::<ash::vk::PushConstantRange>(),
+        c_abi("sizeof.VkPushConstantRange")
+    );
+    assert_eq!(
+        size_of::<ash::vk::DescriptorSetLayout>(),
+        c_abi("sizeof.VkDescriptorSetLayout")
+    );
 }

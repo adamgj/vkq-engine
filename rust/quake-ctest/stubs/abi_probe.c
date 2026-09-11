@@ -103,7 +103,7 @@ typedef struct
 	size_t		value;
 } ctest_abi_entry_t;
 
-#define SZ(tag, type)          {"sizeof." tag, sizeof (type)}
+#define SZ(tag, type)		   {"sizeof." tag, sizeof (type)}
 #define OFF(tag, type, member) {tag "." #member, offsetof (type, member)}
 
 static const ctest_abi_entry_t ctest_abi_bsp_table[] = {
@@ -410,7 +410,6 @@ static const ctest_abi_entry_t ctest_abi_alias_table[] = {
 	OFF ("mspriteframedesc_t", mspriteframedesc_t, frameptr),
 };
 
-
 /* Phase 3 M5: the MD3/MD5 half of the same seam -- the on-disk MD3 records,
  * the MD5 in-memory vertex layouts the shim writes through, jointpose_t /
  * aliasmesh_t (handed to GLMesh_UploadBuffers) and the skin-definition block
@@ -532,7 +531,7 @@ size_t ctest_abi_mdx_lookup (const char *key)
 
 /* Phase 4 sound ABI (q_sound.h): the Rust mixer walks channel_t arrays and
  * sfxcache_t blocks C also touches; see tests/snd_abi.rs. */
-#define SZ(tag, type)          {"sizeof." tag, sizeof (type)}
+#define SZ(tag, type)		   {"sizeof." tag, sizeof (type)}
 #define OFF(tag, type, member) {tag "." #member, offsetof (type, member)}
 
 static const ctest_abi_entry_t ctest_abi_snd_table[] = {
@@ -1510,6 +1509,46 @@ static const ctest_abi_entry_t ctest_abi_render_table[] = {
 	{"const.TEXPREF_WARPIMAGE", TEXPREF_WARPIMAGE},
 	{"const.TEXPREF_PREMULTIPLY", TEXPREF_PREMULTIPLY},
 	{"const.TEXPREF_ALPHAPIXELS", TEXPREF_ALPHAPIXELS},
+	/* Phase 8 M5: the structs the Rust gl_rmisc.c hands across the seam by
+	 * pointer (dynbuffer_t through R_AddDynamicBufferGarbage,
+	 * vulkan_desc_set_layout_t through R_Allocate/FreeDescriptorSet,
+	 * buffer_create_info_t through R_CreateBuffers) and the two pipeline
+	 * structs every vulkan_globals member is made of. All from the prelude's
+	 * copies of glquake.h; vulkanglobals_t and cb_context_t themselves are
+	 * engine-header-checked only, by the COMPILE_TIME_ASSERTs in
+	 * Quake/gl_rmisc_glue.c. */
+	SZ ("dynbuffer_t", dynbuffer_t),
+	OFF ("dynbuffer_t", dynbuffer_t, buffer),
+	OFF ("dynbuffer_t", dynbuffer_t, current_offset),
+	OFF ("dynbuffer_t", dynbuffer_t, data),
+	OFF ("dynbuffer_t", dynbuffer_t, device_address),
+	SZ ("vulkan_pipeline_layout_t", vulkan_pipeline_layout_t),
+	OFF ("vulkan_pipeline_layout_t", vulkan_pipeline_layout_t, handle),
+	OFF ("vulkan_pipeline_layout_t", vulkan_pipeline_layout_t, push_constant_range),
+	OFF ("vulkan_pipeline_layout_t", vulkan_pipeline_layout_t, mboit_input_attachment_set),
+	SZ ("vulkan_pipeline_t", vulkan_pipeline_t),
+	OFF ("vulkan_pipeline_t", vulkan_pipeline_t, handle),
+	OFF ("vulkan_pipeline_t", vulkan_pipeline_t, layout),
+	SZ ("vulkan_desc_set_layout_t", vulkan_desc_set_layout_t),
+	OFF ("vulkan_desc_set_layout_t", vulkan_desc_set_layout_t, handle),
+	OFF ("vulkan_desc_set_layout_t", vulkan_desc_set_layout_t, num_combined_image_samplers),
+	OFF ("vulkan_desc_set_layout_t", vulkan_desc_set_layout_t, num_ubos),
+	OFF ("vulkan_desc_set_layout_t", vulkan_desc_set_layout_t, num_ubos_dynamic),
+	OFF ("vulkan_desc_set_layout_t", vulkan_desc_set_layout_t, num_storage_buffers),
+	OFF ("vulkan_desc_set_layout_t", vulkan_desc_set_layout_t, num_input_attachments),
+	OFF ("vulkan_desc_set_layout_t", vulkan_desc_set_layout_t, num_storage_images),
+	OFF ("vulkan_desc_set_layout_t", vulkan_desc_set_layout_t, num_sampled_images),
+	OFF ("vulkan_desc_set_layout_t", vulkan_desc_set_layout_t, num_acceleration_structures),
+	SZ ("buffer_create_info_t", buffer_create_info_t),
+	OFF ("buffer_create_info_t", buffer_create_info_t, buffer),
+	OFF ("buffer_create_info_t", buffer_create_info_t, size),
+	OFF ("buffer_create_info_t", buffer_create_info_t, alignment),
+	OFF ("buffer_create_info_t", buffer_create_info_t, usage),
+	OFF ("buffer_create_info_t", buffer_create_info_t, mapped),
+	OFF ("buffer_create_info_t", buffer_create_info_t, address),
+	OFF ("buffer_create_info_t", buffer_create_info_t, name),
+	SZ ("VkPushConstantRange", VkPushConstantRange),
+	SZ ("VkDescriptorSetLayout", VkDescriptorSetLayout),
 };
 
 size_t ctest_abi_render_lookup (const char *key)

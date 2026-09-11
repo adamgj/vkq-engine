@@ -916,7 +916,6 @@ extern cvar_t		 developer;
 #define snd_waterfx			 c_ref_snd_waterfx
 #define snd_pauselooping	 c_ref_snd_pauselooping
 
-
 #include <limits.h>
 #include "common.h"
 #include "q_thread.h"
@@ -1595,8 +1594,8 @@ typedef struct VkDevice_T		*VkDevice;
  * VK_USE_64_BIT_PTR_DEFINES is 1 (the same condition as the real header),
  * a uint64_t elsewhere. Hand copy, so abi_probe.c's sizeof row measures
  * this typedef, not the SDK's. */
-#if defined(__LP64__) || defined(_WIN64) || (defined(__x86_64__) && !defined(__ILP32__)) || defined(_M_X64) || defined(__ia64) || \
-	defined(_M_IA64) || defined(__aarch64__) || defined(__powerpc64__) || (defined(__riscv) && __riscv_xlen == 64)
+#if defined(__LP64__) || defined(_WIN64) || (defined(__x86_64__) && !defined(__ILP32__)) || defined(_M_X64) || defined(__ia64) || defined(_M_IA64) || \
+	defined(__aarch64__) || defined(__powerpc64__) || (defined(__riscv) && __riscv_xlen == 64)
 typedef struct VkDeviceMemory_T *VkDeviceMemory;
 typedef struct VkImage_T		*VkImage;
 typedef struct VkImageView_T	*VkImageView;
@@ -1849,8 +1848,7 @@ qpic_t *Draw_PicFromWad2 (const char *name, unsigned int texflags, int picflags)
 qpic_t *Draw_GetCachedPic (const char *path);
 qpic_t *Draw_TryCachePic (const char *path, unsigned int texflags, int picflags);
 void	Draw_Pic (cb_context_t *cbx, float x, float y, qpic_t *pic, float alpha, qboolean alpha_blend);
-void	Draw_SubPic (
-	   cb_context_t *cbx, float x, float y, float w, float h, qpic_t *pic, float s1, float t1, float s2, float t2, float *rgb, float alpha);
+void	Draw_SubPic (cb_context_t *cbx, float x, float y, float w, float h, qpic_t *pic, float s1, float t1, float s2, float t2, float *rgb, float alpha);
 extern unsigned int d_8to24table[256];
 
 extern int r_trace_line_cache_counter;
@@ -2392,7 +2390,6 @@ void M_Menu_Main_f (void); /* menu.h:74 */
 
 void S_LocalSound (const char *name); /* q_sound.h:184 */
 
-
 /* ---- Phase 7 M10d seam: the draw.h / menu.h / screen.h declarations sbar.c
  * reaches (task M10d). sbar.c becomes an oracle TU here, composed by
  * stubs/sbar_ref.c rather than listed in build.rs's C_SOURCES; the reason
@@ -2438,7 +2435,6 @@ void Draw_FadeScreen (cb_context_t *cbx);															 /* draw.h:53 */
 
 uint32_t SDL_GetMouseState (int *x, int *y); /* SDL2 SDL_mouse.h */
 
-
 /* ---- Phase 7 M10f-2 (T10.5): the r_part_fte.c oracle's rendering half ----
  *
  * stubs/r_part_fte_ref.c composes Quake/r_part_fte.c the way stubs/r_part_ref.c
@@ -2474,6 +2470,46 @@ typedef struct vulkan_memory_s
 	size_t				 size;
 	vulkan_memory_type_t type;
 } vulkan_memory_t;
+
+/* FAITHFUL: glquake.h:66-73, :164-176 and :892-902 (Phase 8 M5, the structs
+ * the Rust gl_rmisc.c hands across the seam by pointer; probed by
+ * stubs/abi_probe.c). vulkanglobals_t and cb_context_t above stay the
+ * COMPILE-ONLY approximations: their real shapes need most of vulkan_core.h,
+ * and the engine-header check for them is the COMPILE_TIME_ASSERT block in
+ * Quake/gl_rmisc_glue.c. VkDescriptorSetLayout follows the
+ * VK_USE_64_BIT_PTR_DEFINES rule like VkDeviceMemory; VkBufferUsageFlags is
+ * VkFlags. */
+typedef struct VkDescriptorSetLayout_T *VkDescriptorSetLayout;
+typedef VkFlags							VkBufferUsageFlags;
+typedef struct
+{
+	VkBuffer		buffer;
+	uint32_t		current_offset;
+	unsigned char  *data;
+	VkDeviceAddress device_address;
+} dynbuffer_t;
+typedef struct vulkan_desc_set_layout_s
+{
+	VkDescriptorSetLayout handle;
+	int					  num_combined_image_samplers;
+	int					  num_ubos;
+	int					  num_ubos_dynamic;
+	int					  num_storage_buffers;
+	int					  num_input_attachments;
+	int					  num_storage_images;
+	int					  num_sampled_images;
+	int					  num_acceleration_structures;
+} vulkan_desc_set_layout_t;
+typedef struct buffer_create_info_s
+{
+	VkBuffer		  *buffer;
+	size_t			   size;
+	size_t			   alignment;
+	VkBufferUsageFlags usage;
+	void			 **mapped;
+	VkDeviceAddress	  *address;
+	const char		  *name;
+} buffer_create_info_t;
 
 /* glquake.h:885-886, :711 and vulkan_core.h. Doubles in
  * stubs/r_part_fte_ref.c; every one of them aborts. */

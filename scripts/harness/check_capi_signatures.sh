@@ -213,6 +213,24 @@ void		 TexMgr_UpdateTextureDescriptorSets (void);
 #define GLQUAKE_H
 void GLMesh_UploadBuffers (qmodel_t *mod, aliashdr_t *hdr, unsigned short *indexes, byte *vertexes, aliasmesh_t *desc, jointpose_t *joints);
 void GLMesh_DeleteMeshBuffers (aliashdr_t *mainhdr);
+/* Phase 8 M5: the Vulkan-free slice of gl_rmisc.c's glquake.h block
+ * (glquake.h:828-833, 911-924 spell the first six as `()`; the rest of the
+ * M5 ABI needs Vulkan types and is checked by the engine build, where
+ * quake_rs.h's copies meet the real glquake.h). */
+void R_CreateDescriptorPool (void);
+void R_CreateDescriptorSetLayouts (void);
+void R_InitSamplers (void);
+void R_CreatePipelineLayouts (void);
+void R_CreatePipelines (void);
+void R_DestroyPipelines (void);
+void R_InitStagingBuffers (void);
+void R_SubmitStagingBuffers (void);
+void R_StagingBeginCopy (void);
+void R_StagingEndCopy (void);
+void R_InitGPUBuffers (void);
+void R_SwapDynamicBuffers (void);
+void R_FlushDynamicBuffers (void);
+void R_CollectDynamicBufferGarbage (void);
 #include "mathlib.h"
 #include "model_parse.h"
 /* Phase 7 M3: the world/collision seam. world.h needs edict_t from

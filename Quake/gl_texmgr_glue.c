@@ -34,8 +34,9 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 //     frame has returned;
 //   - the stb_image_resize implementation (TexMgr_Downsample), which stays C
 //     for bit-identical resampling;
-//   - accessors into vulkan_globals / qmodel_t / texture_t, which the Rust
-//     side cannot spell until M5 (glquake.h is not a bindgen root).
+//   - accessors into qmodel_t / texture_t, which the Rust side cannot spell
+//     (gl_model.h is not a bindgen root). vulkan_globals itself has been
+//     Rust-owned since M5 (gl_rmisc.rs), so the M4 snapshot accessor is gone.
 #include "quakedef.h"
 #include "gl_heap.h"
 
@@ -104,45 +105,6 @@ extern texture_t *r_notexture_mip, *r_notexture_mip2;
 int	 quake_rs_texmgr_init (void);
 void TexMgr_Rust_Imagelist_f (void);
 void TexMgr_Rust_Imagelist_Completion_f (const char *partial);
-
-// Mirrored by GlueEnv in rust/quake-capi/src/gl_texmgr.rs
-typedef struct texmgr_glue_env_s
-{
-	VkDevice	 device;
-	uint32_t	 max_image_dimension_2d;
-	uint32_t	 max_image_dimension_cube;
-	VkFormat	 color_format;
-	VkSampler	 point_sampler_lod_bias;
-	VkSampler	 linear_sampler_lod_bias;
-	VkSampler	 point_aniso_sampler_lod_bias;
-	VkSampler	 linear_aniso_sampler_lod_bias;
-	VkRenderPass warp_render_pass;
-	void		*single_texture_set_layout;
-	void		*single_texture_cs_write_set_layout;
-} texmgr_glue_env_t;
-
-COMPILE_TIME_ASSERT (texmgr_glue_env_size, TEXMGR_LAYOUT_64 (sizeof (texmgr_glue_env_t) == 3 * sizeof (void *) + 56));
-COMPILE_TIME_ASSERT (texmgr_glue_env_format, sizeof (VkFormat) == sizeof (int));
-
-/*
-================
-TexMgr_Glue_VulkanEnv
-================
-*/
-void TexMgr_Glue_VulkanEnv (texmgr_glue_env_t *out)
-{
-	out->device = vulkan_globals.device;
-	out->max_image_dimension_2d = vulkan_globals.device_properties.limits.maxImageDimension2D;
-	out->max_image_dimension_cube = vulkan_globals.device_properties.limits.maxImageDimensionCube;
-	out->color_format = vulkan_globals.color_format;
-	out->point_sampler_lod_bias = vulkan_globals.point_sampler_lod_bias;
-	out->linear_sampler_lod_bias = vulkan_globals.linear_sampler_lod_bias;
-	out->point_aniso_sampler_lod_bias = vulkan_globals.point_aniso_sampler_lod_bias;
-	out->linear_aniso_sampler_lod_bias = vulkan_globals.linear_aniso_sampler_lod_bias;
-	out->warp_render_pass = vulkan_globals.warp_render_pass;
-	out->single_texture_set_layout = &vulkan_globals.single_texture_set_layout;
-	out->single_texture_cs_write_set_layout = &vulkan_globals.single_texture_cs_write_set_layout;
-}
 
 /*
 ================

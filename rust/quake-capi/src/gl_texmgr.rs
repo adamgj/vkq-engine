@@ -30,7 +30,6 @@
 
 use ash::vk::{self, Handle};
 use core::ffi::{c_char, c_int, c_uint, c_void, CStr};
-use core::mem::size_of;
 use core::ptr;
 use std::ffi::CString;
 use std::sync::{LazyLock, Mutex, MutexGuard, PoisonError};
@@ -41,53 +40,52 @@ use quake_render::texmgr::{
     Cvars, DescLayout, DescriptorWrite, Env, LoadedImage, PaletteRefs, Palettes, SourceRead,
     Staging, TexMgr, TexMgrBackend, TexMgrLock,
 };
-use quake_types::render::{GlHeapStats, GlTexture, SrcFormat, TEXPREF_MIPMAP};
+use quake_types::render::{GlHeapStats, GlTexture, SrcFormat, VulkanDescSetLayout, TEXPREF_MIPMAP};
 
 use crate::gl_heap::CBackend;
 
-/// `texmgr_glue_env_t` (`Quake/gl_texmgr_glue.c`): the `vulkan_globals`
-/// members `gl_texmgr.c` reads, copied out by `TexMgr_Glue_VulkanEnv`
-/// because `vulkan_globals` stays C-owned until M5 and `glquake.h` cannot
-/// be a bindgen root. Non-dispatchable handles are `uint64_t`, `VkDevice`
-/// is a pointer, `VkFormat` is the C enum; the glue asserts the same
-/// layout with `COMPILE_TIME_ASSERT`.
-#[repr(C)]
+/// The `vulkan_globals` members `gl_texmgr.c` reads, snapshotted from the
+/// Rust-owned `vulkan_globals` (`gl_rmisc.rs`, Phase 8 M5; until then the
+/// C glue copied them out through `TexMgr_Glue_VulkanEnv`). `VkDevice` is
+/// kept as the opaque pointer the `vk*` loader entry points take.
 struct GlueEnv {
     device: *mut c_void,
     max_image_dimension_2d: u32,
     max_image_dimension_cube: u32,
-    color_format: c_int,
-    point_sampler_lod_bias: u64,
-    linear_sampler_lod_bias: u64,
-    point_aniso_sampler_lod_bias: u64,
-    linear_aniso_sampler_lod_bias: u64,
-    warp_render_pass: u64,
-    single_texture_set_layout: *mut c_void,
-    single_texture_cs_write_set_layout: *mut c_void,
+    color_format: vk::Format,
+    point_sampler_lod_bias: vk::Sampler,
+    linear_sampler_lod_bias: vk::Sampler,
+    point_aniso_sampler_lod_bias: vk::Sampler,
+    linear_aniso_sampler_lod_bias: vk::Sampler,
+    warp_render_pass: vk::RenderPass,
+    single_texture_set_layout: *mut VulkanDescSetLayout,
+    single_texture_cs_write_set_layout: *mut VulkanDescSetLayout,
 }
-
-#[cfg(target_pointer_width = "64")]
-const _: () = assert!(size_of::<GlueEnv>() == 80);
 
 impl GlueEnv {
     fn fetch() -> Self {
-        let mut out = Self {
-            device: ptr::null_mut(),
-            max_image_dimension_2d: 0,
-            max_image_dimension_cube: 0,
-            color_format: 0,
-            point_sampler_lod_bias: 0,
-            linear_sampler_lod_bias: 0,
-            point_aniso_sampler_lod_bias: 0,
-            linear_aniso_sampler_lod_bias: 0,
-            warp_render_pass: 0,
-            single_texture_set_layout: ptr::null_mut(),
-            single_texture_cs_write_set_layout: ptr::null_mut(),
-        };
-        // SAFETY: the glue fills exactly this struct (layout asserted on
-        // both sides).
-        unsafe { g::TexMgr_Glue_VulkanEnv(ptr::from_mut(&mut out).cast()) };
-        out
+        let vg = ptr::addr_of_mut!(crate::gl_rmisc::vulkan_globals);
+        // SAFETY: plain reads of scalar members of the exported static (ADR-007
+        // dual view: the same reads the C `gl_texmgr.c` made in place), and
+        // the addresses of two of its members, which stay valid for the
+        // program's lifetime.
+        unsafe {
+            Self {
+                device: (*vg).device.as_raw() as usize as *mut c_void,
+                max_image_dimension_2d: (*vg).device_properties.limits.max_image_dimension2_d,
+                max_image_dimension_cube: (*vg).device_properties.limits.max_image_dimension_cube,
+                color_format: (*vg).color_format,
+                point_sampler_lod_bias: (*vg).point_sampler_lod_bias,
+                linear_sampler_lod_bias: (*vg).linear_sampler_lod_bias,
+                point_aniso_sampler_lod_bias: (*vg).point_aniso_sampler_lod_bias,
+                linear_aniso_sampler_lod_bias: (*vg).linear_aniso_sampler_lod_bias,
+                warp_render_pass: (*vg).warp_render_pass,
+                single_texture_set_layout: ptr::addr_of_mut!((*vg).single_texture_set_layout),
+                single_texture_cs_write_set_layout: ptr::addr_of_mut!(
+                    (*vg).single_texture_cs_write_set_layout
+                ),
+            }
+        }
     }
 }
 
@@ -96,11 +94,10 @@ impl GlueEnv {
 /// for staging, descriptor sets and memory types, the file system and image
 /// loader for sources, and the glue for everything `glquake.h`-shaped.
 pub struct EngineBackend {
-    /// One `TexMgr_Glue_VulkanEnv` snapshot per exported entry point. The C
-    /// read `vulkan_globals` in place; the device and samplers only change
+    /// One `vulkan_globals` snapshot per exported entry point. The C read
+    /// `vulkan_globals` in place; the device and samplers only change
     /// between entry points (`vid_restart` on the main thread), so a fetch
-    /// per `TexMgr_*` call keeps each `vk*` call at a field read instead of
-    /// an 80-byte FFI round trip per texture.
+    /// per `TexMgr_*` call keeps each `vk*` call at a field read.
     glue: GlueEnv,
 }
 
@@ -135,7 +132,9 @@ impl TexMgrBackend for EngineBackend {
     }
 
     fn heap_counter(&self) -> *mut c_void {
-        ptr::addr_of_mut!(g::num_vulkan_tex_allocations).cast()
+        ptr::addr_of!(crate::gl_rmisc::num_vulkan_tex_allocations)
+            .cast_mut()
+            .cast()
     }
 
     fn env(&self) -> Env {
@@ -143,12 +142,12 @@ impl TexMgrBackend for EngineBackend {
         Env {
             max_image_dimension_2d: e.max_image_dimension_2d,
             max_image_dimension_cube: e.max_image_dimension_cube,
-            color_format: vk::Format::from_raw(e.color_format),
-            point_sampler_lod_bias: vk::Sampler::from_raw(e.point_sampler_lod_bias),
-            linear_sampler_lod_bias: vk::Sampler::from_raw(e.linear_sampler_lod_bias),
-            point_aniso_sampler_lod_bias: vk::Sampler::from_raw(e.point_aniso_sampler_lod_bias),
-            linear_aniso_sampler_lod_bias: vk::Sampler::from_raw(e.linear_aniso_sampler_lod_bias),
-            warp_render_pass: vk::RenderPass::from_raw(e.warp_render_pass),
+            color_format: e.color_format,
+            point_sampler_lod_bias: e.point_sampler_lod_bias,
+            linear_sampler_lod_bias: e.linear_sampler_lod_bias,
+            point_aniso_sampler_lod_bias: e.point_aniso_sampler_lod_bias,
+            linear_aniso_sampler_lod_bias: e.linear_aniso_sampler_lod_bias,
+            warp_render_pass: e.warp_render_pass,
         }
     }
 
@@ -311,7 +310,7 @@ impl TexMgrBackend for EngineBackend {
             DescLayout::SingleTextureCsWrite => e.single_texture_cs_write_set_layout,
         };
         // SAFETY: `l` points at one of the two `vulkan_globals` layouts.
-        vk::DescriptorSet::from_raw(unsafe { g::R_AllocateDescriptorSet(l) })
+        unsafe { crate::gl_rmisc::R_AllocateDescriptorSet(l) }
     }
 
     fn free_descriptor_set(&self, set: vk::DescriptorSet, layout: DescLayout) {
@@ -321,7 +320,7 @@ impl TexMgrBackend for EngineBackend {
             DescLayout::SingleTextureCsWrite => e.single_texture_cs_write_set_layout,
         };
         // SAFETY: as in `allocate_descriptor_set`; the set is freed once.
-        unsafe { g::R_FreeDescriptorSet(set.as_raw(), l) }
+        unsafe { crate::gl_rmisc::R_FreeDescriptorSet(set, l) }
     }
 
     fn set_object_name(&self, object: u64, object_type: vk::ObjectType, name: &str) {
@@ -337,11 +336,11 @@ impl TexMgrBackend for EngineBackend {
         required: vk::MemoryPropertyFlags,
         preferred: vk::MemoryPropertyFlags,
     ) -> u32 {
-        // SAFETY: a pure lookup over `vulkan_globals.memory_properties`.
-        let index = unsafe {
-            g::GL_MemoryTypeFromProperties(type_bits, required.as_raw(), preferred.as_raw())
-        };
-        index as u32
+        crate::gl_rmisc::GL_MemoryTypeFromProperties(
+            type_bits,
+            required.as_raw(),
+            preferred.as_raw(),
+        ) as u32
     }
 
     fn wait_for_device_idle(&self) {
@@ -350,28 +349,27 @@ impl TexMgrBackend for EngineBackend {
     }
 
     fn staging_allocate(&self, size: i32, alignment: i32) -> Staging {
-        let mut cb: *mut c_void = ptr::null_mut();
-        let mut buffer = 0u64;
+        let mut cb = vk::CommandBuffer::null();
+        let mut buffer = vk::Buffer::null();
         let mut offset = 0 as c_int;
-        // SAFETY: the three out-params are live locals of the C's types.
-        let memory =
-            unsafe { g::R_StagingAllocate(size, alignment, &mut cb, &mut buffer, &mut offset) };
+        // SAFETY: the three out-params are live locals.
+        let memory = unsafe {
+            crate::gl_rmisc::R_StagingAllocate(size, alignment, &mut cb, &mut buffer, &mut offset)
+        };
         Staging {
             memory,
-            command_buffer: vk::CommandBuffer::from_raw(cb as usize as u64),
-            buffer: vk::Buffer::from_raw(buffer),
+            command_buffer: cb,
+            buffer,
             offset,
         }
     }
 
     fn staging_begin_copy(&self) {
-        // SAFETY: pairs with `staging_end_copy`, as in the C.
-        unsafe { g::R_StagingBeginCopy() }
+        crate::gl_rmisc::R_StagingBeginCopy()
     }
 
     fn staging_end_copy(&self) {
-        // SAFETY: pairs with `staging_begin_copy`.
-        unsafe { g::R_StagingEndCopy() }
+        crate::gl_rmisc::R_StagingEndCopy()
     }
 
     fn cmd_pipeline_barrier(

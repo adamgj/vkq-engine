@@ -100,6 +100,9 @@ double Harness_FrameTime (void);
    order-dependent). Needs a window (the headless client never renders);
    forces the fixed timestep so two runs replay the same demo frames.
    Separate from the -demohash chain: it must never feed the state hash.
+   Pipeline creation is chained too (name hashes in creation order, written
+   as a P line on the first frame after the set changed), so a ported
+   pipeline builder is compared before its first draw.
    The instrument lives in harness_render.c so this header and harness.c
    stay Vulkan-free; every hook below is guarded by harness_renderhash. */
 extern qboolean harness_renderhash;
@@ -108,6 +111,7 @@ void Harness_RenderInit (void);			/* from Harness_Init */
 void Harness_RenderShutdown (void);		/* from Harness_Shutdown */
 void Harness_RenderInstallHooks (void); /* end of GL_InitDevice: wraps the vkCmdDraw* pointers */
 void Harness_RenderPipelineCreated (uint64_t handle, const char *name);
+void Harness_RenderPipelinesDestroyed (void); /* start of R_DestroyPipelines */
 void Harness_RenderCull (const struct entity_s *e, qboolean culled);
 void Harness_RenderDrawDone (void); /* SCR_DrawDone: fold and write the frame line */
 
