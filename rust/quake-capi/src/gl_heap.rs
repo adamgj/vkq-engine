@@ -3,8 +3,8 @@
 //! this module adds what C sees: the seven `GL_Heap*` entry points of
 //! `gl_heap.h`, the opaque `glheap_t`/`glheapallocation_t` pointers (a
 //! boxed `Heap`/`Allocation`), and the memory backend that routes segment
-//! and dedicated allocations to the engine's `R_AllocateVulkanMemory`,
-//! `R_FreeVulkanMemory` and `GL_SetObjectName`.
+//! and dedicated allocations to `R_AllocateVulkanMemory`/`R_FreeVulkanMemory`
+//! (Rust since Phase 8 M5, `gl_rmisc.rs`) and the engine's `GL_SetObjectName`.
 //!
 //! `GL_HeapAllocate`'s failure exit is `Sys_Error ("GL_HeapAllocate failed
 //! to allocate")` (`gl_heap.c`), which terminates rather than longjmping, so
@@ -69,10 +69,10 @@ impl DeviceMemoryBackend for CBackend {
         // handed `GL_HeapAllocate`/`GL_HeapCreate`, forwarded untouched
         // exactly as gl_heap.c forwards it.
         unsafe {
-            c::render::R_AllocateVulkanMemory(
-                ptr::from_mut(memory).cast(),
-                ptr::from_mut(&mut info).cast(),
-                memory_type as c_int,
+            crate::gl_rmisc::R_AllocateVulkanMemory(
+                ptr::from_mut(memory),
+                ptr::from_ref(&info),
+                memory_type,
                 counter,
             );
         }
@@ -92,7 +92,7 @@ impl DeviceMemoryBackend for CBackend {
     fn free(&mut self, memory: &mut VulkanMemory, counter: *mut c_void) {
         // SAFETY: as in `allocate`; `memory` was filled by
         // `R_AllocateVulkanMemory` and is freed exactly once.
-        unsafe { c::render::R_FreeVulkanMemory(ptr::from_mut(memory).cast(), counter) }
+        unsafe { crate::gl_rmisc::R_FreeVulkanMemory(ptr::from_mut(memory), counter) }
     }
 }
 

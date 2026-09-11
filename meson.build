@@ -224,7 +224,6 @@ srcs = [
     'Quake/gl_refrag.c',
     'Quake/gl_rlight.c',
     'Quake/gl_rmain.c',
-    'Quake/gl_rmisc.c',
     'Quake/gl_screen.c',
     'Quake/gl_sky.c',
     'Quake/gl_vidsdl.c',
@@ -923,11 +922,28 @@ endif
 # Cvar_RegisterVariable / Cmd_AddCommand Host_Error happens in a C frame.
 # The glue TU also owns the C-visible data (palettes, well-known texture
 # pointers, the two cvars), the stb_image_resize implementation and the
-# vulkan_globals accessor the Rust side reads through until M5.
+# qmodel_t / texture_t accessors the Rust side cannot spell.
 if use_rust_render
     srcs += ['Quake/gl_texmgr_glue.c']
 else
     srcs += ['Quake/gl_texmgr.c']
+endif
+
+# Phase 8 M5: gl_rmisc.c -> quake-render::rmisc via quake-capi (Pattern A
+# whole-file swap, ADR-015). The Rust staticlib owns vulkan_globals and the
+# num_vulkan_* / total_*_vulkan_allocation_size counters (exported under
+# their C names, ADR-007 dual view) and exports the Vulkan half of
+# glquake.h's gl_rmisc.c block: memory, buffers, staging, the dynamic
+# vertex/index/uniform/storage rings, descriptor pools/sets/layouts,
+# samplers, shader modules and every pipeline family. Quake/gl_rmisc_glue.c
+# keeps R_Init and the cvar/command registrations and callbacks (ADR-009:
+# they can Host_Error), the two cvars it defines, use_simd/frame_oit_mode,
+# and the map/game/skin/timerefresh/memstats functions that only call other
+# still-C files.
+if use_rust_render
+    srcs += ['Quake/gl_rmisc_glue.c']
+else
+    srcs += ['Quake/gl_rmisc.c']
 endif
 
 if use_rust_snd

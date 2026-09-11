@@ -66,6 +66,13 @@ static int					 renderhash_frame;
 static qboolean				 renderhash_detail; // -renderhashdetail: per-frame component lines for triage
 static renderhash_pipeline_t renderhash_pipelines[RENDERHASH_MAX_PIPELINES];
 static int					 renderhash_num_pipelines;
+// the pipeline set itself, in creation order (Phase 8 M5, plan RA6): a port
+// that creates a different set, or the same set in another order, differs
+// here before any draw does. Static initializers: pipelines are created
+// before Harness_RenderInit opens the file.
+static uint64_t				 renderhash_pipeline_chain = RENDERHASH_HASH_BASIS;
+static uint32_t				 renderhash_pipeline_count;
+static qboolean				 renderhash_pipelines_dirty;
 
 static PFN_vkCmdDraw				renderhash_orig_draw;
 static PFN_vkCmdDrawIndexed			renderhash_orig_draw_indexed;
@@ -103,18 +110,35 @@ void Harness_RenderShutdown (void)
 
 void Harness_RenderPipelineCreated (uint64_t handle, const char *name)
 {
-	int i;
+	int		 i;
+	uint64_t name_hash;
 
-	if (!harness_renderhash || renderhash_num_pipelines >= RENDERHASH_MAX_PIPELINES)
+	if (!harness_renderhash)
+		return;
+	name_hash = Harness_Hash64 (RENDERHASH_HASH_BASIS, name, strlen (name));
+	renderhash_pipeline_chain = Harness_Hash64 (renderhash_pipeline_chain, &name_hash, sizeof (name_hash));
+	renderhash_pipeline_count++;
+	renderhash_pipelines_dirty = true;
+	if (renderhash_num_pipelines >= RENDERHASH_MAX_PIPELINES)
 		return;
 	// handles are reused across pipeline recreation (vid_restart): replace
 	for (i = 0; i < renderhash_num_pipelines; i++)
 		if (renderhash_pipelines[i].handle == handle)
 			break;
 	renderhash_pipelines[i].handle = handle;
-	renderhash_pipelines[i].name_hash = Harness_Hash64 (RENDERHASH_HASH_BASIS, name, strlen (name));
+	renderhash_pipelines[i].name_hash = name_hash;
 	if (i == renderhash_num_pipelines)
 		renderhash_num_pipelines++;
+}
+
+// R_DestroyPipelines: every pipeline goes at once, so forget the handles
+// rather than keep stale entries the driver may hand out again under a
+// different name (and overflow the table on the second creation)
+void Harness_RenderPipelinesDestroyed (void)
+{
+	if (!harness_renderhash)
+		return;
+	renderhash_num_pipelines = 0;
 }
 
 static uint64_t RenderHash_PipelineName (VkPipeline pipeline)
@@ -282,6 +306,11 @@ void Harness_RenderDrawDone (void)
 	Atomic_StoreUInt32 (&renderhash_ent_count, 0);
 	Atomic_StoreUInt64 (&renderhash_cull_fold, 0);
 	Atomic_StoreUInt32 (&renderhash_cull_count, 0);
+	if (renderhash_pipelines_dirty)
+	{
+		fprintf (renderhash_file, "P %d %u %016" PRIx64 "\n", renderhash_frame, renderhash_pipeline_count, renderhash_pipeline_chain);
+		renderhash_pipelines_dirty = false;
+	}
 	fprintf (renderhash_file, "R %d %016" PRIx64 "\n", renderhash_frame, renderhash_chain);
 	renderhash_frame++;
 }

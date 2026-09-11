@@ -175,6 +175,64 @@ glheapstats_t *TexMgr_GetHeapStats(void);
 #ifdef GLQUAKE_H
 void GLMesh_UploadBuffers(qmodel_t *mod, aliashdr_t *hdr, unsigned short *indexes, byte *vertexes, aliasmesh_t *desc, jointpose_t *joints);
 void GLMesh_DeleteMeshBuffers(aliashdr_t *mainhdr);
+/* Phase 8 M5 -- gl_rmisc.c's Vulkan half (glquake.h declares all of these;
+ * the ones without Vulkan spellings are checked by check_capi_signatures.sh,
+ * the rest against the real glquake.h by every engine TU that includes both
+ * headers, hence the vulkan_core.h guard below) */
+void R_CreateDescriptorPool(void);
+void R_CreateDescriptorSetLayouts(void);
+void R_InitSamplers(void);
+void R_CreatePipelineLayouts(void);
+void R_CreatePipelines(void);
+void R_DestroyPipelines(void);
+void R_InitStagingBuffers(void);
+void R_SubmitStagingBuffers(void);
+void R_StagingBeginCopy(void);
+void R_StagingEndCopy(void);
+void R_InitGPUBuffers(void);
+void R_SwapDynamicBuffers(void);
+void R_FlushDynamicBuffers(void);
+void R_CollectDynamicBufferGarbage(void);
+#endif
+#if defined(GLQUAKE_H) && defined(VULKAN_CORE_H_)
+/* Rust-owned since Phase 8 M5 (ADR-007 dual view): quake_types::render::VulkanGlobals
+ * mirrors vulkanglobals_t, the counters are AtomicU32 / AtomicU64 */
+extern vulkanglobals_t vulkan_globals;
+extern atomic_uint32_t num_vulkan_tex_allocations;
+extern atomic_uint32_t num_vulkan_bmodel_allocations;
+extern atomic_uint32_t num_vulkan_mesh_allocations;
+extern atomic_uint32_t num_vulkan_misc_allocations;
+extern atomic_uint32_t num_vulkan_dynbuf_allocations;
+extern atomic_uint32_t num_vulkan_combined_image_samplers;
+extern atomic_uint32_t num_vulkan_ubos_dynamic;
+extern atomic_uint32_t num_vulkan_ubos;
+extern atomic_uint32_t num_vulkan_storage_buffers;
+extern atomic_uint32_t num_vulkan_input_attachments;
+extern atomic_uint32_t num_vulkan_storage_images;
+extern atomic_uint32_t num_vulkan_sampled_images;
+extern atomic_uint32_t num_acceleration_structures;
+extern atomic_uint64_t total_device_vulkan_allocation_size;
+extern atomic_uint64_t total_host_vulkan_allocation_size;
+int GL_MemoryTypeFromProperties(uint32_t type_bits, VkFlags requirements_mask, VkFlags preferred_mask);
+void R_AllocateVulkanMemory(vulkan_memory_t *memory, VkMemoryAllocateInfo *memory_allocate_info, vulkan_memory_type_t type, atomic_uint32_t *num_allocations);
+void R_FreeVulkanMemory(vulkan_memory_t *memory, atomic_uint32_t *num_allocations);
+void R_CreateBuffer(
+	VkBuffer *buffer, vulkan_memory_t *memory, const size_t size, VkBufferUsageFlags usage, const VkFlags mem_requirements_mask,
+	const VkFlags mem_preferred_mask, atomic_uint32_t *num_allocations, VkDeviceAddress *device_address, const char *name);
+void R_FreeBuffer(const VkBuffer buffer, vulkan_memory_t *memory, atomic_uint32_t *num_allocations);
+size_t R_CreateBuffers(
+	const int num_buffers, buffer_create_info_t *create_infos, vulkan_memory_t *memory, const VkFlags mem_requirements_mask, const VkFlags mem_preferred_mask,
+	atomic_uint32_t *num_allocations, const char *memory_name);
+void R_FreeBuffers(const int num_buffers, VkBuffer *buffers, vulkan_memory_t *memory, atomic_uint32_t *num_allocations);
+VkDescriptorSet R_AllocateDescriptorSet(vulkan_desc_set_layout_t *layout);
+void R_FreeDescriptorSet(VkDescriptorSet desc_set, vulkan_desc_set_layout_t *layout);
+byte *R_StagingAllocate(int size, int alignment, VkCommandBuffer *cb_context, VkBuffer *buffer, int *buffer_offset);
+void R_StagingUploadBuffer(const VkBuffer buffer, const size_t size, const byte *data);
+void R_AddDynamicBufferGarbage(vulkan_memory_t memory, dynbuffer_t *buffers, int num_buffers, VkDescriptorSet *descriptor_sets);
+byte *R_VertexAllocate(int size, VkBuffer *buffer, VkDeviceSize *buffer_offset);
+byte *R_IndexAllocate(int size, VkBuffer *buffer, VkDeviceSize *buffer_offset);
+byte *R_UniformAllocate(int size, VkBuffer *buffer, uint32_t *buffer_offset, VkDescriptorSet *descriptor_set);
+byte *R_StorageAllocate(int size, VkBuffer *buffer, VkDeviceSize *buffer_offset, VkDeviceAddress *device_address);
 #endif
 #endif
 /* the searchpath heads use the engine's searchpath_t typedef (Rust mirror:
@@ -775,4 +833,26 @@ exclude = [
     "TexMgr_Rust_Imagelist_f", "TexMgr_Rust_Imagelist_Completion_f",
     "GlTexture", "SrcFormat", "EngineBackend", "GlueEnv", "TexMgr",
     "Palettes", "PaletteRefs",
+    # Phase 8 M5 -- gl_rmisc.c: declared by hand above under GLQUAKE_H (and
+    # VULKAN_CORE_H_ for the Vulkan spellings); the data is the ADR-007 view
+    "vulkan_globals", "num_vulkan_tex_allocations", "num_vulkan_bmodel_allocations",
+    "num_vulkan_mesh_allocations", "num_vulkan_misc_allocations",
+    "num_vulkan_dynbuf_allocations", "num_vulkan_combined_image_samplers",
+    "num_vulkan_ubos_dynamic", "num_vulkan_ubos", "num_vulkan_storage_buffers",
+    "num_vulkan_input_attachments", "num_vulkan_storage_images",
+    "num_vulkan_sampled_images", "num_acceleration_structures",
+    "total_device_vulkan_allocation_size", "total_host_vulkan_allocation_size",
+    "GL_MemoryTypeFromProperties", "R_CreateDescriptorPool",
+    "R_CreateDescriptorSetLayouts", "R_InitSamplers", "R_CreatePipelineLayouts",
+    "R_CreatePipelines", "R_DestroyPipelines", "R_AllocateVulkanMemory",
+    "R_FreeVulkanMemory", "R_CreateBuffer", "R_FreeBuffer", "R_CreateBuffers",
+    "R_FreeBuffers", "R_AllocateDescriptorSet", "R_FreeDescriptorSet",
+    "R_InitStagingBuffers", "R_SubmitStagingBuffers", "R_StagingAllocate",
+    "R_StagingBeginCopy", "R_StagingEndCopy", "R_StagingUploadBuffer",
+    "R_InitGPUBuffers", "R_AddDynamicBufferGarbage", "R_SwapDynamicBuffers",
+    "R_FlushDynamicBuffers", "R_CollectDynamicBufferGarbage",
+    "R_VertexAllocate", "R_IndexAllocate", "R_UniformAllocate", "R_StorageAllocate",
+    "VulkanGlobals", "VulkanDescSetLayout", "BufferCreateInfo", "DynBuffer",
+    "CbContext", "VulkanPipelineLayout", "VulkanPipeline", "CEngine", "Counters",
+    "Ctx", "DynBuffers", "Staging", "Shader", "ShaderModules",
 ]

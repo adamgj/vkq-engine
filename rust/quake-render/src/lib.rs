@@ -6,4 +6,5 @@
 //! live in `quake-capi`.
 
 pub mod heap;
+pub mod rmisc;
 pub mod texmgr;

@@ -19,3 +19,6 @@ ash = { version = "0.38", default-features = false, features = ["std", "debug"] 
 
 [lints]
 workspace = true
+
+[features]
+engine-debug = ["quake-types/engine-debug"]
