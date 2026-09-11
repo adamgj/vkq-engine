@@ -1,0 +1,167 @@
+//! The `glquake.h` command-buffer inline helpers (`R_BindPipeline`,
+//! `R_PushConstants`, `R_BeginDebugUtilsLabel`, `R_EndDebugUtilsLabel`) over
+//! a [`CbContext`] and the Rust-owned `vulkan_globals` (Phase 8 M6).
+//!
+//! These go through the `vk_cmd_*` entry points `gl_vidsdl.c` loaded into
+//! `vulkan_globals`, not ash's own table, so the C and Rust builds resolve the
+//! same functions (the harness hooks them under `-renderhash`).
+
+use core::ffi::CStr;
+
+use ash::vk;
+use quake_types::render::{CbContext, VulkanPipeline};
+
+use crate::rmisc::{vg, VgPtr};
+
+use crate::vid::RENDER_PASS_INDEX_MBOIT_COMPOSITE;
+
+/// `MAX_PUSH_CONSTANT_SIZE` (`glquake.h`).
+const MAX_PUSH_CONSTANT_SIZE: usize = 128;
+
+/// The `vulkan_globals` entry points and state the helpers read, snapshotted
+/// so a helper can take a `&mut` context that itself lives inside
+/// `vulkan_globals` (`primary_cb_contexts`) without aliasing the struct.
+#[derive(Clone, Copy)]
+pub struct CmdProcs {
+    bind_pipeline: Option<vk::PFN_vkCmdBindPipeline>,
+    push_constants: Option<vk::PFN_vkCmdPushConstants>,
+    bind_descriptor_sets: Option<vk::PFN_vkCmdBindDescriptorSets>,
+    #[cfg(feature = "engine-debug")]
+    begin_debug_utils_label: Option<vk::PFN_vkCmdBeginDebugUtilsLabelEXT>,
+    #[cfg(feature = "engine-debug")]
+    end_debug_utils_label: Option<vk::PFN_vkCmdEndDebugUtilsLabelEXT>,
+    mboit_input_attachment_descriptor_set: vk::DescriptorSet,
+}
+
+impl CmdProcs {
+    pub fn new(vg: VgPtr<'_>) -> Self {
+        struct Holder<'a> {
+            vg: VgPtr<'a>,
+        }
+        let h = Holder { vg };
+        Self {
+            bind_pipeline: vg!(h, vk_cmd_bind_pipeline),
+            push_constants: vg!(h, vk_cmd_push_constants),
+            bind_descriptor_sets: vg!(h, vk_cmd_bind_descriptor_sets),
+            #[cfg(feature = "engine-debug")]
+            begin_debug_utils_label: vg!(h, vk_cmd_begin_debug_utils_label),
+            #[cfg(feature = "engine-debug")]
+            end_debug_utils_label: vg!(h, vk_cmd_end_debug_utils_label),
+            mboit_input_attachment_descriptor_set: vg!(h, mboit_input_attachment_descriptor_set),
+        }
+    }
+}
+
+/// `R_BindPipeline`: binds when the handle changes, zeroes the push-constant
+/// range when its shape changes, and binds the MBOIT input-attachment set for
+/// composite-pass pipelines that take one.
+pub fn bind_pipeline(
+    procs: &CmdProcs,
+    cbx: &mut CbContext,
+    bind_point: vk::PipelineBindPoint,
+    pipeline: VulkanPipeline,
+) {
+    static ZEROES: [u8; MAX_PUSH_CONSTANT_SIZE] = [0; MAX_PUSH_CONSTANT_SIZE];
+    debug_assert!(pipeline.handle != vk::Pipeline::null());
+    if cbx.current_pipeline.handle != pipeline.handle {
+        let bind = procs
+            .bind_pipeline
+            .expect("vkCmdBindPipeline is loaded before any pipeline is bound");
+        // SAFETY: `cbx.cb` is a command buffer in the recording state; `bind`
+        // is the entry point loaded for the device that owns it.
+        unsafe { bind(cbx.cb, bind_point, pipeline.handle) };
+
+        let new_range = pipeline.layout.push_constant_range;
+        let old_range = cbx.current_pipeline.layout.push_constant_range;
+        if new_range.size > 0
+            && (old_range.stage_flags != new_range.stage_flags || old_range.size != new_range.size)
+        {
+            let push = procs
+                .push_constants
+                .expect("vkCmdPushConstants is loaded before any pipeline is bound");
+            // SAFETY: as above; `ZEROES` covers `MAX_PUSH_CONSTANT_SIZE`
+            // bytes, the largest range any layout declares.
+            unsafe {
+                push(
+                    cbx.cb,
+                    pipeline.layout.handle,
+                    new_range.stage_flags,
+                    0,
+                    new_range.size,
+                    ZEROES.as_ptr().cast(),
+                )
+            };
+        }
+
+        cbx.current_pipeline = pipeline;
+
+        if cbx.render_pass_index == RENDER_PASS_INDEX_MBOIT_COMPOSITE
+            && pipeline.layout.mboit_input_attachment_set >= 0
+        {
+            let bind_sets = procs
+                .bind_descriptor_sets
+                .expect("vkCmdBindDescriptorSets is loaded before any pipeline is bound");
+            // SAFETY: as above; the descriptor set is the one `gl_vidsdl.c`
+            // allocated for the MBOIT composite pass.
+            unsafe {
+                bind_sets(
+                    cbx.cb,
+                    bind_point,
+                    pipeline.layout.handle,
+                    pipeline.layout.mboit_input_attachment_set as u32,
+                    1,
+                    &procs.mboit_input_attachment_descriptor_set,
+                    0,
+                    core::ptr::null(),
+                )
+            };
+        }
+    }
+}
+
+/// `R_PushConstants` against the layout of the pipeline currently bound.
+pub fn push_constants(
+    procs: &CmdProcs,
+    cbx: &CbContext,
+    stage_flags: vk::ShaderStageFlags,
+    offset: u32,
+    data: &[u8],
+) {
+    let push = procs
+        .push_constants
+        .expect("vkCmdPushConstants is loaded before any constants are pushed");
+    // SAFETY: `cbx.cb` is recording with `current_pipeline` bound; `data` is
+    // live for the call.
+    unsafe {
+        push(
+            cbx.cb,
+            cbx.current_pipeline.layout.handle,
+            stage_flags,
+            offset,
+            data.len() as u32,
+            data.as_ptr().cast(),
+        )
+    };
+}
+
+/// `R_BeginDebugUtilsLabel` (`_DEBUG` only, and only once
+/// `VK_EXT_debug_utils` is loaded).
+#[allow(unused_variables)]
+pub fn begin_debug_utils_label(procs: &CmdProcs, cbx: &CbContext, name: &CStr) {
+    #[cfg(feature = "engine-debug")]
+    if let Some(begin) = procs.begin_debug_utils_label {
+        let label = vk::DebugUtilsLabelEXT::default().label_name(name);
+        // SAFETY: `cbx.cb` is recording; `label` and `name` outlive the call.
+        unsafe { begin(cbx.cb, &label) };
+    }
+}
+
+/// `R_EndDebugUtilsLabel` (`_DEBUG` only).
+#[allow(unused_variables)]
+pub fn end_debug_utils_label(procs: &CmdProcs, cbx: &CbContext) {
+    #[cfg(feature = "engine-debug")]
+    if let Some(end) = procs.end_debug_utils_label {
+        // SAFETY: `cbx.cb` is recording.
+        unsafe { end(cbx.cb) };
+    }
+}

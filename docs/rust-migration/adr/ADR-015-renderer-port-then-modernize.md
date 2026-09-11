@@ -20,3 +20,8 @@ The renderer is ~44k LOC of hand-tuned Vulkan: classic render passes with subpas
 - The port is a mechanical-as-possible translation of a known-good architecture, minimizing the biggest phase's risk.
 - Rust renderer inherits today's design debts (subpass architecture, manual dispatch) temporarily — by design; each modernization gets its own ADR later with the Rust code as a clean base.
 - SSIM-not-bitexact is the one compat surface with an explicit tolerance; the policy and thresholds live in the harness configuration and this ADR.
+
+## Amended (Phase 8 M6, 2026-09-11)
+
+- **ash coverage gap.** `ash` 0.38 predates `VK_KHR_present_id2`/`VK_KHR_present_wait2`, which `gl_vidsdl.c` uses for `vid_maxframelatency` (`vkWaitForPresent2KHR`, `VkPresentId2KHR` on the present chain). `quake-render::vid` declares the four structures, their `p_next` chain markers and the `PFN_vkWaitForPresent2KHR` type by hand with the `vulkan_core.h` enumerant values and loads the entry point through `vkGetDeviceProcAddr` exactly as C does; everything else (`VK_EXT_full_screen_exclusive`, the ray-query bundle, debug utils, surface/swap-chain) is the binding. No new crate; the hand declarations retire when `ash` catches up (task plan RA8).
+- **Loading path.** Confirmed unchanged: the C glue (`Quake/gl_vidsdl_glue.c`) hands `SDL_Vulkan_GetVkGetInstanceProcAddr` to Rust through `VID_Glue_GetInstanceProcAddr` and `ash::Entry::from_static_fn` wraps it, so the macOS MoltenVK direct link and the SDL2/SDL3 surface creation (ADR-017) are the same code paths as the C build. The SDL calls themselves stay C until Phase 9.

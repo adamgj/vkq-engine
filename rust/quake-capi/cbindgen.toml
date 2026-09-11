@@ -193,8 +193,28 @@ void R_InitGPUBuffers(void);
 void R_SwapDynamicBuffers(void);
 void R_FlushDynamicBuffers(void);
 void R_CollectDynamicBufferGarbage(void);
+/* Phase 8 M6 -- gl_vidsdl.c's Vulkan half (glquake.h declares all of these
+ * too; GL_SetObjectName needs VkObjectType and sits under the guard below) */
+void GL_WaitForDeviceIdle(void);
+qboolean GL_BeginRendering(qboolean use_tasks, task_handle_t *begin_rendering_task, int *width, int *height);
+qboolean GL_AcquireNextSwapChainImage(void);
+task_handle_t GL_EndRendering(qboolean use_tasks, qboolean use_swapchain);
+void GL_SynchronizeEndRenderingTask(void);
+void GL_UpdateDescriptorSets(void);
+extern task_handle_t prev_end_rendering_task;
+/* the entry points gl_vidsdl_glue.c's VID_Init / VID_Restart call (static in
+ * gl_vidsdl.c, so only the glue TU sees them) */
+void GL_InitInstance(void);
+void GL_InitDevice(void);
+void GL_InitCommandBuffers(void);
+void GL_CreateRenderResources(void);
+void GL_DestroyRenderResources(void);
+#endif
+#if defined(GLQUAKE_H) && defined(_PALETTE_H)
+void R_CreatePaletteOctreeBuffers(uint32_t *colors, int num_colors, palette_octree_node_t *nodes, int num_nodes);
 #endif
 #if defined(GLQUAKE_H) && defined(VULKAN_CORE_H_)
+void GL_SetObjectName(uint64_t object, VkObjectType object_type, const char *name);
 /* Rust-owned since Phase 8 M5 (ADR-007 dual view): quake_types::render::VulkanGlobals
  * mirrors vulkanglobals_t, the counters are AtomicU32 / AtomicU64 */
 extern vulkanglobals_t vulkan_globals;
@@ -855,4 +875,14 @@ exclude = [
     "VulkanGlobals", "VulkanDescSetLayout", "BufferCreateInfo", "DynBuffer",
     "CbContext", "VulkanPipelineLayout", "VulkanPipeline", "CEngine", "Counters",
     "Ctx", "DynBuffers", "Staging", "Shader", "ShaderModules",
+    # Phase 8 M6 -- gl_vidsdl.c: declared by hand above under GLQUAKE_H
+    # (task_handle_t / qboolean / VkObjectType / palette_octree_node_t
+    # spellings); prev_end_rendering_task is data glquake.h declares
+    "GL_SetObjectName", "GL_WaitForDeviceIdle", "GL_BeginRendering",
+    "GL_AcquireNextSwapChainImage", "GL_EndRendering",
+    "GL_SynchronizeEndRenderingTask", "GL_UpdateDescriptorSets",
+    "prev_end_rendering_task", "GL_InitInstance", "GL_InitDevice",
+    "GL_InitCommandBuffers", "GL_CreateRenderResources",
+    "GL_DestroyRenderResources", "R_CreatePaletteOctreeBuffers",
+    "VidState", "VidEngine", "Procs", "EndRenderingParms",
 ]

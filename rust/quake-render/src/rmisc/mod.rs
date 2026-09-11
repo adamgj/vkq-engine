@@ -41,6 +41,8 @@ macro_rules! vg_mut {
     };
 }
 
+pub(crate) use {vg, vg_mut};
+
 pub mod descriptors;
 pub mod dynbuf;
 pub mod memory;

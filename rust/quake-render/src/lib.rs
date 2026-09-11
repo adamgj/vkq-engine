@@ -5,6 +5,8 @@
 //! suballocator; M4 lands [`texmgr`], the texture manager; the C ABI shims
 //! live in `quake-capi`.
 
+pub mod cb;
 pub mod heap;
 pub mod rmisc;
 pub mod texmgr;
+pub mod vid;

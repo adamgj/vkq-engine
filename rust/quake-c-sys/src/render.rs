@@ -1,6 +1,6 @@
 //! Hand-written externs for the renderer seams the Rust `gl_heap`,
-//! `gl_texmgr` and `gl_rmisc` call (Rust migration Phase 8 M3/M4/M5,
-//! ADR-015). `glquake.h`, `gl_heap.h` and `gl_texmgr.h` are not bindgen roots
+//! `gl_texmgr`, `gl_rmisc` and `gl_vidsdl` call (Rust migration Phase 8
+//! M3/M4/M5/M6, ADR-015). `glquake.h`, `gl_heap.h` and `gl_texmgr.h` are not bindgen roots
 //! (`bindings_wrapper.h`): all three pull `<vulkan/vulkan_core.h>` in, so the
 //! C callees are declared here by hand. The pointer parameters are typed on
 //! the Rust side by the caller (`quake-capi`'s `gl_heap.rs`/`gl_texmgr.rs`/
@@ -15,19 +15,13 @@ use core::ffi::{c_char, c_int, c_uint, c_void};
 use crate::cvar_t;
 
 extern "C" {
-    /// `glquake.h:933` -- `void GL_SetObjectName (uint64_t object,
-    /// VkObjectType object_type, const char *name)` (`gl_vidsdl.c`).
-    /// `object_type` is the Vulkan enum (`int`).
-    pub fn GL_SetObjectName(object: u64, object_type: c_int, name: *const c_char);
-
-    /* Phase 8 M4: gl_texmgr.c's seams into the still-C renderer */
-
-    /// `glquake.h:33` -- `void GL_WaitForDeviceIdle (void)` (`gl_vidsdl.c`).
-    pub fn GL_WaitForDeviceIdle();
     /// `glquake.h:543` -- `extern qboolean in_update_screen;` (`gl_screen.c`).
     pub static mut in_update_screen: bool;
     /// `gl_rmain.c:88` -- `cvar_t gl_fullbrights`.
     pub static mut gl_fullbrights: cvar_t;
+
+    /* Phase 8 M4: gl_texmgr.c's seams into the still-C renderer */
+
     /// `image.h:29` -- `byte *Image_LoadImage (const char *name, int *width,
     /// int *height, enum srcformat *fmt, unsigned int min_path_id)`.
     pub fn Image_LoadImage(
@@ -220,6 +214,76 @@ extern "C" {
     pub static skinning_comp_spv_size: c_int;
     pub static skinning_8_comp_spv: [u8; 0];
     pub static skinning_8_comp_spv_size: c_int;
+
+    /* Phase 8 M6: gl_vidsdl.c's seams into the C that remains */
+
+    /// `glquake.h:34` -- `void VID_Restart (qboolean set_mode)`
+    /// (`gl_vidsdl_glue.c`).
+    pub fn VID_Restart(set_mode: bool);
+    /// `harness.h:112` -- `void Harness_RenderInstallHooks (void)`.
+    pub fn Harness_RenderInstallHooks();
+    /// `glquake.h:809` -- `qboolean Sky_NeedStencil ()` (`gl_sky.c`).
+    pub fn Sky_NeedStencil() -> bool;
+    /// `draw.h:63` -- `void GL_Viewport (cb_context_t *cbx, float x, float y,
+    /// float width, float height, float min_depth, float max_depth)`
+    /// (`gl_draw.c`).
+    pub fn GL_Viewport(
+        cbx: *mut c_void,
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+        min_depth: f32,
+        max_depth: f32,
+    );
+    /// `glquake.h:925` -- `void R_CollectMeshBufferGarbage (void)`
+    /// (`gl_mesh.c`).
+    pub fn R_CollectMeshBufferGarbage();
+    /// `glquake.h:788` -- `void R_CollectTLASGarbage (void)` (`r_brush.c`).
+    pub fn R_CollectTLASGarbage();
+    /// `glquake.h:275` -- `extern oit_mode_t frame_oit_mode;`
+    /// (`gl_rmisc_glue.c`); the enum crosses as `int`.
+    pub static mut frame_oit_mode: c_int;
+    /// `r_brush.c:101` -- `VkAccelerationStructureKHR bmodel_tlas`.
+    pub static mut bmodel_tlas: u64;
+    /// `gl_rmain.c:39-40` -- `uint32_t rs_gputime_us`, `rs_gpuwaitaccum_us`.
+    pub static mut rs_gputime_us: u32;
+    pub static mut rs_gpuwaitaccum_us: u32;
+    /// `gl_rmain.c:80` -- `cvar_t gl_polyblend`.
+    pub static mut gl_polyblend: cvar_t;
+    /// `Quake/gl_vidsdl_glue.c` -- `cvar_t vid_vsync`, `vid_maxframelatency`,
+    /// `r_usesops`, and (`_DEBUG` builds only) `r_raydebug`.
+    pub static mut vid_vsync: cvar_t;
+    pub static mut vid_maxframelatency: cvar_t;
+    pub static mut r_usesops: cvar_t;
+    pub static mut r_raydebug: cvar_t;
+
+    /* Quake/gl_vidsdl_glue.c -- the SDL/window half of gl_vidsdl.c */
+
+    /// `SDL_Vulkan_GetVkGetInstanceProcAddr ()` as a `PFN_vkGetInstanceProcAddr`.
+    pub fn VID_Glue_GetInstanceProcAddr() -> *const c_void;
+    /// `SDL_Vulkan_GetInstanceExtensions` for the window: `count` names,
+    /// valid until the next call (`Sys_Error` on failure, like C).
+    pub fn VID_Glue_InstanceExtensions(count: *mut c_uint) -> *const *const c_char;
+    /// `SDL_Vulkan_CreateSurface` for the window (`Sys_Error` on failure).
+    pub fn VID_Glue_CreateSurface(instance: *mut c_void) -> u64;
+    /// `MonitorFromWindow (hwnd, MONITOR_DEFAULTTOPRIMARY)` (`_WIN32` only).
+    pub fn VID_Glue_WindowMonitor() -> *mut c_void;
+    /// The `has_focus` static.
+    pub fn VID_Glue_HasFocus() -> bool;
+    /// `VID_GetFullscreen ()`.
+    pub fn VID_Glue_GetFullscreen() -> bool;
+    /// Returns and clears `take_screenshot` (set by `SCR_ScreenShot_f`).
+    pub fn VID_Glue_TakeScreenshot() -> bool;
+    /// The Steam/`Image_Write*`/console half of `WriteScreenshot` over the
+    /// RGBA8 `pixels` (`width * height * 4` bytes).
+    pub fn VID_Glue_WriteScreenshot(pixels: *const u8, width: c_int, height: c_int);
+    /// `cl.time`.
+    pub fn VID_Glue_ClTime() -> f64;
+    /// `r_refdef.vieworg` into `out[0..3]`.
+    pub fn VID_Glue_ViewOrg(out: *mut f32);
+    /// `sv.active && cls.signon < 1` (`GL_CreateRenderResources` early out).
+    pub fn VID_Glue_SkipRenderResources() -> bool;
 }
 
 // The Vulkan loader entry points gl_texmgr.c and gl_rmisc.c call directly; the engine

@@ -80,7 +80,7 @@ impl DeviceMemoryBackend for CBackend {
             // SAFETY: `name` is the caller's string literal (see the struct
             // doc) and the object type is `VK_OBJECT_TYPE_DEVICE_MEMORY`.
             unsafe {
-                c::render::GL_SetObjectName(
+                crate::gl_vidsdl::GL_SetObjectName(
                     memory.handle.as_raw(),
                     ash::vk::ObjectType::DEVICE_MEMORY.as_raw(),
                     self.name,
