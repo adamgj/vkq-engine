@@ -7,8 +7,18 @@
 //! modelled explicitly: `held` is the logical `staging_mutex`, the `Mutex`
 //! only guards the bookkeeping, and the `Condvar` carries both the "mutex
 //! released" and the "copy finished" wakeups.
+//!
+//! Invariant: the logical lock is not re-entrant. SDL's `QMutex` is
+//! recursive, so in C a thread could nest `R_StagingAllocate` or
+//! `R_SubmitStagingBuffers` between its own `R_StagingAllocate` and
+//! `R_StagingBeginCopy`; no caller does (checked across `gl_texmgr`,
+//! `r_brush.c`, `gl_vidsdl.c`, `r_part*.c` and the fan index upload), and
+//! here such a nesting panics in [`Staging::acquire`] rather than hanging on
+//! the condition variable. Keep it that way when porting further callers.
 
+use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::sync::{Condvar, Mutex, MutexGuard};
+use std::thread::ThreadId;
 
 use ash::vk;
 use quake_types::render::{VulkanMemory, VulkanMemoryType};
@@ -17,6 +27,32 @@ use super::memory::{allocate_vulkan_memory, free_vulkan_memory};
 use super::{q_align, Ctx, Engine};
 
 pub const NUM_STAGING_BUFFERS: usize = 2;
+
+/// `vulkan_globals.staging_buffer_size`, read and written from whichever
+/// thread holds the logical staging lock (`R_StagingAllocate` grows it on a
+/// task worker) and read lock-free by `R_StagingUploadBuffer`; the Rust side
+/// keeps every access atomic (same 4-byte layout as the C `int`) so no two
+/// threads race on it in Rust terms, whatever the C side does until M6.
+fn staging_buffer_size<E: Engine>(ctx: &Ctx<'_, E>) -> i32 {
+    // SAFETY: `staging_buffer_size` is a live, 4-byte-aligned `c_int` slot of
+    // the struct behind `VgPtr`; `AtomicI32` has the same layout.
+    unsafe {
+        AtomicI32::from_ptr(core::ptr::addr_of_mut!(
+            (*ctx.vg.as_ptr()).staging_buffer_size
+        ))
+    }
+    .load(Ordering::Relaxed)
+}
+
+fn set_staging_buffer_size<E: Engine>(ctx: &Ctx<'_, E>, size: i32) {
+    // SAFETY: as [`staging_buffer_size`].
+    unsafe {
+        AtomicI32::from_ptr(core::ptr::addr_of_mut!(
+            (*ctx.vg.as_ptr()).staging_buffer_size
+        ))
+    }
+    .store(size, Ordering::Relaxed);
+}
 
 /// A host pointer into the mapped staging memory. The memory is owned by
 /// the Vulkan device, the pointer is only ever dereferenced by the C/Rust
@@ -54,6 +90,8 @@ impl StagingBuffer {
 struct Shared {
     /// The logical `staging_mutex`.
     held: bool,
+    /// The thread holding it, to diagnose a same-thread re-entry.
+    owner: Option<ThreadId>,
     num_stagings_in_flight: u32,
     command_pool: vk::CommandPool,
     memory: VulkanMemory,
@@ -87,6 +125,7 @@ impl Staging {
         Staging {
             shared: Mutex::new(Shared {
                 held: false,
+                owner: None,
                 num_stagings_in_flight: 0,
                 command_pool: vk::CommandPool::null(),
                 memory: VulkanMemory {
@@ -110,7 +149,12 @@ impl Staging {
     /// `QMutex_Lock (staging_mutex)`: wait for the logical lock, take it, and
     /// return the bookkeeping guard.
     fn acquire(&self) -> MutexGuard<'_, Shared> {
+        let me = std::thread::current().id();
         let mut g = self.guard();
+        assert!(
+            g.owner != Some(me),
+            "staging lock re-entered on the same thread (nested R_StagingAllocate/R_SubmitStagingBuffers before R_StagingBeginCopy)"
+        );
         while g.held {
             g = self
                 .cond
@@ -118,12 +162,14 @@ impl Staging {
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
         }
         g.held = true;
+        g.owner = Some(me);
         g
     }
 
     /// `QMutex_Unlock (staging_mutex)`.
     fn release(&self, mut g: MutexGuard<'_, Shared>) {
         g.held = false;
+        g.owner = None;
         drop(g);
         self.cond.notify_all();
     }
@@ -132,7 +178,9 @@ impl Staging {
     /// staging_mutex)`, with the logical lock held on entry and exit.
     fn wait_no_copies<'g>(&'g self, mut g: MutexGuard<'g, Shared>) -> MutexGuard<'g, Shared> {
         while g.num_stagings_in_flight > 0 {
+            let me = g.owner;
             g.held = false;
+            g.owner = None;
             self.cond.notify_all();
             g = self
                 .cond
@@ -145,13 +193,14 @@ impl Staging {
                     .unwrap_or_else(|poisoned| poisoned.into_inner());
             }
             g.held = true;
+            g.owner = me;
         }
         g
     }
 
     /// `R_CreateStagingBuffers`.
     fn create_buffers<E: Engine>(&self, ctx: &mut Ctx<'_, E>, s: &mut Shared) {
-        let size = ctx.vg.staging_buffer_size as u64;
+        let size = staging_buffer_size(ctx) as u64;
         let info = vk::BufferCreateInfo::default()
             .size(size)
             .usage(vk::BufferUsageFlags::TRANSFER_SRC);
@@ -171,7 +220,10 @@ impl Staging {
             ctx.device
                 .get_buffer_memory_requirements(s.buffers[0].buffer)
         };
-        let aligned_size = q_align(size, requirements.alignment);
+        // `gl_rmisc.c:527` aligns the *reported* size: a driver may require
+        // more than the requested `size`, and the second buffer's bind
+        // offset must still lie inside the allocation.
+        let aligned_size = q_align(requirements.size, requirements.alignment);
         let memory_type_index = ctx.memory_type_from_properties(
             requirements.memory_type_bits,
             vk::MemoryPropertyFlags::HOST_VISIBLE,
@@ -234,7 +286,7 @@ impl Staging {
 
         let pool_info = vk::CommandPoolCreateInfo::default()
             .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER)
-            .queue_family_index(ctx.vg.gfx_queue_family_index);
+            .queue_family_index(vg!(ctx, gfx_queue_family_index));
         // SAFETY: `pool_info` is complete.
         s.command_pool = match unsafe { ctx.device.create_command_pool(&pool_info, None) } {
             Ok(pool) => pool,
@@ -279,6 +331,12 @@ impl Staging {
         let s = &mut *g;
         let sb = s.buffers[index];
 
+        // Divergence from C (`gl_rmisc.c:648-670`), deliberate: the C ignores
+        // the results of vkEndCommandBuffer, vkFlushMappedMemoryRanges and
+        // vkQueueSubmit and only fails later in vkWaitForFences; this port
+        // `Sys_Error`s at the failing call, so on e.g. VK_ERROR_DEVICE_LOST
+        // the two builds exit at different points with different messages.
+        // Do not "fix" either side to match.
         let memory_barrier = vk::MemoryBarrier::default()
             .src_access_mask(vk::AccessFlags::TRANSFER_WRITE)
             .dst_access_mask(vk::AccessFlags::MEMORY_READ | vk::AccessFlags::MEMORY_WRITE);
@@ -311,12 +369,10 @@ impl Staging {
 
         let command_buffers = [sb.command_buffer];
         let submit_info = vk::SubmitInfo::default().command_buffers(&command_buffers);
+        let queue = vg!(ctx, queue);
         // SAFETY: the command buffer is ended, the fence is unsignalled
-        // (reset by `flush_command_buffer`), and `vg.queue` is the graphics queue.
-        if let Err(err) = unsafe {
-            ctx.device
-                .queue_submit(ctx.vg.queue, &[submit_info], sb.fence)
-        } {
+        // (reset by `flush_command_buffer`), and `queue` is the graphics queue.
+        if let Err(err) = unsafe { ctx.device.queue_submit(queue, &[submit_info], sb.fence) } {
             ctx.vk_fail("vkQueueSubmit", err);
         }
 
@@ -376,9 +432,17 @@ impl Staging {
     ) -> StagingAllocation {
         let mut g = self.acquire();
         g = self.wait_no_copies(g);
-        ctx.vg.device_idle = false;
+        // COMPAT (ADR-004, ADR-007): the C stores this flag unsynchronised
+        // from worker threads while `GL_WaitForDeviceIdle` reads and writes
+        // it on the main thread; the Rust side keeps the store atomic (same
+        // 1-byte layout as the C `_Bool`) so it is not a Rust-level data
+        // race. The C side's unsynchronised access retires with M6.
+        // SAFETY: `device_idle` is a live, 1-byte, initialised `bool` slot of
+        // the struct behind `VgPtr`; `AtomicBool` has the same layout.
+        unsafe { AtomicBool::from_ptr(core::ptr::addr_of_mut!((*ctx.vg.as_ptr()).device_idle)) }
+            .store(false, Ordering::Relaxed);
 
-        if size > ctx.vg.staging_buffer_size {
+        if size > staging_buffer_size(ctx) {
             // `R_SubmitStagingBuffers` re-takes the lock in C; here the lock is
             // already ours, so submit in place.
             for i in 0..NUM_STAGING_BUFFERS {
@@ -390,7 +454,7 @@ impl Staging {
             for i in 0..NUM_STAGING_BUFFERS {
                 Self::flush_command_buffer(ctx, &mut g.buffers[i]);
             }
-            ctx.vg.staging_buffer_size = size;
+            set_staging_buffer_size(ctx, size);
             self.destroy_buffers(ctx, &mut g);
             self.create_buffers(ctx, &mut g);
         }
@@ -403,7 +467,7 @@ impl Staging {
         g.buffers[current].current_offset =
             q_align(g.buffers[current].current_offset as u64, alignment as u64) as i32;
         let sb = g.buffers[current];
-        if (sb.current_offset + size) >= ctx.vg.staging_buffer_size && !sb.submitted {
+        if (sb.current_offset + size) >= staging_buffer_size(ctx) && !sb.submitted {
             g = self.submit_buffer(ctx, g, current);
         }
 
@@ -442,7 +506,7 @@ impl Staging {
         let mut remaining = data.len();
         let mut copy_offset = 0usize;
         while remaining > 0 {
-            let size = remaining.min(ctx.vg.staging_buffer_size as usize);
+            let size = remaining.min(staging_buffer_size(ctx) as usize);
             let staging = self.allocate(ctx, size as i32, 1);
             let region = vk::BufferCopy::default()
                 .src_offset(staging.buffer_offset as u64)

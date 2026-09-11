@@ -15,9 +15,9 @@ use core::ptr;
 use ash::vk;
 use quake_types::model_mem::{Md5Vert, Md5Vert8};
 use quake_types::render::{
-    VulkanGlobals, VulkanPipeline, VulkanPipelineLayout, FTE_PARTICLE_PIPELINE_COUNT,
-    MAIN_RENDER_PASS_VARIANT_COUNT, MODEL_PIPELINE_COUNT, RENDER_PASS_INDEX_COUNT,
-    WORLD_PIPELINE_COUNT,
+    MeshInterpolatePushConstants, SkinningPushConstants, VulkanGlobals, VulkanPipeline,
+    VulkanPipelineLayout, FTE_PARTICLE_PIPELINE_COUNT, MAIN_RENDER_PASS_VARIANT_COUNT,
+    MODEL_PIPELINE_COUNT, RENDER_PASS_INDEX_COUNT, WORLD_PIPELINE_COUNT,
 };
 
 use super::memory::c_string;
@@ -309,10 +309,13 @@ pub fn fte_particle_blend(mode: usize) -> BlendState {
 
 /// `pipeline_create_infos_t`.
 #[derive(Clone, Copy)]
-pub struct PipelineInfos {
+pub struct PipelineInfos<'a> {
     dynamic_states: [vk::DynamicState; 3],
     dynamic_state: vk::PipelineDynamicStateCreateInfo<'static>,
-    shader_stages: [vk::PipelineShaderStageCreateInfo<'static>; 2],
+    /// `'a` is the lifetime of the fragment `SpecializationInfo` aimed at
+    /// by [`set_fragment_spec`]; the borrow checker keeps a copy from
+    /// outliving it.
+    shader_stages: [vk::PipelineShaderStageCreateInfo<'a>; 2],
     vertex_input: vk::PipelineVertexInputStateCreateInfo<'static>,
     input_assembly: vk::PipelineInputAssemblyStateCreateInfo<'static>,
     viewport: vk::PipelineViewportStateCreateInfo<'static>,
@@ -321,7 +324,7 @@ pub struct PipelineInfos {
     depth_stencil: vk::PipelineDepthStencilStateCreateInfo<'static>,
     blend_attachments: [BlendState; 3],
     color_blend: vk::PipelineColorBlendStateCreateInfo<'static>,
-    graphics: vk::GraphicsPipelineCreateInfo<'static>,
+    graphics: vk::GraphicsPipelineCreateInfo<'a>,
 }
 
 fn stage(
@@ -334,7 +337,7 @@ fn stage(
         .name(c"main")
 }
 
-impl PipelineInfos {
+impl<'a> PipelineInfos<'a> {
     /// `R_InitDefaultStates`.
     fn defaults(vg: &VulkanGlobals, m: &ShaderModules) -> Self {
         let blend_attachments = core::array::from_fn(|i| {
@@ -590,20 +593,20 @@ pub fn create_pipeline_layouts<E: Engine>(ctx: &mut Ctx<'_, E>) {
     use vk::ShaderStageFlags as S;
     ctx.engine.sys_printf("Creating pipeline layouts\n");
 
-    let single_texture = ctx.vg.single_texture_set_layout.handle;
-    let mboit_input = ctx.vg.mboit_input_attachment_set_layout.handle;
-    let ubo = ctx.vg.ubo_set_layout.handle;
-    let joints = ctx.vg.joints_buffer_set_layout.handle;
-    let bmodel_instances = ctx.vg.bmodel_instances_set_layout.handle;
-    let input_attachment = ctx.vg.input_attachment_set_layout.handle;
-    let oit_input = ctx.vg.oit_input_attachment_set_layout.handle;
-    let screen_effects = ctx.vg.screen_effects_set_layout.handle;
-    let single_texture_cs_write = ctx.vg.single_texture_cs_write_set_layout.handle;
-    let lightmap_compute = ctx.vg.lightmap_compute_set_layout.handle;
-    let ray_query_push = ctx.vg.ray_query_push_set_layout.handle;
-    let indirect_compute = ctx.vg.indirect_compute_set_layout.handle;
-    let ray_debug = ctx.vg.ray_debug_set_layout.handle;
-    let ray_query = ctx.vg.ray_query;
+    let single_texture = vg!(ctx, single_texture_set_layout.handle);
+    let mboit_input = vg!(ctx, mboit_input_attachment_set_layout.handle);
+    let ubo = vg!(ctx, ubo_set_layout.handle);
+    let joints = vg!(ctx, joints_buffer_set_layout.handle);
+    let bmodel_instances = vg!(ctx, bmodel_instances_set_layout.handle);
+    let input_attachment = vg!(ctx, input_attachment_set_layout.handle);
+    let oit_input = vg!(ctx, oit_input_attachment_set_layout.handle);
+    let screen_effects = vg!(ctx, screen_effects_set_layout.handle);
+    let single_texture_cs_write = vg!(ctx, single_texture_cs_write_set_layout.handle);
+    let lightmap_compute = vg!(ctx, lightmap_compute_set_layout.handle);
+    let ray_query_push = vg!(ctx, ray_query_push_set_layout.handle);
+    let indirect_compute = vg!(ctx, indirect_compute_set_layout.handle);
+    let ray_debug = vg!(ctx, ray_debug_set_layout.handle);
+    let ray_query = vg!(ctx, ray_query);
 
     let mut layout = create_layout(
         ctx,
@@ -612,7 +615,7 @@ pub fn create_pipeline_layouts<E: Engine>(ctx: &mut Ctx<'_, E>) {
         c"basic_pipeline_layout",
     );
     layout.mboit_input_attachment_set = 1;
-    ctx.vg.basic_pipeline_layout = layout;
+    *vg_mut!(ctx, basic_pipeline_layout) = layout;
 
     let mut layout = create_layout(
         ctx,
@@ -627,7 +630,7 @@ pub fn create_pipeline_layouts<E: Engine>(ctx: &mut Ctx<'_, E>) {
         c"world_pipeline_layout",
     );
     layout.mboit_input_attachment_set = 3;
-    ctx.vg.world_pipeline_layout = layout;
+    *vg_mut!(ctx, world_pipeline_layout) = layout;
 
     let mut layout = create_layout(
         ctx,
@@ -636,7 +639,7 @@ pub fn create_pipeline_layouts<E: Engine>(ctx: &mut Ctx<'_, E>) {
         c"alias_pipeline_layout",
     );
     layout.mboit_input_attachment_set = 3;
-    ctx.vg.alias_pipelines[MAIN_RENDER_PASS_STANDARD][0].layout = layout;
+    *vg_mut!(ctx, alias_pipelines[MAIN_RENDER_PASS_STANDARD][0].layout) = layout;
 
     let mut layout = create_layout(
         ctx,
@@ -645,32 +648,32 @@ pub fn create_pipeline_layouts<E: Engine>(ctx: &mut Ctx<'_, E>) {
         c"md5_pipeline_layout",
     );
     layout.mboit_input_attachment_set = 4;
-    ctx.vg.md5_pipelines[MAIN_RENDER_PASS_STANDARD][0].layout = layout;
+    *vg_mut!(ctx, md5_pipelines[MAIN_RENDER_PASS_STANDARD][0].layout) = layout;
 
-    ctx.vg.sky_pipeline_layout[0] = create_layout(
+    *vg_mut!(ctx, sky_pipeline_layout[0]) = create_layout(
         ctx,
         &[single_texture],
         Some(push_range(S::ALL_GRAPHICS, 27 * FLOAT)),
         c"sky_pipeline_layout",
     );
-    ctx.vg.sky_pipeline_layout[1] = create_layout(
+    *vg_mut!(ctx, sky_pipeline_layout[1]) = create_layout(
         ctx,
         &[single_texture, single_texture],
         Some(push_range(S::ALL_GRAPHICS, 25 * FLOAT)),
         c"sky_layer_pipeline_layout",
     );
 
-    ctx.vg.postprocess_pipeline.layout = create_layout(
+    *vg_mut!(ctx, postprocess_pipeline.layout) = create_layout(
         ctx,
         &[input_attachment],
         Some(push_range(S::FRAGMENT, 2 * FLOAT)),
         c"postprocess_pipeline_layout",
     );
-    ctx.vg.wboit_resolve_pipeline.layout =
+    *vg_mut!(ctx, wboit_resolve_pipeline.layout) =
         create_layout(ctx, &[oit_input], None, c"wboit_resolve_pipeline_layout");
     let mut layout = create_layout(ctx, &[mboit_input], None, c"mboit_resolve_pipeline_layout");
     layout.mboit_input_attachment_set = -1;
-    ctx.vg.mboit_resolve_pipeline.layout = layout;
+    *vg_mut!(ctx, mboit_resolve_pipeline.layout) = layout;
 
     let layout = create_layout(
         ctx,
@@ -678,28 +681,28 @@ pub fn create_pipeline_layouts<E: Engine>(ctx: &mut Ctx<'_, E>) {
         Some(push_range(S::COMPUTE, 3 * FLOAT + 8 * FLOAT)),
         c"screen_effects_pipeline_layout",
     );
-    ctx.vg.screen_effects_pipeline.layout = layout;
-    ctx.vg.screen_effects_scale_pipeline.layout = layout;
-    ctx.vg.screen_effects_scale_sops_pipeline.layout = layout;
+    *vg_mut!(ctx, screen_effects_pipeline.layout) = layout;
+    *vg_mut!(ctx, screen_effects_scale_pipeline.layout) = layout;
+    *vg_mut!(ctx, screen_effects_scale_sops_pipeline.layout) = layout;
 
-    ctx.vg.cs_tex_warp_pipeline.layout = create_layout(
+    *vg_mut!(ctx, cs_tex_warp_pipeline.layout) = create_layout(
         ctx,
         &[single_texture, single_texture_cs_write],
         Some(push_range(S::COMPUTE, FLOAT)),
         c"cs_tex_warp_pipeline_layout",
     );
 
-    ctx.vg.showtris_pipeline[MAIN_RENDER_PASS_STANDARD].layout =
+    *vg_mut!(ctx, showtris_pipeline[MAIN_RENDER_PASS_STANDARD].layout) =
         create_layout(ctx, &[], None, c"showtris_pipeline_layout");
 
-    ctx.vg.update_lightmap_pipeline.layout = create_layout(
+    *vg_mut!(ctx, update_lightmap_pipeline.layout) = create_layout(
         ctx,
         &[lightmap_compute],
         Some(push_range(S::COMPUTE, 11 * 4)),
         c"update_lightmap_pipeline_layout",
     );
     if ray_query {
-        ctx.vg.update_lightmap_rt_pipeline.layout = create_layout(
+        *vg_mut!(ctx, update_lightmap_rt_pipeline.layout) = create_layout(
             ctx,
             &[lightmap_compute, ray_query_push],
             Some(push_range(S::COMPUTE, 12 * 4)),
@@ -707,13 +710,13 @@ pub fn create_pipeline_layouts<E: Engine>(ctx: &mut Ctx<'_, E>) {
         );
     }
 
-    ctx.vg.indirect_draw_pipeline.layout = create_layout(
+    *vg_mut!(ctx, indirect_draw_pipeline.layout) = create_layout(
         ctx,
         &[indirect_compute],
         Some(push_range(S::COMPUTE, 7 * 4)),
         c"indirect_draw_pipeline_layout",
     );
-    ctx.vg.indirect_clear_pipeline.layout = create_layout(
+    *vg_mut!(ctx, indirect_clear_pipeline.layout) = create_layout(
         ctx,
         &[indirect_compute],
         Some(push_range(S::COMPUTE, 7 * 4)),
@@ -721,30 +724,35 @@ pub fn create_pipeline_layouts<E: Engine>(ctx: &mut Ctx<'_, E>) {
     );
 
     if ray_query {
-        // sizeof (mesh_interpolate_push_constants_t) == 40,
-        // q_max (sizeof (skinning_push_constants_t) == 44, 40) == 44.
-        ctx.vg.mesh_interpolate_pipeline.layout = create_layout(
+        // C: `40 /* sizeof (mesh_interpolate_push_constants_t) */` and
+        // `q_max (sizeof (skinning_push_constants_t), sizeof
+        // (mesh_interpolate_push_constants_t))` == 48 (the skinning struct
+        // pads to 48; `gl_mesh.c` pushes `sizeof (pc)`). The mirrors pin
+        // both sizes.
+        let mesh_interpolate_pc = size_of::<MeshInterpolatePushConstants>() as u32;
+        let skinning_pc = (size_of::<SkinningPushConstants>() as u32).max(mesh_interpolate_pc);
+        *vg_mut!(ctx, mesh_interpolate_pipeline.layout) = create_layout(
             ctx,
             &[],
-            Some(push_range(S::COMPUTE, 40)),
+            Some(push_range(S::COMPUTE, mesh_interpolate_pc)),
             c"mesh_interpolate_pipeline_layout",
         );
-        ctx.vg.skinning_pipeline.layout = create_layout(
+        *vg_mut!(ctx, skinning_pipeline.layout) = create_layout(
             ctx,
             &[],
-            Some(push_range(S::COMPUTE, 44)),
+            Some(push_range(S::COMPUTE, skinning_pc)),
             c"skinning_pipeline_layout",
         );
-        ctx.vg.skinning_8_pipeline.layout = create_layout(
+        *vg_mut!(ctx, skinning_8_pipeline.layout) = create_layout(
             ctx,
             &[],
-            Some(push_range(S::COMPUTE, 44)),
+            Some(push_range(S::COMPUTE, skinning_pc)),
             c"skinning_8_pipeline_layout",
         );
     }
 
     if cfg!(feature = "engine-debug") && ray_query {
-        ctx.vg.ray_debug_pipeline.layout = create_layout(
+        *vg_mut!(ctx, ray_debug_pipeline.layout) = create_layout(
             ctx,
             &[ray_debug, ray_query_push],
             Some(push_range(S::COMPUTE, 15 * FLOAT)),
@@ -894,7 +902,7 @@ fn create_basic<E: Engine>(
         let mut infos = *base;
         apply(&mut infos, v);
         infos.set_fragment(m.get(Shader::basic_alphatest_frag));
-        ctx.vg.basic_alphatest_pipeline[v.index] =
+        *vg_mut!(ctx, basic_alphatest_pipeline[v.index]) =
             create_graphics(ctx, &mut infos, env.basic_layout, c"basic_alphatest");
     }
     for v in &variants {
@@ -902,7 +910,7 @@ fn create_basic<E: Engine>(
         apply(&mut infos, v);
         infos.set_fragment(m.get(Shader::basic_notex_frag));
         infos.blend_attachments[0].blend_enable = vk::TRUE;
-        ctx.vg.basic_notex_blend_pipeline[v.index] =
+        *vg_mut!(ctx, basic_notex_blend_pipeline[v.index]) =
             create_graphics(ctx, &mut infos, env.basic_layout, c"basic_notex_blend");
     }
     for v in &variants {
@@ -929,7 +937,7 @@ fn create_basic<E: Engine>(
                 infos.blend_attachments[0].blend_enable = vk::TRUE;
             }
         }
-        ctx.vg.basic_blend_pipeline[v.index] =
+        *vg_mut!(ctx, basic_blend_pipeline[v.index]) =
             create_graphics(ctx, &mut infos, env.basic_layout, c"basic_blend");
     }
 }
@@ -947,10 +955,11 @@ fn create_warp<E: Engine>(
     infos.rasterization.front_face = vk::FrontFace::COUNTER_CLOCKWISE;
     infos.color_blend.attachment_count = 1;
     infos.graphics.render_pass = env.warp_rp;
-    ctx.vg.raster_tex_warp_pipeline = create_graphics(ctx, &mut infos, env.basic_layout, c"warp");
+    *vg_mut!(ctx, raster_tex_warp_pipeline) =
+        create_graphics(ctx, &mut infos, env.basic_layout, c"warp");
 
-    let layout = ctx.vg.cs_tex_warp_pipeline.layout;
-    ctx.vg.cs_tex_warp_pipeline = create_compute(
+    let layout = vg!(ctx, cs_tex_warp_pipeline.layout);
+    *vg_mut!(ctx, cs_tex_warp_pipeline) = create_compute(
         ctx,
         layout,
         m.get(Shader::cs_tex_warp_comp),
@@ -972,7 +981,8 @@ fn create_particles<E: Engine>(
     family.blend_attachments[0].blend_enable = vk::TRUE;
 
     let mut infos = family;
-    ctx.vg.particle_pipeline = create_graphics(ctx, &mut infos, env.basic_layout, c"particles");
+    *vg_mut!(ctx, particle_pipeline) =
+        create_graphics(ctx, &mut infos, env.basic_layout, c"particles");
 
     for variant in MAIN_RENDER_PASS_OIT..=MAIN_RENDER_PASS_MBOIT {
         let mut infos = family;
@@ -987,7 +997,7 @@ fn create_particles<E: Engine>(
         } else {
             c"particles_post_oit"
         };
-        ctx.vg.particle_post_oit_pipeline[variant] =
+        *vg_mut!(ctx, particle_post_oit_pipeline[variant]) =
             create_graphics(ctx, &mut infos, env.basic_layout, name);
     }
 
@@ -995,14 +1005,14 @@ fn create_particles<E: Engine>(
     infos.set_render_pass(env.main_rp[MAIN_RENDER_PASS_OIT], 1, 2);
     infos.set_fragment(m.get(Shader::basic_oit_frag));
     set_wboit_blend(&mut infos.blend_attachments);
-    ctx.vg.particle_oit_pipeline =
+    *vg_mut!(ctx, particle_oit_pipeline) =
         create_graphics(ctx, &mut infos, env.basic_layout, c"particles_oit");
 
     let mut infos = family;
     infos.set_render_pass(env.main_rp[MAIN_RENDER_PASS_MBOIT], 1, 2);
     infos.set_fragment(m.get(Shader::basic_mboit_moment_frag));
     set_mboit_moment_blend(&mut infos.blend_attachments);
-    ctx.vg.particle_mboit_moment_pipeline =
+    *vg_mut!(ctx, particle_mboit_moment_pipeline) =
         create_graphics(ctx, &mut infos, env.basic_layout, c"particles_mboit_moment");
 
     let mut infos = family;
@@ -1012,7 +1022,7 @@ fn create_particles<E: Engine>(
         m.get(Shader::basic_mboit_composite_msaa_frag),
     ));
     set_mboit_composite_blend(&mut infos.blend_attachments);
-    ctx.vg.particle_mboit_composite_pipeline = create_graphics(
+    *vg_mut!(ctx, particle_mboit_composite_pipeline) = create_graphics(
         ctx,
         &mut infos,
         env.basic_layout,
@@ -1067,7 +1077,7 @@ fn create_fte_particles<E: Engine>(
                 } else {
                     c_string(&format!("{name}_main_oit"))
                 };
-                ctx.vg.fte_particle_pipelines[variant][mode] =
+                *vg_mut!(ctx, fte_particle_pipelines[variant][mode]) =
                     create_graphics(ctx, &mut infos, env.basic_layout, &pipeline_name);
             }
 
@@ -1076,7 +1086,7 @@ fn create_fte_particles<E: Engine>(
             infos.set_fragment(m.get(Shader::basic_oit_frag));
             set_wboit_blend(&mut infos.blend_attachments);
             let pipeline_name = c_string(&format!("{name}_wboit"));
-            ctx.vg.fte_particle_wboit_pipelines[mode] =
+            *vg_mut!(ctx, fte_particle_wboit_pipelines[mode]) =
                 create_graphics(ctx, &mut infos, env.basic_layout, &pipeline_name);
 
             for variant in MAIN_RENDER_PASS_OIT..=MAIN_RENDER_PASS_MBOIT {
@@ -1089,7 +1099,7 @@ fn create_fte_particles<E: Engine>(
                 };
                 infos.blend_attachments[0] = fte_particle_blend(i);
                 let pipeline_name = c_string(&format!("{name}_post_oit"));
-                ctx.vg.fte_particle_post_oit_pipelines[variant][mode] =
+                *vg_mut!(ctx, fte_particle_post_oit_pipelines[variant][mode]) =
                     create_graphics(ctx, &mut infos, env.basic_layout, &pipeline_name);
             }
         }
@@ -1116,20 +1126,22 @@ fn create_sprites<E: Engine>(
         } else {
             c"sprite_main_oit"
         };
-        ctx.vg.sprite_pipeline[variant] = create_graphics(ctx, &mut infos, env.basic_layout, name);
+        *vg_mut!(ctx, sprite_pipeline[variant]) =
+            create_graphics(ctx, &mut infos, env.basic_layout, name);
     }
 
     let mut infos = family;
     infos.set_render_pass(env.main_rp[MAIN_RENDER_PASS_OIT], 1, 2);
     infos.set_fragment(m.get(Shader::basic_oit_frag));
     set_wboit_blend(&mut infos.blend_attachments);
-    ctx.vg.sprite_oit_pipeline = create_graphics(ctx, &mut infos, env.basic_layout, c"sprite_oit");
+    *vg_mut!(ctx, sprite_oit_pipeline) =
+        create_graphics(ctx, &mut infos, env.basic_layout, c"sprite_oit");
 
     let mut infos = family;
     infos.set_render_pass(env.main_rp[MAIN_RENDER_PASS_MBOIT], 1, 2);
     infos.set_fragment(m.get(Shader::basic_mboit_moment_frag));
     set_mboit_moment_blend(&mut infos.blend_attachments);
-    ctx.vg.sprite_mboit_moment_pipeline =
+    *vg_mut!(ctx, sprite_mboit_moment_pipeline) =
         create_graphics(ctx, &mut infos, env.basic_layout, c"sprite_mboit_moment");
 
     let mut infos = family;
@@ -1139,13 +1151,13 @@ fn create_sprites<E: Engine>(
         m.get(Shader::basic_mboit_composite_msaa_frag),
     ));
     set_mboit_composite_blend(&mut infos.blend_attachments);
-    ctx.vg.sprite_mboit_composite_pipeline =
+    *vg_mut!(ctx, sprite_mboit_composite_pipeline) =
         create_graphics(ctx, &mut infos, env.basic_layout, c"sprite_mboit_composite");
 }
 
 /// `R_CreateSkyPipelines`.
 fn create_sky<E: Engine>(ctx: &mut Ctx<'_, E>, env: &Env, m: &ShaderModules, base: &PipelineInfos) {
-    let sky_layout = ctx.vg.sky_pipeline_layout;
+    let sky_layout = vg!(ctx, sky_pipeline_layout);
     for i in 0..2 {
         let mut family = *base;
         if i == 1 {
@@ -1174,14 +1186,14 @@ fn create_sky<E: Engine>(ctx: &mut Ctx<'_, E>, env: &Env, m: &ShaderModules, bas
             };
             infos.blend_attachments[0].color_write_mask = vk::ColorComponentFlags::empty();
             let name = c_string(&format!("sky_stencil{indirect}{suffix}"));
-            ctx.vg.sky_stencil_pipeline[variant][i] =
+            *vg_mut!(ctx, sky_stencil_pipeline[variant][i]) =
                 create_graphics(ctx, &mut infos, sky_layout[0], &name);
 
             let mut infos = family;
             infos.graphics.render_pass = rp;
             infos.set_fragment(m.get(Shader::basic_notex_frag));
             let name = c_string(&format!("sky_color{indirect}{suffix}"));
-            ctx.vg.sky_color_pipeline[variant][i] =
+            *vg_mut!(ctx, sky_color_pipeline[variant][i]) =
                 create_graphics(ctx, &mut infos, sky_layout[0], &name);
 
             let mut infos = family;
@@ -1189,7 +1201,7 @@ fn create_sky<E: Engine>(ctx: &mut Ctx<'_, E>, env: &Env, m: &ShaderModules, bas
             infos.set_vertex(m.get(Shader::sky_cube_vert));
             infos.set_fragment(m.get(Shader::sky_cube_frag));
             let name = c_string(&format!("sky_cube{indirect}{suffix}"));
-            ctx.vg.sky_cube_pipeline[variant][i] =
+            *vg_mut!(ctx, sky_cube_pipeline[variant][i]) =
                 create_graphics(ctx, &mut infos, sky_layout[0], &name);
 
             let mut infos = family;
@@ -1197,7 +1209,7 @@ fn create_sky<E: Engine>(ctx: &mut Ctx<'_, E>, env: &Env, m: &ShaderModules, bas
             infos.set_vertex(m.get(Shader::sky_layer_vert));
             infos.set_fragment(m.get(Shader::sky_layer_frag));
             let name = c_string(&format!("sky_layer{indirect}{suffix}"));
-            ctx.vg.sky_layer_pipeline[variant][i] =
+            *vg_mut!(ctx, sky_layer_pipeline[variant][i]) =
                 create_graphics(ctx, &mut infos, sky_layout[1], &name);
 
             if i == 0 {
@@ -1216,7 +1228,7 @@ fn create_sky<E: Engine>(ctx: &mut Ctx<'_, E>, env: &Env, m: &ShaderModules, bas
                 };
                 infos.set_fragment(m.get(Shader::sky_box_frag));
                 let name = c_string(&format!("sky_box{suffix}"));
-                ctx.vg.sky_box_pipeline[variant] =
+                *vg_mut!(ctx, sky_box_pipeline[variant]) =
                     create_graphics(ctx, &mut infos, sky_layout[0], &name);
             }
         }
@@ -1247,7 +1259,7 @@ fn create_showtris<E: Engine>(
         let mut infos = family;
         infos.graphics.render_pass = rp;
         let name = c_string(&format!("showtris{suffix}"));
-        ctx.vg.showtris_pipeline[variant] =
+        *vg_mut!(ctx, showtris_pipeline[variant]) =
             create_graphics(ctx, &mut infos, env.basic_layout, &name);
 
         let mut infos = family;
@@ -1255,14 +1267,14 @@ fn create_showtris<E: Engine>(
         infos.depth_stencil.depth_test_enable = vk::TRUE;
         infos.set_depth_bias(500.0, 0.0);
         let name = c_string(&format!("showtris_depth_test{suffix}"));
-        ctx.vg.showtris_depth_test_pipeline[variant] =
+        *vg_mut!(ctx, showtris_depth_test_pipeline[variant]) =
             create_graphics(ctx, &mut infos, env.basic_layout, &name);
 
         let mut infos = family;
         infos.graphics.render_pass = rp;
         infos.input_assembly.topology = vk::PrimitiveTopology::LINE_LIST;
         let name = c_string(&format!("showbboxes{suffix}"));
-        ctx.vg.showbboxes_pipeline[variant] =
+        *vg_mut!(ctx, showbboxes_pipeline[variant]) =
             create_graphics(ctx, &mut infos, env.basic_layout, &name);
 
         let mut infos = family;
@@ -1270,7 +1282,7 @@ fn create_showtris<E: Engine>(
         infos.set_vertex(m.get(Shader::world_vert));
         infos.set_vertex_input(&WORLD_INPUT);
         let name = c_string(&format!("showtris_indirect{suffix}"));
-        ctx.vg.showtris_indirect_pipeline[variant] =
+        *vg_mut!(ctx, showtris_indirect_pipeline[variant]) =
             create_graphics(ctx, &mut infos, env.world_layout, &name);
 
         let mut infos = family;
@@ -1280,7 +1292,7 @@ fn create_showtris<E: Engine>(
         infos.depth_stencil.depth_test_enable = vk::TRUE;
         infos.set_depth_bias(500.0, 0.0);
         let name = c_string(&format!("showtris_indirect_depth_test{suffix}"));
-        ctx.vg.showtris_indirect_depth_test_pipeline[variant] =
+        *vg_mut!(ctx, showtris_indirect_depth_test_pipeline[variant]) =
             create_graphics(ctx, &mut infos, env.world_layout, &name);
     }
 }
@@ -1327,11 +1339,10 @@ fn spec_info<'a>(
     }
 }
 
-/// Aim `shader_stages[1].pSpecializationInfo` at `spec`, which the caller
-/// keeps alive across the `create_graphics` call.
-fn set_fragment_spec(infos: &mut PipelineInfos, spec: &vk::SpecializationInfo<'_>) {
-    infos.shader_stages[1].p_specialization_info =
-        ptr::from_ref(spec).cast::<vk::SpecializationInfo<'static>>();
+/// Aim `shader_stages[1].pSpecializationInfo` at `spec`; `infos` (and every
+/// copy of it) is then bound to `spec`'s lifetime.
+fn set_fragment_spec<'a>(infos: &mut PipelineInfos<'a>, spec: &'a vk::SpecializationInfo<'a>) {
+    infos.shader_stages[1].p_specialization_info = spec;
 }
 
 /// `R_CreateWorldPipelines`.
@@ -1376,7 +1387,7 @@ fn create_world<E: Engine>(
                         } else {
                             c_string(&format!("world_main_oit {idx}"))
                         };
-                        ctx.vg.world_pipelines[variant][idx] =
+                        *vg_mut!(ctx, world_pipelines[variant][idx]) =
                             create_graphics(ctx, &mut infos, env.world_layout, &name);
                     }
 
@@ -1388,7 +1399,7 @@ fn create_world<E: Engine>(
                         infos.depth_stencil.depth_write_enable = vk::FALSE;
                         set_wboit_blend(&mut infos.blend_attachments);
                         let name = c_string(&format!("world_wboit {idx}"));
-                        ctx.vg.world_wboit_pipelines[idx] =
+                        *vg_mut!(ctx, world_wboit_pipelines[idx]) =
                             create_graphics(ctx, &mut infos, env.world_layout, &name);
 
                         let mut infos = family;
@@ -1398,7 +1409,7 @@ fn create_world<E: Engine>(
                         infos.depth_stencil.depth_write_enable = vk::FALSE;
                         set_mboit_moment_blend(&mut infos.blend_attachments);
                         let name = c_string(&format!("world_mboit_moment {idx}"));
-                        ctx.vg.world_mboit_moment_pipelines[idx] =
+                        *vg_mut!(ctx, world_mboit_moment_pipelines[idx]) =
                             create_graphics(ctx, &mut infos, env.world_layout, &name);
 
                         let mut infos = family;
@@ -1411,7 +1422,7 @@ fn create_world<E: Engine>(
                         infos.depth_stencil.depth_write_enable = vk::FALSE;
                         set_mboit_composite_blend(&mut infos.blend_attachments);
                         let name = c_string(&format!("world_mboit_composite {idx}"));
-                        ctx.vg.world_mboit_composite_pipelines[idx] =
+                        *vg_mut!(ctx, world_mboit_composite_pipelines[idx]) =
                             create_graphics(ctx, &mut infos, env.world_layout, &name);
                     }
                 }
@@ -1439,36 +1450,45 @@ enum ModelSet {
     Md5x8,
 }
 
-fn model_slot(
-    vg: &mut VulkanGlobals,
+/// Writes `pipeline` into the `set`/`variant`/`idx` slot of `vulkan_globals`
+/// (one field-level store, see `VgPtr`).
+fn set_model_slot<E: Engine>(
+    ctx: &mut Ctx<'_, E>,
     set: ModelSet,
     variant: usize,
     idx: usize,
-) -> &mut VulkanPipeline {
+    pipeline: VulkanPipeline,
+) {
     match set {
-        ModelSet::Alias => &mut vg.alias_pipelines[variant][idx],
-        ModelSet::Md5 => &mut vg.md5_pipelines[variant][idx],
-        ModelSet::Md5x8 => &mut vg.md5_8_pipelines[variant][idx],
+        ModelSet::Alias => *vg_mut!(ctx, alias_pipelines[variant][idx]) = pipeline,
+        ModelSet::Md5 => *vg_mut!(ctx, md5_pipelines[variant][idx]) = pipeline,
+        ModelSet::Md5x8 => *vg_mut!(ctx, md5_8_pipelines[variant][idx]) = pipeline,
     }
 }
 
-fn model_oit_slots(vg: &mut VulkanGlobals, set: ModelSet, idx: usize) -> [&mut VulkanPipeline; 3] {
+/// Writes the `[wboit, mboit_moment, mboit_composite]` pipelines of `set`.
+fn set_model_oit_slots<E: Engine>(
+    ctx: &mut Ctx<'_, E>,
+    set: ModelSet,
+    idx: usize,
+    [wboit, moment, composite]: [VulkanPipeline; 3],
+) {
     match set {
-        ModelSet::Alias => [
-            &mut vg.alias_wboit_pipelines[idx],
-            &mut vg.alias_mboit_moment_pipelines[idx],
-            &mut vg.alias_mboit_composite_pipelines[idx],
-        ],
-        ModelSet::Md5 => [
-            &mut vg.md5_wboit_pipelines[idx],
-            &mut vg.md5_mboit_moment_pipelines[idx],
-            &mut vg.md5_mboit_composite_pipelines[idx],
-        ],
-        ModelSet::Md5x8 => [
-            &mut vg.md5_8_wboit_pipelines[idx],
-            &mut vg.md5_8_mboit_moment_pipelines[idx],
-            &mut vg.md5_8_mboit_composite_pipelines[idx],
-        ],
+        ModelSet::Alias => {
+            *vg_mut!(ctx, alias_wboit_pipelines[idx]) = wboit;
+            *vg_mut!(ctx, alias_mboit_moment_pipelines[idx]) = moment;
+            *vg_mut!(ctx, alias_mboit_composite_pipelines[idx]) = composite;
+        }
+        ModelSet::Md5 => {
+            *vg_mut!(ctx, md5_wboit_pipelines[idx]) = wboit;
+            *vg_mut!(ctx, md5_mboit_moment_pipelines[idx]) = moment;
+            *vg_mut!(ctx, md5_mboit_composite_pipelines[idx]) = composite;
+        }
+        ModelSet::Md5x8 => {
+            *vg_mut!(ctx, md5_8_wboit_pipelines[idx]) = wboit;
+            *vg_mut!(ctx, md5_8_mboit_moment_pipelines[idx]) = moment;
+            *vg_mut!(ctx, md5_8_mboit_composite_pipelines[idx]) = composite;
+        }
     }
 }
 
@@ -1507,8 +1527,8 @@ fn create_model_family<E: Engine>(
             } else {
                 c_string(&format!("{name}_main_oit {idx}"))
             };
-            *model_slot(ctx.vg, set, variant, idx) =
-                create_graphics(ctx, &mut infos, layout, &pipeline_name);
+            let pipeline = create_graphics(ctx, &mut infos, layout, &pipeline_name);
+            set_model_slot(ctx, set, variant, idx, pipeline);
         }
 
         if alpha_blend {
@@ -1545,10 +1565,7 @@ fn create_model_family<E: Engine>(
             let pipeline_name = c_string(&format!("{name}_mboit_composite {idx}"));
             let composite = create_graphics(ctx, &mut infos, layout, &pipeline_name);
 
-            let [wboit_slot, moment_slot, composite_slot] = model_oit_slots(ctx.vg, set, idx);
-            *wboit_slot = wboit;
-            *moment_slot = moment;
-            *composite_slot = composite;
+            set_model_oit_slots(ctx, set, idx, [wboit, moment, composite]);
         }
     }
 
@@ -1570,8 +1587,8 @@ fn create_model_family<E: Engine>(
                 } else {
                     c_string(&format!("{name}_showtris_main_oit {idx}"))
                 };
-                *model_slot(ctx.vg, set, variant, idx) =
-                    create_graphics(ctx, &mut infos, layout, &pipeline_name);
+                let pipeline = create_graphics(ctx, &mut infos, layout, &pipeline_name);
+                set_model_slot(ctx, set, variant, idx, pipeline);
             }
         }
     }
@@ -1587,7 +1604,7 @@ fn create_alias<E: Engine>(
     let desc = ModelFamily {
         input: &ALIAS_INPUT,
         vert: Shader::alias_vert,
-        layout: ctx.vg.alias_pipelines[MAIN_RENDER_PASS_STANDARD][0].layout,
+        layout: vg!(ctx, alias_pipelines[MAIN_RENDER_PASS_STANDARD][0].layout),
         composite: [
             [
                 Shader::alias_alphatest_mboit_composite_frag,
@@ -1605,7 +1622,7 @@ fn create_alias<E: Engine>(
 
 /// `R_CreateMD5Pipelines`: both sets share `md5_pipelines[STANDARD][0].layout`.
 fn create_md5<E: Engine>(ctx: &mut Ctx<'_, E>, env: &Env, m: &ShaderModules, base: &PipelineInfos) {
-    let layout = ctx.vg.md5_pipelines[MAIN_RENDER_PASS_STANDARD][0].layout;
+    let layout = vg!(ctx, md5_pipelines[MAIN_RENDER_PASS_STANDARD][0].layout);
     let composite = [
         [
             Shader::md5_alphatest_mboit_composite_frag,
@@ -1653,8 +1670,8 @@ fn create_postprocess<E: Engine>(
     infos.set_fragment(m.get(Shader::postprocess_frag));
     infos.graphics.render_pass = env.gui_rp;
     infos.graphics.subpass = 1;
-    let layout = ctx.vg.postprocess_pipeline.layout;
-    ctx.vg.postprocess_pipeline = create_graphics(ctx, &mut infos, layout, c"postprocess");
+    let layout = vg!(ctx, postprocess_pipeline.layout);
+    *vg_mut!(ctx, postprocess_pipeline) = create_graphics(ctx, &mut infos, layout, c"postprocess");
 
     let resolve_blend = blend(
         true,
@@ -1673,8 +1690,9 @@ fn create_postprocess<E: Engine>(
     ));
     infos.graphics.render_pass = env.main_rp[MAIN_RENDER_PASS_OIT];
     infos.graphics.subpass = 2;
-    let layout = ctx.vg.wboit_resolve_pipeline.layout;
-    ctx.vg.wboit_resolve_pipeline = create_graphics(ctx, &mut infos, layout, c"wboit_resolve");
+    let layout = vg!(ctx, wboit_resolve_pipeline.layout);
+    *vg_mut!(ctx, wboit_resolve_pipeline) =
+        create_graphics(ctx, &mut infos, layout, c"wboit_resolve");
 
     let mut infos = family;
     infos.blend_attachments[0] = resolve_blend;
@@ -1684,8 +1702,9 @@ fn create_postprocess<E: Engine>(
     ));
     infos.graphics.render_pass = env.main_rp[MAIN_RENDER_PASS_MBOIT];
     infos.graphics.subpass = 3;
-    let layout = ctx.vg.mboit_resolve_pipeline.layout;
-    ctx.vg.mboit_resolve_pipeline = create_graphics(ctx, &mut infos, layout, c"mboit_resolve");
+    let layout = vg!(ctx, mboit_resolve_pipeline.layout);
+    *vg_mut!(ctx, mboit_resolve_pipeline) =
+        create_graphics(ctx, &mut infos, layout, c"mboit_resolve");
 }
 
 /// `R_CreateScreenEffectsPipelines`.
@@ -1696,8 +1715,8 @@ fn create_screen_effects<E: Engine>(ctx: &mut Ctx<'_, E>, env: &Env, m: &ShaderM
     } else {
         Shader::screen_effects_8bit_comp
     };
-    let layout = ctx.vg.screen_effects_pipeline.layout;
-    ctx.vg.screen_effects_pipeline = create_compute(
+    let layout = vg!(ctx, screen_effects_pipeline.layout);
+    *vg_mut!(ctx, screen_effects_pipeline) = create_compute(
         ctx,
         layout,
         m.get(module),
@@ -1711,8 +1730,8 @@ fn create_screen_effects<E: Engine>(ctx: &mut Ctx<'_, E>, env: &Env, m: &ShaderM
     } else {
         Shader::screen_effects_8bit_scale_comp
     };
-    let layout = ctx.vg.screen_effects_scale_pipeline.layout;
-    ctx.vg.screen_effects_scale_pipeline = create_compute(
+    let layout = vg!(ctx, screen_effects_scale_pipeline.layout);
+    *vg_mut!(ctx, screen_effects_scale_pipeline) = create_compute(
         ctx,
         layout,
         m.get(module),
@@ -1729,8 +1748,8 @@ fn create_screen_effects<E: Engine>(ctx: &mut Ctx<'_, E>, env: &Env, m: &ShaderM
         };
         let flags = vk::PipelineShaderStageCreateFlags::ALLOW_VARYING_SUBGROUP_SIZE
             | vk::PipelineShaderStageCreateFlags::REQUIRE_FULL_SUBGROUPS;
-        let layout = ctx.vg.screen_effects_scale_sops_pipeline.layout;
-        ctx.vg.screen_effects_scale_sops_pipeline = create_compute(
+        let layout = vg!(ctx, screen_effects_scale_sops_pipeline.layout);
+        *vg_mut!(ctx, screen_effects_scale_sops_pipeline) = create_compute(
             ctx,
             layout,
             m.get(module),
@@ -1758,8 +1777,8 @@ fn create_update_lightmap<E: Engine>(ctx: &mut Ctx<'_, E>, env: &Env, m: &Shader
     } else {
         Shader::update_lightmap_8bit_comp
     };
-    let layout = ctx.vg.update_lightmap_pipeline.layout;
-    ctx.vg.update_lightmap_pipeline = create_compute(
+    let layout = vg!(ctx, update_lightmap_pipeline.layout);
+    *vg_mut!(ctx, update_lightmap_pipeline) = create_compute(
         ctx,
         layout,
         m.get(module),
@@ -1774,8 +1793,8 @@ fn create_update_lightmap<E: Engine>(ctx: &mut Ctx<'_, E>, env: &Env, m: &Shader
         } else {
             Shader::update_lightmap_8bit_rt_comp
         };
-        let layout = ctx.vg.update_lightmap_rt_pipeline.layout;
-        ctx.vg.update_lightmap_rt_pipeline = create_compute(
+        let layout = vg!(ctx, update_lightmap_rt_pipeline.layout);
+        *vg_mut!(ctx, update_lightmap_rt_pipeline) = create_compute(
             ctx,
             layout,
             m.get(module),
@@ -1789,8 +1808,8 @@ fn create_update_lightmap<E: Engine>(ctx: &mut Ctx<'_, E>, env: &Env, m: &Shader
 /// `R_CreateIndirectComputePipelines`.
 fn create_indirect_compute<E: Engine>(ctx: &mut Ctx<'_, E>, m: &ShaderModules) {
     let no_flags = vk::PipelineShaderStageCreateFlags::empty();
-    let layout = ctx.vg.indirect_draw_pipeline.layout;
-    ctx.vg.indirect_draw_pipeline = create_compute(
+    let layout = vg!(ctx, indirect_draw_pipeline.layout);
+    *vg_mut!(ctx, indirect_draw_pipeline) = create_compute(
         ctx,
         layout,
         m.get(Shader::indirect_comp),
@@ -1798,8 +1817,8 @@ fn create_indirect_compute<E: Engine>(ctx: &mut Ctx<'_, E>, m: &ShaderModules) {
         None,
         c"indirect_draw",
     );
-    let layout = ctx.vg.indirect_clear_pipeline.layout;
-    ctx.vg.indirect_clear_pipeline = create_compute(
+    let layout = vg!(ctx, indirect_clear_pipeline.layout);
+    *vg_mut!(ctx, indirect_clear_pipeline) = create_compute(
         ctx,
         layout,
         m.get(Shader::indirect_clear_comp),
@@ -1814,8 +1833,8 @@ fn create_ray_debug<E: Engine>(ctx: &mut Ctx<'_, E>, env: &Env, m: &ShaderModule
     if !cfg!(feature = "engine-debug") || !env.ray_query {
         return;
     }
-    let layout = ctx.vg.ray_debug_pipeline.layout;
-    ctx.vg.ray_debug_pipeline = create_compute(
+    let layout = vg!(ctx, ray_debug_pipeline.layout);
+    *vg_mut!(ctx, ray_debug_pipeline) = create_compute(
         ctx,
         layout,
         m.get(Shader::ray_debug_comp),
@@ -1831,8 +1850,8 @@ fn create_anim_compute<E: Engine>(ctx: &mut Ctx<'_, E>, env: &Env, m: &ShaderMod
         return;
     }
     let no_flags = vk::PipelineShaderStageCreateFlags::empty();
-    let layout = ctx.vg.mesh_interpolate_pipeline.layout;
-    ctx.vg.mesh_interpolate_pipeline = create_compute(
+    let layout = vg!(ctx, mesh_interpolate_pipeline.layout);
+    *vg_mut!(ctx, mesh_interpolate_pipeline) = create_compute(
         ctx,
         layout,
         m.get(Shader::mesh_interpolate_comp),
@@ -1840,8 +1859,8 @@ fn create_anim_compute<E: Engine>(ctx: &mut Ctx<'_, E>, env: &Env, m: &ShaderMod
         None,
         c"mesh_interpolate_pipeline",
     );
-    let layout = ctx.vg.skinning_pipeline.layout;
-    ctx.vg.skinning_pipeline = create_compute(
+    let layout = vg!(ctx, skinning_pipeline.layout);
+    *vg_mut!(ctx, skinning_pipeline) = create_compute(
         ctx,
         layout,
         m.get(Shader::skinning_comp),
@@ -1849,8 +1868,8 @@ fn create_anim_compute<E: Engine>(ctx: &mut Ctx<'_, E>, env: &Env, m: &ShaderMod
         None,
         c"skinning_pipeline",
     );
-    let layout = ctx.vg.skinning_8_pipeline.layout;
-    ctx.vg.skinning_8_pipeline = create_compute(
+    let layout = vg!(ctx, skinning_8_pipeline.layout);
+    *vg_mut!(ctx, skinning_8_pipeline) = create_compute(
         ctx,
         layout,
         m.get(Shader::skinning_8_comp),
@@ -1865,8 +1884,14 @@ pub fn create_pipelines<E: Engine>(ctx: &mut Ctx<'_, E>, modules: &mut ShaderMod
     ctx.engine.sys_printf("Creating pipelines\n");
     modules.create_all(ctx);
     let m = &*modules;
-    let env = Env::new(ctx.vg);
-    let base = PipelineInfos::defaults(ctx.vg, m);
+    let (env, base) = {
+        // SAFETY: a shared view scoped to these two constructors, which make
+        // no C callback; `R_CreatePipelines` runs on the main thread from
+        // `GL_Init`/`vid_restart`, with no worker allocation in flight (a
+        // `vid_restart` starts with `GL_WaitForDeviceIdle`).
+        let vg = unsafe { &*ctx.vg.as_ptr() };
+        (Env::new(vg), PipelineInfos::defaults(vg, m))
+    };
 
     create_basic(ctx, &env, m, &base);
     create_warp(ctx, &env, m, &base);
@@ -1910,7 +1935,11 @@ pub fn destroy_pipelines<E: Engine>(ctx: &mut Ctx<'_, E>) {
         ctx.engine.pipelines_destroyed();
     }
     let device = ctx.device;
-    let vg = &mut *ctx.vg;
+    // SAFETY: scoped to this function, which makes no C callback past this
+    // point (`destroy_with` only calls the device); `R_DestroyPipelines`
+    // runs on the main thread after `GL_WaitForDeviceIdle`, with no task
+    // worker alive to touch the struct.
+    let vg = unsafe { &mut *ctx.vg.as_ptr() };
     let d = |p: &mut VulkanPipeline| destroy_with(device, p);
 
     for i in 0..RENDER_PASS_INDEX_COUNT {

@@ -314,6 +314,45 @@ pub struct VulkanPipeline {
     pub layout: VulkanPipelineLayout,
 }
 
+/// `mesh_interpolate_push_constants_t` (`render.h`): only its `sizeof`
+/// crosses the seam (the mesh-interpolate push-constant range in
+/// `R_CreatePipelineLayouts`); `gl_mesh.c` fills it. Not in the
+/// `render_abi.rs` probe, whose prelude cannot include `render.h`, so the
+/// size is pinned below against the C's own literal `40`.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct MeshInterpolatePushConstants {
+    pub input_address: vk::DeviceAddress,
+    pub output_address: vk::DeviceAddress,
+    pub pose1_offset: u32,
+    pub pose2_offset: u32,
+    pub output_offset: u32,
+    pub num_verts: u32,
+    pub blend_factor: f32,
+    pub flags: u32,
+}
+
+/// `skinning_push_constants_t` (`render.h`); as
+/// [`MeshInterpolatePushConstants`]. Three 8-byte addresses plus five
+/// 4-byte fields pad to 48, which is what the C's `q_max (sizeof
+/// (skinning_push_constants_t), ...)` range and `gl_mesh.c`'s
+/// `sizeof (pc)` push use.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct SkinningPushConstants {
+    pub input_address: vk::DeviceAddress,
+    pub joints_address: vk::DeviceAddress,
+    pub output_address: vk::DeviceAddress,
+    pub joints_offset0: u32,
+    pub joints_offset1: u32,
+    pub output_offset: u32,
+    pub num_verts: u32,
+    pub blend_factor: f32,
+}
+
+const _: () = assert!(core::mem::size_of::<MeshInterpolatePushConstants>() == 40);
+const _: () = assert!(core::mem::size_of::<SkinningPushConstants>() == 48);
+
 impl VulkanPipeline {
     pub const ZEROED: VulkanPipeline = VulkanPipeline {
         handle: vk::Pipeline::null(),

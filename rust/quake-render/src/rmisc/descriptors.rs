@@ -74,7 +74,7 @@ pub fn create_descriptor_set_layouts<E: Engine>(ctx: &mut Ctx<'_, E>) {
             l.num_combined_image_samplers = 1;
         },
     );
-    ctx.vg.single_texture_set_layout = layout;
+    *vg_mut!(ctx, single_texture_set_layout) = layout;
 
     create_layout(
         ctx,
@@ -86,7 +86,7 @@ pub fn create_descriptor_set_layouts<E: Engine>(ctx: &mut Ctx<'_, E>) {
             l.num_ubos_dynamic = 1;
         },
     );
-    ctx.vg.ubo_set_layout = layout;
+    *vg_mut!(ctx, ubo_set_layout) = layout;
 
     create_layout(
         ctx,
@@ -98,7 +98,7 @@ pub fn create_descriptor_set_layouts<E: Engine>(ctx: &mut Ctx<'_, E>) {
             l.num_storage_buffers = 1;
         },
     );
-    ctx.vg.joints_buffer_set_layout = layout;
+    *vg_mut!(ctx, joints_buffer_set_layout) = layout;
 
     create_layout(
         ctx,
@@ -110,7 +110,7 @@ pub fn create_descriptor_set_layouts<E: Engine>(ctx: &mut Ctx<'_, E>) {
             l.num_input_attachments = 1;
         },
     );
-    ctx.vg.input_attachment_set_layout = layout;
+    *vg_mut!(ctx, input_attachment_set_layout) = layout;
 
     let oit: Vec<_> = (0..2)
         .map(|i| binding(i, 1, T::INPUT_ATTACHMENT, S::FRAGMENT))
@@ -118,7 +118,7 @@ pub fn create_descriptor_set_layouts<E: Engine>(ctx: &mut Ctx<'_, E>) {
     create_layout(ctx, &mut layout, &oit, none, c"oit input attachment", |l| {
         l.num_input_attachments = 2;
     });
-    ctx.vg.oit_input_attachment_set_layout = layout;
+    *vg_mut!(ctx, oit_input_attachment_set_layout) = layout;
 
     let mboit: Vec<_> = (0..3)
         .map(|i| binding(i, 1, T::INPUT_ATTACHMENT, S::FRAGMENT))
@@ -133,7 +133,7 @@ pub fn create_descriptor_set_layouts<E: Engine>(ctx: &mut Ctx<'_, E>) {
             l.num_input_attachments = 3;
         },
     );
-    ctx.vg.mboit_input_attachment_set_layout = layout;
+    *vg_mut!(ctx, mboit_input_attachment_set_layout) = layout;
 
     let screen_effects = [
         binding(0, 1, T::COMBINED_IMAGE_SAMPLER, S::COMPUTE),
@@ -153,7 +153,7 @@ pub fn create_descriptor_set_layouts<E: Engine>(ctx: &mut Ctx<'_, E>) {
             l.num_storage_images = 1;
         },
     );
-    ctx.vg.screen_effects_set_layout = layout;
+    *vg_mut!(ctx, screen_effects_set_layout) = layout;
 
     create_layout(
         ctx,
@@ -165,7 +165,7 @@ pub fn create_descriptor_set_layouts<E: Engine>(ctx: &mut Ctx<'_, E>) {
             l.num_storage_images = 1;
         },
     );
-    ctx.vg.single_texture_cs_write_set_layout = layout;
+    *vg_mut!(ctx, single_texture_cs_write_set_layout) = layout;
 
     let lightmap_compute = [
         binding(0, 1, T::STORAGE_IMAGE, S::COMPUTE),
@@ -192,7 +192,7 @@ pub fn create_descriptor_set_layouts<E: Engine>(ctx: &mut Ctx<'_, E>) {
             l.num_ubos_dynamic = 2;
         },
     );
-    ctx.vg.lightmap_compute_set_layout = layout;
+    *vg_mut!(ctx, lightmap_compute_set_layout) = layout;
 
     let indirect_compute: Vec<_> = (0..6)
         .map(|i| binding(i, 1, T::STORAGE_BUFFER, S::COMPUTE))
@@ -207,7 +207,7 @@ pub fn create_descriptor_set_layouts<E: Engine>(ctx: &mut Ctx<'_, E>) {
             l.num_storage_buffers = 6;
         },
     );
-    ctx.vg.indirect_compute_set_layout = layout;
+    *vg_mut!(ctx, indirect_compute_set_layout) = layout;
 
     let bmodel_instances: Vec<_> = (0..2)
         .map(|i| binding(i, 1, T::STORAGE_BUFFER, S::VERTEX))
@@ -222,9 +222,9 @@ pub fn create_descriptor_set_layouts<E: Engine>(ctx: &mut Ctx<'_, E>) {
             l.num_storage_buffers = 2;
         },
     );
-    ctx.vg.bmodel_instances_set_layout = layout;
+    *vg_mut!(ctx, bmodel_instances_set_layout) = layout;
 
-    if ctx.vg.ray_query {
+    if vg!(ctx, ray_query) {
         create_layout(
             ctx,
             &mut layout,
@@ -233,11 +233,11 @@ pub fn create_descriptor_set_layouts<E: Engine>(ctx: &mut Ctx<'_, E>) {
             c"ray query push",
             |_| {},
         );
-        ctx.vg.ray_query_push_set_layout = layout;
+        *vg_mut!(ctx, ray_query_push_set_layout) = layout;
     }
 
     #[cfg(feature = "engine-debug")]
-    if ctx.vg.ray_query {
+    if vg!(ctx, ray_query) {
         create_layout(
             ctx,
             &mut layout,
@@ -248,7 +248,7 @@ pub fn create_descriptor_set_layouts<E: Engine>(ctx: &mut Ctx<'_, E>) {
                 l.num_storage_images = 1;
             },
         );
-        ctx.vg.ray_debug_set_layout = layout;
+        *vg_mut!(ctx, ray_debug_set_layout) = layout;
     }
 }
 
@@ -292,7 +292,7 @@ pub fn create_descriptor_pool<E: Engine>(ctx: &mut Ctx<'_, E>) {
         .pool_sizes(&sizes)
         .flags(vk::DescriptorPoolCreateFlags::FREE_DESCRIPTOR_SET);
     // SAFETY: `info` borrows the live `sizes` array; the device is live.
-    ctx.vg.descriptor_pool =
+    *vg_mut!(ctx, descriptor_pool) =
         unsafe { ctx.device.create_descriptor_pool(&info, None) }.unwrap_or_default();
 }
 
@@ -304,7 +304,7 @@ pub fn allocate_descriptor_set<E: Engine>(
 ) -> vk::DescriptorSet {
     let layouts = [layout.handle];
     let info = vk::DescriptorSetAllocateInfo::default()
-        .descriptor_pool(ctx.vg.descriptor_pool)
+        .descriptor_pool(vg!(ctx, descriptor_pool))
         .set_layouts(&layouts);
     // SAFETY: `info` borrows the live `layouts` array; pool and device are live.
     let handle = unsafe { ctx.device.allocate_descriptor_sets(&info) }
@@ -336,12 +336,10 @@ pub fn free_descriptor_set<E: Engine>(
     desc_set: vk::DescriptorSet,
     layout: &VulkanDescSetLayout,
 ) {
-    // SAFETY: `desc_set` came from `ctx.vg.descriptor_pool` (FREE_DESCRIPTOR_SET)
-    // and the caller guarantees no submission still references it.
-    let _ = unsafe {
-        ctx.device
-            .free_descriptor_sets(ctx.vg.descriptor_pool, &[desc_set])
-    };
+    let pool = vg!(ctx, descriptor_pool);
+    // SAFETY: `desc_set` came from `pool` (FREE_DESCRIPTOR_SET) and the
+    // caller guarantees no submission still references it.
+    let _ = unsafe { ctx.device.free_descriptor_sets(pool, &[desc_set]) };
     let c = ctx.counters;
     c.combined_image_samplers
         .fetch_sub(layout.num_combined_image_samplers as u32, SeqCst);

@@ -46,7 +46,7 @@ fn create_quartet<E: Engine>(
     mip_lod_bias: f32,
     names: [&CStr; 4],
 ) -> [vk::Sampler; 4] {
-    let max_anisotropy = ctx.vg.device_properties.limits.max_sampler_anisotropy;
+    let max_anisotropy = vg!(ctx, device_properties.limits.max_sampler_anisotropy);
     let base = vk::SamplerCreateInfo::default()
         .mag_filter(vk::Filter::NEAREST)
         .min_filter(vk::Filter::NEAREST)
@@ -85,24 +85,24 @@ pub fn init_samplers<E: Engine>(ctx: &mut Ctx<'_, E>) {
     ctx.engine.wait_for_device_idle();
     ctx.engine.sys_printf("Initializing samplers\n");
 
-    if ctx.vg.point_sampler == vk::Sampler::null() {
+    if vg!(ctx, point_sampler) == vk::Sampler::null() {
         let [point, point_aniso, linear, linear_aniso] = create_quartet(
             ctx,
             0.0,
             [c"point", c"point_aniso", c"linear", c"linear_aniso"],
         );
-        ctx.vg.point_sampler = point;
-        ctx.vg.point_aniso_sampler = point_aniso;
-        ctx.vg.linear_sampler = linear;
-        ctx.vg.linear_aniso_sampler = linear_aniso;
+        *vg_mut!(ctx, point_sampler) = point;
+        *vg_mut!(ctx, point_aniso_sampler) = point_aniso;
+        *vg_mut!(ctx, linear_sampler) = linear;
+        *vg_mut!(ctx, linear_aniso_sampler) = linear_aniso;
     }
 
-    if ctx.vg.point_sampler_lod_bias != vk::Sampler::null() {
+    if vg!(ctx, point_sampler_lod_bias) != vk::Sampler::null() {
         for sampler in [
-            ctx.vg.point_sampler_lod_bias,
-            ctx.vg.point_aniso_sampler_lod_bias,
-            ctx.vg.linear_sampler_lod_bias,
-            ctx.vg.linear_aniso_sampler_lod_bias,
+            vg!(ctx, point_sampler_lod_bias),
+            vg!(ctx, point_aniso_sampler_lod_bias),
+            vg!(ctx, linear_sampler_lod_bias),
+            vg!(ctx, linear_aniso_sampler_lod_bias),
         ] {
             // SAFETY: the device was idled above, so no submission uses the sampler.
             unsafe { ctx.device.destroy_sampler(sampler, None) };
@@ -113,8 +113,8 @@ pub fn init_samplers<E: Engine>(ctx: &mut Ctx<'_, E>) {
         ctx.engine.r_lodbias(),
         ctx.engine.gl_lodbias(),
         ctx.engine.r_scale(),
-        ctx.vg.supersampling,
-        ctx.vg.sample_count,
+        vg!(ctx, supersampling),
+        vg!(ctx, sample_count),
     );
     ctx.engine
         .sys_printf(&format!("Texture lod bias: {bias:.6}\n"));
@@ -128,10 +128,10 @@ pub fn init_samplers<E: Engine>(ctx: &mut Ctx<'_, E>) {
             c"linear_aniso_lod_bias",
         ],
     );
-    ctx.vg.point_sampler_lod_bias = point;
-    ctx.vg.point_aniso_sampler_lod_bias = point_aniso;
-    ctx.vg.linear_sampler_lod_bias = linear;
-    ctx.vg.linear_aniso_sampler_lod_bias = linear_aniso;
+    *vg_mut!(ctx, point_sampler_lod_bias) = point;
+    *vg_mut!(ctx, point_aniso_sampler_lod_bias) = point_aniso;
+    *vg_mut!(ctx, linear_sampler_lod_bias) = linear;
+    *vg_mut!(ctx, linear_aniso_sampler_lod_bias) = linear_aniso;
 
     ctx.engine.update_texture_descriptor_sets();
 }
