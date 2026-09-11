@@ -526,7 +526,12 @@ pub fn init_device<E: VidEngine>(
         // SAFETY: as above.
         vg.device_features = unsafe { instance.get_physical_device_features(physical_device) };
     }
-    // The query chained these; `vkCreateDevice` gets a fresh chain below.
+    // The query chained these; `vkCreateDevice` gets a fresh chain below
+    // (`push_next` needs unlinked structs). Deliberate deviation from
+    // `gl_vidsdl.c:1331-1348`, whose `CHAIN_PNEXT` never clears the tails, so
+    // when an extension is present but its feature is turned off between the
+    // query and the create (e.g. `ray_query`) C hands the driver the stale
+    // feature structs too; not simulation- or `-renderhash`-observable.
     subgroup_size_control_features.p_next = ptr::null_mut();
     buffer_device_address_features.p_next = ptr::null_mut();
     acceleration_structure_features.p_next = ptr::null_mut();

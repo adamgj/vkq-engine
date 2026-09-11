@@ -32,7 +32,13 @@ use crate::gl_rmisc::{vulkan_globals, with_ctx, CEngine, DEVICE, DYN, STAGING};
 /// tables, swap chain, command pools/buffers, attachments, ...). Only the
 /// main thread and the end-rendering task touch it, never concurrently:
 /// every entry point below either runs on the main thread after
-/// `GL_SynchronizeEndRenderingTask` or *is* the end-rendering task.
+/// `GL_SynchronizeEndRenderingTask` or *is* the end-rendering task. The one
+/// exception is `GL_BeginRendering(use_tasks = true)`, which (like
+/// `gl_vidsdl.c:3473-3509`) overlaps the previous frame's end-rendering task
+/// (`gl_screen.c` only orders that task before the *begin task*) and reads
+/// `render_resources_created` through [`render_resources_created`] -- a raw
+/// field read, never a `&mut VidState` -- and the task never writes that
+/// field.
 static mut VID: VidState = VidState::new();
 
 /// `task_handle_t prev_end_rendering_task` (`gl_vidsdl.c:228`,
@@ -50,6 +56,14 @@ const TASK_TIMEOUT_INFINITE: u32 = u32::MAX;
 fn vid_state() -> &'static mut VidState {
     // SAFETY: see the `VID` doc comment -- the callers serialise access.
     unsafe { &mut *ptr::addr_of_mut!(VID) }
+}
+
+/// `render_resources_created` without materialising a `&mut VidState`, for
+/// the one entry point that may overlap the end-rendering task (see `VID`).
+fn render_resources_created() -> bool {
+    // SAFETY: a plain read of one field of the static; the only other thread
+    // that can be inside `VID` (the end-rendering task) never writes it.
+    unsafe { ptr::addr_of!(VID.render_resources_created).read() }
 }
 
 /* ---- Engine seams ---- */
@@ -417,8 +431,7 @@ pub unsafe extern "C" fn GL_BeginRendering(
         ptr::addr_of_mut!(g::frame_oit_mode).write(requested_oit_mode);
 
         let vid_ref = &mut *ptr::addr_of_mut!(c::cl_parse::vid);
-        if vid_ref.restart_next_frame || (vid_state().render_resources_created && oit_mode_changed)
-        {
+        if vid_ref.restart_next_frame || (render_resources_created() && oit_mode_changed) {
             g::VID_Restart(false);
             vid_ref.restart_next_frame = false;
             // Reread: `VID_Restart` re-registers the cvar value.
@@ -428,10 +441,12 @@ pub unsafe extern "C" fn GL_BeginRendering(
         }
     }
 
-    if !vid_state().render_resources_created {
+    // `GL_CreateRenderResources` runs only while no end-rendering task can be
+    // in flight (nothing was submitted since the resources were destroyed).
+    if !render_resources_created() {
         GL_CreateRenderResources();
     }
-    if !vid_state().render_resources_created {
+    if !render_resources_created() {
         return false;
     }
 
