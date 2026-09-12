@@ -49,8 +49,8 @@ typedef struct skybox_s
 	float		 wind_period;
 } skybox_t;
 extern skybox_t skybox; // gl_sky.rs
-extern float	skyfog;	 // gl_sky.rs
-void Skywind_Load_f (void);
+extern float	skyfog; // gl_sky.rs
+void			Skywind_Load_f (void);
 
 static bool Skywind_is_enabled (void)
 {
@@ -342,5 +342,4 @@ void Sky_Init (void)
 	Cmd_AddCommand ("skywind_load", Skywind_Load_f);
 	Cmd_AddCommand ("skywind_lookdir", Skywind_LookDir_f);
 	Cmd_AddCommand ("skywind_rotate", Skywind_Rotate_f);
-
 }

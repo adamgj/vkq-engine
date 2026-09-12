@@ -109,22 +109,22 @@ CENTER PRINTING
 
 // rust/quake-capi/src/gl_screen.rs (Phase 8 M7)
 extern float scr_centertime_off;
-void SCR_CheckDrawCenterString (cb_context_t *cbx);
-void SCR_CalcRefdef (void);
-void SCR_Conwidth_f (cvar_t *var);
-void SCR_DrawFPS (cb_context_t *cbx);
-void SCR_DrawSpeeds (cb_context_t *cbx);
-void SCR_DrawClock (cb_context_t *cbx);
-void SCR_DrawDevStats (cb_context_t *cbx);
-void SCR_DrawTurtle (cb_context_t *cbx);
-void SCR_DrawNet (cb_context_t *cbx);
-void SCR_DrawPause (cb_context_t *cbx);
-void SCR_DrawLoading (cb_context_t *cbx);
-void SCR_DrawCrosshair (cb_context_t *cbx);
-void SCR_SetUpToDrawConsole (void);
-void SCR_DrawConsole (cb_context_t *cbx);
-void SCR_DrawNotifyString (cb_context_t *cbx);
-void SCR_TileClear (cb_context_t *cbx);
+void		 SCR_CheckDrawCenterString (cb_context_t *cbx);
+void		 SCR_CalcRefdef (void);
+void		 SCR_Conwidth_f (cvar_t *var);
+void		 SCR_DrawFPS (cb_context_t *cbx);
+void		 SCR_DrawSpeeds (cb_context_t *cbx);
+void		 SCR_DrawClock (cb_context_t *cbx);
+void		 SCR_DrawDevStats (cb_context_t *cbx);
+void		 SCR_DrawTurtle (cb_context_t *cbx);
+void		 SCR_DrawNet (cb_context_t *cbx);
+void		 SCR_DrawPause (cb_context_t *cbx);
+void		 SCR_DrawLoading (cb_context_t *cbx);
+void		 SCR_DrawCrosshair (cb_context_t *cbx);
+void		 SCR_SetUpToDrawConsole (void);
+void		 SCR_DrawConsole (cb_context_t *cbx);
+void		 SCR_DrawNotifyString (cb_context_t *cbx);
+void		 SCR_TileClear (cb_context_t *cbx);
 
 // M_GetCrosshairDef returns crosshair_t by value, which Rust cannot spell
 // portably; the Rust SCR_DrawCrosshair reads it through this out-pointer.
@@ -169,7 +169,6 @@ static void SCR_ZoomUp_f (void)
 {
 	cl.zoomdir = -1.f;
 }
-
 
 /*
 =================
