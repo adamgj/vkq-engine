@@ -225,7 +225,7 @@ void R_DrawSpriteModel (cb_context_t *cbx, entity_t *e)
 
 	vkCmdBindDescriptorSets (
 		cbx->cb, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_globals.basic_pipeline_layout.handle, 0, 1, &frame->gltexture->descriptor_set, 0, NULL);
-	vkCmdDrawIndexed (cbx->cb, 6, 1, 0, 0, 0);
+	vulkan_globals.vk_cmd_draw_indexed (cbx->cb, 6, 1, 0, 0, 0);
 }
 
 /*
@@ -254,5 +254,5 @@ void R_DrawSpriteModel_ShowTris (cb_context_t *cbx, entity_t *e)
 
 	vkCmdBindDescriptorSets (
 		cbx->cb, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_globals.basic_pipeline_layout.handle, 0, 1, &frame->gltexture->descriptor_set, 0, NULL);
-	vkCmdDrawIndexed (cbx->cb, 6, 1, 0, 0, 0);
+	vulkan_globals.vk_cmd_draw_indexed (cbx->cb, 6, 1, 0, 0, 0);
 }

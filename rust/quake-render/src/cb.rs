@@ -6,14 +6,17 @@
 //! `vulkan_globals`, not ash's own table, so the C and Rust builds resolve the
 //! same functions (the harness hooks them under `-renderhash`).
 
-use core::ffi::CStr;
+use core::ffi::{c_int, CStr};
 
 use ash::vk;
 use quake_types::render::{CbContext, VulkanPipeline};
 
 use crate::rmisc::{vg, VgPtr};
 
-use crate::vid::RENDER_PASS_INDEX_MBOIT_COMPOSITE;
+use crate::vid::{
+    RENDER_PASS_INDEX_MAIN_MBOIT, RENDER_PASS_INDEX_MAIN_OIT, RENDER_PASS_INDEX_MBOIT_COMPOSITE,
+    RENDER_PASS_INDEX_MBOIT_MOMENTS, RENDER_PASS_INDEX_WBOIT,
+};
 
 /// `MAX_PUSH_CONSTANT_SIZE` (`glquake.h`).
 const MAX_PUSH_CONSTANT_SIZE: usize = 128;
@@ -26,6 +29,9 @@ pub struct CmdProcs {
     bind_pipeline: Option<vk::PFN_vkCmdBindPipeline>,
     push_constants: Option<vk::PFN_vkCmdPushConstants>,
     bind_descriptor_sets: Option<vk::PFN_vkCmdBindDescriptorSets>,
+    draw: Option<vk::PFN_vkCmdDraw>,
+    draw_indexed: Option<vk::PFN_vkCmdDrawIndexed>,
+    draw_indexed_indirect: Option<vk::PFN_vkCmdDrawIndexedIndirect>,
     #[cfg(feature = "engine-debug")]
     begin_debug_utils_label: Option<vk::PFN_vkCmdBeginDebugUtilsLabelEXT>,
     #[cfg(feature = "engine-debug")]
@@ -43,6 +49,9 @@ impl CmdProcs {
             bind_pipeline: vg!(h, vk_cmd_bind_pipeline),
             push_constants: vg!(h, vk_cmd_push_constants),
             bind_descriptor_sets: vg!(h, vk_cmd_bind_descriptor_sets),
+            draw: vg!(h, vk_cmd_draw),
+            draw_indexed: vg!(h, vk_cmd_draw_indexed),
+            draw_indexed_indirect: vg!(h, vk_cmd_draw_indexed_indirect),
             #[cfg(feature = "engine-debug")]
             begin_debug_utils_label: vg!(h, vk_cmd_begin_debug_utils_label),
             #[cfg(feature = "engine-debug")]
@@ -50,6 +59,83 @@ impl CmdProcs {
             mboit_input_attachment_descriptor_set: vg!(h, mboit_input_attachment_descriptor_set),
         }
     }
+}
+
+/// `vulkan_globals.vk_cmd_draw (...)`. Every draw goes through the
+/// `vulkan_globals` pointer rather than the `ash::Device` table because the
+/// `-renderhash` harness (`harness_render.c`) wraps these three entry points
+/// to record the draw structure; a direct `ash` call would be invisible to it.
+///
+/// # Safety
+/// `cb` is recording inside a render pass with a graphics pipeline bound.
+pub unsafe fn draw(
+    procs: &CmdProcs,
+    cb: vk::CommandBuffer,
+    vertex_count: u32,
+    instance_count: u32,
+    first_vertex: u32,
+    first_instance: u32,
+) {
+    let f = procs.draw.expect("vkCmdDraw is loaded before any draw");
+    // SAFETY: the caller's contract; `f` is the entry point loaded for the
+    // device that owns `cb`.
+    unsafe {
+        f(
+            cb,
+            vertex_count,
+            instance_count,
+            first_vertex,
+            first_instance,
+        )
+    }
+}
+
+/// `vulkan_globals.vk_cmd_draw_indexed (...)`; see [`draw`].
+///
+/// # Safety
+/// As for [`draw`], with an index buffer bound.
+pub unsafe fn draw_indexed(
+    procs: &CmdProcs,
+    cb: vk::CommandBuffer,
+    index_count: u32,
+    instance_count: u32,
+    first_index: u32,
+    vertex_offset: i32,
+    first_instance: u32,
+) {
+    let f = procs
+        .draw_indexed
+        .expect("vkCmdDrawIndexed is loaded before any draw");
+    // SAFETY: as for `draw`.
+    unsafe {
+        f(
+            cb,
+            index_count,
+            instance_count,
+            first_index,
+            vertex_offset,
+            first_instance,
+        )
+    }
+}
+
+/// `vulkan_globals.vk_cmd_draw_indexed_indirect (...)`; see [`draw`].
+///
+/// # Safety
+/// As for [`draw_indexed`]; `buffer` holds `draw_count` commands at `offset`.
+pub unsafe fn draw_indexed_indirect(
+    procs: &CmdProcs,
+    cb: vk::CommandBuffer,
+    buffer: vk::Buffer,
+    offset: vk::DeviceSize,
+    draw_count: u32,
+    stride: u32,
+) {
+    let f = procs
+        .draw_indexed_indirect
+        .expect("vkCmdDrawIndexedIndirect is loaded before any draw");
+    // SAFETY: as for `draw`.
+    unsafe { f(cb, buffer, offset, draw_count, stride) }
 }
 
 /// `R_BindPipeline`: binds when the handle changes, zeroes the push-constant
@@ -163,5 +249,35 @@ pub fn end_debug_utils_label(procs: &CmdProcs, cbx: &CbContext) {
     if let Some(end) = procs.end_debug_utils_label {
         // SAFETY: `cbx.cb` is recording.
         unsafe { end(cbx.cb) };
+    }
+}
+
+/// `R_MainPassPipelineVariant` (`glquake.h`): the `main_render_pass_variant_t`
+/// index for a render pass.
+pub fn main_pass_pipeline_variant(render_pass_index: c_int) -> usize {
+    if render_pass_index == RENDER_PASS_INDEX_MAIN_OIT {
+        1
+    } else if render_pass_index == RENDER_PASS_INDEX_MAIN_MBOIT {
+        2
+    } else {
+        0
+    }
+}
+
+/// `R_PipelineForRenderPass` (`glquake.h`): selects between the standard,
+/// WBOIT accumulation, MBOIT moment and MBOIT composite pipelines of a shader
+/// family based on the render pass a context records into.
+pub fn pipeline_for_render_pass(
+    render_pass_index: c_int,
+    main: VulkanPipeline,
+    wboit: VulkanPipeline,
+    mboit_moment: VulkanPipeline,
+    mboit_composite: VulkanPipeline,
+) -> VulkanPipeline {
+    match render_pass_index {
+        RENDER_PASS_INDEX_WBOIT => wboit,
+        RENDER_PASS_INDEX_MBOIT_MOMENTS => mboit_moment,
+        RENDER_PASS_INDEX_MBOIT_COMPOSITE => mboit_composite,
+        _ => main,
     }
 }

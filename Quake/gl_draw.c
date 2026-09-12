@@ -767,7 +767,7 @@ void Draw_Pic (cb_context_t *cbx, float x, float y, qpic_t *pic, float alpha, qb
 		R_BindPipeline (cbx, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_globals.basic_alphatest_pipeline[cbx->render_pass_index]);
 	vkCmdBindDescriptorSets (
 		cbx->cb, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_globals.basic_pipeline_layout.handle, 0, 1, &gl.gltexture->descriptor_set, 0, NULL);
-	vkCmdDraw (cbx->cb, 6, 1, 0, 0);
+	vulkan_globals.vk_cmd_draw (cbx->cb, 6, 1, 0, 0);
 }
 
 void Draw_SubPic (cb_context_t *cbx, float x, float y, float w, float h, qpic_t *pic, float s1, float t1, float s2, float t2, float *rgb, float alpha)
@@ -848,7 +848,7 @@ void Draw_SubPic (cb_context_t *cbx, float x, float y, float w, float h, qpic_t 
 		R_BindPipeline (cbx, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_globals.basic_alphatest_pipeline[cbx->render_pass_index]);
 	vkCmdBindDescriptorSets (
 		cbx->cb, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_globals.basic_pipeline_layout.handle, 0, 1, &gl.gltexture->descriptor_set, 0, NULL);
-	vkCmdDraw (cbx->cb, 6, 1, 0, 0);
+	vulkan_globals.vk_cmd_draw (cbx->cb, 6, 1, 0, 0);
 }
 
 /*
@@ -954,7 +954,7 @@ void Draw_TileClear (cb_context_t *cbx, float x, float y, float w, float h)
 	vkCmdBindDescriptorSets (
 		cbx->cb, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_globals.basic_pipeline_layout.handle, 0, 1, &gl.gltexture->descriptor_set, 0, NULL);
 	vkCmdBindVertexBuffers (cbx->cb, 0, 1, &buffer, &buffer_offset);
-	vkCmdDraw (cbx->cb, 6, 1, 0, 0);
+	vulkan_globals.vk_cmd_draw (cbx->cb, 6, 1, 0, 0);
 }
 
 /*
@@ -1005,7 +1005,7 @@ void Draw_Fill (cb_context_t *cbx, float x, float y, float w, float h, int c, fl
 
 	vkCmdBindVertexBuffers (cbx->cb, 0, 1, &buffer, &buffer_offset);
 	R_BindPipeline (cbx, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_globals.basic_notex_blend_pipeline[cbx->render_pass_index]);
-	vkCmdDraw (cbx->cb, 6, 1, 0, 0);
+	vulkan_globals.vk_cmd_draw (cbx->cb, 6, 1, 0, 0);
 }
 
 /*
@@ -1050,7 +1050,7 @@ void Draw_FadeScreen (cb_context_t *cbx)
 
 	vkCmdBindVertexBuffers (cbx->cb, 0, 1, &buffer, &buffer_offset);
 	R_BindPipeline (cbx, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_globals.basic_notex_blend_pipeline[cbx->render_pass_index]);
-	vkCmdDraw (cbx->cb, 6, 1, 0, 0);
+	vulkan_globals.vk_cmd_draw (cbx->cb, 6, 1, 0, 0);
 }
 
 /*

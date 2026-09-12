@@ -18,6 +18,8 @@
 
 use core::ffi::c_int;
 
+pub use crate::refdef::{RefDef, VRect};
+
 /// `vulkan_memory_type_t` (`glquake.h`): a C `enum`, so `c_int`-sized.
 #[repr(C)]
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
@@ -248,6 +250,19 @@ pub const MAX_GLTEXTURES: u32 = 16 * 4096;
 pub const MAXLIGHTMAPS: u32 = 4;
 /// `MAX_UNIFORM_ALLOC` (`gl_rmisc.c`)
 pub const MAX_UNIFORM_ALLOC: usize = 2048;
+
+/// `basicvertex_t` (`glquake.h:625-630`): the 24-byte vertex every dynamic
+/// vertex-buffer user (`gl_draw.c`, `gl_warp.c`, `gl_sky.c`, `r_sprite.c`)
+/// writes through `R_VertexAllocate`.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct BasicVertex {
+    pub position: [f32; 3],
+    pub texcoord: [f32; 2],
+    pub color: [u8; 4],
+}
+
+const _: () = assert!(core::mem::size_of::<BasicVertex>() == 24);
 
 /// `oit_mode_t` (`glquake.h`): a C `enum`, stored as the raw `c_int`.
 pub const OIT_MODE_NONE: c_int = 0;

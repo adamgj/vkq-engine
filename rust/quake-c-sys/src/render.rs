@@ -10,7 +10,7 @@
 //! (dispatchable), Vulkan enums as `c_int`, Vulkan structs as `*const c_void`
 //! to the caller's `ash::vk` structs.
 
-use core::ffi::{c_char, c_int, c_uint, c_void};
+use core::ffi::{c_char, c_float, c_int, c_uint, c_void};
 
 use crate::cvar_t;
 
@@ -222,20 +222,6 @@ extern "C" {
     pub fn VID_Restart(set_mode: bool);
     /// `harness.h:112` -- `void Harness_RenderInstallHooks (void)`.
     pub fn Harness_RenderInstallHooks();
-    /// `glquake.h:809` -- `qboolean Sky_NeedStencil ()` (`gl_sky.c`).
-    pub fn Sky_NeedStencil() -> bool;
-    /// `draw.h:63` -- `void GL_Viewport (cb_context_t *cbx, float x, float y,
-    /// float width, float height, float min_depth, float max_depth)`
-    /// (`gl_draw.c`).
-    pub fn GL_Viewport(
-        cbx: *mut c_void,
-        x: f32,
-        y: f32,
-        width: f32,
-        height: f32,
-        min_depth: f32,
-        max_depth: f32,
-    );
     /// `glquake.h:925` -- `void R_CollectMeshBufferGarbage (void)`
     /// (`gl_mesh.c`).
     pub fn R_CollectMeshBufferGarbage();
@@ -257,6 +243,86 @@ extern "C" {
     pub static mut vid_maxframelatency: cvar_t;
     pub static mut r_usesops: cvar_t;
     pub static mut r_raydebug: cvar_t;
+
+    /* Phase 8 M7: the draw layer's seams into the C that remains */
+
+    /// `glquake.h:693` -- `qboolean r_fullbright_cheatsafe`,
+    /// `r_lightmap_cheatsafe`, `r_drawworld_cheatsafe` (`gl_rmain.c`).
+    pub static mut r_fullbright_cheatsafe: bool;
+    pub static mut r_lightmap_cheatsafe: bool;
+    pub static mut r_drawworld_cheatsafe: bool;
+    /// `Quake/gl_warp_glue.c` -- `cvar_t r_waterquality`, `r_waterwarp`,
+    /// `r_waterwarpcompute`.
+    pub static mut r_waterquality: cvar_t;
+    pub static mut r_waterwarp: cvar_t;
+    pub static mut r_waterwarpcompute: cvar_t;
+    /// `gl_rmain.c:92` -- `cvar_t r_showtris`.
+    pub static mut r_showtris: cvar_t;
+    /// `gl_rmain.c:38` -- `int r_framecount`.
+    pub static mut r_framecount: c_int;
+    /// `gl_rmain.c:62` -- `int d_lightstylevalue[MAX_LIGHTSTYLES]` (8.8
+    /// fraction of base light value).
+    pub static mut d_lightstylevalue: [c_int; 64];
+    /// `gl_rmain.c` -- `cvar_t r_dynamic`, `r_flatlightstyles`,
+    /// `r_lerplightstyles`, `r_gpulightmapupdate`.
+    pub static mut r_dynamic: cvar_t;
+    pub static mut r_flatlightstyles: cvar_t;
+    pub static mut r_lerplightstyles: cvar_t;
+    pub static mut r_gpulightmapupdate: cvar_t;
+    /// `Quake/gl_rlight_glue.c` -- `cvar_t r_entdlightscale`.
+    pub static mut r_entdlightscale: cvar_t;
+
+    /* Phase 8 M7: gl_sky.c's seams into the C that remains */
+
+    /// `gl_rmain.c:37` -- `atomic_uint32_t rs_skypolys` (4 bytes; read
+    /// through `AtomicU32::from_ptr`).
+    pub static mut rs_skypolys: u32;
+    /// `gl_rmain.c` -- `cvar_t r_drawentities`, `gl_farclip`.
+    pub static mut r_drawentities: cvar_t;
+    pub static mut gl_farclip: cvar_t;
+    /// `r_brush.c:52` -- `qboolean indirect`.
+    pub static mut indirect: bool;
+    /// `Quake/gl_sky_glue.c` -- the sky cvars.
+    pub static mut r_fastsky: cvar_t;
+    pub static mut r_sky_quality: cvar_t;
+    pub static mut r_skyalpha: cvar_t;
+    pub static mut r_skyfog: cvar_t;
+    pub static mut r_skywind: cvar_t;
+    /// `Quake/gl_sky_glue.c` -- `void Skywind_Load_f (void)` (non-static
+    /// there so `Sky_LoadSkyBox` can call it).
+    pub fn Skywind_Load_f();
+    /// `glquake.h:725` -- `qboolean R_CullModelForEntity (entity_t *e)`
+    /// (`gl_rmain.c`).
+    pub fn R_CullModelForEntity(e: *mut c_void) -> bool;
+    /// `glquake.h:743` -- `qboolean R_IndirectBrush (entity_t *e)` (`r_brush.c`).
+    pub fn R_IndirectBrush(e: *mut c_void) -> bool;
+    /// `glquake.h:764` -- `void R_DrawIndirectBrushes (cb_context_t *cbx,
+    /// qboolean draw_water, qboolean transparent_water, qboolean draw_sky,
+    /// int index)` (`r_brush.c`).
+    pub fn R_DrawIndirectBrushes(
+        cbx: *mut c_void,
+        draw_water: bool,
+        transparent_water: bool,
+        draw_sky: bool,
+        index: c_int,
+    );
+    /// `glquake.h:802` -- `void DrawGLPoly (cb_context_t *cbx, glpoly_t *p,
+    /// float color[3], float alpha)` (`r_brush.c`).
+    pub fn DrawGLPoly(cbx: *mut c_void, p: *mut c_void, color: *mut c_float, alpha: c_float);
+    /// `mathlib.c` -- `int BoxOnPlaneSide (float *emins, float *emaxs,
+    /// mplane_t *p)` (the non-axial arm of `BOX_ON_PLANE_SIDE`).
+    pub fn BoxOnPlaneSide(emins: *const c_float, emaxs: *const c_float, p: *const c_void) -> c_int;
+    /// `Quake/gl_refrag_glue.c` -- `Host_Guard` wrappers (ADR-009) around
+    /// `PScript_RunParticleEffectState` and `R_AllocateEntityBLAS`; the
+    /// return is the guard code for `Host_Reraise`.
+    pub fn Refrag_Glue_RunParticleEffectState(
+        org: *const c_float,
+        dir: *const c_float,
+        count: c_float,
+        typenum: c_int,
+        tsk: *mut *mut c_void,
+    ) -> c_int;
+    pub fn Refrag_Glue_AllocateEntityBLAS(ent: *mut c_void) -> c_int;
 
     /* Quake/gl_vidsdl_glue.c -- the SDL/window half of gl_vidsdl.c */
 

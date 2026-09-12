@@ -1155,7 +1155,7 @@ void Sky_DrawSkyBox (cb_context_t *cbx, int *skypolys)
 		Sky_EmitSkyBoxVertex (vertices + 3, skymaxs[0][i], skymins[1][i], i);
 
 		vkCmdBindVertexBuffers (cbx->cb, 0, 1, &buffer, &buffer_offset);
-		vkCmdDrawIndexed (cbx->cb, 6, 1, 0, 0, 0);
+		vulkan_globals.vk_cmd_draw_indexed (cbx->cb, 6, 1, 0, 0, 0);
 
 		++(*skypolys);
 	}

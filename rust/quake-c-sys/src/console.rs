@@ -199,7 +199,8 @@ extern "C" {
     /// `vid.h:99` -- `void VID_SetMouseCursor (mousecursor_t cursor)`.
     pub fn VID_SetMouseCursor(cursor: c_int);
 
-    /* renderer entry points (gl_draw.c); `cb_context_t *` is opaque here */
+    /* renderer entry points (gl_draw.c, or `quake-capi::gl_draw` under the
+     * `render` feature -- Phase 8 M7); `cb_context_t *` is opaque here */
     pub fn Draw_Character(cbx: *mut c_void, x: f32, y: f32, num: c_int);
     pub fn Draw_String(cbx: *mut c_void, x: f32, y: f32, str_: *const c_char);
     pub fn Draw_Pic(

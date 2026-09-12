@@ -62,7 +62,7 @@
 //! forces `oldz` and `punch` to the same known values before every test --
 //! see `view_ref.c`.
 
-use core::ffi::{c_float, c_int, c_uint, c_void};
+use core::ffi::{c_float, c_int, c_uint};
 use core::ptr;
 
 use quake_c_sys as c;
@@ -71,9 +71,8 @@ use quake_c_sys::qboolean;
 use quake_c_sys::view as g;
 use quake_math::mathlib as m;
 use quake_math::mathlib::Vec3;
-use quake_types::host::{CShift, ClientState, ClientStatic, Efrag, QBoolean};
-use quake_types::model_mem::QModel;
-use quake_types::progs::EntityState;
+use quake_types::host::{CShift, ClientState, ClientStatic};
+pub use quake_types::host::{EntLerp, Entity, LightCache};
 
 /// A `Host_Guard` status: 0 means "no raise". Non-zero must be returned to
 /// `Quake/view_glue.c` untouched.
@@ -133,114 +132,10 @@ const SYS_ERR_RENDER_VIEW_RELINK: &core::ffi::CStr =
     c"V_RenderView: entities needed relink in main draw";
 
 // ---------------------------------------------------------------------------
-// ADR-011 mirrors local to this module (see the module doc).
+// ADR-011 mirrors: `VRect`/`RefDef` moved to `quake_types::refdef` in Phase 8
+// M7 so the render-only build can type `r_refdef` too.
 
-/// `render.h` `lightcache_t`.
-#[repr(C)]
-pub struct LightCache {
-    pub surfidx: c_int,
-    pub pos: [c_float; 3],
-    pub ds: i16,
-    pub dt: i16,
-}
-
-/// `render.h` `entlerp_t`.
-#[repr(C)]
-pub struct EntLerp {
-    pub movestep: QBoolean,
-    pub prev_frame: c_int,
-    pub frame_change_time: f64,
-    pub frame_duration: f64,
-    pub frame_finish_time: f64,
-    pub snap_frames: c_int,
-    pub snap_msgtime: f64,
-    pub prev_origin: [c_float; 3],
-    pub prev_angles: [c_float; 3],
-    pub move_change_time: f64,
-    pub move_duration: f64,
-}
-
-/// `render.h` `entity_t`. Only ever reached through a `*mut` cast of
-/// [`quake_types::host::EntityOpaque`]; never constructed by value, so the
-/// opaque blob's stride stays authoritative for `cl.entities` indexing.
-///
-/// `PSET_SCRIPT` is defined unconditionally by `Quake/quakedef.h:38`, so
-/// `trailstate`/`emitstate` are always present.
-#[repr(C)]
-pub struct Entity {
-    pub forcelink: QBoolean,
-    pub update_type: c_int,
-    pub baseline: EntityState,
-    pub netstate: EntityState,
-    pub msgtime: f64,
-    pub msg_origins: [[c_float; 3]; 2],
-    pub origin: [c_float; 3],
-    pub msg_angles: [[c_float; 3]; 2],
-    pub angles: [c_float; 3],
-    pub model: *mut QModel,
-    pub efrag: *mut Efrag,
-    pub frame: c_int,
-    pub syncbase: c_float,
-    pub colormap: *mut u8,
-    pub effects: c_int,
-    pub skinnum: c_int,
-    pub visframe: c_int,
-    pub dlightframe: c_int,
-    pub dlightbits: c_int,
-    pub topnode: *mut c_void,
-    pub eflags: u8,
-    pub alpha: u8,
-    pub lerp: EntLerp,
-    pub trailstate: *mut c_void,
-    pub emitstate: *mut c_void,
-    pub traildelay: c_float,
-    pub trailorg: [c_float; 3],
-    pub lightcache: LightCache,
-    pub contentscache: c_int,
-    pub contentscache_origin: [c_float; 3],
-    pub blas_data: *mut c_void,
-}
-
-/// `vid.h` `vrect_t`.
-#[repr(C)]
-pub struct VRect {
-    pub x: c_int,
-    pub y: c_int,
-    pub width: c_int,
-    pub height: c_int,
-    pub pnext: *mut VRect,
-}
-
-/// `render.h` `refdef_t` -- the global `r_refdef`, owned by `gl_rmain.c`.
-#[repr(C)]
-pub struct RefDef {
-    pub vrect: VRect,
-    pub aliasvrect: VRect,
-    pub vrectright: c_int,
-    pub vrectbottom: c_int,
-    pub aliasvrectright: c_int,
-    pub aliasvrectbottom: c_int,
-    pub vrectrightedge: c_float,
-    pub fvrectx: c_float,
-    pub fvrecty: c_float,
-    pub fvrectx_adj: c_float,
-    pub fvrecty_adj: c_float,
-    pub vrect_x_adj_shift20: c_int,
-    pub vrectright_adj_shift20: c_int,
-    pub fvrectright_adj: c_float,
-    pub fvrectbottom_adj: c_float,
-    pub fvrectright: c_float,
-    pub fvrectbottom: c_float,
-    pub horizontal_field_of_view: c_float,
-    pub x_origin: c_float,
-    pub y_origin: c_float,
-    pub vieworg: [c_float; 3],
-    pub viewangles: [c_float; 3],
-    pub basefov: c_float,
-    pub fov_x: c_float,
-    pub fov_y: c_float,
-    pub ambientlight: c_int,
-}
+pub use quake_types::refdef::{RefDef, VRect};
 
 extern "C" {
     /// `gl_rmain.c`. Written heavily by `view.c`; stays C-owned until Phase 8.
