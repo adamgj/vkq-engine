@@ -981,15 +981,13 @@ else
 endif
 
 # Phase 8 M8: the world/mesh renderer -> quake-capi (ADR-015): gl_mesh.c,
-# r_alias.c, r_brush.c and r_world.c. gl_mesh_glue.c and r_brush_glue.c keep
-# the ray-tracing halves (entity BLAS builds, AS scratch buffer, TLAS) in C
-# until Phase 8 M10 (plan D5); r_alias_glue.c resolves the alias header
-# (Mod_Extradata_CheckSkin can Host_Error) before entering Rust (ADR-009).
+# r_alias.c, r_brush.c and r_world.c. Their ray-tracing halves (entity BLAS
+# builds, AS scratch buffer, TLAS) followed at Phase 8 M10 (plan D5);
+# r_alias_glue.c resolves the alias header (Mod_Extradata_CheckSkin can
+# Host_Error) before entering Rust (ADR-009).
 if use_rust_render
     srcs += [
-        'Quake/gl_mesh_glue.c',
         'Quake/r_alias_glue.c',
-        'Quake/r_brush_glue.c',
     ]
 else
     srcs += [

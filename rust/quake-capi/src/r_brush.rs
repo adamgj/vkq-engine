@@ -1,11 +1,9 @@
-//! `r_brush.c` (Phase 8 M8): brush-model drawing, the lightmap atlases and
-//! their GPU update (compute + upload paths), the indirect-draw structures,
-//! the brush dependency tables and the SoA culling data. The ray-tracing
-//! half of the file (`R_AllocateTLAS`, the BLAS builds,
-//! `R_BuildTopLevelAccelerationStructure`, ...) stays C in
-//! `Quake/r_brush_glue.c` until Phase 8 M10 (D5); it reaches this module
-//! through the exported `bmodel_vertex_buffer`, `bmodel_numverts` and
-//! `bmodel_vertex_buffer_device_address`.
+//! `r_brush.c` (Phase 8 M8, ray tracing M10): brush-model drawing, the
+//! lightmap atlases and their GPU update (compute + upload paths), the
+//! indirect-draw structures, the brush dependency tables, the SoA culling
+//! data, and the ray-query side -- the shared AS scratch buffer, one BLAS
+//! per brush model and the per-frame TLAS
+//! (`R_BuildTopLevelAccelerationStructure`).
 //!
 //! Headless mode (`no_rendering`) never reaches any of this: `gl_model.c`
 //! and `gl_rmisc.c` gate the lightmap/vertex-buffer builds on
@@ -24,34 +22,43 @@ use ash::vk;
 use ash::vk::Handle;
 use quake_c_sys as c;
 use quake_c_sys::cvar_t;
-use quake_math::mathlib::{angle_vectors, dot_product, identity_matrix, matrix_multiply, Vec3};
+use quake_math::mathlib::{
+    angle_vectors, dot_product, identity_matrix, matrix_multiply, scale_matrix, translation_matrix,
+    Vec3,
+};
 use quake_net::cnum::c_atoi;
 use quake_render::cb::{self, CmdProcs};
 use quake_render::rmisc::{
     allocate_descriptor_set, allocate_vulkan_memory, create_buffer, create_buffers, free_buffer,
-    free_descriptor_set, free_vulkan_memory, BufferRequest,
+    free_buffers, free_descriptor_set, free_vulkan_memory, q_next_pow2, BufferRequest,
 };
 use quake_types::host::{ClientState, Entity, MAX_MODELS};
 use quake_types::model_mem::{
-    MEdge, MNode, MSurface, MVertex, QModel, Texture, MOD_BRUSH, SURF_DRAWSKY, SURF_DRAWTILED,
-    SURF_DRAWTURB, SURF_PLANEBACK, TEXTYPE_CUTOUT, TEXTYPE_SKY,
+    AliasHdr, MEdge, MNode, MSurface, MVertex, QModel, Texture, MOD_ALIAS, MOD_BRUSH, SURF_DRAWSKY,
+    SURF_DRAWTILED, SURF_DRAWTURB, SURF_PLANEBACK, TEXTYPE_CUTOUT, TEXTYPE_SKY,
 };
 use quake_types::model_mem::{SoaAabb, SoaPlane};
 use quake_types::plane::MPlane;
 use quake_types::refdef::RefDef;
 use quake_types::render::{
-    BModelInstance, BasicVertex, CbContext, GlPoly, GlRect, GlTexture, Lightmap, LmComputeLight,
-    LmComputeSurfaceData, LmComputeWorkgroupBounds, VulkanMemory, VulkanMemoryType,
+    BModelInstance, BasicVertex, CbContext, DynBuffer, GlPoly, GlRect, GlTexture, Lightmap,
+    LmComputeLight, LmComputeSurfaceData, LmComputeWorkgroupBounds, VulkanMemory, VulkanMemoryType,
     FAN_INDEX_BUFFER_SIZE, LMBLOCK_HEIGHT, LMBLOCK_WIDTH, LM_CULL_BLOCK_H, LM_CULL_BLOCK_W,
     LM_CULL_COLS, LM_CULL_ROWS, LM_WORKGROUP_SUBMODEL_EMPTY, LM_WORKGROUP_SUBMODEL_MIXED,
-    MAXLIGHTMAPS, MAX_LIGHTSTYLES, MAX_SANITY_LIGHTMAPS, PCBX_UPDATE_LIGHTMAPS, TASKS_MAX_WORKERS,
-    VERTEXSIZE,
+    MAXLIGHTMAPS, MAX_LIGHTSTYLES, MAX_SANITY_LIGHTMAPS, PCBX_BUILD_ACCELERATION_STRUCTURES,
+    PCBX_UPDATE_LIGHTMAPS, TASKS_MAX_WORKERS, VERTEXSIZE,
 };
 
+use crate::gl_mesh::{cmd_memory_barrier, AsProcs, EntityBlas, R_UpdateAnimatedBLASes};
 use crate::gl_rlight::{lightmap_dlight_origins, R_MarkLights};
-use crate::gl_rmisc::{device, num_vulkan_bmodel_allocations, with_ctx, DYN, STAGING};
+use crate::gl_rmain::R_RotateForEntity;
+use crate::gl_rmisc::{
+    device, num_vulkan_bmodel_allocations, num_vulkan_dynbuf_allocations, vg, vulkan_globals,
+    with_ctx, DYN, STAGING,
+};
 use crate::gl_texmgr::TexMgr_LoadImage;
 use crate::gl_vidsdl::GL_WaitForDeviceIdle;
+use crate::r_alias::R_GetEntityLerpedTransform;
 use crate::r_world::{
     world_pipeline, R_ChainSurface, R_ClearTextureChains, R_DrawTextureChains,
     R_DrawTextureChains_Water,
@@ -94,7 +101,7 @@ const WORKGROUP_BOUNDS_BUFFER_SIZE: usize =
 const TEXTYPE_FIRSTLIQUID: c_int = 3;
 const TEXTYPE_LASTLIQUID: c_int = 6;
 /// `ENTALPHA_DEFAULT` (`quakedef.h`).
-const ENTALPHA_DEFAULT: u8 = 0;
+pub(crate) const ENTALPHA_DEFAULT: u8 = 0;
 /// `TEXPREF_*` (`gl_texmgr.h`).
 const TEXPREF_LINEAR: u32 = 0x0002;
 const TEXPREF_NEAREST: u32 = 0x0004;
@@ -142,14 +149,14 @@ pub static mut indirect_ready: bool = false;
 /// `gl_vidsdl.rs` through the c-sys view).
 #[no_mangle]
 pub static mut frame_upload_buffers_memory: VulkanMemory = NULL_MEMORY;
-/// `VkBuffer bmodel_vertex_buffer` (shared with the RT glue).
+/// `VkBuffer bmodel_vertex_buffer` (a non-static C global; `r_world.c`
+/// externs it).
 #[no_mangle]
 pub static mut bmodel_vertex_buffer: vk::Buffer = vk::Buffer::null();
-/// `uint32_t bmodel_numverts` (shared with the RT glue).
+/// `uint32_t bmodel_numverts`.
 #[no_mangle]
 pub static mut bmodel_numverts: u32 = 0;
-/// `VkDeviceAddress bmodel_vertex_buffer_device_address` (shared with the RT
-/// glue).
+/// `VkDeviceAddress bmodel_vertex_buffer_device_address`.
 #[no_mangle]
 pub static mut bmodel_vertex_buffer_device_address: vk::DeviceAddress = 0;
 
@@ -4141,5 +4148,735 @@ pub unsafe extern "C" fn R_UploadLightmaps() {
         }
         atomic_u32(ptr::addr_of_mut!(c::render::rs_dynamiclightmaps))
             .fetch_add(num_uploads, Ordering::SeqCst);
+    }
+}
+
+// ---- ray tracing: AS scratch buffer, brush BLASes, TLAS (Phase 8 M10) ------
+
+/// `TLAS_SIZE_MULTIPLE`.
+const TLAS_SIZE_MULTIPLE: u32 = 1024;
+/// `TLAS_GARBAGE_FRAME_COUNT`.
+const TLAS_GARBAGE_FRAME_COUNT: usize = 2;
+/// `MIN_SCRATCH_BUFFER_SIZE_MB`.
+const MIN_SCRATCH_BUFFER_SIZE_MB: u32 = 8;
+/// `MF_HOLEY` (`gl_model.h`).
+const MF_HOLEY: c_int = 1 << 14;
+
+/// `VkAccelerationStructureKHR bmodel_tlas` (read by `gl_vidsdl.rs` and the
+/// lightmap compute path through the c-sys view, and by C `gl_vidsdl.c`).
+#[no_mangle]
+pub static mut bmodel_tlas: vk::AccelerationStructureKHR = vk::AccelerationStructureKHR::null();
+/// `dynbuffer_t as_scratch_buffer` (`glquake.h`; shared with `gl_mesh.rs`).
+#[no_mangle]
+pub static mut as_scratch_buffer: DynBuffer = DynBuffer::ZEROED;
+/// `uint32_t as_scratch_buffer_size` (`glquake.h`; shared with `gl_mesh.rs`).
+#[no_mangle]
+pub static mut as_scratch_buffer_size: u32 = 0;
+
+static mut BMODEL_TLAS_BUFFER: vk::Buffer = vk::Buffer::null();
+static mut BMODEL_TLAS_SIZE: vk::DeviceSize = 0;
+static mut BMODEL_TLAS_DEVICE_MEMORY: VulkanMemory = NULL_MEMORY;
+static mut BMODEL_TLAS_MAX_INSTANCES: u32 = TLAS_SIZE_MULTIPLE;
+static mut BMODEL_INDICES_BUFFER: vk::Buffer = vk::Buffer::null();
+static mut BMODEL_INDICES_DEVICE_ADDRESS: vk::DeviceAddress = 0;
+static mut BMODEL_AS_DEVICE_MEMORY: VulkanMemory = NULL_MEMORY;
+static mut TLAS_GARBAGE: [vk::AccelerationStructureKHR; TLAS_GARBAGE_FRAME_COUNT] =
+    [vk::AccelerationStructureKHR::null(); TLAS_GARBAGE_FRAME_COUNT];
+static mut TLAS_GARBAGE_INDEX: usize = 0;
+static mut AS_SCRATCH_MEMORY: VulkanMemory = NULL_MEMORY;
+
+/// Creates `size` bytes of device-local, device-addressable buffer in its
+/// own allocation (the `vkCreateBuffer` + `VkMemoryAllocateFlagsInfo` +
+/// `R_AllocateVulkanMemory` + bind sequence the AS scratch buffer and the
+/// TLAS share). Returns the buffer and its device address.
+unsafe fn create_addressable_buffer(
+    memory: *mut VulkanMemory,
+    size: vk::DeviceSize,
+    usage: vk::BufferUsageFlags,
+    counter: &'static AtomicU32,
+    name: &CStr,
+) -> (vk::Buffer, vk::DeviceAddress) {
+    // SAFETY: `memory` is one of this module's `VulkanMemory` statics.
+    unsafe {
+        with_ctx(|ctx| {
+            let info = vk::BufferCreateInfo::default().size(size).usage(usage);
+            let buffer = match ctx.device.create_buffer(&info, None) {
+                Ok(buffer) => buffer,
+                Err(err) => ctx.vk_fail("vkCreateBuffer", err),
+            };
+            ctx.name_object(buffer, name);
+
+            let reqs = ctx.device.get_buffer_memory_requirements(buffer);
+            let mut flags_info = vk::MemoryAllocateFlagsInfo::default()
+                .flags(vk::MemoryAllocateFlags::DEVICE_ADDRESS);
+            let alloc_info = vk::MemoryAllocateInfo::default()
+                .allocation_size(reqs.size)
+                .memory_type_index(ctx.memory_type_from_properties(
+                    reqs.memory_type_bits,
+                    vk::MemoryPropertyFlags::DEVICE_LOCAL,
+                    vk::MemoryPropertyFlags::empty(),
+                ))
+                .push_next(&mut flags_info);
+            allocate_vulkan_memory(
+                ctx,
+                &mut *memory,
+                &alloc_info,
+                VulkanMemoryType::Device,
+                Some(counter),
+            );
+            ctx.name_object((*memory).handle, name);
+
+            if let Err(err) = ctx.device.bind_buffer_memory(buffer, (*memory).handle, 0) {
+                ctx.vk_fail("vkBindBufferMemory", err);
+            }
+            (buffer, ctx.buffer_device_address(buffer))
+        })
+    }
+}
+
+/// `R_EnsureASScratchBufferSize`: grows the shared AS scratch buffer to the
+/// next power of two above `required_size` (at least 8 MB), retiring the
+/// old one through the dynamic-buffer garbage list.
+#[no_mangle]
+pub extern "C" fn R_EnsureASScratchBufferSize(required_size: u32) {
+    // SAFETY: main thread (or the AS-build task, which runs alone); the
+    // statics are this module's.
+    unsafe {
+        if required_size <= as_scratch_buffer_size {
+            return;
+        }
+
+        let scratch = ptr::addr_of_mut!(as_scratch_buffer);
+        if (*scratch).buffer != vk::Buffer::null() {
+            DYN.add_garbage(AS_SCRATCH_MEMORY, &[(*scratch).buffer], None);
+        }
+
+        as_scratch_buffer_size =
+            q_next_pow2(required_size.max(MIN_SCRATCH_BUFFER_SIZE_MB * 1024 * 1024));
+        c::Sys_Printf(
+            c"Reallocating dynamic AS scratch buffer (%u KB)\n".as_ptr(),
+            as_scratch_buffer_size / 1024,
+        );
+
+        let (buffer, address) = create_addressable_buffer(
+            ptr::addr_of_mut!(AS_SCRATCH_MEMORY),
+            as_scratch_buffer_size as vk::DeviceSize,
+            vk::BufferUsageFlags::STORAGE_BUFFER
+                | vk::BufferUsageFlags::ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_KHR
+                | vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS,
+            &num_vulkan_dynbuf_allocations,
+            c"AS scratch buffer",
+        );
+        (*scratch).buffer = buffer;
+        (*scratch).device_address = address;
+        (*scratch).current_offset = 0;
+    }
+}
+
+/// `R_FreeASScratchBuffer` (device idle -- video restart / shutdown).
+#[no_mangle]
+pub extern "C" fn R_FreeASScratchBuffer() {
+    // SAFETY: main thread with the device idle.
+    unsafe {
+        let scratch = ptr::addr_of_mut!(as_scratch_buffer);
+        if (*scratch).buffer != vk::Buffer::null() {
+            device().destroy_buffer((*scratch).buffer, None);
+            *scratch = DynBuffer::ZEROED;
+            with_ctx(|ctx| {
+                free_vulkan_memory(
+                    ctx,
+                    &mut *ptr::addr_of_mut!(AS_SCRATCH_MEMORY),
+                    Some(&num_vulkan_dynbuf_allocations),
+                )
+            });
+        }
+        as_scratch_buffer_size = 0;
+    }
+}
+
+/// `R_CollectTLASGarbage`: destroys the TLAS retired two frames ago.
+#[no_mangle]
+pub extern "C" fn R_CollectTLASGarbage() {
+    // SAFETY: main thread at the frame boundary.
+    unsafe {
+        TLAS_GARBAGE_INDEX = (TLAS_GARBAGE_INDEX + 1) % TLAS_GARBAGE_FRAME_COUNT;
+        let slot = ptr::addr_of_mut!(TLAS_GARBAGE[TLAS_GARBAGE_INDEX]);
+        if *slot != vk::AccelerationStructureKHR::null() {
+            AsProcs::load().destroy(*slot);
+            *slot = vk::AccelerationStructureKHR::null();
+        }
+    }
+}
+
+/// `R_AllocateTLAS`: the TLAS buffer, memory and object for the current
+/// `bmodel_tlas_size`.
+unsafe fn allocate_tlas(procs: &AsProcs) {
+    // SAFETY: the statics are this module's; called with the old TLAS
+    // already retired.
+    unsafe {
+        let (buffer, _) = create_addressable_buffer(
+            ptr::addr_of_mut!(BMODEL_TLAS_DEVICE_MEMORY),
+            BMODEL_TLAS_SIZE,
+            vk::BufferUsageFlags::ACCELERATION_STRUCTURE_STORAGE_KHR
+                | vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS,
+            &num_vulkan_bmodel_allocations,
+            c"BModel TLAS",
+        );
+        BMODEL_TLAS_BUFFER = buffer;
+        bmodel_tlas = match procs.create(
+            buffer,
+            BMODEL_TLAS_SIZE,
+            vk::AccelerationStructureTypeKHR::TOP_LEVEL,
+        ) {
+            Ok(tlas) => tlas,
+            Err(err) => with_ctx(|ctx| ctx.vk_fail("vkCreateAccelerationStructure", err)),
+        };
+    }
+}
+
+/// `GL_DeleteBModelAccelerationStructures`: every brush BLAS, the index
+/// buffer and the TLAS (device idle first).
+#[no_mangle]
+pub extern "C" fn GL_DeleteBModelAccelerationStructures() {
+    // SAFETY: main thread; `cl.model_precache` is the live table.
+    unsafe {
+        if bmodel_tlas == vk::AccelerationStructureKHR::null() {
+            return;
+        }
+
+        GL_WaitForDeviceIdle();
+
+        let procs = AsProcs::load();
+        let mut buffers: Vec<vk::Buffer> = Vec::with_capacity(1 + MAX_MODELS);
+        buffers.push(BMODEL_INDICES_BUFFER);
+        for i in 0..MAX_MODELS {
+            let m = model_precache(i);
+            if m.is_null() {
+                continue;
+            }
+            if !(*m).blas.is_null() {
+                procs.destroy(vk::AccelerationStructureKHR::from_raw((*m).blas as u64));
+                buffers.push(vk::Buffer::from_raw((*m).buffer as u64));
+                (*m).blas = ptr::null_mut();
+                (*m).buffer = ptr::null_mut();
+                (*m).address = 0;
+            }
+            debug_assert!((*m).buffer.is_null());
+            debug_assert!((*m).address == 0);
+        }
+        with_ctx(|ctx| {
+            free_buffers(
+                ctx,
+                &buffers,
+                &mut *ptr::addr_of_mut!(BMODEL_AS_DEVICE_MEMORY),
+                bmodel_counter(),
+            )
+        });
+
+        procs.destroy(bmodel_tlas);
+        device().destroy_buffer(BMODEL_TLAS_BUFFER, None);
+        with_ctx(|ctx| {
+            free_vulkan_memory(
+                ctx,
+                &mut *ptr::addr_of_mut!(BMODEL_TLAS_DEVICE_MEMORY),
+                bmodel_counter(),
+            )
+        });
+
+        bmodel_tlas = vk::AccelerationStructureKHR::null();
+        BMODEL_TLAS_BUFFER = vk::Buffer::null();
+        BMODEL_TLAS_SIZE = 0;
+        BMODEL_INDICES_BUFFER = vk::Buffer::null();
+        BMODEL_INDICES_DEVICE_ADDRESS = 0;
+    }
+}
+
+/// The surfaces `GL_BuildBModelAccelerationStructures` traces: every
+/// non-special surface of a brush model that is not `MF_HOLEY`.
+unsafe fn bmodel_traced_surfaces(m: *mut QModel) -> impl Iterator<Item = *mut MSurface> {
+    // SAFETY: the caller's contract (`m` is a live brush model).
+    unsafe {
+        let first = (*m).firstmodelsurface as usize;
+        let count = (*m).nummodelsurfaces as usize;
+        let surfaces = (*m).surfaces;
+        (first..first + count)
+            .map(move |i| surfaces.add(i))
+            .filter(|&s| (*s).flags & !SURF_PLANEBACK == 0)
+    }
+}
+
+/// `GL_BuildBModelAccelerationStructures`: one BLAS per brush model over
+/// the shared brush vertex buffer plus a fresh index buffer, then the TLAS
+/// sized for `bmodel_tlas_max_instances`. A no-op until `r_rtshadows` is on
+/// and while a TLAS exists.
+#[no_mangle]
+pub extern "C" fn GL_BuildBModelAccelerationStructures() {
+    // Reached through the `r_rtshadows` callback headless too, where no
+    // `VkDevice` exists and `with_ctx` would `Sys_Error` loading it: the
+    // guard reads the fields raw, as the C does, ahead of `with_ctx`.
+    // SAFETY: main thread; `vulkan_globals`, the cvar and `bmodel_tlas`
+    // live for the process and only the one field of each is read.
+    if unsafe {
+        !(*ptr::addr_of!(vulkan_globals)).ray_query
+            || cvar_value(ptr::addr_of!(c::menu::r_rtshadows)) == 0.0
+            || bmodel_tlas != vk::AccelerationStructureKHR::null()
+    } {
+        return;
+    }
+    let scratch_alignment = with_ctx(|ctx| {
+        vg!(
+            ctx,
+            physical_device_acceleration_structure_properties
+                .min_acceleration_structure_scratch_offset_alignment
+        )
+    }) as vk::DeviceSize;
+    // SAFETY: main thread after the brush vertex buffer is built;
+    // `cl.model_precache` is the live table.
+    unsafe {
+        let procs = AsProcs::load();
+
+        // Count triangles per model and size each BLAS.
+        struct BlasModel {
+            model: *mut QModel,
+            num_tris: u32,
+            sizes: vk::AccelerationStructureBuildSizesInfoKHR<'static>,
+        }
+        let mut blas_models: Vec<BlasModel> = Vec::new();
+        let mut total_num_triangles: u32 = 0;
+        let mut scratch_buffer_size: vk::DeviceSize = 0;
+        let bmodel_max_vertex = bmodel_numverts;
+        for i in 1..MAX_MODELS {
+            let m = model_precache(i);
+            if m.is_null() || (*m).type_ != MOD_BRUSH || (*m).flags & MF_HOLEY != 0 {
+                continue;
+            }
+            let mut num_tris: u32 = 0;
+            for s in bmodel_traced_surfaces(m) {
+                num_tris += (*s).numedges as u32 - 2;
+            }
+            if num_tris == 0 {
+                continue;
+            }
+            total_num_triangles += num_tris;
+
+            let triangles = vk::AccelerationStructureGeometryTrianglesDataKHR::default()
+                .vertex_format(vk::Format::R32G32B32_SFLOAT)
+                .vertex_stride(VERTEXSIZE as u64 * core::mem::size_of::<f32>() as u64)
+                .max_vertex(bmodel_max_vertex)
+                .index_type(vk::IndexType::UINT32);
+            let geometries = [vk::AccelerationStructureGeometryKHR::default()
+                .geometry_type(vk::GeometryTypeKHR::TRIANGLES)
+                .geometry(vk::AccelerationStructureGeometryDataKHR { triangles })];
+            let info = vk::AccelerationStructureBuildGeometryInfoKHR::default()
+                .ty(vk::AccelerationStructureTypeKHR::BOTTOM_LEVEL)
+                .flags(vk::BuildAccelerationStructureFlagsKHR::PREFER_FAST_TRACE)
+                .mode(vk::BuildAccelerationStructureModeKHR::BUILD)
+                .geometries(&geometries);
+            let sizes = procs.build_sizes(&info, &[num_tris]);
+            scratch_buffer_size = scratch_buffer_size.max(sizes.build_scratch_size);
+            blas_models.push(BlasModel {
+                model: m,
+                num_tris,
+                sizes,
+            });
+        }
+        if blas_models.is_empty() {
+            return;
+        }
+
+        // Size the TLAS for the current instance capacity.
+        let tlas_sizes = query_tlas_sizes(&procs, BMODEL_TLAS_MAX_INSTANCES);
+        scratch_buffer_size = scratch_buffer_size.max(tlas_sizes.build_scratch_size);
+        BMODEL_TLAS_SIZE = tlas_sizes.acceleration_structure_size;
+
+        let indices_size = total_num_triangles as usize * 3 * core::mem::size_of::<u32>();
+
+        let mut requests: Vec<BufferRequest<'_>> = Vec::with_capacity(1 + blas_models.len());
+        requests.push(BufferRequest {
+            size: indices_size as u64,
+            alignment: 0,
+            usage: vk::BufferUsageFlags::ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_KHR
+                | vk::BufferUsageFlags::TRANSFER_DST,
+            mapped: false,
+            address: true,
+            name: "BModel indices",
+        });
+        for bm in &blas_models {
+            requests.push(BufferRequest {
+                size: bm.sizes.acceleration_structure_size,
+                alignment: 0,
+                usage: vk::BufferUsageFlags::ACCELERATION_STRUCTURE_STORAGE_KHR,
+                mapped: false,
+                address: true,
+                name: "BModel BLAS",
+            });
+        }
+        let (total_size, results) = with_ctx(|ctx| {
+            create_buffers(
+                ctx,
+                &requests,
+                &mut *ptr::addr_of_mut!(BMODEL_AS_DEVICE_MEMORY),
+                vk::MemoryPropertyFlags::DEVICE_LOCAL,
+                vk::MemoryPropertyFlags::empty(),
+                bmodel_counter(),
+                c"BModel AS",
+            )
+        });
+        BMODEL_INDICES_BUFFER = results[0].buffer;
+        BMODEL_INDICES_DEVICE_ADDRESS = results[0].address.unwrap_or(0);
+        for (bm, result) in blas_models.iter().zip(&results[1..]) {
+            (*bm.model).buffer = result.buffer.as_raw() as *mut c_void;
+            (*bm.model).address = result.address.unwrap_or(0);
+        }
+        c::Sys_Printf(
+            c"Allocating acceleration structure data (%u KB)\n".as_ptr(),
+            (total_size / 1024) as u32,
+        );
+
+        allocate_tlas(&procs);
+        R_EnsureASScratchBufferSize(scratch_buffer_size as u32);
+
+        // Upload the indices and build every BLAS in the staging command
+        // buffer, exactly as the C.
+        let staging = with_ctx(|ctx| STAGING.allocate(ctx, indices_size as i32, 1));
+        let command_buffer = staging.command_buffer;
+        let region = vk::BufferCopy {
+            src_offset: staging.buffer_offset as vk::DeviceSize,
+            dst_offset: 0,
+            size: indices_size as vk::DeviceSize,
+        };
+        device().cmd_copy_buffer(
+            command_buffer,
+            staging.buffer,
+            BMODEL_INDICES_BUFFER,
+            &[region],
+        );
+        cmd_memory_barrier(
+            command_buffer,
+            vk::PipelineStageFlags::TRANSFER,
+            vk::PipelineStageFlags::ACCELERATION_STRUCTURE_BUILD_KHR,
+            vk::AccessFlags::TRANSFER_WRITE,
+            vk::AccessFlags::SHADER_READ,
+        );
+
+        let scratch_device_address = (*ptr::addr_of!(as_scratch_buffer)).device_address;
+        let scratch_buffer_size = as_scratch_buffer_size as vk::DeviceSize;
+        let mut scratch_offset: vk::DeviceSize = 0;
+        let mut indices_offset: vk::DeviceSize = 0;
+        for bm in &blas_models {
+            scratch_offset = q_align(scratch_offset, scratch_alignment);
+            if scratch_offset + bm.sizes.build_scratch_size > scratch_buffer_size {
+                cmd_memory_barrier(
+                    command_buffer,
+                    vk::PipelineStageFlags::ACCELERATION_STRUCTURE_BUILD_KHR,
+                    vk::PipelineStageFlags::ACCELERATION_STRUCTURE_BUILD_KHR,
+                    vk::AccessFlags::ACCELERATION_STRUCTURE_READ_KHR
+                        | vk::AccessFlags::ACCELERATION_STRUCTURE_WRITE_KHR,
+                    vk::AccessFlags::ACCELERATION_STRUCTURE_READ_KHR
+                        | vk::AccessFlags::ACCELERATION_STRUCTURE_WRITE_KHR,
+                );
+                scratch_offset = 0;
+            }
+
+            let blas = match procs.create(
+                vk::Buffer::from_raw((*bm.model).buffer as u64),
+                bm.sizes.acceleration_structure_size,
+                vk::AccelerationStructureTypeKHR::BOTTOM_LEVEL,
+            ) {
+                Ok(blas) => blas,
+                Err(err) => with_ctx(|ctx| ctx.vk_fail("vkCreateAccelerationStructure", err)),
+            };
+            (*bm.model).blas = blas.as_raw() as *mut c_void;
+
+            let triangles = vk::AccelerationStructureGeometryTrianglesDataKHR::default()
+                .vertex_format(vk::Format::R32G32B32_SFLOAT)
+                .vertex_data(vk::DeviceOrHostAddressConstKHR {
+                    device_address: bmodel_vertex_buffer_device_address,
+                })
+                .vertex_stride(VERTEXSIZE as u64 * core::mem::size_of::<f32>() as u64)
+                .max_vertex(bmodel_max_vertex)
+                .index_type(vk::IndexType::UINT32)
+                .index_data(vk::DeviceOrHostAddressConstKHR {
+                    device_address: BMODEL_INDICES_DEVICE_ADDRESS + indices_offset,
+                });
+            let geometries = [vk::AccelerationStructureGeometryKHR::default()
+                .geometry_type(vk::GeometryTypeKHR::TRIANGLES)
+                .geometry(vk::AccelerationStructureGeometryDataKHR { triangles })];
+            let build_info = vk::AccelerationStructureBuildGeometryInfoKHR::default()
+                .ty(vk::AccelerationStructureTypeKHR::BOTTOM_LEVEL)
+                .flags(vk::BuildAccelerationStructureFlagsKHR::PREFER_FAST_TRACE)
+                .mode(vk::BuildAccelerationStructureModeKHR::BUILD)
+                .dst_acceleration_structure(blas)
+                .geometries(&geometries)
+                .scratch_data(vk::DeviceOrHostAddressKHR {
+                    device_address: scratch_device_address + scratch_offset,
+                });
+            let range =
+                vk::AccelerationStructureBuildRangeInfoKHR::default().primitive_count(bm.num_tris);
+            procs.cmd_build(command_buffer, &[build_info], &[&range as *const _]);
+
+            scratch_offset += bm.sizes.build_scratch_size;
+            indices_offset +=
+                bm.num_tris as vk::DeviceSize * 3 * core::mem::size_of::<u32>() as u64;
+        }
+        cmd_memory_barrier(
+            command_buffer,
+            vk::PipelineStageFlags::ACCELERATION_STRUCTURE_BUILD_KHR,
+            vk::PipelineStageFlags::ACCELERATION_STRUCTURE_BUILD_KHR,
+            vk::AccessFlags::ACCELERATION_STRUCTURE_WRITE_KHR,
+            vk::AccessFlags::ACCELERATION_STRUCTURE_READ_KHR,
+        );
+
+        // Fill the staging copy with the fanned surface indices, in the
+        // same model order the BLASes consumed them.
+        STAGING.begin_copy();
+        let mut indices = staging.data.cast::<u32>();
+        for j in 1..MAX_MODELS {
+            let m = model_precache(j);
+            if m.is_null() || (*m).type_ != MOD_BRUSH || (*m).flags & MF_HOLEY != 0 {
+                continue;
+            }
+            for s in bmodel_traced_surfaces(m) {
+                let first = (*s).vbo_firstvert as u32;
+                for k in 2..(*s).numedges as u32 {
+                    ptr::write(indices, first);
+                    ptr::write(indices.add(1), first + k - 1);
+                    ptr::write(indices.add(2), first + k);
+                    indices = indices.add(3);
+                }
+            }
+        }
+        STAGING.end_copy();
+    }
+}
+
+/// `vkGetAccelerationStructureBuildSizesKHR` for a one-geometry instance
+/// TLAS holding `num_instances`.
+fn query_tlas_sizes(
+    procs: &AsProcs,
+    num_instances: u32,
+) -> vk::AccelerationStructureBuildSizesInfoKHR<'static> {
+    let instances = vk::AccelerationStructureGeometryInstancesDataKHR::default();
+    let geometries = [vk::AccelerationStructureGeometryKHR::default()
+        .geometry_type(vk::GeometryTypeKHR::INSTANCES)
+        .geometry(vk::AccelerationStructureGeometryDataKHR { instances })];
+    let info = vk::AccelerationStructureBuildGeometryInfoKHR::default()
+        .ty(vk::AccelerationStructureTypeKHR::TOP_LEVEL)
+        .flags(vk::BuildAccelerationStructureFlagsKHR::PREFER_FAST_TRACE)
+        .mode(vk::BuildAccelerationStructureModeKHR::BUILD)
+        .geometries(&geometries);
+    procs.build_sizes(&info, &[num_instances])
+}
+
+/// Whether `R_BuildTopLevelAccelerationStructure` instances `e` this frame:
+/// an opaque entity whose model has a (current) BLAS.
+unsafe fn tlas_instance_address(e: *mut Entity) -> Option<vk::DeviceAddress> {
+    // SAFETY: the caller's contract (`e` is a live entity).
+    unsafe {
+        let model = (*e).model;
+        if model.is_null() || (*model).needload {
+            return None;
+        }
+        if (*e).alpha != ENTALPHA_DEFAULT && entalpha_decode((*e).alpha) < 1.0 {
+            return None;
+        }
+        if (*model).type_ == MOD_BRUSH {
+            if (*model).blas.is_null() {
+                return None;
+            }
+            return Some((*model).address);
+        }
+        if (*model).type_ == MOD_ALIAS {
+            let blas_data = (*e).blas_data.cast::<EntityBlas>();
+            if blas_data.is_null()
+                || (*blas_data).blas == vk::AccelerationStructureKHR::null()
+                || (*blas_data).needs_initial_build
+                || (*blas_data).model != model
+            {
+                return None;
+            }
+            return Some((*blas_data).address);
+        }
+        None
+    }
+}
+
+/// `R_BuildTopLevelAccelerationStructure` (the frame's AS-build task):
+/// refits the animated BLASes, then rebuilds the TLAS from every opaque
+/// brush and alias entity with a BLAS, growing it in
+/// [`TLAS_SIZE_MULTIPLE`] steps.
+///
+/// # Safety
+/// Runs alone (the AS-build command buffer is not shared) after
+/// `cl.entities`/`cl.static_entities` are final for the frame.
+#[no_mangle]
+pub unsafe extern "C" fn R_BuildTopLevelAccelerationStructure(_unused: *mut c_void) {
+    // SAFETY: the caller's contract.
+    unsafe {
+        if bmodel_tlas == vk::AccelerationStructureKHR::null() {
+            return;
+        }
+
+        let cbx: *mut CbContext = with_ctx(|ctx| {
+            ptr::addr_of_mut!(
+                (*ctx.vg.as_ptr()).primary_cb_contexts[PCBX_BUILD_ACCELERATION_STRUCTURES]
+            )
+        });
+        let cb = (*cbx).cb;
+        let cmd_procs = with_ctx(|ctx| CmdProcs::new(ctx.vg));
+        let procs = AsProcs::load();
+
+        // Update animated entity BLASes before building TLAS
+        R_UpdateAnimatedBLASes(cbx);
+
+        cb::begin_debug_utils_label(&cmd_procs, &*cbx, c"Build TLAS");
+
+        let clp = ptr::addr_of!(cl);
+        let num_entities = (*clp).num_entities;
+        let total_entities = num_entities + (*clp).num_statics;
+        let entity_at = |i: c_int| -> *mut Entity {
+            if i < num_entities {
+                (*clp).entities.cast::<Entity>().add(i as usize)
+            } else {
+                (*(*clp).static_entities.add((i - num_entities) as usize)).cast::<Entity>()
+            }
+        };
+
+        let mut num_instances: u32 = 0;
+        for i in 0..total_entities {
+            if tlas_instance_address(entity_at(i)).is_some() {
+                num_instances += 1;
+            }
+        }
+
+        let instance_size = core::mem::size_of::<vk::AccelerationStructureInstanceKHR>();
+        let instances_allocation =
+            with_ctx(|ctx| DYN.storage_allocate(ctx, num_instances * instance_size as u32));
+        let mut instances = instances_allocation
+            .data
+            .cast::<vk::AccelerationStructureInstanceKHR>();
+        let worldmodel = (*clp).worldmodel;
+        for i in 0..total_entities {
+            let e = entity_at(i);
+            let Some(address) = tlas_instance_address(e) else {
+                continue;
+            };
+            let model = (*e).model;
+
+            let mut lerped_origin = [0.0f32; 3];
+            let mut lerped_angles = [0.0f32; 3];
+            if (*model).type_ == MOD_ALIAS {
+                R_GetEntityLerpedTransform(
+                    e,
+                    lerped_origin.as_mut_ptr(),
+                    lerped_angles.as_mut_ptr(),
+                );
+            } else {
+                lerped_origin = (*e).origin;
+                lerped_angles = (*e).angles;
+            }
+            lerped_angles[0] = -lerped_angles[0]; // stupid quake bug
+
+            let mut m = [0.0f32; 16];
+            identity_matrix(&mut m);
+            if model != worldmodel {
+                R_RotateForEntity(
+                    m.as_mut_ptr(),
+                    lerped_origin.as_ptr(),
+                    lerped_angles.as_ptr(),
+                    (*e).netstate.scale,
+                );
+            }
+            if (*model).type_ == MOD_ALIAS {
+                let hdr = c::render::Mod_Extradata(model.cast::<c_void>()).cast::<AliasHdr>();
+                if !hdr.is_null() {
+                    let mut t = [0.0f32; 16];
+                    translation_matrix(
+                        &mut t,
+                        (*hdr).scale_origin[0],
+                        (*hdr).scale_origin[1],
+                        (*hdr).scale_origin[2],
+                    );
+                    matrix_multiply(&mut m, &t);
+                    let mut s = [0.0f32; 16];
+                    scale_matrix(&mut s, (*hdr).scale[0], (*hdr).scale[1], (*hdr).scale[2]);
+                    matrix_multiply(&mut m, &s);
+                }
+            }
+
+            let instance = vk::AccelerationStructureInstanceKHR {
+                transform: vk::TransformMatrixKHR {
+                    matrix: [
+                        m[0], m[4], m[8], m[12], m[1], m[5], m[9], m[13], m[2], m[6], m[10], m[14],
+                    ],
+                },
+                instance_custom_index_and_mask: vk::Packed24_8::new(0, 0xFF),
+                instance_shader_binding_table_record_offset_and_flags: vk::Packed24_8::new(
+                    0,
+                    (vk::GeometryInstanceFlagsKHR::FORCE_OPAQUE
+                        | vk::GeometryInstanceFlagsKHR::TRIANGLE_FACING_CULL_DISABLE)
+                        .as_raw() as u8,
+                ),
+                acceleration_structure_reference: vk::AccelerationStructureReferenceKHR {
+                    device_handle: address,
+                },
+            };
+            ptr::write_unaligned(instances, instance);
+            instances = instances.add(1);
+        }
+
+        let instances_data = vk::AccelerationStructureGeometryInstancesDataKHR::default().data(
+            vk::DeviceOrHostAddressConstKHR {
+                device_address: instances_allocation.device_address,
+            },
+        );
+        let geometries = [vk::AccelerationStructureGeometryKHR::default()
+            .geometry_type(vk::GeometryTypeKHR::INSTANCES)
+            .geometry(vk::AccelerationStructureGeometryDataKHR {
+                instances: instances_data,
+            })];
+
+        // Reallocate the TLAS if the instance count outgrew it.
+        if num_instances > BMODEL_TLAS_MAX_INSTANCES {
+            TLAS_GARBAGE[TLAS_GARBAGE_INDEX] = bmodel_tlas;
+            DYN.add_garbage(BMODEL_TLAS_DEVICE_MEMORY, &[BMODEL_TLAS_BUFFER], None);
+
+            BMODEL_TLAS_MAX_INSTANCES =
+                ((num_instances / TLAS_SIZE_MULTIPLE) + 1) * TLAS_SIZE_MULTIPLE;
+            BMODEL_TLAS_SIZE =
+                query_tlas_sizes(&procs, BMODEL_TLAS_MAX_INSTANCES).acceleration_structure_size;
+            c::Sys_Printf(
+                c"Reallocating TLAS for %u instances (%u KB)\n".as_ptr(),
+                BMODEL_TLAS_MAX_INSTANCES,
+                (BMODEL_TLAS_SIZE / 1024) as u32,
+            );
+            allocate_tlas(&procs);
+        }
+
+        let sizes = query_tlas_sizes(&procs, num_instances);
+        R_EnsureASScratchBufferSize(sizes.build_scratch_size as u32);
+
+        let build_info = vk::AccelerationStructureBuildGeometryInfoKHR::default()
+            .ty(vk::AccelerationStructureTypeKHR::TOP_LEVEL)
+            .flags(vk::BuildAccelerationStructureFlagsKHR::PREFER_FAST_TRACE)
+            .mode(vk::BuildAccelerationStructureModeKHR::BUILD)
+            .dst_acceleration_structure(bmodel_tlas)
+            .geometries(&geometries)
+            .scratch_data(vk::DeviceOrHostAddressKHR {
+                device_address: (*ptr::addr_of!(as_scratch_buffer)).device_address,
+            });
+        let range =
+            vk::AccelerationStructureBuildRangeInfoKHR::default().primitive_count(num_instances);
+        procs.cmd_build(cb, &[build_info], &[&range as *const _]);
+
+        cmd_memory_barrier(
+            cb,
+            vk::PipelineStageFlags::ACCELERATION_STRUCTURE_BUILD_KHR,
+            vk::PipelineStageFlags::ALL_COMMANDS,
+            vk::AccessFlags::ACCELERATION_STRUCTURE_WRITE_KHR,
+            vk::AccessFlags::ACCELERATION_STRUCTURE_READ_KHR,
+        );
+
+        cb::end_debug_utils_label(&cmd_procs, &*cbx);
     }
 }

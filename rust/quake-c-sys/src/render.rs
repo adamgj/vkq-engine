@@ -225,12 +225,14 @@ extern "C" {
     /// `glquake.h:925` -- `void R_CollectMeshBufferGarbage (void)`
     /// (`gl_mesh.c`).
     pub fn R_CollectMeshBufferGarbage();
-    /// `glquake.h:788` -- `void R_CollectTLASGarbage (void)` (`r_brush.c`).
+    /// `glquake.h:788` -- `void R_CollectTLASGarbage (void)` (`r_brush.c`,
+    /// `r_brush.rs` under `use_rust_render` since M10).
     pub fn R_CollectTLASGarbage();
     /// `glquake.h:275` -- `extern oit_mode_t frame_oit_mode;`
     /// (`gl_rmisc_glue.c`); the enum crosses as `int`.
     pub static mut frame_oit_mode: c_int;
-    /// `r_brush.c:101` -- `VkAccelerationStructureKHR bmodel_tlas`.
+    /// `r_brush.c:101` -- `VkAccelerationStructureKHR bmodel_tlas`
+    /// (`r_brush.rs` under `use_rust_render` since M10).
     pub static mut bmodel_tlas: u64;
     /// `gl_rmain.c:39-40` -- `uint32_t rs_gputime_us`, `rs_gpuwaitaccum_us`.
     pub static mut rs_gputime_us: u32;
@@ -475,8 +477,15 @@ extern "C" {
     /// renderer frames (ADR-009).
     pub fn quake_rs_ftepart_update_particles_setup_task() -> c_int;
     /// `glquake.h:719` -- `void R_BuildTopLevelAccelerationStructure (void
-    /// *unused)` (`r_brush_glue.c` until M10).
+    /// *unused)` (`r_brush.c`, `r_brush.rs` under `use_rust_render` since
+    /// M10).
     pub fn R_BuildTopLevelAccelerationStructure(unused: *mut c_void);
+    /// `gl_model.h` -- `void *Mod_Extradata (qmodel_t *mod)`: the alias
+    /// header the current `r_enhancedmodels` setting selects. It reaches
+    /// `Mod_LoadModel (mod, true)`, which can `Host_Error` (ADR-009), only
+    /// when `mod->needload` is set -- every Rust caller checks `needload`
+    /// first, so no `longjmp` can cross a Rust frame.
+    pub fn Mod_Extradata(model: *mut c_void) -> *mut c_void;
     /// `glquake.h` -- `void R_DrawAliasModel (cb_context_t *cbx, entity_t *e,
     /// int *aliaspolys)` etc. (`r_alias_glue.c` / `r_sprite_glue.c`): the
     /// bare entries, for callers already inside a guard.

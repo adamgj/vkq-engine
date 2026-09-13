@@ -1754,7 +1754,10 @@ unsafe extern "C" {
 // gl_mesh.c -- has no needload guard. With r_rtshadows on, a worker can
 // therefore reach a real parse. M6 added a Con_Warning (not an assert) at that
 // point in Mod_LoadModel; closing the hole belongs to whoever owns
-// R_AllocateEntityBLAS, i.e. Phase 8.
+// R_AllocateEntityBLAS, i.e. Phase 8. Phase 8 M10 closed it for the Rust
+// render build: the `gl_mesh.rs` R_AllocateEntityBLAS returns before
+// Mod_Extradata when `needload` is set (COMPAT, ADR-009). The C oracle and
+// the C-renderer leg keep the Con_Warning.
 #[allow(non_upper_case_globals)]
 unsafe extern "C" {
     static mut stverts: [StVert; MAXALIASVERTS];
