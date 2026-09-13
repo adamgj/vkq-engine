@@ -130,13 +130,19 @@ unsafe fn worldmodel() -> *mut QModel {
     unsafe { (*ptr::addr_of!(cl)).worldmodel }
 }
 
+/// Returns `true` when `R_StoreEfrags` raised: the C original `longjmp`s out
+/// of `R_MarkSurfaces` at that point (`Host_Error` disconnects and nulls
+/// `cl.worldmodel`), so every marking loop must stop at once instead of
+/// chaining the remaining leaves against a disconnected client.
 #[inline]
-unsafe fn store_efrags(ppefrag: *mut *mut Efrag) {
+#[must_use]
+unsafe fn store_efrags(ppefrag: *mut *mut Efrag) -> bool {
     // SAFETY: the caller's contract (a leaf efrag list head).
     let raise = unsafe { RRefrag_StoreEfrags(ppefrag) };
     if raise != 0 {
         let _ = PENDING_RAISE.compare_exchange(0, raise, Ordering::SeqCst, Ordering::SeqCst);
     }
+    raise != 0
 }
 
 /// Task-path handling of a raised `Host_Guard` code (module doc).
@@ -393,6 +399,13 @@ mod lanes {
 }
 
 /// NEON lanes (`r_world.c` `USE_NEON`).
+///
+/// COMPAT (ADR-010): `vmlaq_f32` is the unfused multiply-add on both sides.
+/// The C build compiles with `-ffp-contract=off` (`meson.build`), so clang's
+/// `arm_neon.h` `a + b * c` definition stays a separate `fmul`/`fadd`, and
+/// `core::arch::aarch64::vmlaq_f32` lowers to the same `simd_mul`/`simd_add`
+/// pair (rustc never enables contraction). Do not switch to `vfmaq_f32`.
+/// Not executed locally: the arm64 CI legs only build this module.
 #[cfg(target_arch = "aarch64")]
 mod lanes {
     use core::arch::aarch64::{
@@ -670,8 +683,10 @@ unsafe fn mark_vis_surfaces_simd(use_tasks: bool) {
                             current_combined_dep_index = (*leaf).combined_deps;
                         }
                     }
-                    if !(*leaf).efrags.is_null() {
-                        store_efrags(ptr::addr_of_mut!((*leaf).efrags).cast::<*mut Efrag>());
+                    if !(*leaf).efrags.is_null()
+                        && store_efrags(ptr::addr_of_mut!((*leaf).efrags).cast::<*mut Efrag>())
+                    {
+                        return;
                     }
                 }
             }
@@ -816,13 +831,15 @@ unsafe extern "C" fn store_leaf_efrags(_unused: *mut c_void) {
         let numleafs = (*wm).numleafs as u32;
         let vis = (*ptr::addr_of!(MARK_SURFACES_STATE)).vis.cast::<u32>();
         let mut i = 0u32;
-        while i < numleafs {
+        'words: while i < numleafs {
             let mut mask = *vis.add((i / 32) as usize);
             while mask != 0 {
                 let j = mask.trailing_zeros();
                 mask &= !(1u32 << j);
                 let leaf = (*wm).leafs.add((1 + i + j) as usize);
-                store_efrags(ptr::addr_of_mut!((*leaf).efrags).cast::<*mut Efrag>());
+                if store_efrags(ptr::addr_of_mut!((*leaf).efrags).cast::<*mut Efrag>()) {
+                    break 'words;
+                }
             }
             i += 32;
         }
@@ -1079,8 +1096,10 @@ unsafe fn mark_vis_surfaces(use_tasks: bool) {
                     }
                 }
             }
-            if !(*leaf).efrags.is_null() {
-                store_efrags(ptr::addr_of_mut!((*leaf).efrags).cast::<*mut Efrag>());
+            if !(*leaf).efrags.is_null()
+                && store_efrags(ptr::addr_of_mut!((*leaf).efrags).cast::<*mut Efrag>())
+            {
+                return;
             }
         }
 
