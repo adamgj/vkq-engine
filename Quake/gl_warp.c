@@ -106,7 +106,7 @@ static void R_RasterWarpTexture (cb_context_t *cbx, texture_t *tx, float warptes
 		}
 
 		vkCmdBindVertexBuffers (cbx->cb, 0, 1, &buffer, &buffer_offset);
-		vkCmdDraw (cbx->cb, num_verts, 1, 0, 0);
+		vulkan_globals.vk_cmd_draw (cbx->cb, num_verts, 1, 0, 0);
 	}
 
 	vkCmdEndRenderPass (cbx->cb);

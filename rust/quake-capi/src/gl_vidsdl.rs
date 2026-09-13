@@ -168,13 +168,12 @@ impl VidEngine for CEngine {
 
     fn sky_need_stencil(&self) -> bool {
         // SAFETY: `Sky_NeedStencil` only reads cvars and the sky state.
-        unsafe { g::Sky_NeedStencil() }
+        unsafe { crate::gl_sky::Sky_NeedStencil() }
     }
 
     fn set_canvas(&self, cbx: &mut CbContext, canvas: c_int) {
-        // SAFETY: `GL_SetCanvas` (`gl_draw.c`) takes a `cb_context_t *`;
-        // `CbContext` is its ADR-011 mirror.
-        unsafe { c::console::GL_SetCanvas(ptr::from_mut(cbx).cast(), canvas) }
+        // SAFETY: `cbx` is a live recording context.
+        unsafe { crate::gl_draw::GL_SetCanvas(ptr::from_mut(cbx), canvas) }
     }
 
     fn viewport(
@@ -189,8 +188,8 @@ impl VidEngine for CEngine {
     ) {
         // SAFETY: as for `set_canvas`.
         unsafe {
-            g::GL_Viewport(
-                ptr::from_mut(cbx).cast(),
+            crate::gl_draw::GL_Viewport(
+                ptr::from_mut(cbx),
                 x,
                 y,
                 width,

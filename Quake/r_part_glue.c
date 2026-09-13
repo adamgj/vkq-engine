@@ -32,7 +32,9 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 //     (r_part.c:54-221 and r_part.c:951-1106). It is Vulkan-typed throughout
 //     -- cb_context_t, VkBuffer, R_VertexAllocate, the particle pipelines --
 //     and the renderer belongs to Phase 8 per ROADMAP.md, so porting it now
-//     would be out of roadmap order.
+//     would be out of roadmap order. (Phase 8 M8 ported it to
+//     rust/quake-capi/src/r_part_render.rs; the C copy is now fenced under
+//     #ifndef USE_RUST_RENDER for the build-rs-crender leg.)
 //
 //  2. Own the particle pool (r_part.c:38, :42). ADR-007: R_DrawParticlesFaces
 //     walks active_particles and R_InitParticleIndexBuffer sizes itself from
@@ -78,11 +80,17 @@ particle_t *active_particles, *free_particles, *particles;
 // set by "-particles" command line.
 int r_numparticles;
 
-gltexture_t *particletexture, *particletexture1, *particletexture2, *particletexture3, *particletexture4; // johnfitz
-static float texturescalefactor; // johnfitz -- compensate for apparent size of different particle textures
-
 cvar_t r_particles = {"r_particles", "1", CVAR_ARCHIVE};		 // johnfitz
 cvar_t r_quadparticles = {"r_quadparticles", "1", CVAR_ARCHIVE}; // johnfitz
+
+/* Phase 8 M8: under -Duse_rust_render the rendering half below -- the
+ * particle textures, texturescalefactor, the index buffer and the draw
+ * entry points -- lives in rust/quake-capi/src/r_part_render.rs, which
+ * exports the same C names. The C copy stays for build-rs-crender. */
+#ifndef USE_RUST_RENDER
+
+gltexture_t *particletexture, *particletexture1, *particletexture2, *particletexture3, *particletexture4; // johnfitz
+static float texturescalefactor; // johnfitz -- compensate for apparent size of different particle textures
 
 extern cvar_t r_showtris;
 
@@ -277,6 +285,8 @@ void RPart_Glue_SetParticleTexture_f (cvar_t *var)
 	R_SetParticleTexture_f (var);
 }
 
+#endif /* !USE_RUST_RENDER */
+
 /* ---------------------------------------------------------------------------
  * Guarded callback (ADR-009 rule 3).
  */
@@ -400,6 +410,8 @@ uint64_t Harness_HashParticles (uint64_t h)
 {
 	return quake_rs_rpart_hash_particles (h);
 }
+
+#ifndef USE_RUST_RENDER
 
 /*
 ===============
@@ -557,5 +569,7 @@ void R_DrawParticles_ShowTris (cb_context_t *cbx)
 
 	R_DrawParticlesFaces (cbx);
 }
+
+#endif /* !USE_RUST_RENDER */
 
 #endif /* USE_RUST_HOST */

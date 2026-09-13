@@ -217,16 +217,8 @@ endforeach
 srcs = [
     'Quake/cd_null.c',
     'Quake/common.c',
-    'Quake/gl_draw.c',
-    'Quake/gl_fog.c',
-    'Quake/gl_mesh.c',
     'Quake/gl_model.c',
-    'Quake/gl_refrag.c',
-    'Quake/gl_rlight.c',
     'Quake/gl_rmain.c',
-    'Quake/gl_screen.c',
-    'Quake/gl_sky.c',
-    'Quake/gl_warp.c',
     'Quake/harness.c',
     'Quake/harness_render.c',
     'Quake/q_thread_sdl.c',
@@ -244,10 +236,6 @@ srcs = [
     'Quake/pr_cmds.c',
     'Quake/pr_edict.c',
     'Quake/pr_ext.c',
-    'Quake/r_alias.c',
-    'Quake/r_brush.c',
-    'Quake/r_sprite.c',
-    'Quake/r_world.c',
     'Quake/steam_api.c',
 	'Quake/sys_sdl.c',
 	 run_generate_embedded_pak,
@@ -958,6 +946,62 @@ if use_rust_render
     srcs += ['Quake/gl_vidsdl_glue.c']
 else
     srcs += ['Quake/gl_vidsdl.c']
+endif
+
+# Phase 8 M7: the draw layer -> quake-capi (Pattern A whole-file swaps,
+# ADR-015): gl_draw.c, gl_fog.c, gl_rlight.c, gl_refrag.c, gl_sky.c,
+# gl_warp.c, r_sprite.c and the 2D-overlay half of gl_screen.c. Each
+# Quake/<file>_glue.c keeps the cvar/global definitions the rest of the
+# engine reads by name plus the *_Init registrations and the Host_Error-
+# capable commands (ADR-009). gl_screen_glue.c also keeps SCR_DrawGUI (a
+# setjmp target), the loading plaque / SCR_ModalMessage re-entry paths and
+# SCR_UpdateScreen with its task graph (Phase 8 M9). The Phase 7 Draw_*
+# shims in menu/sbar/console resolve to the Rust gl_draw exports.
+if use_rust_render
+    srcs += [
+        'Quake/gl_draw_glue.c',
+        'Quake/gl_fog_glue.c',
+        'Quake/gl_refrag_glue.c',
+        'Quake/gl_rlight_glue.c',
+        'Quake/gl_screen_glue.c',
+        'Quake/gl_sky_glue.c',
+        'Quake/gl_warp_glue.c',
+        'Quake/r_sprite_glue.c',
+    ]
+else
+    srcs += [
+        'Quake/gl_draw.c',
+        'Quake/gl_fog.c',
+        'Quake/gl_refrag.c',
+        'Quake/gl_rlight.c',
+        'Quake/gl_screen.c',
+        'Quake/gl_sky.c',
+        'Quake/gl_warp.c',
+        'Quake/r_sprite.c',
+    ]
+endif
+
+# Phase 8 M8: the world/mesh renderer -> quake-capi (ADR-015): gl_mesh.c,
+# r_alias.c, r_brush.c and r_world.c. gl_mesh_glue.c and r_brush_glue.c keep
+# the ray-tracing halves (entity BLAS builds, AS scratch buffer, TLAS) in C
+# until Phase 8 M10 (plan D5); r_alias_glue.c resolves the alias header
+# (Mod_Extradata_CheckSkin can Host_Error) before entering Rust and
+# r_world_glue.c re-raises R_StoreEfrags' guard code after the Rust marker
+# returns (ADR-009).
+if use_rust_render
+    srcs += [
+        'Quake/gl_mesh_glue.c',
+        'Quake/r_alias_glue.c',
+        'Quake/r_brush_glue.c',
+        'Quake/r_world_glue.c',
+    ]
+else
+    srcs += [
+        'Quake/gl_mesh.c',
+        'Quake/r_alias.c',
+        'Quake/r_brush.c',
+        'Quake/r_world.c',
+    ]
 endif
 
 if use_rust_snd

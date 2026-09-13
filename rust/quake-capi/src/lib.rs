@@ -42,13 +42,31 @@ pub mod fs;
 #[cfg(feature = "fs")]
 pub mod fs_stdio;
 #[cfg(feature = "render")]
+pub mod gl_draw; // gl_draw.c
+#[cfg(feature = "render")]
+pub mod gl_fog; // gl_fog.c
+#[cfg(feature = "render")]
 pub mod gl_heap; // gl_heap.c
+#[cfg(feature = "render")]
+pub mod gl_mesh; // gl_mesh.c (non-RT half)
+#[cfg(feature = "render")]
+pub mod gl_refrag; // gl_refrag.c
+#[cfg(feature = "render")]
+pub mod gl_rlight; // gl_rlight.c
 #[cfg(feature = "render")]
 pub mod gl_rmisc; // gl_rmisc.c
 #[cfg(feature = "render")]
-pub mod gl_texmgr;
+pub mod gl_screen; // gl_screen.c
 #[cfg(feature = "render")]
-pub mod gl_vidsdl; // gl_vidsdl.c (Vulkan half) // gl_texmgr.c
+pub mod gl_sky; // gl_sky.c
+#[cfg(feature = "render")]
+pub mod gl_texmgr; // gl_texmgr.c
+#[cfg(feature = "render")]
+pub mod gl_vidsdl; // gl_vidsdl.c (Vulkan half)
+#[cfg(feature = "render")]
+pub mod gl_warp; // gl_warp.c
+#[cfg(feature = "render")]
+pub mod gl_warp_sin; // gl_warp_sin.h
 pub mod hash_map;
 #[cfg(feature = "host")]
 pub mod host; // host.c
@@ -113,10 +131,20 @@ pub mod progs_load; // pr_edict_load.c
 pub mod progs_parse; // pr_edict_parse.c
 #[cfg(feature = "progs")]
 pub mod progs_save; // pr_edict_save.c
+#[cfg(feature = "render")]
+pub mod r_alias; // r_alias.c
+#[cfg(feature = "render")]
+pub mod r_brush; // r_brush.c (non-RT half)
 #[cfg(feature = "host")]
 pub mod r_part; // r_part.c (simulation half)
 #[cfg(feature = "host")]
 pub mod r_part_fte; // r_part_fte.c (simulation half)
+#[cfg(all(feature = "host", feature = "render"))]
+pub mod r_part_render; // r_part.c (rendering half)
+#[cfg(feature = "render")]
+pub mod r_sprite; // r_sprite.c
+#[cfg(feature = "render")]
+pub mod r_world; // r_world.c
 #[cfg(feature = "host")]
 pub mod sbar; // sbar.c
 #[cfg(feature = "snd")]

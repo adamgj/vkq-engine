@@ -5,8 +5,9 @@
 //! (`R_ParticleTextureLookup`, `R_InitParticleTextures`,
 //! `R_SetParticleTexture_f`, `R_InitParticleIndexBuffer`,
 //! `R_DrawParticlesFaces`, `R_DrawParticles`, `R_DrawParticles_ShowTris`)
-//! stays C verbatim in `Quake/r_part_glue.c`: it is Vulkan-typed throughout
-//! and the renderer belongs to Phase 8 per `ROADMAP.md`.
+//! stayed C verbatim in `Quake/r_part_glue.c` until Phase 8 M8, which ported
+//! it to `r_part_render.rs` under the `render` feature; without `render`
+//! (`build-rs-crender`) the glue's C copy is still the one linked.
 //!
 //! ## ADR-009 raise-topology audit
 //!
@@ -190,6 +191,12 @@ pub unsafe extern "C" fn quake_rs_rpart_init_particles() -> Raise {
         raise!(g::RPart_Glue_RegisterVariable(ptr::addr_of_mut!(
             g::r_particles
         )));
+        #[cfg(feature = "render")]
+        c::Cvar_SetCallback(
+            ptr::addr_of_mut!(g::r_particles),
+            Some(crate::r_part_render::R_SetParticleTexture_f),
+        );
+        #[cfg(not(feature = "render"))]
         c::Cvar_SetCallback(
             ptr::addr_of_mut!(g::r_particles),
             Some(g::RPart_Glue_SetParticleTexture_f),
@@ -199,6 +206,10 @@ pub unsafe extern "C" fn quake_rs_rpart_init_particles() -> Raise {
             g::r_quadparticles
         )));
 
+        // Phase 8 M8: the rendering tail is Rust under `render`.
+        #[cfg(feature = "render")]
+        crate::r_part_render::init_render();
+        #[cfg(not(feature = "render"))]
         g::RPart_Glue_InitRender();
         0
     }

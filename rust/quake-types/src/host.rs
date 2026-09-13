@@ -24,7 +24,7 @@
 //! embed `progs::Edict` by value, so it does not fork either -- only
 //! `progs::Edict` itself, reached solely through pointers here, does).
 
-use core::ffi::{c_char, c_int, c_uint, c_void};
+use core::ffi::{c_char, c_float, c_int, c_uint, c_void};
 
 use crate::model_mem::QModel;
 use crate::net::{QSocket, SizeBuf, MAX_DATAGRAM, MAX_MSGLEN};
@@ -357,6 +357,77 @@ pub struct EntityOpaque(pub [u8; ENTITY_T_OPAQUE_SIZE]);
 
 /// `sizeof(entity_t)` on a 64-bit target, per `quake-ctest/tests/host_abi.rs`.
 pub const ENTITY_T_OPAQUE_SIZE: usize = 456;
+
+// ---------------------------------------------------------------------------
+// `render.h` `entity_t` and its members. Lived in quake-capi `view.rs` until
+// Phase 8 M7, when the renderer modules (built without the `host` feature)
+// needed them too.
+
+/// `render.h` `lightcache_t`.
+#[repr(C)]
+pub struct LightCache {
+    pub surfidx: c_int,
+    pub pos: [c_float; 3],
+    pub ds: i16,
+    pub dt: i16,
+}
+
+/// `render.h` `entlerp_t`.
+#[repr(C)]
+pub struct EntLerp {
+    pub movestep: QBoolean,
+    pub prev_frame: c_int,
+    pub frame_change_time: f64,
+    pub frame_duration: f64,
+    pub frame_finish_time: f64,
+    pub snap_frames: c_int,
+    pub snap_msgtime: f64,
+    pub prev_origin: [c_float; 3],
+    pub prev_angles: [c_float; 3],
+    pub move_change_time: f64,
+    pub move_duration: f64,
+}
+
+/// `render.h` `entity_t`. Only ever reached through a `*mut` cast of
+/// [`EntityOpaque`]; never constructed by value, so the
+/// opaque blob's stride stays authoritative for `cl.entities` indexing.
+///
+/// `PSET_SCRIPT` is defined unconditionally by `Quake/quakedef.h:38`, so
+/// `trailstate`/`emitstate` are always present.
+#[repr(C)]
+pub struct Entity {
+    pub forcelink: QBoolean,
+    pub update_type: c_int,
+    pub baseline: EntityState,
+    pub netstate: EntityState,
+    pub msgtime: f64,
+    pub msg_origins: [[c_float; 3]; 2],
+    pub origin: [c_float; 3],
+    pub msg_angles: [[c_float; 3]; 2],
+    pub angles: [c_float; 3],
+    pub model: *mut QModel,
+    pub efrag: *mut Efrag,
+    pub frame: c_int,
+    pub syncbase: c_float,
+    pub colormap: *mut u8,
+    pub effects: c_int,
+    pub skinnum: c_int,
+    pub visframe: c_int,
+    pub dlightframe: c_int,
+    pub dlightbits: c_int,
+    pub topnode: *mut c_void,
+    pub eflags: u8,
+    pub alpha: u8,
+    pub lerp: EntLerp,
+    pub trailstate: *mut c_void,
+    pub emitstate: *mut c_void,
+    pub traildelay: c_float,
+    pub trailorg: [c_float; 3],
+    pub lightcache: LightCache,
+    pub contentscache: c_int,
+    pub contentscache_origin: [c_float; 3],
+    pub blas_data: *mut c_void,
+}
 
 /// `client.h` `client_state_t` -- the global `cl`.
 #[repr(C)]

@@ -462,6 +462,19 @@ impl Engine for CEngine {
 /// the symbol. So no `&`/`&mut VulkanGlobals` is formed here: `ctx.vg` is a
 /// raw-pointer [`VgPtr`] and the port reads and writes single fields through
 /// it (ADR-004; `device_idle` atomically). Recorded in the ADR-007 table row.
+/// One `vulkan_globals` field through [`Ctx::vg`] as a place read (the
+/// `quake-render` `vg!` macro, for the capi modules that carry per-file
+/// renderer logic themselves from M7 on). No `&VulkanGlobals` is formed
+/// (ADR-004; see [`with_ctx`]).
+macro_rules! vg {
+    ($ctx:expr, $($field:tt)+) => {
+        // SAFETY: `VgPtr` is valid for its lifetime; the place expression
+        // reads only this field (no reference to the struct is formed).
+        unsafe { (*$ctx.vg.as_ptr()).$($field)+ }
+    };
+}
+pub(crate) use vg;
+
 pub(crate) fn with_ctx<R>(f: impl FnOnce(&mut Ctx<'_, CEngine>) -> R) -> R {
     let engine = CEngine;
     // SAFETY: the exported static is live and aligned for the whole process;
