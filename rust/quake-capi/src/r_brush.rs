@@ -49,7 +49,7 @@ use quake_types::render::{
     PCBX_UPDATE_LIGHTMAPS, TASKS_MAX_WORKERS, VERTEXSIZE,
 };
 
-use crate::gl_mesh::{cmd_memory_barrier, AsProcs, EntityBlas, R_UpdateAnimatedBLASes};
+use crate::gl_mesh::{cmd_memory_barrier, entity_at, AsProcs, EntityBlas, R_UpdateAnimatedBLASes};
 use crate::gl_rlight::{lightmap_dlight_origins, R_MarkLights};
 use crate::gl_rmain::R_RotateForEntity;
 use crate::gl_rmisc::{
@@ -4748,19 +4748,11 @@ pub unsafe extern "C" fn R_BuildTopLevelAccelerationStructure(_unused: *mut c_vo
         cb::begin_debug_utils_label(&cmd_procs, &*cbx, c"Build TLAS");
 
         let clp = ptr::addr_of!(cl);
-        let num_entities = (*clp).num_entities;
-        let total_entities = num_entities + (*clp).num_statics;
-        let entity_at = |i: c_int| -> *mut Entity {
-            if i < num_entities {
-                (*clp).entities.cast::<Entity>().add(i as usize)
-            } else {
-                (*(*clp).static_entities.add((i - num_entities) as usize)).cast::<Entity>()
-            }
-        };
+        let total_entities = (*clp).num_entities + (*clp).num_statics;
 
         let mut num_instances: u32 = 0;
         for i in 0..total_entities {
-            if tlas_instance_address(entity_at(i)).is_some() {
+            if tlas_instance_address(entity_at(clp, i)).is_some() {
                 num_instances += 1;
             }
         }
@@ -4773,7 +4765,7 @@ pub unsafe extern "C" fn R_BuildTopLevelAccelerationStructure(_unused: *mut c_vo
             .cast::<vk::AccelerationStructureInstanceKHR>();
         let worldmodel = (*clp).worldmodel;
         for i in 0..total_entities {
-            let e = entity_at(i);
+            let e = entity_at(clp, i);
             let Some(address) = tlas_instance_address(e) else {
                 continue;
             };

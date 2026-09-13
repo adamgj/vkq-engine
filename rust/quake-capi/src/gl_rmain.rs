@@ -663,6 +663,9 @@ unsafe fn r_draw_entities_on_list(
                 continue;
             }
 
+            // the sprite arm draws in its body like the alias one rather than
+            // in a match guard, so the raise check reads as the side effect it is
+            #[allow(clippy::collapsible_match)]
             match (*(*currententity).model).type_ {
                 MOD_ALIAS => {
                     if note(RRmain_Glue_DrawAliasModel(
@@ -686,7 +689,11 @@ unsafe fn r_draw_entities_on_list(
                     );
                     brushpasses += 1;
                 }
-                MOD_SPRITE if note(RRmain_Glue_DrawSpriteModel(cbx, currententity)) => return,
+                MOD_SPRITE => {
+                    if note(RRmain_Glue_DrawSpriteModel(cbx, currententity)) {
+                        return;
+                    }
+                }
                 _ => {}
             }
         }
@@ -953,8 +960,14 @@ unsafe extern "C" fn r_sort_alpha_entities_task(_unused: *mut c_void) {
                 let dist = 0.0f32.max((mins - vieworg[j]).max(vieworg[j] - maxs));
                 dist_squared += dist * dist;
             }
+            // COMPAT (ADR-010): the C is a `memcmp`, so `-0.0` and `0.0`
+            // differ and a NaN origin matches itself; compare the bits.
             let contents = if (*currententity).contentscache < 0
-                && (*currententity).contentscache_origin == center
+                && (*currententity)
+                    .contentscache_origin
+                    .iter()
+                    .zip(center.iter())
+                    .all(|(a, b)| a.to_bits() == b.to_bits())
             {
                 (*currententity).contentscache
             } else {
@@ -1232,7 +1245,8 @@ pub unsafe extern "C" fn RRmain_RenderView(
 
         if use_tasks {
             let payload = ptr::addr_of_mut!(use_tasks).cast::<c_void>();
-            let payload_size = core::mem::size_of::<bool>();
+            // `sizeof (use_tasks)` in the C: `qboolean` is `_Bool` (q_types.h).
+            let payload_size = core::mem::size_of::<c::qboolean>();
             let num_workers = c::tasks::Tasks_NumWorkers();
             let use_indirect = is_indirect();
 

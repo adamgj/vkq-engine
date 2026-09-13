@@ -866,7 +866,7 @@ pub(crate) unsafe fn cmd_memory_barrier(
 ///
 /// # Safety
 /// `clp` is the live `cl` and `i` is in range of its two entity lists.
-unsafe fn entity_at(clp: *const ClientState, i: c_int) -> *mut Entity {
+pub(crate) unsafe fn entity_at(clp: *const ClientState, i: c_int) -> *mut Entity {
     // SAFETY: the caller's contract (`i` is in range of the live lists).
     unsafe {
         let num_entities = (*clp).num_entities;
@@ -910,10 +910,10 @@ pub unsafe extern "C" fn R_AllocateEntityBLAS(e: *mut Entity) {
         // COMPAT (ADR-009): `Mod_Extradata` -> `Mod_LoadModel (mod, true)`
         // can only `Host_Error` (or parse on a task worker) when `needload`
         // is set -- a model whose `Mod_EnhancedModels_f` reload failed. The
-        // C has no guard here (the hole `gl_model.c:485-504` records); the
-        // two sibling walks below already skip such entities, so the early
-        // return only withholds a BLAS from a model nothing could draw
-        // (plan amendment log, M10).
+        // guard landed here at M10 and `gl_mesh.c` mirrors it since the PR
+        // #39 review; the two sibling walks below already skip such
+        // entities, so the early return only withholds a BLAS from a model
+        // nothing could draw (plan amendment log, M10).
         if (*model).needload {
             return;
         }

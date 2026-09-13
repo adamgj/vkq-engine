@@ -1263,19 +1263,20 @@ pub unsafe extern "C" fn quake_rs_scr_update_screen(mut use_tasks: c::qboolean) 
         }
 
         if use_tasks {
+            c::render::Harness_RenderGraphTask(
+                begin_rendering_task,
+                c"begin_rendering".as_ptr(),
+                0,
+            );
             let prev = ptr::addr_of_mut!(prev_end_rendering_task);
             if *prev != INVALID_TASK_HANDLE {
+                c::render::Harness_RenderGraphTask(*prev, c"prev_end_rendering".as_ptr(), 0);
                 graph_edge(*prev, begin_rendering_task);
                 *prev = INVALID_TASK_HANDLE;
             }
 
             let draw_done_task = allocate_and_assign_func(SCR_DrawDone);
             let setup_frame_task = allocate_and_assign_func(SCR_SetupFrame);
-            c::render::Harness_RenderGraphTask(
-                begin_rendering_task,
-                c"begin_rendering".as_ptr(),
-                0,
-            );
             c::render::Harness_RenderGraphTask(draw_done_task, c"draw_done".as_ptr(), 0);
             c::render::Harness_RenderGraphTask(setup_frame_task, c"setup_frame".as_ptr(), 0);
 

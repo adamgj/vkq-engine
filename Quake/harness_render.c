@@ -285,8 +285,9 @@ static renderhash_graph_task_t renderhash_graph_tasks[RENDERHASH_MAX_GRAPH_TASKS
 static int					   renderhash_graph_num_tasks;
 
 // tasks allocated outside the three graph builders (the begin/end-rendering
-// pair from gl_vidsdl) are named by the builder that first depends on them;
-// anything still unknown hashes as "?" in both builds
+// pair from gl_vidsdl) are named by the builder that first depends on them,
+// the previous frame's end task as "prev_end_rendering"; anything still
+// unknown hashes as "?" in both builds
 static const char *RenderHash_GraphTaskName (uint64_t handle)
 {
 	int i;

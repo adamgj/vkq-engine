@@ -1263,16 +1263,17 @@ void SCR_UpdateScreen (qboolean use_tasks)
 
 	if (use_tasks)
 	{
+		Harness_RenderGraphTask (begin_rendering_task, "begin_rendering", 0);
 		if (prev_end_rendering_task != INVALID_TASK_HANDLE)
 		{
 			Task_AddDependency (prev_end_rendering_task, begin_rendering_task);
+			Harness_RenderGraphTask (prev_end_rendering_task, "prev_end_rendering", 0);
 			Harness_RenderGraphEdge (prev_end_rendering_task, begin_rendering_task);
 			prev_end_rendering_task = INVALID_TASK_HANDLE;
 		}
 
 		task_handle_t draw_done_task = Task_AllocateAndAssignFunc (SCR_DrawDone, NULL, 0);
 		task_handle_t setup_frame_task = Task_AllocateAndAssignFunc (SCR_SetupFrame, NULL, 0);
-		Harness_RenderGraphTask (begin_rendering_task, "begin_rendering", 0);
 		Harness_RenderGraphTask (draw_done_task, "draw_done", 0);
 		Harness_RenderGraphTask (setup_frame_task, "setup_frame", 0);
 		V_RenderView (use_tasks, begin_rendering_task, setup_frame_task, draw_done_task);
