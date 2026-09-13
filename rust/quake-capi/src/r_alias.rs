@@ -310,11 +310,6 @@ pub unsafe extern "C" fn R_SetupAliasFrame(
         let out = &mut *lerpdata;
 
         if frame >= hdr.numframes || frame < 0 {
-            c::Con_DPrintf(
-                c"R_AliasSetupFrame: no such frame %d for '%s'\n".as_ptr(),
-                frame,
-                model.name.as_ptr(),
-            );
             frame = 0;
         }
 
@@ -377,24 +372,12 @@ pub unsafe extern "C" fn R_SetupAliasFrame(
                     out.pose1 = out.pose2;
                 }
             } else if hdr.poseverttype == PV_MD5 || hdr.poseverttype == PV_MD5_8 {
-                if i32::from(out.pose2) < 0 || i32::from(out.pose2) >= hdr.numframes {
-                    c::Con_DPrintf(
-                        c"R_AliasSetupFrame: invalid current pose %d (%d total) for '%s'\n"
-                            .as_ptr(),
-                        c_int::from(out.pose2),
-                        hdr.numframes,
-                        model.name.as_ptr(),
-                    );
-                    out.pose2 = 0;
-                }
+                // MD5 uses numframes for joint matrices
                 if i32::from(out.pose1) < 0 || i32::from(out.pose1) >= hdr.numframes {
-                    c::Con_DPrintf(
-                        c"R_AliasSetupFrame: invalid prev pose %d (%d total) for '%s'\n".as_ptr(),
-                        c_int::from(out.pose1),
-                        hdr.numframes,
-                        model.name.as_ptr(),
-                    );
-                    out.pose1 = out.pose2;
+                    out.pose1 = 0;
+                }
+                if i32::from(out.pose2) < 0 || i32::from(out.pose2) >= hdr.numframes {
+                    out.pose2 = 0;
                 }
             }
         } else {
@@ -723,13 +706,14 @@ pub unsafe extern "C" fn RAlias_DrawAliasModel(
         let r_fullbright = (*ptr::addr_of!(c::render::r_fullbright)).value;
         let greytexture = (*ptr::addr_of!(c::render::greytexture)).cast::<GlTexture>();
 
+        // Read once, as the C does: a clamp on one surface sticks for the rest.
+        let mut skinnum = (*e).skinnum;
         let mut hdr = paliashdr;
         while !hdr.is_null() {
             //
             // set up textures
             //
             let anim = ((cl_time * 10.0) as c_int) & 3;
-            let mut skinnum = (*e).skinnum;
             if skinnum >= (*hdr).numskins || skinnum < 0 {
                 c::Con_DPrintf(
                     c"R_DrawAliasModel: no such skin # %d for '%s'\n".as_ptr(),

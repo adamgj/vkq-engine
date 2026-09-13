@@ -358,6 +358,12 @@ pub unsafe extern "C" fn RRefrag_StoreEfrags(ppefrag: *mut *mut Efrag) -> Raise 
                         ptr::addr_of_mut!((*pent).emitstate),
                     ));
                     if (*model).flags & MOD_EMITREPLACE != 0 {
+                        // COMPAT (ADR-010): deliberate fix. The C `continue`s
+                        // here without advancing `ppefrag` (`gl_refrag.c:274`)
+                        // and re-processes the same efrag forever, so a
+                        // MOD_EMITREPLACE static hangs the C renderer; there
+                        // is no observable state to preserve (plan amendment
+                        // log, PR #38 review).
                         ppefrag = ptr::addr_of_mut!((*pefrag).leafnext);
                         continue;
                     }
