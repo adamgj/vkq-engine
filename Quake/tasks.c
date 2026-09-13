@@ -284,6 +284,8 @@ static inline void Task_ExecuteIndexed (int worker_index, task_t *task, uint32_t
 		while ((index = Atomic_IncrementUInt32 (&counter->index)) < counter->limit)
 		{
 			((task_indexed_func_t)task->func) (index, task->payload);
+			if (harness_taskcounts)
+				Harness_TaskExecuted (worker_index);
 		}
 	}
 }
@@ -321,6 +323,8 @@ static int Task_Worker (void *data)
 		if (task->task_type == TASK_TYPE_SCALAR)
 		{
 			((task_func_t)task->func) (task->payload);
+			if (harness_taskcounts)
+				Harness_TaskExecuted (worker_index);
 		}
 		else if (task->task_type == TASK_TYPE_INDEXED)
 		{

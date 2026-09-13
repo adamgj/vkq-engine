@@ -348,7 +348,7 @@ fn floats_to_bytes(values: &[f32]) -> Vec<u8> {
 
 /// `ENTALPHA_DECODE`.
 #[inline]
-fn entalpha_decode(a: u8) -> f32 {
+pub(crate) fn entalpha_decode(a: u8) -> f32 {
     if a == 0 {
         1.0
     } else {
@@ -358,7 +358,7 @@ fn entalpha_decode(a: u8) -> f32 {
 
 /// `ENTSCALE_DECODE`.
 #[inline]
-fn entscale_decode(s: u8) -> f32 {
+pub(crate) fn entscale_decode(s: u8) -> f32 {
     f32::from(s) / 16.0
 }
 

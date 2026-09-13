@@ -73,6 +73,14 @@ static int					 renderhash_num_pipelines;
 static uint64_t				 renderhash_pipeline_chain = RENDERHASH_HASH_BASIS;
 static uint32_t				 renderhash_pipeline_count;
 static qboolean				 renderhash_pipelines_dirty;
+// the frame's task graph shape (Phase 8 M9): every task by name and limit
+// and every dependency edge, in construction order. The graph is built on
+// the main thread before Tasks_Submit and read from SCR_DrawDone after the
+// last task retires, so no atomics are needed. Handles are not hashed: the
+// scheduler's allocation order is not part of the compatibility surface.
+static uint64_t				 renderhash_graph_chain = RENDERHASH_HASH_BASIS;
+static uint32_t				 renderhash_graph_nodes;
+static uint32_t				 renderhash_graph_edges;
 
 static PFN_vkCmdDraw				renderhash_orig_draw;
 static PFN_vkCmdDrawIndexed			renderhash_orig_draw_indexed;
@@ -267,6 +275,54 @@ void Harness_RenderCull (const struct entity_s *e, qboolean culled)
 	Atomic_IncrementUInt32 (&renderhash_cull_count);
 }
 
+#define RENDERHASH_MAX_GRAPH_TASKS 64
+typedef struct
+{
+	uint64_t	handle;
+	const char *name;
+} renderhash_graph_task_t;
+static renderhash_graph_task_t renderhash_graph_tasks[RENDERHASH_MAX_GRAPH_TASKS];
+static int					   renderhash_graph_num_tasks;
+
+// tasks allocated outside the three graph builders (the begin/end-rendering
+// pair from gl_vidsdl) are named by the builder that first depends on them;
+// anything still unknown hashes as "?" in both builds
+static const char *RenderHash_GraphTaskName (uint64_t handle)
+{
+	int i;
+	for (i = 0; i < renderhash_graph_num_tasks; i++)
+		if (renderhash_graph_tasks[i].handle == handle)
+			return renderhash_graph_tasks[i].name;
+	return "?";
+}
+
+void Harness_RenderGraphTask (uint64_t handle, const char *name, uint32_t limit)
+{
+	if (!harness_renderhash)
+		return;
+	if (renderhash_graph_num_tasks < RENDERHASH_MAX_GRAPH_TASKS)
+	{
+		renderhash_graph_tasks[renderhash_graph_num_tasks].handle = handle;
+		renderhash_graph_tasks[renderhash_graph_num_tasks].name = name;
+		renderhash_graph_num_tasks++;
+	}
+	renderhash_graph_chain = Harness_Hash64 (renderhash_graph_chain, name, strlen (name));
+	renderhash_graph_chain = Harness_Hash64 (renderhash_graph_chain, &limit, sizeof (limit));
+	renderhash_graph_nodes++;
+}
+
+void Harness_RenderGraphEdge (uint64_t before, uint64_t after)
+{
+	const char *b, *a;
+	if (!harness_renderhash)
+		return;
+	b = RenderHash_GraphTaskName (before);
+	a = RenderHash_GraphTaskName (after);
+	renderhash_graph_chain = Harness_Hash64 (renderhash_graph_chain, b, strlen (b));
+	renderhash_graph_chain = Harness_Hash64 (renderhash_graph_chain, a, strlen (a));
+	renderhash_graph_edges++;
+}
+
 // called from SCR_DrawDone: every draw task of the frame has retired and
 // the next frame's marking has not started, so the accumulators are quiet
 void Harness_RenderDrawDone (void)
@@ -289,7 +345,8 @@ void Harness_RenderDrawDone (void)
 		for (i = 0; i < RENDERHASH_NUM_CHAINS; i++)
 			if (renderhash_chains[i] != RENDERHASH_HASH_BASIS)
 				fprintf (renderhash_file, " c%d=%016" PRIx64, i, renderhash_chains[i]);
-		fprintf (renderhash_file, " ent=%016" PRIx64 " en=%u cull=%016" PRIx64 " n=%u\n", ent_fold, ent_count, fold, count);
+		fprintf (renderhash_file, " ent=%016" PRIx64 " en=%u cull=%016" PRIx64 " n=%u", ent_fold, ent_count, fold, count);
+		fprintf (renderhash_file, " graph=%016" PRIx64 " gn=%u ge=%u\n", renderhash_graph_chain, renderhash_graph_nodes, renderhash_graph_edges);
 	}
 	if (cl.worldmodel && cl.worldmodel->surfvis)
 		renderhash_chain = Harness_Hash64 (renderhash_chain, cl.worldmodel->surfvis, (cl.worldmodel->numsurfaces + 31) / 8);
@@ -306,6 +363,13 @@ void Harness_RenderDrawDone (void)
 	Atomic_StoreUInt32 (&renderhash_ent_count, 0);
 	Atomic_StoreUInt64 (&renderhash_cull_fold, 0);
 	Atomic_StoreUInt32 (&renderhash_cull_count, 0);
+	renderhash_chain = Harness_Hash64 (renderhash_chain, &renderhash_graph_chain, sizeof (renderhash_graph_chain));
+	renderhash_chain = Harness_Hash64 (renderhash_chain, &renderhash_graph_nodes, sizeof (renderhash_graph_nodes));
+	renderhash_chain = Harness_Hash64 (renderhash_chain, &renderhash_graph_edges, sizeof (renderhash_graph_edges));
+	renderhash_graph_chain = RENDERHASH_HASH_BASIS;
+	renderhash_graph_nodes = 0;
+	renderhash_graph_edges = 0;
+	renderhash_graph_num_tasks = 0;
 	if (renderhash_pipelines_dirty)
 	{
 		fprintf (renderhash_file, "P %d %u %016" PRIx64 "\n", renderhash_frame, renderhash_pipeline_count, renderhash_pipeline_chain);

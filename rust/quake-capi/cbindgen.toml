@@ -950,4 +950,12 @@ exclude = [
     "particletexture", "particletexture1", "particletexture2", "particletexture3", "particletexture4",
     "R_ParticleTextureLookup", "R_InitParticleTextures", "R_SetParticleTexture_f", "R_InitParticleIndexBuffer",
     "R_DrawParticles", "R_DrawParticles_ShowTris",
+    # Phase 8 M9 -- the frame graph (gl_rmain.rs / gl_screen.rs): glquake.h
+    # declares the cull/rotate helpers, and gl_rmain_glue.c / gl_screen_glue.c
+    # declare the status cores and task bodies they register by hand.
+    "R_CullBox", "R_CullModelForEntity", "R_RotateForEntity", "RRmain_RenderView",
+    "SCR_SetupFrame", "SCR_DrawDone", "quake_rs_scr_update_screen",
+    "RRmain_Glue_ShowBoundingBoxes", "RRmain_Glue_DrawAliasModel", "RRmain_Glue_DrawAliasModel_ShowTris",
+    "RRmain_Glue_DrawSpriteModel", "RRmain_Glue_DrawSpriteModel_ShowTris",
+    "SCR_Glue_RenderView", "SCR_Glue_DrawGUI", "SCR_DrawGUI", "V_SetupFrame", "V_RenderView",
 ]

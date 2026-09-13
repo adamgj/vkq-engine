@@ -20,11 +20,17 @@
 //! Phase 8 M5 adds the structs the Rust `gl_rmisc.c` hands across the seam
 //! by pointer (`dynbuffer_t`, `vulkan_desc_set_layout_t`,
 //! `buffer_create_info_t`) and the two pipeline structs, against the
-//! prelude's copies of `glquake.h`. `vulkanglobals_t` and `cb_context_t`
-//! are not probed here -- their prelude copies are compile-only cut-downs
-//! (the real shapes need most of `vulkan_core.h`) -- so their only check is
-//! the `COMPILE_TIME_ASSERT` block in `Quake/gl_rmisc_glue.c`, which the
-//! `use_rust_render` build compiles against the real header on every CI leg.
+//! prelude's copies of `glquake.h`. `vulkanglobals_t` is not probed here --
+//! its prelude copy is a compile-only cut-down (the real shape needs most of
+//! `vulkan_core.h`) -- so its only check is the `COMPILE_TIME_ASSERT` block
+//! in `Quake/gl_rmisc_glue.c`, which the `use_rust_render` build compiles
+//! against the real header on every CI leg.
+//!
+//! Phase 8 M9 adds `cb_context_t` (the Rust frame graph owns the
+//! `secondary_cb_contexts` array; the prelude copy is now verbatim) and the
+//! M8 mirrors the C glue reads by layout (`lerpdata_t`, `struct lightmap_s`
+//! and its member structs), with the engine-header check in
+//! `Quake/gl_rmain_glue.c`.
 //!
 //! Name-keyed like the Phase 3/4 probes so this consumer and the C table can't
 //! drift by index; an unknown key returns usize::MAX and fails the assert.
@@ -33,11 +39,13 @@ use core::mem::{offset_of, size_of};
 
 use quake_ctest as _;
 use quake_types::render::{
-    BufferCreateInfo, DynBuffer, GlHeapStats, GlTexture, SrcFormat, VulkanDescSetLayout,
-    VulkanMemory, VulkanMemoryType, VulkanPipeline, VulkanPipelineLayout, TEXPREF_ALPHA,
-    TEXPREF_ALPHAPIXELS, TEXPREF_CONCHARS, TEXPREF_FULLBRIGHT, TEXPREF_LINEAR, TEXPREF_MIPMAP,
-    TEXPREF_NEAREST, TEXPREF_NOBRIGHT, TEXPREF_NOPICMIP, TEXPREF_OVERWRITE, TEXPREF_PAD,
-    TEXPREF_PERSIST, TEXPREF_PREMULTIPLY, TEXPREF_WARPIMAGE,
+    BufferCreateInfo, CbContext, DynBuffer, GlHeapStats, GlMaxUsed, GlRect, GlTexture, LerpData,
+    Lightmap, LmComputeWorkgroupBounds, SrcFormat, VulkanDescSetLayout, VulkanMemory,
+    VulkanMemoryType, VulkanPipeline, VulkanPipelineLayout, LMBLOCK_HEIGHT, LMBLOCK_WIDTH,
+    LM_CULL_BLOCK_H, LM_CULL_BLOCK_W, MAX_BATCH_SIZE, MAX_LIGHTSTYLES, TASKS_MAX_WORKERS,
+    TEXPREF_ALPHA, TEXPREF_ALPHAPIXELS, TEXPREF_CONCHARS, TEXPREF_FULLBRIGHT, TEXPREF_LINEAR,
+    TEXPREF_MIPMAP, TEXPREF_NEAREST, TEXPREF_NOBRIGHT, TEXPREF_NOPICMIP, TEXPREF_OVERWRITE,
+    TEXPREF_PAD, TEXPREF_PERSIST, TEXPREF_PREMULTIPLY, TEXPREF_WARPIMAGE,
 };
 
 extern "C" {
@@ -240,4 +248,72 @@ fn rmisc_mirrors_match_engine_headers() {
         size_of::<ash::vk::DescriptorSetLayout>(),
         c_abi("sizeof.VkDescriptorSetLayout")
     );
+}
+
+#[test]
+fn frame_graph_mirrors_match_engine_headers() {
+    check_size!(CbContext, "cb_context_t");
+    check_offsets!(
+        CbContext,
+        "cb_context_t",
+        [
+            cb,
+            current_canvas,
+            render_pass,
+            render_pass_index,
+            subpass,
+            current_pipeline,
+            vbo_indices,
+            num_vbo_indices,
+        ]
+    );
+    assert_eq!(MAX_BATCH_SIZE, c_abi("const.MAX_BATCH_SIZE"));
+    check_size!(LerpData, "lerpdata_t");
+    check_offsets!(
+        LerpData,
+        "lerpdata_t",
+        [pose1, pose2, blend, origin, angles]
+    );
+    check_size!(LmComputeWorkgroupBounds, "lm_compute_workgroup_bounds_t");
+    check_offsets!(
+        LmComputeWorkgroupBounds,
+        "lm_compute_workgroup_bounds_t",
+        [mins, maxs, submodel]
+    );
+    check_size!(GlRect, "glRect_t");
+    check_offsets!(GlRect, "glRect_t", [l, t, w, h]);
+    check_size!(GlMaxUsed, "glMaxUsed_t");
+    check_offsets!(GlMaxUsed, "glMaxUsed_t", [w, h]);
+    check_size!(Lightmap, "struct lightmap_s");
+    check_offsets!(
+        Lightmap,
+        "struct lightmap_s",
+        [
+            texture,
+            surface_indices_texture,
+            lightstyle_textures,
+            descriptor_set,
+            modified,
+            workgroup_bounds_buffer,
+            rectchange,
+            lightstyle_rectused,
+            global_bounds,
+            active_dlights,
+            block_has_submodels,
+            num_used_lightstyles,
+            used_lightstyles,
+            cached_light,
+            cached_framecount,
+            data,
+            lightstyle_data,
+            surface_indices,
+            workgroup_bounds,
+        ]
+    );
+    assert_eq!(LMBLOCK_WIDTH, c_abi("const.LMBLOCK_WIDTH"));
+    assert_eq!(LMBLOCK_HEIGHT, c_abi("const.LMBLOCK_HEIGHT"));
+    assert_eq!(LM_CULL_BLOCK_W, c_abi("const.LM_CULL_BLOCK_W"));
+    assert_eq!(LM_CULL_BLOCK_H, c_abi("const.LM_CULL_BLOCK_H"));
+    assert_eq!(TASKS_MAX_WORKERS, c_abi("const.TASKS_MAX_WORKERS"));
+    assert_eq!(MAX_LIGHTSTYLES, c_abi("const.MAX_LIGHTSTYLES"));
 }

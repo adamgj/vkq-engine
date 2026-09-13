@@ -5,8 +5,9 @@
 //! `-renderhash`), the world texture-chain draws, and the task graph entry
 //! `R_MarkSurfaces`. `R_StoreEfrags` can raise through `Host_Guard`
 //! (see `gl_refrag.rs`), so the synchronous path returns the guard code from
-//! [`RWorld_MarkSurfaces`] for `Quake/r_world_glue.c` to `Host_Reraise`
-//! (ADR-009); on the task paths there is no C frame to reraise into and the
+//! [`RWorld_MarkSurfaces`] for `gl_rmain.rs`'s `RRmain_RenderView` to hand
+//! back to `Quake/gl_rmain_glue.c`'s `Host_Reraise` (ADR-009; M9 -- the
+//! `r_world_glue.c` re-raise wrapper is gone); on the task paths there is no C frame to reraise into and the
 //! C original would have longjmp'd a main-thread `jmp_buf` from a worker, so a
 //! raised code becomes `Sys_Error` (recorded in the plan amendment log).
 
@@ -1228,7 +1229,8 @@ unsafe fn allocate_and_assign_indexed_func(
 
 /// `R_MarkSurfaces` -- johnfitz -- mark surfaces based on PVS and rebuild
 /// texture chains. Returns the `Host_Guard` code raised by `R_StoreEfrags` on
-/// the synchronous path (0 otherwise) for `r_world_glue.c` to `Host_Reraise`.
+/// the synchronous path (0 otherwise) for `RRmain_RenderView` to propagate.
+/// Registers the `-renderhash` graph shape exactly as `Quake/r_world.c`.
 ///
 /// # Safety
 /// Main thread inside `R_RenderView`; the out-pointers are live task handles.
@@ -1246,7 +1248,9 @@ pub unsafe extern "C" fn RWorld_MarkSurfaces(
         if use_tasks {
             let payload = ptr::addr_of_mut!(use_tasks).cast::<c_void>();
             let prepare_mark = allocate_and_assign_func(mark_surfaces_prepare, ptr::null_mut(), 0);
+            c::render::Harness_RenderGraphTask(prepare_mark, c"prepare_mark".as_ptr(), 0);
             c::tasks::Task_AddDependency(before_mark, prepare_mark);
+            c::render::Harness_RenderGraphEdge(before_mark, prepare_mark);
             c::tasks::Task_Submit(prepare_mark);
             let num_workers = c::tasks::Tasks_NumWorkers();
             if cvar_value(ptr::addr_of!(r_parallelmark)) != 0.0 {
@@ -1260,10 +1264,18 @@ pub unsafe extern "C" fn RWorld_MarkSurfaces(
                     ptr::null_mut(),
                     0,
                 );
+                c::render::Harness_RenderGraphTask(
+                    mark_surfaces,
+                    c"mark_leafs".as_ptr(),
+                    (MARK_SURFACE_CALLS_PER_WORKER * num_workers) as u32,
+                );
                 c::tasks::Task_AddDependency(prepare_mark, mark_surfaces);
+                c::render::Harness_RenderGraphEdge(prepare_mark, mark_surfaces);
                 c::tasks::Task_Submit(mark_surfaces);
                 *store_efrags_out = allocate_and_assign_func(store_leaf_efrags, ptr::null_mut(), 0);
+                c::render::Harness_RenderGraphTask(*store_efrags_out, c"store_efrags".as_ptr(), 0);
                 c::tasks::Task_AddDependency(mark_surfaces, *store_efrags_out);
+                c::render::Harness_RenderGraphEdge(mark_surfaces, *store_efrags_out);
                 if !*ptr::addr_of!(indirect) && cheatsafe_drawworld() {
                     *cull_surfaces = allocate_and_assign_indexed_func(
                         if use_simd() {
@@ -1275,13 +1287,25 @@ pub unsafe extern "C" fn RWorld_MarkSurfaces(
                         ptr::null_mut(),
                         0,
                     );
+                    c::render::Harness_RenderGraphTask(
+                        *cull_surfaces,
+                        c"cull_surfaces".as_ptr(),
+                        (MARK_SURFACE_CALLS_PER_WORKER * num_workers) as u32,
+                    );
                     c::tasks::Task_AddDependency(mark_surfaces, *cull_surfaces);
+                    c::render::Harness_RenderGraphEdge(mark_surfaces, *cull_surfaces);
                     *chain_surfaces = allocate_and_assign_func(
                         chain_vis_surfaces_task,
                         payload,
                         core::mem::size_of::<bool>(),
                     );
+                    c::render::Harness_RenderGraphTask(
+                        *chain_surfaces,
+                        c"chain_surfaces".as_ptr(),
+                        0,
+                    );
                     c::tasks::Task_AddDependency(*cull_surfaces, *chain_surfaces);
+                    c::render::Harness_RenderGraphEdge(*cull_surfaces, *chain_surfaces);
                 } else {
                     *cull_surfaces = mark_surfaces;
                     *chain_surfaces = mark_surfaces;
@@ -1296,7 +1320,9 @@ pub unsafe extern "C" fn RWorld_MarkSurfaces(
                     payload,
                     core::mem::size_of::<bool>(),
                 );
+                c::render::Harness_RenderGraphTask(mark_surfaces, c"mark_vis_surfaces".as_ptr(), 0);
                 c::tasks::Task_AddDependency(prepare_mark, mark_surfaces);
+                c::render::Harness_RenderGraphEdge(prepare_mark, mark_surfaces);
                 *store_efrags_out = mark_surfaces;
                 *chain_surfaces = mark_surfaces;
                 *cull_surfaces = mark_surfaces;

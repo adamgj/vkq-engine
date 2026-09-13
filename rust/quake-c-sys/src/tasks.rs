@@ -55,4 +55,10 @@ extern "C" {
     pub fn Tasks_Submit(num_handles: c_int, handles: *mut u64);
     /// `tasks.h:45` -- `void Task_AddDependency (task_handle_t before, task_handle_t after)`.
     pub fn Task_AddDependency(before: u64, after: u64);
+
+    /// `harness.h` -- `extern qboolean harness_taskcounts;` (`harness.c`,
+    /// `-taskcounts`, Phase 8 M9 worker-utilization evidence).
+    pub static mut harness_taskcounts: bool;
+    /// `harness.h` -- `void Harness_TaskExecuted (int worker_index)`.
+    pub fn Harness_TaskExecuted(worker_index: c_int);
 }

@@ -228,8 +228,31 @@ pub const PCBX_UPDATE_LIGHTMAPS: usize = 1;
 pub const PCBX_UPDATE_WARP: usize = 2;
 pub const PCBX_RENDER_PASSES: usize = 3;
 pub const PCBX_NUM: usize = 4;
+/// `secondary_cb_contexts_t` (`glquake.h:213-233`), the
+/// `vulkan_globals.secondary_cb_contexts` slots the frame graph records into
+/// (Phase 8 M9).
+pub const SCBX_WORLD: usize = 0;
+pub const SCBX_ENTITIES: usize = 1;
+pub const SCBX_SKY: usize = 2;
+pub const SCBX_VIEW_MODEL: usize = 3;
+pub const SCBX_FTE_PARTICLES_BLEND: usize = 4;
+pub const SCBX_ALPHA_ENTITIES_ACROSS_WATER: usize = 5;
+pub const SCBX_WATER: usize = 6;
+pub const SCBX_ALPHA_ENTITIES: usize = 7;
+pub const SCBX_PARTICLES: usize = 8;
+pub const SCBX_MBOIT_COMPOSITE_ALPHA_ENTITIES_ACROSS_WATER: usize = 9;
+pub const SCBX_MBOIT_COMPOSITE_WATER: usize = 10;
+pub const SCBX_MBOIT_COMPOSITE_ALPHA_ENTITIES: usize = 11;
+pub const SCBX_MBOIT_COMPOSITE_PARTICLES: usize = 12;
+pub const SCBX_OIT_RESOLVE: usize = 13;
+pub const SCBX_GUI: usize = 14;
+pub const SCBX_POST_PROCESS: usize = 15;
 /// `SCBX_NUM` (`glquake.h:233`)
 pub const SCBX_NUM: usize = 16;
+/// `NUM_WORLD_CBX` / `NUM_ENTITIES_CBX` (`glquake.h:201-202`): the
+/// `SCBX_WORLD` and `SCBX_ENTITIES` slots are arrays of that many contexts.
+pub const NUM_WORLD_CBX: usize = 6;
+pub const NUM_ENTITIES_CBX: usize = 6;
 /// `RENDER_PASS_INDEX_COUNT` (`glquake.h:250`)
 pub const RENDER_PASS_INDEX_COUNT: usize = 7;
 /// `MAIN_RENDER_PASS_VARIANT_COUNT` (`glquake.h:258`)
