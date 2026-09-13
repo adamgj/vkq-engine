@@ -834,6 +834,9 @@ impl AsProcs {
 
 /// `vkCmdPipelineBarrier` with one global memory barrier and no buffer or
 /// image barriers (the shape every AS build barrier takes).
+///
+/// # Safety
+/// `cb` is a command buffer in the recording state on a live device.
 pub(crate) unsafe fn cmd_memory_barrier(
     cb: vk::CommandBuffer,
     src_stage: vk::PipelineStageFlags,
@@ -860,6 +863,9 @@ pub(crate) unsafe fn cmd_memory_barrier(
 
 /// `cl.entities[i]` / `cl.static_entities[i - cl.num_entities]` for
 /// `i < cl.num_entities + cl.num_statics`.
+///
+/// # Safety
+/// `clp` is the live `cl` and `i` is in range of its two entity lists.
 unsafe fn entity_at(clp: *const ClientState, i: c_int) -> *mut Entity {
     // SAFETY: the caller's contract (`i` is in range of the live lists).
     unsafe {
@@ -879,7 +885,9 @@ unsafe fn entity_at(clp: *const ClientState, i: c_int) -> *mut Entity {
 ///
 /// # Safety
 /// `e` is a live entity. Reached from the `R_StoreLeafEFrags` task as well
-/// as the main thread, exactly as the C.
+/// as the main thread, exactly as the C -- including the C's unlocked
+/// `GL_HeapAllocate` on the shared mesh heap and garbage ring from that
+/// worker (COMPAT: a C data race kept as is; Phase 9 owns its removal).
 #[no_mangle]
 pub unsafe extern "C" fn R_AllocateEntityBLAS(e: *mut Entity) {
     // Reached from `CL_RelinkEntities` headless too, where no `VkDevice`

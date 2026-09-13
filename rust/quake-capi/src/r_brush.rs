@@ -4189,6 +4189,10 @@ static mut AS_SCRATCH_MEMORY: VulkanMemory = NULL_MEMORY;
 /// own allocation (the `vkCreateBuffer` + `VkMemoryAllocateFlagsInfo` +
 /// `R_AllocateVulkanMemory` + bind sequence the AS scratch buffer and the
 /// TLAS share). Returns the buffer and its device address.
+///
+/// # Safety
+/// Main thread with a live device; `memory` is an unbound `VulkanMemory`
+/// static of this module.
 unsafe fn create_addressable_buffer(
     memory: *mut VulkanMemory,
     size: vk::DeviceSize,
@@ -4310,6 +4314,10 @@ pub extern "C" fn R_CollectTLASGarbage() {
 
 /// `R_AllocateTLAS`: the TLAS buffer, memory and object for the current
 /// `bmodel_tlas_size`.
+///
+/// # Safety
+/// Main thread with a live device, after the previous TLAS and its buffer
+/// have been retired to the garbage rings (or never existed).
 unsafe fn allocate_tlas(procs: &AsProcs) {
     // SAFETY: the statics are this module's; called with the old TLAS
     // already retired.
@@ -4393,6 +4401,9 @@ pub extern "C" fn GL_DeleteBModelAccelerationStructures() {
 
 /// The surfaces `GL_BuildBModelAccelerationStructures` traces: every
 /// non-special surface of a brush model that is not `MF_HOLEY`.
+///
+/// # Safety
+/// `m` is a loaded brush model whose `surfaces` table outlives the iterator.
 unsafe fn bmodel_traced_surfaces(m: *mut QModel) -> impl Iterator<Item = *mut MSurface> {
     // SAFETY: the caller's contract (`m` is a live brush model).
     unsafe {
@@ -4560,7 +4571,9 @@ pub extern "C" fn GL_BuildBModelAccelerationStructures() {
         );
 
         let scratch_device_address = (*ptr::addr_of!(as_scratch_buffer)).device_address;
-        let scratch_buffer_size = as_scratch_buffer_size as vk::DeviceSize;
+        // COMPAT: the flush bound is the local maximum sized above, not the
+        // rounded-up `as_scratch_buffer_size`, so the barrier count and the
+        // per-build scratch offsets match the C command stream (ADR-010).
         let mut scratch_offset: vk::DeviceSize = 0;
         let mut indices_offset: vk::DeviceSize = 0;
         for bm in &blas_models {
@@ -4670,6 +4683,9 @@ fn query_tlas_sizes(
 
 /// Whether `R_BuildTopLevelAccelerationStructure` instances `e` this frame:
 /// an opaque entity whose model has a (current) BLAS.
+///
+/// # Safety
+/// `e` is a live entity; its model, if any, is loaded or marked `needload`.
 unsafe fn tlas_instance_address(e: *mut Entity) -> Option<vk::DeviceAddress> {
     // SAFETY: the caller's contract (`e` is a live entity).
     unsafe {
