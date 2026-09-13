@@ -40,4 +40,19 @@ extern "C" {
     /// timeout)`; `TASK_TIMEOUT_INFINITE` is `UINT32_MAX` under SDL2 and
     /// SDL3 alike.
     pub fn Task_Join(task_handle: u64, timeout: u32) -> bool;
+    /// `tasks.h:42` -- `void Task_AssignIndexedFunc (task_handle_t, task_indexed_func_t,
+    /// uint32_t limit, void *payload, size_t payload_size)`.
+    pub fn Task_AssignIndexedFunc(
+        task_handle: u64,
+        func: Option<unsafe extern "C" fn(c_int, *mut c_void)>,
+        limit: u32,
+        payload: *mut c_void,
+        payload_size: usize,
+    );
+    /// `tasks.h:43` -- `void Task_Submit (task_handle_t)`.
+    pub fn Task_Submit(task_handle: u64);
+    /// `tasks.h:44` -- `void Tasks_Submit (int num_handles, task_handle_t *handles)`.
+    pub fn Tasks_Submit(num_handles: c_int, handles: *mut u64);
+    /// `tasks.h:45` -- `void Task_AddDependency (task_handle_t before, task_handle_t after)`.
+    pub fn Task_AddDependency(before: u64, after: u64);
 }

@@ -277,6 +277,9 @@ extern "C" {
     /// `gl_rmain.c:37` -- `atomic_uint32_t rs_skypolys` (4 bytes; read
     /// through `AtomicU32::from_ptr`).
     pub static mut rs_skypolys: u32;
+    /// `gl_rmain.c:37` -- `atomic_uint32_t rs_particles` (Phase 8 M8, the
+    /// classic particle render half).
+    pub static mut rs_particles: u32;
     /// `gl_rmain.c` -- `cvar_t r_drawentities`, `gl_farclip`.
     pub static mut r_drawentities: cvar_t;
     pub static mut gl_farclip: cvar_t;
@@ -350,6 +353,69 @@ extern "C" {
     pub fn VID_Glue_ViewOrg(out: *mut f32);
     /// `sv.active && cls.signon < 1` (`GL_CreateRenderResources` early out).
     pub fn VID_Glue_SkipRenderResources() -> bool;
+}
+
+/* Phase 8 M8: the gl_rmain.c / gl_screen_glue.c symbols r_alias.rs and
+ * gl_mesh.rs read. gl_rmain.c ports at M9. */
+extern "C" {
+    /// `gl_rmain.c:68` -- `cvar_t r_fullbright`.
+    pub static mut r_fullbright: cvar_t;
+    /// `gl_rmain.c:81` -- `cvar_t gl_nocolors`.
+    pub static mut gl_nocolors: cvar_t;
+    /// `gl_screen_glue.c:68` -- `cvar_t cl_gun_fovscale`.
+    pub static mut cl_gun_fovscale: cvar_t;
+    /// `gl_rmain.c:204` -- `void R_RotateForEntity (float matrix[16], vec3_t origin,
+    /// vec3_t angles, unsigned char scale)`.
+    pub fn R_RotateForEntity(
+        matrix: *mut c_float,
+        origin: *mut c_float,
+        angles: *mut c_float,
+        scale: u8,
+    );
+    /// `gl_rmain.c:28` -- `int r_visframecount`.
+    pub static mut r_visframecount: c_int;
+    /// `gl_rmain.c:31` -- `mplane_t frustum[4]` (opaque here; `MPlane` in quake-types).
+    pub static mut frustum: [[u8; 20]; 4];
+    /// `gl_rmain.c:37` -- `atomic_uint32_t rs_brushpolys` (read/written atomically).
+    pub static mut rs_brushpolys: u32;
+    /// `gl_rmain.c:38` -- `atomic_uint32_t rs_dynamiclightmaps`.
+    pub static mut rs_dynamiclightmaps: u32;
+    /// `gl_rmain.c:38` -- `atomic_uint32_t rs_brushpasses`.
+    pub static mut rs_brushpasses: u32;
+    /// `gl_rmain.c:60` -- `mleaf_t *r_viewleaf` (opaque; `MLeaf` in quake-types).
+    pub static mut r_viewleaf: *mut c_void;
+    /// `gl_rmain.c:70` -- `cvar_t r_wateralpha`.
+    pub static mut r_wateralpha: cvar_t;
+    /// `gl_rmain.c:73` -- `cvar_t r_novis`.
+    pub static mut r_novis: cvar_t;
+    /// `gl_rmain.c:90` -- `cvar_t r_oldskyleaf`.
+    pub static mut r_oldskyleaf: cvar_t;
+    /// `gl_rmain.c:106` -- `cvar_t gl_zfix`.
+    pub static mut gl_zfix: cvar_t;
+    /// `gl_rmain.c:112` -- `float map_wateralpha`.
+    pub static mut map_wateralpha: c_float;
+    /// `gl_rmain.c:112` -- `float map_lavaalpha`.
+    pub static mut map_lavaalpha: c_float;
+    /// `gl_rmain.c:112` -- `float map_telealpha`.
+    pub static mut map_telealpha: c_float;
+    /// `gl_rmain.c:112` -- `float map_slimealpha`.
+    pub static mut map_slimealpha: c_float;
+    /// `gl_rmain.c:113` -- `float map_fallbackalpha`.
+    pub static mut map_fallbackalpha: c_float;
+    /// `gl_rmain.c:136` -- `qboolean R_CullBox (vec3_t emins, vec3_t emaxs)`.
+    pub fn R_CullBox(emins: *const c_float, emaxs: *const c_float) -> bool;
+    /// `gl_model.c:282` -- `byte *Mod_NoVisPVS (qmodel_t *model)`.
+    pub fn Mod_NoVisPVS(model: *mut c_void) -> *mut u8;
+    /// `sv_send_glue.c:309` -- `byte *SV_FatPVS (vec3_t org, qmodel_t *worldmodel)`.
+    pub fn SV_FatPVS(org: *const c_float, worldmodel: *mut c_void) -> *mut u8;
+    /// `gl_rmisc_glue.c:263` -- `qboolean use_simd`.
+    pub static mut use_simd: bool;
+    /// `gl_rmisc_glue.c:271` -- `qboolean R_UseIndirectTransparentWater (void)`.
+    pub fn R_UseIndirectTransparentWater() -> bool;
+    /// `gl_rmisc_glue.c:545` -- `float GL_WaterAlphaForSurface (msurface_t *fa)`.
+    pub fn GL_WaterAlphaForSurface(fa: *mut c_void) -> c_float;
+    /// `gl_rmisc_glue.c:557` -- `float GL_WaterAlphaForTextureType (textype_t type)`.
+    pub fn GL_WaterAlphaForTextureType(type_: c_int) -> c_float;
 }
 
 // The Vulkan loader entry points gl_texmgr.c and gl_rmisc.c call directly; the engine

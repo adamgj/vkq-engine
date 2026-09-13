@@ -217,7 +217,6 @@ endforeach
 srcs = [
     'Quake/cd_null.c',
     'Quake/common.c',
-    'Quake/gl_mesh.c',
     'Quake/gl_model.c',
     'Quake/gl_rmain.c',
     'Quake/harness.c',
@@ -237,9 +236,6 @@ srcs = [
     'Quake/pr_cmds.c',
     'Quake/pr_edict.c',
     'Quake/pr_ext.c',
-    'Quake/r_alias.c',
-    'Quake/r_brush.c',
-    'Quake/r_world.c',
     'Quake/steam_api.c',
 	'Quake/sys_sdl.c',
 	 run_generate_embedded_pak,
@@ -982,6 +978,29 @@ else
         'Quake/gl_sky.c',
         'Quake/gl_warp.c',
         'Quake/r_sprite.c',
+    ]
+endif
+
+# Phase 8 M8: the world/mesh renderer -> quake-capi (ADR-015): gl_mesh.c,
+# r_alias.c, r_brush.c and r_world.c. gl_mesh_glue.c and r_brush_glue.c keep
+# the ray-tracing halves (entity BLAS builds, AS scratch buffer, TLAS) in C
+# until Phase 8 M10 (plan D5); r_alias_glue.c resolves the alias header
+# (Mod_Extradata_CheckSkin can Host_Error) before entering Rust and
+# r_world_glue.c re-raises R_StoreEfrags' guard code after the Rust marker
+# returns (ADR-009).
+if use_rust_render
+    srcs += [
+        'Quake/gl_mesh_glue.c',
+        'Quake/r_alias_glue.c',
+        'Quake/r_brush_glue.c',
+        'Quake/r_world_glue.c',
+    ]
+else
+    srcs += [
+        'Quake/gl_mesh.c',
+        'Quake/r_alias.c',
+        'Quake/r_brush.c',
+        'Quake/r_world.c',
     ]
 endif
 

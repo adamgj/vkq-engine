@@ -921,4 +921,33 @@ exclude = [
     "SCR_TileClear", "SkyBox", "BasicVertex",
     "M_GetScale", "Sbar_LoadPics", "COM_WordWrap", "Con_DrawConsole", "Con_DrawNotify",
     "Con_CheckResize", "SCR_Glue_GetCrosshairDef", "R_CheckEfrags",
+    # Phase 8 M8 -- the world/mesh renderer (gl_mesh / r_alias / r_brush /
+    # r_world): every export keeps its C name and is declared by glquake.h /
+    # gl_model.h or by the glue TUs that read the data by name.
+    "mesh_buffer_heap", "GLMesh_Glue_AddBLASGarbage", "R_InitMeshHeap",
+    "R_GetMeshHeapStats", "R_CollectMeshBufferGarbage",
+    "GL_MakeAliasModelDisplayLists", "GLMesh_DeleteMeshBuffers",
+    "GLMesh_UploadBuffers", "GLMesh_DeleteAllMeshBuffers", "playertextures",
+    "R_SetupAliasFrame", "R_GetEntityLerpedTransform", "RAlias_DrawAliasModel",
+    "RAlias_DrawAliasModel_ShowTris", "r_avertexnormals", "gl_lightmap_format",
+    "lightmaps", "lightmap_count", "indirect", "indirect_ready",
+    "frame_upload_buffers_memory", "bmodel_vertex_buffer", "bmodel_numverts",
+    "bmodel_vertex_buffer_device_address", "R_MarkDeps", "R_TextureAnimation",
+    "DrawGLPoly", "R_ClearBModelInstanceClaims", "R_IndirectBrush",
+    "R_DrawBrushModel", "R_DrawBrushModel_ShowTris", "R_DrawIndirectBrushes",
+    "R_DrawIndirectBrushes_ShowTris", "R_RenderDynamicLightmaps",
+    "R_AllocateLightmapComputeBuffers", "GL_BuildLightmaps",
+    "GL_SetupIndirectDraws", "GL_UpdateLightmapDescriptorSets",
+    "GL_SetupLightmapCompute", "GL_DeleteBModelVertexBuffer",
+    "GL_BuildBModelVertexBuffer", "GL_PrepareSIMDAndParallelData",
+    "R_BuildLightMap", "R_UpdateLightmapsAndIndirect", "R_UploadLightmaps",
+    "r_parallelmark", "R_ClearTextureChains", "R_ChainSurface",
+    "RWorld_MarkSurfaces", "GL_WaterAlphaForEntityTextureType",
+    "R_DrawTextureChains_Water", "R_DrawTextureChains", "R_DrawWorld",
+    "R_DrawWorld_Water", "R_DrawWorld_ShowTris",
+    # Phase 8 M8 -- r_part.c rendering half (r_part_render.rs): glquake.h declares
+    # the draw entry points; r_part_glue.c / r_part_fte_glue.c read the textures.
+    "particletexture", "particletexture1", "particletexture2", "particletexture3", "particletexture4",
+    "R_ParticleTextureLookup", "R_InitParticleTextures", "R_SetParticleTexture_f", "R_InitParticleIndexBuffer",
+    "R_DrawParticles", "R_DrawParticles_ShowTris",
 ]

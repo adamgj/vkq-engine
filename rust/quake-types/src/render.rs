@@ -776,3 +776,192 @@ const _: () = {
     #[cfg(feature = "engine-debug")]
     vg_offset!(vk_cmd_end_debug_utils_label, 1064960);
 };
+
+// ---- Phase 8 M8: gl_mesh.c / r_alias.c ------------------------------------
+
+/// `meshxyz_t` (`gl_model.h`): 16-bit unsigned to fit both MDL and MD3, the
+/// alias vertex shader maps it onto [0,1].
+#[repr(C)]
+#[derive(Clone, Copy, Default, Debug, PartialEq, Eq)]
+pub struct MeshXyz {
+    pub xyz: [u16; 4],
+    pub normal: [i8; 4],
+}
+
+/// `meshst_t` (`gl_model.h`).
+#[repr(C)]
+#[derive(Clone, Copy, Default, Debug, PartialEq)]
+pub struct MeshSt {
+    pub st: [f32; 2],
+}
+
+/// `lerpdata_t` (`glquake.h`): the lerp information the alias drawing
+/// functions consume.
+#[repr(C)]
+#[derive(Clone, Copy, Default, Debug, PartialEq)]
+pub struct LerpData {
+    pub pose1: i16,
+    pub pose2: i16,
+    pub blend: f32,
+    pub origin: [f32; 3],
+    pub angles: [f32; 3],
+}
+
+/// `aliasubo_t` (`r_alias.c`): the per-draw alias uniform block.
+#[repr(C)]
+#[derive(Clone, Copy, Default, Debug, PartialEq)]
+pub struct AliasUbo {
+    pub model_matrix: [f32; 16],
+    pub shade_vector: [f32; 3],
+    pub blend_factor: f32,
+    pub light_color: [f32; 3],
+    pub entalpha: f32,
+    pub flags: u32,
+}
+
+/// `md5ubo_t` (`r_alias.c`): [`AliasUbo`] plus the two joint offsets.
+#[repr(C)]
+#[derive(Clone, Copy, Default, Debug, PartialEq)]
+pub struct Md5Ubo {
+    pub model_matrix: [f32; 16],
+    pub shade_vector: [f32; 3],
+    pub blend_factor: f32,
+    pub light_color: [f32; 3],
+    pub entalpha: f32,
+    pub flags: u32,
+    pub joints_offsets: [u32; 2],
+}
+
+/// `MODEL_PIPELINE_*` (`glquake.h:194-197`): indices into the
+/// `alias_*`/`md5_*` pipeline families.
+pub const MODEL_PIPELINE_ALPHA_TEST_BIT: usize = 1;
+pub const MODEL_PIPELINE_ALPHA_BLEND_BIT: usize = 2;
+pub const MODEL_PIPELINE_SHOWTRIS: usize = 4;
+pub const MODEL_PIPELINE_SHOWTRIS_DEPTH_TEST: usize = 5;
+
+const _: () = {
+    assert!(core::mem::size_of::<MeshXyz>() == 12);
+    assert!(core::mem::size_of::<MeshSt>() == 8);
+    assert!(core::mem::size_of::<LerpData>() == 32);
+    assert!(core::mem::size_of::<AliasUbo>() == 100);
+    assert!(core::mem::size_of::<Md5Ubo>() == 108);
+};
+
+// ---- Phase 8 M8: r_brush.c / r_world.c ------------------------------------
+/// `LMBLOCK_WIDTH` / `LMBLOCK_HEIGHT` (`glquake.h`).
+pub const LMBLOCK_WIDTH: usize = 1024;
+pub const LMBLOCK_HEIGHT: usize = 1024;
+/// `LM_CULL_BLOCK_W` / `LM_CULL_BLOCK_H` (`glquake.h`): the lightmap-compute
+/// culling grid is `[LM_CULL_ROWS][LM_CULL_COLS]`.
+pub const LM_CULL_BLOCK_W: usize = 128;
+pub const LM_CULL_BLOCK_H: usize = 256;
+pub const LM_CULL_COLS: usize = LMBLOCK_WIDTH / LM_CULL_BLOCK_W;
+pub const LM_CULL_ROWS: usize = LMBLOCK_HEIGHT / LM_CULL_BLOCK_H;
+/// `LM_WORKGROUP_SUBMODEL_EMPTY` / `_MIXED` (`glquake.h`).
+pub const LM_WORKGROUP_SUBMODEL_EMPTY: u32 = 0xFFFF_FFFE;
+pub const LM_WORKGROUP_SUBMODEL_MIXED: u32 = 0xFFFF_FFFF;
+/// `TASKS_MAX_WORKERS` (`tasks.h`).
+pub const TASKS_MAX_WORKERS: usize = 32;
+/// `MAX_LIGHTSTYLES` (`quakedef.h`).
+pub const MAX_LIGHTSTYLES: usize = 64;
+/// `lm_compute_workgroup_bounds_t` (`glquake.h`).
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct LmComputeWorkgroupBounds {
+    pub mins: [f32; 3],
+    pub maxs: [f32; 3],
+    pub submodel: u32,
+}
+/// `glRect_t` (`glquake.h`).
+#[repr(C)]
+#[derive(Clone, Copy, Default, Debug, PartialEq, Eq)]
+pub struct GlRect {
+    pub l: u16,
+    pub t: u16,
+    pub w: u16,
+    pub h: u16,
+}
+/// `glMaxUsed_t` (`glquake.h`).
+#[repr(C)]
+#[derive(Clone, Copy, Default, Debug, PartialEq, Eq)]
+pub struct GlMaxUsed {
+    pub w: u16,
+    pub h: u16,
+}
+/// `struct lightmap_s` (`glquake.h:663`): one 1024x1024 lightmap atlas and
+/// its GPU-update bookkeeping. `lightmaps`/`lightmap_count` are owned by
+/// quake-capi `r_brush.rs` under `-Duse_rust_render`; the C readers
+/// (`gl_rmisc_glue.c`, the RT glue) see this layout.
+#[repr(C)]
+pub struct Lightmap {
+    pub texture: *mut GlTexture,
+    pub surface_indices_texture: *mut GlTexture,
+    pub lightstyle_textures: [*mut GlTexture; 3],
+    pub descriptor_set: ash::vk::DescriptorSet,
+    pub modified: [u32; TASKS_MAX_WORKERS],
+    pub workgroup_bounds_buffer: ash::vk::Buffer,
+    pub rectchange: GlRect,
+    pub lightstyle_rectused: [GlMaxUsed; 4],
+    pub global_bounds: [[LmComputeWorkgroupBounds; LM_CULL_COLS]; LM_CULL_ROWS],
+    pub active_dlights: [[u8; LM_CULL_COLS]; LM_CULL_ROWS],
+    pub block_has_submodels: [[u8; LM_CULL_COLS]; LM_CULL_ROWS],
+    pub num_used_lightstyles: [[u8; LM_CULL_COLS]; LM_CULL_ROWS],
+    pub used_lightstyles: [[[u8; MAX_LIGHTSTYLES]; LM_CULL_COLS]; LM_CULL_ROWS],
+    pub cached_light: [c_int; MAX_LIGHTSTYLES],
+    pub cached_framecount: c_int,
+    pub data: *mut u8,
+    pub lightstyle_data: [*mut u8; 4],
+    pub surface_indices: *mut u32,
+    pub workgroup_bounds: *mut LmComputeWorkgroupBounds,
+}
+/// `glpoly_t` (`gl_model.h`): the per-surface display list; `verts` is
+/// really `[[f32; VERTEXSIZE]; numverts]` (the struct is over-allocated).
+#[repr(C)]
+pub struct GlPoly {
+    pub next: *mut GlPoly,
+    pub numverts: c_int,
+    pub verts: [[f32; VERTEXSIZE]; 4],
+}
+/// `VERTEXSIZE` (`gl_model.h`).
+pub const VERTEXSIZE: usize = 7;
+/// `lm_compute_surface_data_t` (`r_brush.c`): what the lightmap compute
+/// shader reads per surface.
+#[repr(C)]
+#[derive(Clone, Copy, Default, Debug, PartialEq)]
+pub struct LmComputeSurfaceData {
+    pub packed_lightstyles: u32,
+    pub normal: [f32; 3],
+    pub dist: f32,
+    pub packed_light_st: u32,
+    pub packed_tex_edgecount: u32,
+    pub vbo_offset: u32,
+    pub vecs: [[f32; 4]; 2],
+}
+/// `bmodel_instance_t` (`r_brush.c`).
+#[repr(C)]
+#[derive(Clone, Copy, Default, Debug, PartialEq)]
+pub struct BModelInstance {
+    pub transform: [[f32; 4]; 3],
+    pub local_vieworg: [f32; 4],
+}
+/// `lm_compute_light_t` (`r_brush.c`).
+#[repr(C)]
+#[derive(Clone, Copy, Default, Debug, PartialEq)]
+pub struct LmComputeLight {
+    pub origin: [f32; 3],
+    pub radius: f32,
+    pub color: [f32; 3],
+    pub minlight: f32,
+    pub cone_dir: [f32; 3],
+    pub cone_cos: f32,
+}
+const _: () = {
+    assert!(core::mem::size_of::<LmComputeWorkgroupBounds>() == 28);
+    assert!(core::mem::size_of::<GlRect>() == 8);
+    assert!(core::mem::size_of::<GlMaxUsed>() == 4);
+    assert!(core::mem::size_of::<LmComputeSurfaceData>() == 64);
+    assert!(core::mem::size_of::<BModelInstance>() == 64);
+    assert!(core::mem::size_of::<LmComputeLight>() == 48);
+    assert!(core::mem::size_of::<usize>() != 8 || core::mem::size_of::<Lightmap>() == 3568);
+    assert!(core::mem::size_of::<usize>() != 8 || core::mem::size_of::<GlPoly>() == 128);
+};
