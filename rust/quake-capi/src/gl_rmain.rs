@@ -1502,8 +1502,8 @@ pub unsafe extern "C" fn RRmain_RenderView(
             }
             // no-op here (spawns run on the main thread), but keeps the queues drained across mode switches
             c::render::PScript_FlushDlightsTask(ptr::null_mut());
-            // the C entry is a `Host_Reraise` wrapper over this status core
-            let code = c::render::quake_rs_ftepart_update_particles_setup_task();
+            // guarded in C: the entry is Rust's under `host`, `r_part_fte.c`'s otherwise
+            let code = c::render::RRmain_Glue_UpdateParticlesSetup();
             if code != 0 {
                 return code;
             }

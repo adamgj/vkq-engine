@@ -501,3 +501,13 @@ int RRmain_Glue_ShowBoundingBoxes (cb_context_t *cbx)
 	}
 	return Host_Guard (Rmain_InvokeShowBoundingBoxes, cbx);
 }
+
+/* gl_rmain.c:1318 -- the serial-frame PScript_UpdateParticlesSetupTask (NULL).
+ * Which side owns it follows use_rust_host, not use_rust_render: the
+ * r_part_fte_glue.c entry Host_Reraises a Rust status core, the r_part_fte.c
+ * one Host_Errors directly, so the Rust frame goes through the guard here
+ * rather than naming either (ADR-009). Main thread only. */
+int RRmain_Glue_UpdateParticlesSetup (void)
+{
+	return Host_Guard (PScript_UpdateParticlesSetupTask, NULL);
+}

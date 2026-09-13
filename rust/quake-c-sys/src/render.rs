@@ -454,6 +454,12 @@ extern "C" {
     /// (cb_context_t *cbx)`: `R_ShowBoundingBoxes` (it walks `sv.edicts`,
     /// which stays with the C glue) under the same guard rule.
     pub fn RRmain_Glue_ShowBoundingBoxes(cbx: *mut c_void) -> c_int;
+    /// `Quake/gl_rmain_glue.c` -- `int RRmain_Glue_UpdateParticlesSetup
+    /// (void)`: `PScript_UpdateParticlesSetupTask (NULL)` under `Host_Guard`
+    /// for the serial frame. The entry is `r_part_fte.rs`'s under `host` and
+    /// `r_part_fte.c`'s otherwise, so the guard lives in C and no `longjmp`
+    /// crosses the Rust renderer frames in either build (ADR-009).
+    pub fn RRmain_Glue_UpdateParticlesSetup() -> c_int;
     /// `client.h:428` -- `void V_SetContentsColor (int contents)` and
     /// `void V_CalcBlend (void)` (`view.rs` under `host`, `view.c` otherwise).
     pub fn V_SetContentsColor(contents: c_int);
@@ -471,11 +477,6 @@ extern "C" {
     pub fn PScript_EmitParticlesTask(index: c_int, unused: *mut c_void);
     pub fn PScript_DrawParticles(blend_cbx: *mut c_void, wboit_cbx: *mut c_void);
     pub fn PScript_DrawParticles_ShowTris(cbx: *mut c_void);
-    /// `r_part_fte.rs` -- `int quake_rs_ftepart_update_particles_setup_task
-    /// (void)`: the status core `PScript_UpdateParticlesSetupTask` reraises.
-    /// The serial frame calls it directly so no `longjmp` crosses the Rust
-    /// renderer frames (ADR-009).
-    pub fn quake_rs_ftepart_update_particles_setup_task() -> c_int;
     /// `glquake.h:719` -- `void R_BuildTopLevelAccelerationStructure (void
     /// *unused)` (`r_brush.c`, `r_brush.rs` under `use_rust_render` since
     /// M10).
