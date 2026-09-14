@@ -161,6 +161,11 @@ jobs:
         ./scripts/harness/check_capi_signatures.sh build-rs-chost/quake_rs.h
         ./scripts/harness/check_capi_signatures.sh build-rs-ctasks/quake_rs.h
         ./scripts/harness/check_capi_signatures.sh build-rs-crender/quake_rs.h
+    # Phase 8 M11 (task plan D8, AC10): every .spv, bintoc .c, vkquake.pak
+    # and embedded_pak.c the cargo xtask pipeline writes must be
+    # byte-identical to the Meson custom targets' outputs in the C-only build
+    - name: xtask shader/pak identity (xtask vs meson bintoc/mkpak)
+      run: python3 scripts/harness/xtask_diff.py --build-dir build-c
     # no linux-x86_64 goldens yet, so gate on run-to-run stability and on the
     # mixed build matching C-only; both cover the map entries, i.e. real
     # server/edict state rather than demo playback alone

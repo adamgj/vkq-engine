@@ -965,4 +965,6 @@ exclude = [
     "bmodel_tlas", "as_scratch_buffer", "as_scratch_buffer_size", "R_EnsureASScratchBufferSize",
     "R_FreeASScratchBuffer", "R_CollectTLASGarbage", "GL_DeleteBModelAccelerationStructures",
     "GL_BuildBModelAccelerationStructures", "R_BuildTopLevelAccelerationStructure",
+    # Phase 8 M11: embedded_pak.c's symbols (declared by common_fs.c).
+    "vkquake_pak", "vkquake_pak_size", "vkquake_pak_decompressed_size",
 ]

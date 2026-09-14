@@ -37,6 +37,8 @@ pub mod console; // console.c
 pub mod crc;
 #[cfg(feature = "cvar")]
 pub mod cvar; // cvar.c
+#[cfg(feature = "render")]
+pub mod embedded_pak; // embedded_pak.c (bintoc -c vkquake.pak)
 #[cfg(feature = "fs")]
 pub mod fs;
 #[cfg(feature = "fs")]
@@ -149,6 +151,8 @@ pub mod r_sprite; // r_sprite.c
 pub mod r_world; // r_world.c
 #[cfg(feature = "host")]
 pub mod sbar; // sbar.c
+#[cfg(feature = "render")]
+pub mod shaders; // the bintoc <name>_spv arrays
 #[cfg(feature = "snd")]
 pub mod snd_codec;
 #[cfg(feature = "snd")]

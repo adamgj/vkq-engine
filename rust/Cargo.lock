@@ -357,6 +357,7 @@ dependencies = [
  "quake-tasks",
  "quake-types",
  "quake-util",
+ "xtask",
 ]
 
 [[package]]
@@ -379,6 +380,7 @@ dependencies = [
  "quake-snd",
  "quake-types",
  "quake-util",
+ "xtask",
 ]
 
 [[package]]
@@ -825,6 +827,10 @@ checksum = "1ebf944e87a7c253233ad6766e082e3cd714b5d03812acc24c318f549614536e"
 [[package]]
 name = "xtask"
 version = "0.1.0"
+dependencies = [
+ "miniz_oxide",
+ "quake-render",
+]
 
 [[package]]
 name = "zerocopy"

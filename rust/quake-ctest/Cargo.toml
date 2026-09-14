@@ -41,6 +41,9 @@ proptest = "1"
 # already in the workspace graph via quake-fs (ADR-012); tests use it to
 # deflate synthetic QuakeEX.kpf entries
 miniz_oxide = "0.8"
+# Phase 8 M11 (task plan D8): the deflate/bintoc/mkpak parity tests drive the
+# xtask library against the miniz that common_fs.c compiles into c_ref
+xtask = { path = "../xtask" }
 
 [build-dependencies]
 # ADR-003 review: cc is MIT OR Apache-2.0 (MIT preferred), build-time only
