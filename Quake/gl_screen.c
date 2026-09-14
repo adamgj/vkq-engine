@@ -1263,22 +1263,33 @@ void SCR_UpdateScreen (qboolean use_tasks)
 
 	if (use_tasks)
 	{
+		Harness_RenderGraphTask (begin_rendering_task, "begin_rendering", 0);
 		if (prev_end_rendering_task != INVALID_TASK_HANDLE)
 		{
 			Task_AddDependency (prev_end_rendering_task, begin_rendering_task);
+			Harness_RenderGraphTask (prev_end_rendering_task, "prev_end_rendering", 0);
+			Harness_RenderGraphEdge (prev_end_rendering_task, begin_rendering_task);
 			prev_end_rendering_task = INVALID_TASK_HANDLE;
 		}
 
 		task_handle_t draw_done_task = Task_AllocateAndAssignFunc (SCR_DrawDone, NULL, 0);
 		task_handle_t setup_frame_task = Task_AllocateAndAssignFunc (SCR_SetupFrame, NULL, 0);
+		Harness_RenderGraphTask (draw_done_task, "draw_done", 0);
+		Harness_RenderGraphTask (setup_frame_task, "setup_frame", 0);
 		V_RenderView (use_tasks, begin_rendering_task, setup_frame_task, draw_done_task);
 		task_handle_t draw_gui_task = Task_AllocateAndAssignFunc (SCR_DrawGUI, NULL, 0);
 		task_handle_t end_rendering_task = GL_EndRendering (use_tasks, true);
+		Harness_RenderGraphTask (draw_gui_task, "draw_gui", 0);
+		Harness_RenderGraphTask (end_rendering_task, "end_rendering", 0);
 
 		Task_AddDependency (begin_rendering_task, draw_gui_task);
 		Task_AddDependency (setup_frame_task, draw_gui_task);
 		Task_AddDependency (draw_gui_task, draw_done_task);
 		Task_AddDependency (draw_done_task, end_rendering_task);
+		Harness_RenderGraphEdge (begin_rendering_task, draw_gui_task);
+		Harness_RenderGraphEdge (setup_frame_task, draw_gui_task);
+		Harness_RenderGraphEdge (draw_gui_task, draw_done_task);
+		Harness_RenderGraphEdge (draw_done_task, end_rendering_task);
 
 		task_handle_t tasks[] = {begin_rendering_task, setup_frame_task, draw_done_task, draw_gui_task, end_rendering_task};
 		Tasks_Submit (sizeof (tasks) / sizeof (task_handle_t), tasks);

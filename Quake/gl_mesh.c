@@ -662,6 +662,8 @@ void R_AllocateEntityBLAS (entity_t *e)
 		return;
 	if (e->model->flags & EF_ROCKET)
 		return;
+	if (e->model->needload)
+		return;
 
 	aliashdr_t *hdr = (aliashdr_t *)Mod_Extradata (e->model);
 	if (!hdr)

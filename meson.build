@@ -218,7 +218,6 @@ srcs = [
     'Quake/cd_null.c',
     'Quake/common.c',
     'Quake/gl_model.c',
-    'Quake/gl_rmain.c',
     'Quake/harness.c',
     'Quake/harness_render.c',
     'Quake/q_thread_sdl.c',
@@ -954,9 +953,9 @@ endif
 # Quake/<file>_glue.c keeps the cvar/global definitions the rest of the
 # engine reads by name plus the *_Init registrations and the Host_Error-
 # capable commands (ADR-009). gl_screen_glue.c also keeps SCR_DrawGUI (a
-# setjmp target), the loading plaque / SCR_ModalMessage re-entry paths and
-# SCR_UpdateScreen with its task graph (Phase 8 M9). The Phase 7 Draw_*
-# shims in menu/sbar/console resolve to the Rust gl_draw exports.
+# setjmp target) and the loading plaque / SCR_ModalMessage re-entry paths;
+# SCR_UpdateScreen's task graph moved to Rust at Phase 8 M9. The Phase 7
+# Draw_* shims in menu/sbar/console resolve to the Rust gl_draw exports.
 if use_rust_render
     srcs += [
         'Quake/gl_draw_glue.c',
@@ -982,18 +981,13 @@ else
 endif
 
 # Phase 8 M8: the world/mesh renderer -> quake-capi (ADR-015): gl_mesh.c,
-# r_alias.c, r_brush.c and r_world.c. gl_mesh_glue.c and r_brush_glue.c keep
-# the ray-tracing halves (entity BLAS builds, AS scratch buffer, TLAS) in C
-# until Phase 8 M10 (plan D5); r_alias_glue.c resolves the alias header
-# (Mod_Extradata_CheckSkin can Host_Error) before entering Rust and
-# r_world_glue.c re-raises R_StoreEfrags' guard code after the Rust marker
-# returns (ADR-009).
+# r_alias.c, r_brush.c and r_world.c. Their ray-tracing halves (entity BLAS
+# builds, AS scratch buffer, TLAS) followed at Phase 8 M10 (plan D5);
+# r_alias_glue.c resolves the alias header (Mod_Extradata_CheckSkin can
+# Host_Error) before entering Rust (ADR-009).
 if use_rust_render
     srcs += [
-        'Quake/gl_mesh_glue.c',
         'Quake/r_alias_glue.c',
-        'Quake/r_brush_glue.c',
-        'Quake/r_world_glue.c',
     ]
 else
     srcs += [
@@ -1002,6 +996,19 @@ else
         'Quake/r_brush.c',
         'Quake/r_world.c',
     ]
+endif
+
+# Phase 8 M9: the frame graph -> quake-capi (ADR-015): gl_rmain.c's
+# R_RenderView task graph, view setup and entity draws. gl_rmain_glue.c keeps
+# the renderer globals/cvars the engine reads by name, R_PrintStats (ADR-005
+# %g output), the r_showbboxes edict walk and the Host_Guard thunks over the
+# Host_Error-capable model draws, and re-raises the Rust status core's code
+# (ADR-009). R_StoreEfrags' guard code now flows back through the same path,
+# so the M8 r_world_glue.c re-raise wrapper is gone.
+if use_rust_render
+    srcs += ['Quake/gl_rmain_glue.c']
+else
+    srcs += ['Quake/gl_rmain.c']
 endif
 
 if use_rust_snd

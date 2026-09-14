@@ -7,19 +7,26 @@
 //! (`SCR_CalcRefdef`), the conwidth/relative-scale cvar callbacks, the zoom
 //! integrator and `SCR_LoadPics`. Each keeps its C name so
 //! `Quake/gl_screen_glue.c` (and the rest of the engine) calls it unchanged.
+//! Phase 8 M9 added `SCR_UpdateScreen`'s task graph
+//! ([`quake_rs_scr_update_screen`], with the `setup_frame`/`draw_done` task
+//! bodies): the graph shape and its `-renderhash` registration are the C
+//! original's, and the serial path runs `V_RenderView` and `SCR_DrawGUI`
+//! under `Host_Guard` thunks in the glue TU, returning the first raised code
+//! for `SCR_UpdateScreen` to `Host_Reraise` (ADR-009). `in_update_screen`
+//! stays set after a raise, as the C `longjmp` left it.
 //!
 //! What stays in `gl_screen_glue.c`: the cvar and global definitions (C reads
 //! `glwidth`, `scr_vrect`, `scr_con_current`, ... by name), `SCR_Init` and the
 //! key-binding commands it registers, `SCR_DrawGUI` (it is a `setjmp`
 //! target -- ADR-009 forbids a `longjmp` through a Rust frame), the loading
-//! plaque and `SCR_ModalMessage` (both re-enter `SCR_UpdateScreen`), and
-//! `SCR_UpdateScreen` itself with its task graph, which is Phase 8 M9.
+//! plaque and `SCR_ModalMessage` (both re-enter `SCR_UpdateScreen`), and the
+//! `SCR_UpdateScreen` re-raise wrapper.
 //!
 //! Arithmetic follows the C expression by expression: the fov helpers mix
 //! `float` and `double` exactly where `gl_screen.c` does, and every
 //! float-to-int store truncates like a C assignment.
 
-use core::ffi::{c_char, c_float, c_int};
+use core::ffi::{c_char, c_float, c_int, c_void};
 use core::ptr;
 
 use quake_c_sys as c;
@@ -31,6 +38,9 @@ use crate::gl_draw::{
     Draw_CachePic, Draw_Character, Draw_Fill, Draw_Pic, Draw_PicFromWad, Draw_String,
     Draw_TileClear, GL_SetCanvas, CANVAS_BOTTOMLEFT, CANVAS_BOTTOMRIGHT, CANVAS_CROSSHAIR,
     CANVAS_DEFAULT, CANVAS_MENU, CANVAS_TOPRIGHT,
+};
+use crate::gl_vidsdl::{
+    prev_end_rendering_task, GL_BeginRendering, GL_EndRendering, GL_SynchronizeEndRenderingTask,
 };
 
 /// `draw.h` -- `CHARACTER_SIZE`.
@@ -95,6 +105,42 @@ extern "C" {
     static mut scr_relconscale: c::cvar_t;
     /// `gl_rmain.c` -- `cvar_t scr_speeds`.
     static mut scr_speeds: c::cvar_t;
+    /// `gl_screen_glue.c` -- `qboolean scr_initialized`, `float
+    /// scr_disabled_time` and `qboolean in_update_screen`.
+    static mut scr_initialized: c::qboolean;
+    static mut scr_disabled_time: c_float;
+    static mut in_update_screen: c::qboolean;
+    /// `gl_rmain_glue.c` -- the `rs_*` frame timers `quake-c-sys` does not
+    /// carry.
+    static mut rs_cputime_us: u32;
+    static mut rs_gpuwaittime_us: u32;
+    static mut rs_frame_starttime: f64;
+    /// `gl_rmain_glue.c` -- `cvar_t r_tasks`.
+    static mut r_tasks: c::cvar_t;
+
+    /// `view.h` -- `void V_SetupFrame (void)` (cannot raise).
+    fn V_SetupFrame();
+    /// `Quake/gl_screen_glue.c` -- `Host_Guard` thunks over `V_RenderView`
+    /// and `SCR_DrawGUI (NULL)` for the serial path (ADR-009).
+    fn SCR_Glue_RenderView(
+        use_tasks: c::qboolean,
+        begin_rendering_task: u64,
+        setup_frame_task: u64,
+        draw_done_task: u64,
+    ) -> c_int;
+    fn SCR_Glue_DrawGUI() -> c_int;
+    /// `Quake/gl_screen_glue.c` -- `void SCR_DrawGUI (void *unused)` (a
+    /// `setjmp` target; registered as the `draw_gui` task).
+    fn SCR_DrawGUI(unused: *mut c_void);
+    /// `render.h` -- `void V_RenderView (qboolean use_tasks, task_handle_t
+    /// begin_rendering_task, task_handle_t setup_frame_task, task_handle_t
+    /// draw_done_task)`; re-raises from a C frame in both host legs.
+    fn V_RenderView(
+        use_tasks: c::qboolean,
+        begin_rendering_task: u64,
+        setup_frame_task: u64,
+        draw_done_task: u64,
+    );
 
     /// `common.h:280` -- `void COM_WordWrap (char *dst, const char *src,
     /// size_t dstsize, int maxcols)`.
@@ -1095,5 +1141,200 @@ pub unsafe extern "C" fn SCR_TileClear(cbx: *mut CbContext) {
                 (glheight - vy - vh - sb_lines) as f32,
             );
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// gl_screen.c -- SCR_UpdateScreen and its task graph (Phase 8 M9)
+
+/// `INVALID_TASK_HANDLE` (`tasks.h`).
+const INVALID_TASK_HANDLE: u64 = u64::MAX;
+
+/// `SCR_SetupFrame` -- the `setup_frame` task body.
+///
+/// # Safety
+/// Task-system entry; runs on a worker or the serial path.
+#[no_mangle]
+pub unsafe extern "C" fn SCR_SetupFrame(_unused: *mut c_void) {
+    // SAFETY: neither callee can raise (`V_SetupFrame` is the Rust
+    // `quake_rs_v_setup_frame` under `host`, plain C otherwise).
+    unsafe {
+        SCR_SetUpToDrawConsole();
+        V_SetupFrame();
+    }
+}
+
+/// `SCR_DrawDone` -- the `draw_done` task body.
+///
+/// # Safety
+/// Task-system entry; runs on a worker or the serial path.
+#[no_mangle]
+pub unsafe extern "C" fn SCR_DrawDone(_unused: *mut c_void) {
+    // SAFETY: the counters are plain globals written once per frame here.
+    unsafe {
+        if scr_speeds.value != 0.0 {
+            rs_cputime_us =
+                ((c::Sys_DoubleTime() - *ptr::addr_of!(rs_frame_starttime)) * 1000000.0) as u32;
+        }
+        rs_gpuwaittime_us = *ptr::addr_of!(c::render::rs_gpuwaitaccum_us);
+        *ptr::addr_of_mut!(c::render::rs_gpuwaitaccum_us) = 0;
+        if *ptr::addr_of!(c::render::harness_renderhash) {
+            c::render::Harness_RenderDrawDone();
+        }
+        *ptr::addr_of_mut!(c::render::r_framecount) += 1;
+    }
+}
+
+/// `Task_AllocateAndAssignFunc` (`tasks.h`).
+unsafe fn allocate_and_assign_func(func: unsafe extern "C" fn(*mut c_void)) -> u64 {
+    // SAFETY: the task system is running.
+    unsafe {
+        let handle = c::tasks::Task_Allocate();
+        c::tasks::Task_AssignFunc(handle, Some(func), ptr::null_mut(), 0);
+        handle
+    }
+}
+
+/// `Task_AddDependency` plus the `-renderhash` graph-shape registration.
+unsafe fn graph_edge(before: u64, after: u64) {
+    // SAFETY: both handles are live, unsubmitted tasks.
+    unsafe {
+        c::tasks::Task_AddDependency(before, after);
+        c::render::Harness_RenderGraphEdge(before, after);
+    }
+}
+
+/// `SCR_UpdateScreen` status core -- this is called every frame, and can
+/// also be called explicitly to flush text to the screen. Returns the first
+/// `Host_Guard` code raised on the serial path (0 otherwise) for the
+/// `gl_screen_glue.c` wrapper to `Host_Reraise` (ADR-009).
+///
+/// # Safety
+/// Main thread only (`Tasks_IsWorker` callers return early, as in C).
+#[no_mangle]
+pub unsafe extern "C" fn quake_rs_scr_update_screen(mut use_tasks: c::qboolean) -> c_int {
+    // SAFETY: the caller's contract; every global read here is main-thread
+    // owned for the duration of the frame.
+    unsafe {
+        if !scr_initialized || !*ptr::addr_of!(c::host::con_initialized) || in_update_screen {
+            return 0; // not initialized yet
+        }
+
+        if c::tasks::Tasks_IsWorker() {
+            return 0;
+        }
+
+        in_update_screen = true;
+
+        use_tasks = use_tasks
+            && c::tasks::Tasks_NumWorkers() > 1
+            && r_tasks.value != 0.0
+            && (*ptr::addr_of!(c::render::r_gpulightmapupdate)).value != 0.0;
+
+        if *ptr::addr_of!(c::host::scr_disabled_for_loading) {
+            if *ptr::addr_of!(c::cl_demo::realtime) - f64::from(scr_disabled_time) > 60.0 {
+                *ptr::addr_of_mut!(c::host::scr_disabled_for_loading) = false;
+                c::Con_Printf(c"load failed.\n".as_ptr());
+            } else {
+                in_update_screen = false;
+                return 0;
+            }
+        }
+
+        if c::cl_parse::vid.recalc_refdef != 0 {
+            SCR_CalcRefdef();
+        }
+
+        //
+        // determine size of refresh window
+        //
+        *ptr::addr_of_mut!(c::view::con_forcedup) =
+            cl.worldmodel.is_null() || cls.signon != c::menu::SIGNONS;
+
+        let mut begin_rendering_task = INVALID_TASK_HANDLE;
+        if !GL_BeginRendering(
+            use_tasks,
+            &mut begin_rendering_task,
+            ptr::addr_of_mut!(c::menu::glwidth),
+            ptr::addr_of_mut!(c::menu::glheight),
+        ) {
+            in_update_screen = false;
+            return 0;
+        }
+
+        if use_tasks {
+            c::render::Harness_RenderGraphTask(
+                begin_rendering_task,
+                c"begin_rendering".as_ptr(),
+                0,
+            );
+            let prev = ptr::addr_of_mut!(prev_end_rendering_task);
+            if *prev != INVALID_TASK_HANDLE {
+                c::render::Harness_RenderGraphTask(*prev, c"prev_end_rendering".as_ptr(), 0);
+                graph_edge(*prev, begin_rendering_task);
+                *prev = INVALID_TASK_HANDLE;
+            }
+
+            let draw_done_task = allocate_and_assign_func(SCR_DrawDone);
+            let setup_frame_task = allocate_and_assign_func(SCR_SetupFrame);
+            c::render::Harness_RenderGraphTask(draw_done_task, c"draw_done".as_ptr(), 0);
+            c::render::Harness_RenderGraphTask(setup_frame_task, c"setup_frame".as_ptr(), 0);
+
+            // the R_RenderView graph only allocates and links tasks, it does not raise
+            V_RenderView(
+                use_tasks,
+                begin_rendering_task,
+                setup_frame_task,
+                draw_done_task,
+            );
+
+            let draw_gui_task = allocate_and_assign_func(SCR_DrawGUI);
+            let end_rendering_task = GL_EndRendering(use_tasks, true);
+            c::render::Harness_RenderGraphTask(draw_gui_task, c"draw_gui".as_ptr(), 0);
+            c::render::Harness_RenderGraphTask(end_rendering_task, c"end_rendering".as_ptr(), 0);
+
+            graph_edge(begin_rendering_task, draw_gui_task);
+            graph_edge(setup_frame_task, draw_gui_task);
+            graph_edge(draw_gui_task, draw_done_task);
+            graph_edge(draw_done_task, end_rendering_task);
+
+            let mut tasks = [
+                begin_rendering_task,
+                setup_frame_task,
+                draw_done_task,
+                draw_gui_task,
+                end_rendering_task,
+            ];
+            c::tasks::Tasks_Submit(tasks.len() as c_int, tasks.as_mut_ptr());
+
+            while !c::tasks::Task_Join(draw_done_task, 10) {
+                c::menu::S_ExtraUpdate();
+            }
+
+            *prev = end_rendering_task;
+        } else {
+            GL_SynchronizeEndRenderingTask();
+            SCR_SetupFrame(ptr::null_mut());
+            let code = SCR_Glue_RenderView(
+                use_tasks,
+                INVALID_TASK_HANDLE,
+                INVALID_TASK_HANDLE,
+                INVALID_TASK_HANDLE,
+            );
+            if code != 0 {
+                // COMPAT: the C longjmp left in_update_screen set (ADR-009).
+                return code;
+            }
+            c::menu::S_ExtraUpdate();
+            let code = SCR_Glue_DrawGUI();
+            if code != 0 {
+                return code;
+            }
+            SCR_DrawDone(ptr::null_mut());
+            GL_EndRendering(use_tasks, true);
+        }
+
+        in_update_screen = false;
+        0
     }
 }

@@ -1120,6 +1120,21 @@ static void R_PrintStats (void)
 R_RenderView
 ================
 */
+// -renderhash graph-shape digest (Phase 8 M9): every task and edge of the
+// frame graph by name, so a port with a different graph differs before any
+// draw does. Both helpers are no-ops without harness_renderhash.
+static task_handle_t R_GraphTask (task_handle_t handle, const char *name, uint32_t limit)
+{
+	Harness_RenderGraphTask (handle, name, limit);
+	return handle;
+}
+
+static void R_GraphEdge (task_handle_t before, task_handle_t after)
+{
+	Task_AddDependency (before, after);
+	Harness_RenderGraphEdge (before, after);
+}
+
 void R_RenderView (qboolean use_tasks, task_handle_t begin_rendering_task, task_handle_t setup_frame_task, task_handle_t draw_done_task)
 {
 	static qboolean stats_ready;
@@ -1153,112 +1168,118 @@ void R_RenderView (qboolean use_tasks, task_handle_t begin_rendering_task, task_
 
 	if (use_tasks)
 	{
-		task_handle_t before_mark = Task_AllocateAndAssignFunc (R_SetupViewBeforeMark, NULL, 0);
-		Task_AddDependency (setup_frame_task, before_mark);
+		task_handle_t before_mark = R_GraphTask (Task_AllocateAndAssignFunc (R_SetupViewBeforeMark, NULL, 0), "before_mark", 0);
+		R_GraphEdge (setup_frame_task, before_mark);
 
 		task_handle_t store_efrags = INVALID_TASK_HANDLE;
 		task_handle_t cull_surfaces = INVALID_TASK_HANDLE;
 		task_handle_t chain_surfaces = INVALID_TASK_HANDLE;
 		R_MarkSurfaces (use_tasks, before_mark, &store_efrags, &cull_surfaces, &chain_surfaces);
 
-		task_handle_t update_warp_textures = Task_AllocateAndAssignFunc ((task_func_t)R_UpdateWarpTextures, NULL, 0);
-		Task_AddDependency (cull_surfaces, update_warp_textures);
-		Task_AddDependency (begin_rendering_task, update_warp_textures);
-		Task_AddDependency (update_warp_textures, draw_done_task);
+		task_handle_t update_warp_textures = R_GraphTask (Task_AllocateAndAssignFunc ((task_func_t)R_UpdateWarpTextures, NULL, 0), "update_warp_textures", 0);
+		R_GraphEdge (cull_surfaces, update_warp_textures);
+		R_GraphEdge (begin_rendering_task, update_warp_textures);
+		R_GraphEdge (update_warp_textures, draw_done_task);
 
-		task_handle_t draw_world_task = Task_AllocateAndAssignIndexedFunc (R_DrawWorldTask, NUM_WORLD_CBX, &use_tasks, sizeof (use_tasks));
+		task_handle_t draw_world_task =
+			R_GraphTask (Task_AllocateAndAssignIndexedFunc (R_DrawWorldTask, NUM_WORLD_CBX, &use_tasks, sizeof (use_tasks)), "draw_world_task", NUM_WORLD_CBX);
 		if (indirect)
-			Task_AddDependency (before_mark, draw_world_task);
+			R_GraphEdge (before_mark, draw_world_task);
 		else
-			Task_AddDependency (chain_surfaces, draw_world_task);
-		Task_AddDependency (begin_rendering_task, draw_world_task);
-		Task_AddDependency (draw_world_task, draw_done_task);
+			R_GraphEdge (chain_surfaces, draw_world_task);
+		R_GraphEdge (begin_rendering_task, draw_world_task);
+		R_GraphEdge (draw_world_task, draw_done_task);
 
-		task_handle_t sort_transparents = Task_AllocateAndAssignFunc (R_SortAlphaEntitiesTask, NULL, 0);
-		Task_AddDependency (store_efrags, sort_transparents);
+		task_handle_t sort_transparents = R_GraphTask (Task_AllocateAndAssignFunc (R_SortAlphaEntitiesTask, NULL, 0), "sort_transparents", 0);
+		R_GraphEdge (store_efrags, sort_transparents);
 
-		task_handle_t draw_sky_task = Task_AllocateAndAssignFunc (R_DrawSkyTask, NULL, 0);
-		Task_AddDependency (store_efrags, draw_sky_task);
-		Task_AddDependency (chain_surfaces, draw_sky_task);
-		Task_AddDependency (begin_rendering_task, draw_sky_task);
-		Task_AddDependency (draw_sky_task, draw_done_task);
+		task_handle_t draw_sky_task = R_GraphTask (Task_AllocateAndAssignFunc (R_DrawSkyTask, NULL, 0), "draw_sky_task", 0);
+		R_GraphEdge (store_efrags, draw_sky_task);
+		R_GraphEdge (chain_surfaces, draw_sky_task);
+		R_GraphEdge (begin_rendering_task, draw_sky_task);
+		R_GraphEdge (draw_sky_task, draw_done_task);
 
-		task_handle_t draw_water_task = Task_AllocateAndAssignFunc (R_DrawWaterTask, NULL, 0);
-		Task_AddDependency (chain_surfaces, draw_water_task);
-		Task_AddDependency (begin_rendering_task, draw_water_task);
-		Task_AddDependency (draw_water_task, draw_done_task);
+		task_handle_t draw_water_task = R_GraphTask (Task_AllocateAndAssignFunc (R_DrawWaterTask, NULL, 0), "draw_water_task", 0);
+		R_GraphEdge (chain_surfaces, draw_water_task);
+		R_GraphEdge (begin_rendering_task, draw_water_task);
+		R_GraphEdge (draw_water_task, draw_done_task);
 
-		task_handle_t draw_view_model_task = Task_AllocateAndAssignFunc (R_DrawViewModelTask, NULL, 0);
-		Task_AddDependency (before_mark, draw_view_model_task);
-		Task_AddDependency (begin_rendering_task, draw_view_model_task);
-		Task_AddDependency (draw_view_model_task, draw_done_task);
+		task_handle_t draw_view_model_task = R_GraphTask (Task_AllocateAndAssignFunc (R_DrawViewModelTask, NULL, 0), "draw_view_model_task", 0);
+		R_GraphEdge (before_mark, draw_view_model_task);
+		R_GraphEdge (begin_rendering_task, draw_view_model_task);
+		R_GraphEdge (draw_view_model_task, draw_done_task);
 
 		Atomic_StoreUInt32 (&next_visedict, 0u);
-		task_handle_t draw_entities_task = Task_AllocateAndAssignIndexedFunc (R_DrawEntitiesTask, NUM_ENTITIES_CBX, &use_tasks, sizeof (use_tasks));
-		Task_AddDependency (store_efrags, draw_entities_task);
-		Task_AddDependency (begin_rendering_task, draw_entities_task);
+		task_handle_t draw_entities_task = R_GraphTask (
+			Task_AllocateAndAssignIndexedFunc (R_DrawEntitiesTask, NUM_ENTITIES_CBX, &use_tasks, sizeof (use_tasks)), "draw_entities_task", NUM_ENTITIES_CBX);
+		R_GraphEdge (store_efrags, draw_entities_task);
+		R_GraphEdge (begin_rendering_task, draw_entities_task);
 
-		task_handle_t draw_alpha_entities_task = Task_AllocateAndAssignIndexedFunc (R_DrawAlphaEntitiesTask, 2, &use_tasks, sizeof (use_tasks));
-		Task_AddDependency (sort_transparents, draw_alpha_entities_task);
-		Task_AddDependency (begin_rendering_task, draw_alpha_entities_task);
+		task_handle_t draw_alpha_entities_task =
+			R_GraphTask (Task_AllocateAndAssignIndexedFunc (R_DrawAlphaEntitiesTask, 2, &use_tasks, sizeof (use_tasks)), "draw_alpha_entities_task", 2);
+		R_GraphEdge (sort_transparents, draw_alpha_entities_task);
+		R_GraphEdge (begin_rendering_task, draw_alpha_entities_task);
 
 #ifdef PSET_SCRIPT
 		// dlights queued by last frame's deferred effect spawns; must run before
 		// anything reads cl_dlights and before layout refills the queues
-		task_handle_t flush_dlights_task = Task_AllocateAndAssignFunc (PScript_FlushDlightsTask, NULL, 0);
-		Task_AddDependency (flush_dlights_task, draw_view_model_task);
-		Task_AddDependency (flush_dlights_task, draw_entities_task);
-		Task_AddDependency (flush_dlights_task, draw_alpha_entities_task);
+		task_handle_t flush_dlights_task = R_GraphTask (Task_AllocateAndAssignFunc (PScript_FlushDlightsTask, NULL, 0), "flush_dlights_task", 0);
+		R_GraphEdge (flush_dlights_task, draw_view_model_task);
+		R_GraphEdge (flush_dlights_task, draw_entities_task);
+		R_GraphEdge (flush_dlights_task, draw_alpha_entities_task);
 
-		task_handle_t update_particles_setup_task = Task_AllocateAndAssignFunc (PScript_UpdateParticlesSetupTask, NULL, 0);
-		Task_AddDependency (before_mark, update_particles_setup_task);
+		task_handle_t update_particles_setup_task =
+			R_GraphTask (Task_AllocateAndAssignFunc (PScript_UpdateParticlesSetupTask, NULL, 0), "update_particles_setup_task", 0);
+		R_GraphEdge (before_mark, update_particles_setup_task);
 
-		task_handle_t update_particles_task = Task_AllocateAndAssignIndexedFunc (PScript_UpdateParticlesTask, Tasks_NumWorkers (), NULL, 0);
-		Task_AddDependency (update_particles_setup_task, update_particles_task);
+		task_handle_t update_particles_task = R_GraphTask (
+			Task_AllocateAndAssignIndexedFunc (PScript_UpdateParticlesTask, Tasks_NumWorkers (), NULL, 0), "update_particles_task", Tasks_NumWorkers ());
+		R_GraphEdge (update_particles_setup_task, update_particles_task);
 
 		// layout is the first task that writes the double buffered vertex/index buffers, it
 		// must wait for begin_rendering so the GPU is done reading them from two frames ago
-		task_handle_t layout_particles_task = Task_AllocateAndAssignFunc (PScript_LayoutParticlesTask, NULL, 0);
-		Task_AddDependency (update_particles_task, layout_particles_task);
-		Task_AddDependency (begin_rendering_task, layout_particles_task);
-		Task_AddDependency (flush_dlights_task, layout_particles_task);
+		task_handle_t layout_particles_task = R_GraphTask (Task_AllocateAndAssignFunc (PScript_LayoutParticlesTask, NULL, 0), "layout_particles_task", 0);
+		R_GraphEdge (update_particles_task, layout_particles_task);
+		R_GraphEdge (begin_rendering_task, layout_particles_task);
+		R_GraphEdge (flush_dlights_task, layout_particles_task);
 
-		task_handle_t emit_particles_task = Task_AllocateAndAssignIndexedFunc (PScript_EmitParticlesTask, Tasks_NumWorkers (), NULL, 0);
-		Task_AddDependency (layout_particles_task, emit_particles_task);
+		task_handle_t emit_particles_task = R_GraphTask (
+			Task_AllocateAndAssignIndexedFunc (PScript_EmitParticlesTask, Tasks_NumWorkers (), NULL, 0), "emit_particles_task", Tasks_NumWorkers ());
+		R_GraphEdge (layout_particles_task, emit_particles_task);
 #endif
 
-		task_handle_t draw_particles_task = Task_AllocateAndAssignFunc (R_DrawParticlesTask, NULL, 0);
-		Task_AddDependency (before_mark, draw_particles_task);
+		task_handle_t draw_particles_task = R_GraphTask (Task_AllocateAndAssignFunc (R_DrawParticlesTask, NULL, 0), "draw_particles_task", 0);
+		R_GraphEdge (before_mark, draw_particles_task);
 #ifdef PSET_SCRIPT
-		Task_AddDependency (emit_particles_task, draw_particles_task);
+		R_GraphEdge (emit_particles_task, draw_particles_task);
 #endif
-		Task_AddDependency (begin_rendering_task, draw_particles_task);
-		Task_AddDependency (draw_particles_task, draw_done_task);
+		R_GraphEdge (begin_rendering_task, draw_particles_task);
+		R_GraphEdge (draw_particles_task, draw_done_task);
 
-		task_handle_t build_tlas_task = Task_AllocateAndAssignFunc (R_BuildTopLevelAccelerationStructure, NULL, 0);
-		Task_AddDependency (store_efrags, build_tlas_task);
-		Task_AddDependency (begin_rendering_task, build_tlas_task);
-		Task_AddDependency (build_tlas_task, draw_done_task);
+		task_handle_t build_tlas_task = R_GraphTask (Task_AllocateAndAssignFunc (R_BuildTopLevelAccelerationStructure, NULL, 0), "build_tlas_task", 0);
+		R_GraphEdge (store_efrags, build_tlas_task);
+		R_GraphEdge (begin_rendering_task, build_tlas_task);
+		R_GraphEdge (build_tlas_task, draw_done_task);
 
-		task_handle_t update_lightmaps_task = Task_AllocateAndAssignFunc (R_UpdateLightmapsAndIndirect, NULL, 0);
-		Task_AddDependency (cull_surfaces, update_lightmaps_task);
-		Task_AddDependency (draw_entities_task, update_lightmaps_task);
-		Task_AddDependency (draw_alpha_entities_task, update_lightmaps_task);
+		task_handle_t update_lightmaps_task = R_GraphTask (Task_AllocateAndAssignFunc (R_UpdateLightmapsAndIndirect, NULL, 0), "update_lightmaps_task", 0);
+		R_GraphEdge (cull_surfaces, update_lightmaps_task);
+		R_GraphEdge (draw_entities_task, update_lightmaps_task);
+		R_GraphEdge (draw_alpha_entities_task, update_lightmaps_task);
 #ifdef PSET_SCRIPT
-		Task_AddDependency (flush_dlights_task, update_lightmaps_task);
+		R_GraphEdge (flush_dlights_task, update_lightmaps_task);
 #endif
-		Task_AddDependency (update_lightmaps_task, draw_done_task);
+		R_GraphEdge (update_lightmaps_task, draw_done_task);
 
 		if (r_showtris.value)
 		{
 			if (!indirect)
-				Task_AddDependency (chain_surfaces, draw_view_model_task);
+				R_GraphEdge (chain_surfaces, draw_view_model_task);
 
-			Task_AddDependency (draw_entities_task, draw_view_model_task);		 // not dependent, but mutually exclusive
-			Task_AddDependency (draw_alpha_entities_task, draw_view_model_task); // not dependent, but mutually exclusive
+			R_GraphEdge (draw_entities_task, draw_view_model_task);		  // not dependent, but mutually exclusive
+			R_GraphEdge (draw_alpha_entities_task, draw_view_model_task); // not dependent, but mutually exclusive
 
 #ifdef PSET_SCRIPT
-			Task_AddDependency (draw_particles_task, draw_view_model_task); // only scriptable particles are dependent
+			R_GraphEdge (draw_particles_task, draw_view_model_task); // only scriptable particles are dependent
 #endif
 		}
 

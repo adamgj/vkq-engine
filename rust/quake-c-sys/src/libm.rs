@@ -19,6 +19,8 @@ mod ffi {
     extern "C" {
         pub fn sin(x: c_double) -> c_double;
         pub fn cos(x: c_double) -> c_double;
+        pub fn tan(x: c_double) -> c_double;
+        pub fn atan(x: c_double) -> c_double;
         pub fn atan2(y: c_double, x: c_double) -> c_double;
         pub fn sqrt(x: c_double) -> c_double;
         pub fn acos(x: c_double) -> c_double;
@@ -31,6 +33,7 @@ mod ffi {
         pub fn sqrtf(x: f32) -> f32;
         pub fn sinf(x: f32) -> f32;
         pub fn cosf(x: f32) -> f32;
+        pub fn tanf(x: f32) -> f32;
         pub fn strtod(nptr: *const c_char, endptr: *mut *mut c_char) -> c_double;
     }
 }
@@ -63,6 +66,21 @@ pub fn acos(x: f64) -> f64 {
 pub fn sqrtf(x: f32) -> f32 {
     // SAFETY: pure libm function, no preconditions
     unsafe { ffi::sqrtf(x) }
+}
+
+pub fn tan(x: f64) -> f64 {
+    // SAFETY: pure libm function, no preconditions
+    unsafe { ffi::tan(x) }
+}
+
+pub fn atan(x: f64) -> f64 {
+    // SAFETY: pure libm function, no preconditions
+    unsafe { ffi::atan(x) }
+}
+
+pub fn tanf(x: f32) -> f32 {
+    // SAFETY: pure libm function, no preconditions
+    unsafe { ffi::tanf(x) }
 }
 
 pub fn floor(x: f64) -> f64 {

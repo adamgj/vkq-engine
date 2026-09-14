@@ -54,6 +54,8 @@ pub mod gl_refrag; // gl_refrag.c
 #[cfg(feature = "render")]
 pub mod gl_rlight; // gl_rlight.c
 #[cfg(feature = "render")]
+pub mod gl_rmain; // gl_rmain.c
+#[cfg(feature = "render")]
 pub mod gl_rmisc; // gl_rmisc.c
 #[cfg(feature = "render")]
 pub mod gl_screen; // gl_screen.c

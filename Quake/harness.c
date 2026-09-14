@@ -51,6 +51,7 @@ _Static_assert (CMDLINE_LENGTH == 256, "rust/quake-capi/src/cmd.rs and c_ref_pre
 _Static_assert (sizeof (CONFIG_NAME) == sizeof ("vkQuake.cfg"), "rust/quake-capi/src/cmd.rs hardcodes this; update both together");
 
 qboolean		harness_active = false;
+qboolean		harness_taskcounts = false;
 qboolean		harness_fixed_dt = false;
 qboolean		no_rendering = false;
 qboolean		harness_sndhash = false;
@@ -121,6 +122,8 @@ void Harness_CheckArgs (void)
 		harness_sndhash = true;
 	if (COM_CheckParm ("-parthash"))
 		harness_parthash = true;
+	if (COM_CheckParm ("-taskcounts"))
+		harness_taskcounts = true;
 	if (isDedicated)
 		no_rendering = true;
 }
@@ -391,9 +394,32 @@ void Harness_SndPaint (int painted, int end, const void *paintbuf, const volatil
 
 unsigned int harness_badread_count = 0;
 
+static atomic_uint32_t harness_task_counts[TASKS_MAX_WORKERS];
+
+void Harness_TaskExecuted (int worker_index)
+{
+	if (worker_index >= 0 && worker_index < TASKS_MAX_WORKERS)
+		Atomic_IncrementUInt32 (&harness_task_counts[worker_index]);
+}
+
+static void Harness_PrintTaskCounts (void)
+{
+	char buf[TASKS_MAX_WORKERS * 12 + 32];
+	int	 i, len = 0, workers = Tasks_NumWorkers ();
+	for (i = 0; i < workers && i < TASKS_MAX_WORKERS; i++)
+		len += q_snprintf (buf + len, sizeof (buf) - len, "%s%u", i ? "," : "", Atomic_LoadUInt32 (&harness_task_counts[i]));
+	Sys_Printf ("Harness: taskcounts=%s\n", buf);
+}
+
 void Harness_Shutdown (void)
 {
 	static qboolean badread_printed = false;
+	static qboolean taskcounts_printed = false;
+	if (harness_taskcounts && !taskcounts_printed)
+	{
+		taskcounts_printed = true;
+		Harness_PrintTaskCounts ();
+	}
 	if (harness_active && !badread_printed)
 	{
 		badread_printed = true;

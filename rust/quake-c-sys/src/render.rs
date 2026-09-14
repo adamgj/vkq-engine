@@ -225,12 +225,14 @@ extern "C" {
     /// `glquake.h:925` -- `void R_CollectMeshBufferGarbage (void)`
     /// (`gl_mesh.c`).
     pub fn R_CollectMeshBufferGarbage();
-    /// `glquake.h:788` -- `void R_CollectTLASGarbage (void)` (`r_brush.c`).
+    /// `glquake.h:788` -- `void R_CollectTLASGarbage (void)` (`r_brush.c`,
+    /// `r_brush.rs` under `use_rust_render` since M10).
     pub fn R_CollectTLASGarbage();
     /// `glquake.h:275` -- `extern oit_mode_t frame_oit_mode;`
     /// (`gl_rmisc_glue.c`); the enum crosses as `int`.
     pub static mut frame_oit_mode: c_int;
-    /// `r_brush.c:101` -- `VkAccelerationStructureKHR bmodel_tlas`.
+    /// `r_brush.c:101` -- `VkAccelerationStructureKHR bmodel_tlas`
+    /// (`r_brush.rs` under `use_rust_render` since M10).
     pub static mut bmodel_tlas: u64;
     /// `gl_rmain.c:39-40` -- `uint32_t rs_gputime_us`, `rs_gpuwaitaccum_us`.
     pub static mut rs_gputime_us: u32;
@@ -416,6 +418,82 @@ extern "C" {
     pub fn GL_WaterAlphaForSurface(fa: *mut c_void) -> c_float;
     /// `gl_rmisc_glue.c:557` -- `float GL_WaterAlphaForTextureType (textype_t type)`.
     pub fn GL_WaterAlphaForTextureType(type_: c_int) -> c_float;
+
+    /* Phase 8 M9: the frame graph's seams into the C that remains */
+
+    /// `harness.h` -- `void Harness_RenderCull (const entity_t *e, qboolean
+    /// culled)` (`harness_render.c`).
+    pub fn Harness_RenderCull(e: *const c_void, culled: bool);
+    /// `harness.h` -- `void Harness_RenderDrawDone (void)` (`harness_render.c`).
+    pub fn Harness_RenderDrawDone();
+    /// `harness.h` -- `void Harness_RenderGraphTask (uint64_t handle, const
+    /// char *name, uint32_t limit)`: one frame-graph node in the
+    /// `-renderhash` graph-shape digest (`harness_render.c`).
+    pub fn Harness_RenderGraphTask(handle: u64, name: *const c_char, limit: u32);
+    /// `harness.h` -- `void Harness_RenderGraphEdge (uint64_t before,
+    /// uint64_t after)`: one frame-graph dependency in the same digest.
+    pub fn Harness_RenderGraphEdge(before: u64, after: u64);
+    /// `gl_rmisc_glue.c:266` -- `qboolean R_UseAlphaSort (void)`.
+    pub fn R_UseAlphaSort() -> bool;
+    /// `Quake/gl_rmain_glue.c` -- `void R_PrintStats (void)` (the
+    /// `%g`-formatting `scr_speeds` lines, ADR-005).
+    pub fn R_PrintStats();
+    /// `Quake/gl_rmain_glue.c` -- `int RRmain_Glue_DrawAliasModel (cb_context_t
+    /// *cbx, entity_t *e, int *aliaspolys)` and the three sibling thunks:
+    /// `Host_Guard` around the C draw entry on the main thread, the bare call
+    /// on a task worker (plan I2). Each returns the guard code.
+    pub fn RRmain_Glue_DrawAliasModel(
+        cbx: *mut c_void,
+        e: *mut c_void,
+        aliaspolys: *mut c_int,
+    ) -> c_int;
+    pub fn RRmain_Glue_DrawAliasModel_ShowTris(cbx: *mut c_void, e: *mut c_void) -> c_int;
+    pub fn RRmain_Glue_DrawSpriteModel(cbx: *mut c_void, e: *mut c_void) -> c_int;
+    pub fn RRmain_Glue_DrawSpriteModel_ShowTris(cbx: *mut c_void, e: *mut c_void) -> c_int;
+    /// `Quake/gl_rmain_glue.c` -- `int RRmain_Glue_ShowBoundingBoxes
+    /// (cb_context_t *cbx)`: `R_ShowBoundingBoxes` (it walks `sv.edicts`,
+    /// which stays with the C glue) under the same guard rule.
+    pub fn RRmain_Glue_ShowBoundingBoxes(cbx: *mut c_void) -> c_int;
+    /// `Quake/gl_rmain_glue.c` -- `int RRmain_Glue_UpdateParticlesSetup
+    /// (void)`: `PScript_UpdateParticlesSetupTask (NULL)` under `Host_Guard`
+    /// for the serial frame. The entry is `r_part_fte.rs`'s under `host` and
+    /// `r_part_fte.c`'s otherwise, so the guard lives in C and no `longjmp`
+    /// crosses the Rust renderer frames in either build (ADR-009).
+    pub fn RRmain_Glue_UpdateParticlesSetup() -> c_int;
+    /// `client.h:428` -- `void V_SetContentsColor (int contents)` and
+    /// `void V_CalcBlend (void)` (`view.rs` under `host`, `view.c` otherwise).
+    pub fn V_SetContentsColor(contents: c_int);
+    pub fn V_CalcBlend();
+    /// `glquake.h` -- `void R_DrawParticles (cb_context_t *cbx)` and
+    /// `R_DrawParticles_ShowTris` (`r_part_render.rs` under `host`).
+    pub fn R_DrawParticles(cbx: *mut c_void);
+    pub fn R_DrawParticles_ShowTris(cbx: *mut c_void);
+    /// `glquake.h:111-118` -- the `PScript_*` frame-graph task entries and
+    /// draws (`r_part_fte_glue.c`).
+    pub fn PScript_FlushDlightsTask(unused: *mut c_void);
+    pub fn PScript_UpdateParticlesSetupTask(unused: *mut c_void);
+    pub fn PScript_UpdateParticlesTask(index: c_int, unused: *mut c_void);
+    pub fn PScript_LayoutParticlesTask(unused: *mut c_void);
+    pub fn PScript_EmitParticlesTask(index: c_int, unused: *mut c_void);
+    pub fn PScript_DrawParticles(blend_cbx: *mut c_void, wboit_cbx: *mut c_void);
+    pub fn PScript_DrawParticles_ShowTris(cbx: *mut c_void);
+    /// `glquake.h:719` -- `void R_BuildTopLevelAccelerationStructure (void
+    /// *unused)` (`r_brush.c`, `r_brush.rs` under `use_rust_render` since
+    /// M10).
+    pub fn R_BuildTopLevelAccelerationStructure(unused: *mut c_void);
+    /// `gl_model.h` -- `void *Mod_Extradata (qmodel_t *mod)`: the alias
+    /// header the current `r_enhancedmodels` setting selects. It reaches
+    /// `Mod_LoadModel (mod, true)`, which can `Host_Error` (ADR-009), only
+    /// when `mod->needload` is set -- every Rust caller checks `needload`
+    /// first, so no `longjmp` can cross a Rust frame.
+    pub fn Mod_Extradata(model: *mut c_void) -> *mut c_void;
+    /// `glquake.h` -- `void R_DrawAliasModel (cb_context_t *cbx, entity_t *e,
+    /// int *aliaspolys)` etc. (`r_alias_glue.c` / `r_sprite_glue.c`): the
+    /// bare entries, for callers already inside a guard.
+    pub fn R_DrawAliasModel(cbx: *mut c_void, e: *mut c_void, aliaspolys: *mut c_int);
+    pub fn R_DrawAliasModel_ShowTris(cbx: *mut c_void, e: *mut c_void);
+    pub fn R_DrawSpriteModel(cbx: *mut c_void, e: *mut c_void);
+    pub fn R_DrawSpriteModel_ShowTris(cbx: *mut c_void, e: *mut c_void);
 }
 
 // The Vulkan loader entry points gl_texmgr.c and gl_rmisc.c call directly; the engine

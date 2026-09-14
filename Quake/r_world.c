@@ -1035,7 +1035,9 @@ void R_MarkSurfaces (qboolean use_tasks, task_handle_t before_mark, task_handle_
 	if (use_tasks)
 	{
 		task_handle_t prepare_mark = Task_AllocateAndAssignFunc (R_MarkSurfacesPrepare, NULL, 0);
+		Harness_RenderGraphTask (prepare_mark, "prepare_mark", 0);
 		Task_AddDependency (before_mark, prepare_mark);
+		Harness_RenderGraphEdge (before_mark, prepare_mark);
 		Task_Submit (prepare_mark);
 		if (r_parallelmark.value)
 		{
@@ -1047,11 +1049,15 @@ void R_MarkSurfaces (qboolean use_tasks, task_handle_t before_mark, task_handle_
 			else
 #endif
 				mark_surfaces = Task_AllocateAndAssignIndexedFunc (R_MarkLeafsParallel, MARK_SURFACE_CALLS_PER_WORKER * Tasks_NumWorkers (), NULL, 0);
+			Harness_RenderGraphTask (mark_surfaces, "mark_leafs", MARK_SURFACE_CALLS_PER_WORKER * Tasks_NumWorkers ());
 			Task_AddDependency (prepare_mark, mark_surfaces);
+			Harness_RenderGraphEdge (prepare_mark, mark_surfaces);
 			Task_Submit (mark_surfaces);
 
 			*store_efrags = Task_AllocateAndAssignFunc (R_StoreLeafEFrags, NULL, 0);
+			Harness_RenderGraphTask (*store_efrags, "store_efrags", 0);
 			Task_AddDependency (mark_surfaces, *store_efrags);
+			Harness_RenderGraphEdge (mark_surfaces, *store_efrags);
 
 			if (!indirect && r_drawworld_cheatsafe)
 			{
@@ -1064,10 +1070,14 @@ void R_MarkSurfaces (qboolean use_tasks, task_handle_t before_mark, task_handle_
 #endif
 					*cull_surfaces =
 						Task_AllocateAndAssignIndexedFunc (R_BackfaceCullSurfacesParallel, MARK_SURFACE_CALLS_PER_WORKER * Tasks_NumWorkers (), NULL, 0);
+				Harness_RenderGraphTask (*cull_surfaces, "cull_surfaces", MARK_SURFACE_CALLS_PER_WORKER * Tasks_NumWorkers ());
 				Task_AddDependency (mark_surfaces, *cull_surfaces);
+				Harness_RenderGraphEdge (mark_surfaces, *cull_surfaces);
 
 				*chain_surfaces = Task_AllocateAndAssignFunc ((task_func_t)R_ChainVisSurfaces, &use_tasks, sizeof (qboolean));
+				Harness_RenderGraphTask (*chain_surfaces, "chain_surfaces", 0);
 				Task_AddDependency (*cull_surfaces, *chain_surfaces);
+				Harness_RenderGraphEdge (*cull_surfaces, *chain_surfaces);
 			}
 			else // indirect
 			{
@@ -1084,7 +1094,9 @@ void R_MarkSurfaces (qboolean use_tasks, task_handle_t before_mark, task_handle_
 			else
 #endif
 				mark_surfaces = Task_AllocateAndAssignFunc ((task_func_t)R_MarkVisSurfaces, &use_tasks, sizeof (qboolean));
+			Harness_RenderGraphTask (mark_surfaces, "mark_vis_surfaces", 0);
 			Task_AddDependency (prepare_mark, mark_surfaces);
+			Harness_RenderGraphEdge (prepare_mark, mark_surfaces);
 			*store_efrags = mark_surfaces;
 			*chain_surfaces = mark_surfaces;
 			*cull_surfaces = mark_surfaces;

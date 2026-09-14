@@ -42,6 +42,7 @@ impl Job for CJob {
                     // SAFETY: `func` came from `Task_AssignFunc` and the payload
                     // is this task's own 128-byte buffer, alive for the call.
                     unsafe { func(payload) }
+                    count_executed();
                 }
             }
             Some(i) => {
@@ -49,6 +50,7 @@ impl Job for CJob {
                     // SAFETY: as above, from `Task_AssignIndexedFunc`; `i` is
                     // below the caller's `limit`, which C passes as `int`.
                     unsafe { func(i as c_int, payload) }
+                    count_executed();
                 }
             }
         }
@@ -67,6 +69,21 @@ thread_local! {
     static IS_WORKER: Cell<bool> = const { Cell::new(false) };
     /// `tasks.c` -- `tl_worker_index` (0 on the main thread).
     static WORKER_INDEX: Cell<c_int> = const { Cell::new(0) };
+}
+
+/// `-taskcounts` (Phase 8 M9 worker-utilization evidence): the same
+/// per-worker count `tasks.c`'s execution loop keeps, from the worker that
+/// ran the body.
+fn count_executed() {
+    // SAFETY: `harness_taskcounts` is set once from the command line before
+    // any worker exists and only read afterwards; `Harness_TaskExecuted`
+    // is an atomic increment on a fixed-size table indexed by a worker
+    // index that `Tasks_Init` bounded below `MAX_WORKERS`.
+    unsafe {
+        if g::harness_taskcounts {
+            g::Harness_TaskExecuted(Tasks_GetWorkerIndex());
+        }
+    }
 }
 
 fn sched() -> &'static Scheduler<CJob> {

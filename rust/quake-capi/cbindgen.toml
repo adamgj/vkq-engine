@@ -924,7 +924,7 @@ exclude = [
     # Phase 8 M8 -- the world/mesh renderer (gl_mesh / r_alias / r_brush /
     # r_world): every export keeps its C name and is declared by glquake.h /
     # gl_model.h or by the glue TUs that read the data by name.
-    "mesh_buffer_heap", "GLMesh_Glue_AddBLASGarbage", "R_InitMeshHeap",
+    "R_InitMeshHeap",
     "R_GetMeshHeapStats", "R_CollectMeshBufferGarbage",
     "GL_MakeAliasModelDisplayLists", "GLMesh_DeleteMeshBuffers",
     "GLMesh_UploadBuffers", "GLMesh_DeleteAllMeshBuffers", "playertextures",
@@ -950,4 +950,19 @@ exclude = [
     "particletexture", "particletexture1", "particletexture2", "particletexture3", "particletexture4",
     "R_ParticleTextureLookup", "R_InitParticleTextures", "R_SetParticleTexture_f", "R_InitParticleIndexBuffer",
     "R_DrawParticles", "R_DrawParticles_ShowTris",
+    # Phase 8 M9 -- the frame graph (gl_rmain.rs / gl_screen.rs): glquake.h
+    # declares the cull/rotate helpers, and gl_rmain_glue.c / gl_screen_glue.c
+    # declare the status cores and task bodies they register by hand.
+    "R_CullBox", "R_CullModelForEntity", "R_RotateForEntity", "RRmain_RenderView",
+    "SCR_SetupFrame", "SCR_DrawDone", "quake_rs_scr_update_screen",
+    "RRmain_Glue_ShowBoundingBoxes", "RRmain_Glue_DrawAliasModel", "RRmain_Glue_DrawAliasModel_ShowTris",
+    "RRmain_Glue_DrawSpriteModel", "RRmain_Glue_DrawSpriteModel_ShowTris",
+    "SCR_Glue_RenderView", "SCR_Glue_DrawGUI", "SCR_DrawGUI", "V_SetupFrame", "V_RenderView",
+    # Phase 8 M10 -- ray tracing (gl_mesh.rs / r_brush.rs): glquake.h declares
+    # the BLAS/TLAS/scratch entry points and the scratch globals; gl_vidsdl.c
+    # declares bmodel_tlas by hand, as it did against the C.
+    "R_AllocateEntityBLAS", "R_FreeEntityBLAS", "R_FreeAllEntityBLASes", "R_UpdateAnimatedBLASes",
+    "bmodel_tlas", "as_scratch_buffer", "as_scratch_buffer_size", "R_EnsureASScratchBufferSize",
+    "R_FreeASScratchBuffer", "R_CollectTLASGarbage", "GL_DeleteBModelAccelerationStructures",
+    "GL_BuildBModelAccelerationStructures", "R_BuildTopLevelAccelerationStructure",
 ]

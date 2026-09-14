@@ -89,6 +89,15 @@ int				  Harness_NetReplayGetMessage (void);
    builds cell-for-cell (Phase 5). */
 extern unsigned int harness_badread_count;
 
+/* -taskcounts (Rust migration Phase 8 M9, worker-utilization evidence): one
+   count per worker of the task bodies it ran -- a scalar task once, an
+   indexed task once per index, the test_tasks counters generalised -- from
+   both schedulers' execution loops. Printed at Harness_Shutdown
+   ("Harness: taskcounts=<n0>,<n1>,...") independently of harness_active so a
+   timedemo run keeps its real frame pacing. */
+extern qboolean harness_taskcounts;
+void			Harness_TaskExecuted (int worker_index);
+
 /* fixed timestep fed to Host_Frame when harness_active */
 double Harness_FrameTime (void);
 
@@ -114,6 +123,13 @@ void Harness_RenderPipelineCreated (uint64_t handle, const char *name);
 void Harness_RenderPipelinesDestroyed (void); /* start of R_DestroyPipelines */
 void Harness_RenderCull (const struct entity_s *e, qboolean culled);
 void Harness_RenderDrawDone (void); /* SCR_DrawDone: fold and write the frame line */
+/* frame task-graph shape (Phase 8 M9): one call per task the frame's graph
+   builders (SCR_UpdateScreen, R_RenderView, R_MarkSurfaces) allocate or
+   adopt (name and indexed limit, 0 for plain tasks) and one per
+   Task_AddDependency, in construction order; handles only name the nodes,
+   they are not hashed */
+void Harness_RenderGraphTask (uint64_t handle, const char *name, uint32_t limit);
+void Harness_RenderGraphEdge (uint64_t before, uint64_t after);
 
 /* deterministic DMA backend for -sndhash: fixed 44100 Hz / 16-bit / stereo,
    sample position derived from host_framecount so headless runs need no audio

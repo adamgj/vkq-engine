@@ -26,9 +26,11 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 // engine reads by name, SCR_Init and the key-binding commands it registers,
 // SCR_DrawGUI (a setjmp target -- ADR-009 keeps longjmp out of Rust frames),
 // the loading plaque and SCR_ModalMessage (both re-enter SCR_UpdateScreen),
-// and SCR_UpdateScreen with its task graph (Phase 8 M9). The 2D overlay
-// drawing, the refdef/fov math and the cvar callbacks live in
-// rust/quake-capi/src/gl_screen.rs and keep their C names.
+// and the SCR_UpdateScreen re-raise wrapper. The 2D overlay drawing, the
+// refdef/fov math, the cvar callbacks and (Phase 8 M9) SCR_UpdateScreen's
+// task graph live in rust/quake-capi/src/gl_screen.rs and keep their C
+// names; the serial path's V_RenderView and SCR_DrawGUI calls go through the
+// SCR_Glue_* Host_Guard thunks below so no longjmp crosses a Rust frame.
 
 #include "quakedef.h"
 #include "cfgfile.h"
@@ -392,7 +394,7 @@ int SCR_ModalMessage (const char *text, float timeout) // johnfitz -- timeout
 SCR_DrawGUI
 ==================
 */
-static void SCR_DrawGUI (void *unused)
+void SCR_DrawGUI (void *unused)
 {
 	cb_context_t *cbx = vulkan_globals.secondary_cb_contexts[SCBX_GUI];
 
@@ -455,30 +457,42 @@ static void SCR_DrawGUI (void *unused)
 
 /*
 ==================
-SCR_SetupFrame
+SCR_Glue_RenderView / SCR_Glue_DrawGUI
+
+Host_Guard thunks for quake_rs_scr_update_screen's serial path (ADR-009):
+V_RenderView re-raises from a C frame and SCR_DrawGUI is a setjmp target, so
+each runs under its own guard and hands the code back for SCR_UpdateScreen to
+re-raise once the Rust frames have returned.
 ==================
 */
-static void SCR_SetupFrame (void *unused)
+typedef struct scr_render_view_arg_s
 {
-	SCR_SetUpToDrawConsole ();
-	V_SetupFrame ();
+	qboolean	  use_tasks;
+	task_handle_t begin_rendering_task;
+	task_handle_t setup_frame_task;
+	task_handle_t draw_done_task;
+} scr_render_view_arg_t;
+
+static void SCR_InvokeRenderView (void *arg)
+{
+	scr_render_view_arg_t *a = (scr_render_view_arg_t *)arg;
+	V_RenderView (a->use_tasks, a->begin_rendering_task, a->setup_frame_task, a->draw_done_task);
 }
 
-/*
-==================
-SCR_DrawDone
-==================
-*/
-static void SCR_DrawDone (void *unused)
+int SCR_Glue_RenderView (qboolean use_tasks, task_handle_t begin_rendering_task, task_handle_t setup_frame_task, task_handle_t draw_done_task)
 {
-	if (scr_speeds.value)
-		rs_cputime_us = (uint32_t)((Sys_DoubleTime () - rs_frame_starttime) * 1000000.0);
-	// end_rendering depends on draw_done, so this can't lose a wait from the current frame
-	rs_gpuwaittime_us = rs_gpuwaitaccum_us;
-	rs_gpuwaitaccum_us = 0;
-	if (harness_renderhash)
-		Harness_RenderDrawDone ();
-	r_framecount++;
+	scr_render_view_arg_t arg = {use_tasks, begin_rendering_task, setup_frame_task, draw_done_task};
+	return Host_Guard (SCR_InvokeRenderView, &arg);
+}
+
+static void SCR_InvokeDrawGUI (void *unused)
+{
+	SCR_DrawGUI (NULL);
+}
+
+int SCR_Glue_DrawGUI (void)
+{
+	return Host_Guard (SCR_InvokeDrawGUI, NULL);
 }
 
 /*
@@ -492,80 +506,9 @@ WARNING: be very careful calling this from elsewhere, because the refresh
 needs almost the entire 256k of stack space!
 ==================
 */
+int quake_rs_scr_update_screen (qboolean use_tasks);
+
 void SCR_UpdateScreen (qboolean use_tasks)
 {
-	if (!scr_initialized || !con_initialized || in_update_screen)
-		return; // not initialized yet
-
-	if (Tasks_IsWorker ())
-		return; // not safe
-
-	in_update_screen = true;
-	use_tasks = use_tasks && (Tasks_NumWorkers () > 1) && r_tasks.value && r_gpulightmapupdate.value;
-
-	if (scr_disabled_for_loading)
-	{
-		if (realtime - scr_disabled_time > 60)
-		{
-			scr_disabled_for_loading = false;
-			Con_Printf ("load failed.\n");
-		}
-		else
-		{
-			in_update_screen = false;
-			return;
-		}
-	}
-
-	if (vid.recalc_refdef)
-		SCR_CalcRefdef ();
-
-	// decide on the height of the console
-	con_forcedup = !cl.worldmodel || cls.signon != SIGNONS;
-
-	task_handle_t begin_rendering_task = INVALID_TASK_HANDLE;
-	if (!GL_BeginRendering (use_tasks, &begin_rendering_task, &glwidth, &glheight))
-	{
-		in_update_screen = false;
-		return;
-	}
-
-	if (use_tasks)
-	{
-		if (prev_end_rendering_task != INVALID_TASK_HANDLE)
-		{
-			Task_AddDependency (prev_end_rendering_task, begin_rendering_task);
-			prev_end_rendering_task = INVALID_TASK_HANDLE;
-		}
-
-		task_handle_t draw_done_task = Task_AllocateAndAssignFunc (SCR_DrawDone, NULL, 0);
-		task_handle_t setup_frame_task = Task_AllocateAndAssignFunc (SCR_SetupFrame, NULL, 0);
-		V_RenderView (use_tasks, begin_rendering_task, setup_frame_task, draw_done_task);
-		task_handle_t draw_gui_task = Task_AllocateAndAssignFunc (SCR_DrawGUI, NULL, 0);
-		task_handle_t end_rendering_task = GL_EndRendering (use_tasks, true);
-
-		Task_AddDependency (begin_rendering_task, draw_gui_task);
-		Task_AddDependency (setup_frame_task, draw_gui_task);
-		Task_AddDependency (draw_gui_task, draw_done_task);
-		Task_AddDependency (draw_done_task, end_rendering_task);
-
-		task_handle_t tasks[] = {begin_rendering_task, setup_frame_task, draw_done_task, draw_gui_task, end_rendering_task};
-		Tasks_Submit (sizeof (tasks) / sizeof (task_handle_t), tasks);
-
-		while (!Task_Join (draw_done_task, 10))
-			S_ExtraUpdate ();
-		prev_end_rendering_task = end_rendering_task;
-	}
-	else
-	{
-		GL_SynchronizeEndRenderingTask ();
-		SCR_SetupFrame (NULL);
-		V_RenderView (use_tasks, INVALID_TASK_HANDLE, INVALID_TASK_HANDLE, INVALID_TASK_HANDLE);
-		S_ExtraUpdate ();
-		SCR_DrawGUI (NULL);
-		SCR_DrawDone (NULL);
-		GL_EndRendering (false, true);
-	}
-
-	in_update_screen = false;
+	Host_Reraise (quake_rs_scr_update_screen (use_tasks));
 }

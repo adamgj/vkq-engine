@@ -1543,18 +1543,39 @@ typedef enum
 	MAIN_RENDER_PASS_VARIANT_COUNT,
 } main_render_pass_variant_t;
 
-/* COMPILE-ONLY: glquake.h:339-349. pr_ext.c only ever dereferences `cb`; the
- * real struct also carries `canvastype current_canvas`, `uint32_t
- * vbo_indices[MAX_BATCH_SIZE]` and `unsigned int num_vbo_indices`, which are
- * omitted because MAX_BATCH_SIZE and canvastype are renderer-private and
- * nothing here takes sizeof (cb_context_t). */
+/* quakedef.h:238-251 */
+typedef enum
+{
+	CANVAS_NONE,
+	CANVAS_DEFAULT,
+	CANVAS_CONSOLE,
+	CANVAS_MENU,
+	CANVAS_SBAR,
+	CANVAS_WARPIMAGE,
+	CANVAS_CROSSHAIR,
+	CANVAS_BOTTOMLEFT,
+	CANVAS_TOPLEFT,
+	CANVAS_BOTTOMRIGHT,
+	CANVAS_TOPRIGHT,
+	CANVAS_CSQC,
+	CANVAS_INVALID = -1
+} canvastype;
+
+/* glquake.h:200 and :339-349, verbatim (Phase 8 M9: the Rust frame graph
+ * owns the secondary_cb_contexts array, so tests/render_abi.rs probes the
+ * full shape; the engine-header check is the COMPILE_TIME_ASSERT block in
+ * Quake/gl_rmain_glue.c). */
+#define MAX_BATCH_SIZE 65536
 typedef struct cb_context_s
 {
 	VkCommandBuffer	  cb;
+	canvastype		  current_canvas;
 	VkRenderPass	  render_pass;
 	int				  render_pass_index;
 	int				  subpass;
 	vulkan_pipeline_t current_pipeline;
+	uint32_t		  vbo_indices[MAX_BATCH_SIZE];
+	unsigned int	  num_vbo_indices;
 } cb_context_t;
 
 /* COMPILE-ONLY: vulkan_core.h's VkPhysicalDeviceFeatures,
@@ -2353,23 +2374,7 @@ char *PL_GetClipboardData (void); /* platform.h:34 */
 
 #define CHARACTER_SIZE 8 /* draw.h:26 */
 
-/* quakedef.h:238-251 */
-typedef enum
-{
-	CANVAS_NONE,
-	CANVAS_DEFAULT,
-	CANVAS_CONSOLE,
-	CANVAS_MENU,
-	CANVAS_SBAR,
-	CANVAS_WARPIMAGE,
-	CANVAS_CROSSHAIR,
-	CANVAS_BOTTOMLEFT,
-	CANVAS_TOPLEFT,
-	CANVAS_BOTTOMRIGHT,
-	CANVAS_TOPRIGHT,
-	CANVAS_CSQC,
-	CANVAS_INVALID = -1
-} canvastype;
+/* canvastype (quakedef.h:238-251) is defined above, ahead of cb_context_t. */
 
 void Draw_Character (cb_context_t *cbx, float x, float y, int num);						 /* draw.h:46 */
 void Draw_ConsoleBackground (cb_context_t *cbx);										 /* draw.h:50 */
@@ -2551,5 +2556,63 @@ static inline void R_PushConstants (cb_context_t *cbx, VkFlags stage_flags, int 
 #define TASKS_MAX_WORKERS 32
 int Tasks_NumWorkers (void);
 int Tasks_GetWorkerIndex (void);
+
+/* ---- Phase 8 M8/M9 ABI probe copies: the structs quake-types::render
+ * mirrors for the Rust mesh/brush renderer and the C glue that reads them
+ * (lerpdata_t through R_SetupAliasFrame, struct lightmap_s through the
+ * `lightmaps` array). Copied verbatim from glquake.h:641-689 and :748-756;
+ * the engine-header check is the COMPILE_TIME_ASSERT block in
+ * Quake/gl_rmain_glue.c. Only tests/render_abi.rs takes sizeof these. ---- */
+typedef struct
+{
+	short  pose1;
+	short  pose2;
+	float  blend;
+	vec3_t origin;
+	vec3_t angles;
+} lerpdata_t;
+
+#define LM_CULL_BLOCK_W 128
+#define LM_CULL_BLOCK_H 256
+
+typedef struct lm_compute_workgroup_bounds_s
+{
+	float	 mins[3];
+	float	 maxs[3];
+	uint32_t submodel;
+} lm_compute_workgroup_bounds_t;
+
+typedef struct glRect_s
+{
+	unsigned short l, t, w, h;
+} glRect_t;
+typedef struct glMaxUsed_s
+{
+	unsigned short w, h;
+} glMaxUsed_t;
+struct lightmap_s
+{
+	gltexture_t	   *texture;
+	gltexture_t	   *surface_indices_texture;
+	gltexture_t	   *lightstyle_textures[MAXLIGHTMAPS * 3 / 4];
+	VkDescriptorSet descriptor_set;
+	uint32_t		modified[TASKS_MAX_WORKERS];
+	VkBuffer		workgroup_bounds_buffer;
+	glRect_t		rectchange;
+	glMaxUsed_t		lightstyle_rectused[1 + MAXLIGHTMAPS * 3 / 4];
+
+	lm_compute_workgroup_bounds_t global_bounds[LMBLOCK_HEIGHT / LM_CULL_BLOCK_H][LMBLOCK_WIDTH / LM_CULL_BLOCK_W];
+	byte						  active_dlights[LMBLOCK_HEIGHT / LM_CULL_BLOCK_H][LMBLOCK_WIDTH / LM_CULL_BLOCK_W];
+	byte						  block_has_submodels[LMBLOCK_HEIGHT / LM_CULL_BLOCK_H][LMBLOCK_WIDTH / LM_CULL_BLOCK_W];
+	byte						  num_used_lightstyles[LMBLOCK_HEIGHT / LM_CULL_BLOCK_H][LMBLOCK_WIDTH / LM_CULL_BLOCK_W];
+	byte						  used_lightstyles[LMBLOCK_HEIGHT / LM_CULL_BLOCK_H][LMBLOCK_WIDTH / LM_CULL_BLOCK_W][MAX_LIGHTSTYLES];
+	int							  cached_light[MAX_LIGHTSTYLES];
+	int							  cached_framecount;
+
+	byte						  *data;
+	byte						  *lightstyle_data[4];
+	uint32_t					  *surface_indices;
+	lm_compute_workgroup_bounds_t *workgroup_bounds;
+};
 
 #endif /* C_REF_PRELUDE_H */
