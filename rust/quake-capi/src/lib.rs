@@ -39,6 +39,8 @@ pub mod crc;
 pub mod cvar; // cvar.c
 #[cfg(feature = "render")]
 pub mod embedded_pak; // embedded_pak.c (bintoc -c vkquake.pak)
+#[cfg(all(feature = "platform", not(test)))]
+pub mod entry; // main_sdl.c's main/WinMain (Phase 9 M6)
 #[cfg(feature = "fs")]
 pub mod fs;
 #[cfg(feature = "fs")]

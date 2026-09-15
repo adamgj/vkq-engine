@@ -1991,7 +1991,10 @@ pub extern "C" fn quake_rs_host_shutdown() -> Raise {
         assert!(!g::Tasks_IsWorker());
 
         if SHUTDOWN_ISDOWN {
-            g::printf(c"recursive shutdown\n".as_ptr());
+            // `printf` is header-inline on the MSVC UCRT: a Rust reference to
+            // it only links when some C TU emits the out-of-line copy, which
+            // the clang-cl debug packaging build does not (Phase 9 M6).
+            c::sys::fputs(c"recursive shutdown\n".as_ptr(), c::sys::stdout_stream());
             return g::HOST_GUARD_OK;
         }
         SHUTDOWN_ISDOWN = true;

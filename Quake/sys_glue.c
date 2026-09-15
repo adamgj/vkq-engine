@@ -19,7 +19,9 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 // sys_glue.c -- the C frame around the Rust sys.h layer.
 //
 // Compiled instead of sys_sdl.c + sys_sdl_win.c/sys_sdl_unix.c under
-// -Duse_rust_platform (Rust migration Phase 9 M5, ADR-017). Four jobs:
+// -Duse_rust_platform (Rust migration Phase 9 M5, ADR-017), and instead of
+// main_sdl.c from M6 (host inversion: the process entry is Rust,
+// quake-capi/src/entry.rs -> quake-platform::main_sdl). Five jobs:
 //
 //  1. Keep the two variadic entry points, Sys_Error and Sys_Printf, in C:
 //     each formats with q_vstrcatf and hands the finished text to the Rust
@@ -30,6 +32,11 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 //     guards caught. The remaining sys.h entry points cannot raise and are
 //     exported by quake-capi under their C names directly.
 //  4. Carry the MSVC comctl32 v6 manifest pragma sys_sdl.c held.
+//  5. M6: guard Sys_Init, Host_Init and Host_Frame for the Rust main loop
+//     (the setjmp that Host_Glue_FrameInner held moves into the guard), and
+//     hand it the compiler banner, ENGINE_NAME_AND_VER and the two client
+//     fields (cl.paused, cls.timedemo) main_sdl.c read -- the C-owned
+//     quakedef.h/client.h values that stay behind the glue boundary.
 
 #include "quakedef.h"
 #include "steam.h" // quake_rs.h declares the Phase 2 Steam shims in terms of steamgame_t
@@ -58,6 +65,72 @@ static void SysGlue_InvokeHostShutdown (void *p)
 int SysGlue_HostShutdown (void)
 {
 	return Host_Guard (SysGlue_InvokeHostShutdown, NULL);
+}
+
+/* ---------------------------------------------------------------------------
+ * M6: the main_sdl.c sequence -- guards and C-owned values for the Rust
+ * quake_main.
+ */
+
+static void SysGlue_InvokeSysInit (void *p)
+{
+	(void)p;
+	Sys_Init ();
+}
+
+int SysGlue_SysInit (void)
+{
+	return Host_Guard (SysGlue_InvokeSysInit, NULL);
+}
+
+static void SysGlue_InvokeHostInit (void *p)
+{
+	(void)p;
+	Host_Init ();
+}
+
+int SysGlue_HostInit (void)
+{
+	return Host_Guard (SysGlue_InvokeHostInit, NULL);
+}
+
+static void SysGlue_InvokeHostFrame (void *p)
+{
+	Host_Frame (*(double *)p);
+}
+
+int SysGlue_HostFrame (double time)
+{
+	return Host_Guard (SysGlue_InvokeHostFrame, &time);
+}
+
+/* main_sdl.c:113-121 -- reports the compiler that built this C remnant. */
+void SysGlue_PrintCompilerBanner (void)
+{
+#if defined(__clang_version__)
+	Sys_Printf ("Built with Clang " __clang_version__ "\n");
+#elif defined(__GNUC__)
+	Sys_Printf ("Built with GCC %u.%u.%u\n", __GNUC__, __GNUC_MINOR__, __GNUC_PATCHLEVEL__);
+#elif defined(_MSC_FULL_VER)
+	Sys_Printf ("Built with Microsoft C %u\n", _MSC_FULL_VER);
+#else
+	Sys_Printf ("Built with unknown compiler\n");
+#endif
+}
+
+const char *SysGlue_EngineNameAndVer (void)
+{
+	return ENGINE_NAME_AND_VER;
+}
+
+qboolean SysGlue_ClientTimedemo (void)
+{
+	return cls.timedemo;
+}
+
+qboolean SysGlue_ClientPaused (void)
+{
+	return cl.paused;
 }
 
 /* ---------------------------------------------------------------------------

@@ -75,7 +75,7 @@ pub unsafe fn send_key_events() -> c_int {
 
 /// `Sys_Error ("%s", msg)` through the engine symbol, so the C wrapper's
 /// `Host_Reraise` and `exit (1)` apply exactly as for every other caller.
-fn sys_error(msg: &str) -> ! {
+pub(crate) fn sys_error(msg: &str) -> ! {
     let msg = CString::new(msg.replace('\0', " ")).unwrap_or_default();
     // SAFETY: both strings are NUL-terminated for the duration of the call.
     unsafe { quake_c_sys::Sys_Error(c"%s".as_ptr(), msg.as_ptr()) }
@@ -83,7 +83,7 @@ fn sys_error(msg: &str) -> ! {
 
 /// `Sys_Printf ("%s", msg)` -- already-formatted text straight to the
 /// platform core (what the C variadic wrapper does after formatting).
-fn sys_printf(msg: &str) {
+pub(crate) fn sys_printf(msg: &str) {
     let msg = CString::new(msg.replace('\0', " ")).unwrap_or_default();
     // SAFETY: NUL-terminated for the duration of the call.
     unsafe { print_text(msg.as_ptr()) }

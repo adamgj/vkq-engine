@@ -35,14 +35,18 @@ jobs:
       matrix:
         configuration: [release, debug]
         use-sdl3: ['auto', 'disabled']
-        # no use_rust axis here: the harness job below builds both C-only and
+        # no use_rust axis here: the shipped binary is the mixed build (Rust
+        # migration Phase 9 M6); the harness job below builds both C-only and
         # mixed and diffs them, so a rust axis here would be duplicate work
     steps:
     - uses: actions/checkout@v6
     - name: Install Dependencies
-      run: brew install molten-vk vulkan-headers glslang spirv-tools sdl2 sdl3 libvorbis flac opus opusfile flac mpg123 meson
+      run: brew install molten-vk vulkan-headers glslang spirv-tools sdl2 sdl3 libvorbis flac opus opusfile flac mpg123 meson cbindgen
+    - uses: dtolnay/rust-toolchain@stable
+      with:
+        toolchain: 1.97.1
     - name: Build vkqr-engine
-      run: meson setup build --buildtype=${{ matrix.configuration }} -Ddebug=true -Dstrip=false -Duse_sdl3=${{ matrix.use-sdl3 }} -Duse_rust=disabled && ninja -C build
+      run: meson setup build --buildtype=${{ matrix.configuration }} -Ddebug=true -Dstrip=false -Duse_sdl3=${{ matrix.use-sdl3 }} -Duse_rust=enabled && ninja -C build
     - name: Extract debug information and bundle it to .dSYM
       run: |
         dsymutil build/vkqr-engine -o build/vkqr-engine.dSYM

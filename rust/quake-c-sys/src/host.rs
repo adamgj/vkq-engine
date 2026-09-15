@@ -287,7 +287,6 @@ extern "C" {
     /* libc, as `host.c` used it. */
     pub fn atoi(s: *const c_char) -> c_int;
     pub fn strtoul(s: *const c_char, end: *mut *mut c_char, base: c_int) -> core::ffi::c_ulong;
-    pub fn printf(fmt: *const c_char, ...) -> c_int;
 }
 
 // Phase 8 M2: the task-system queries live in `crate::tasks` (ADR-016).

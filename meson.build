@@ -248,7 +248,6 @@ srcs = [
     'Quake/pr_trace.c',
     'Quake/image.c',
     'Quake/image_stb.c',
-    'Quake/main_sdl.c',
     'Quake/mem.c',
     'Quake/net_loop.c',
     'Quake/net_main.c',
@@ -567,6 +566,17 @@ if use_rust_platform
     srcs += ['Quake/sys_glue.c']
 else
     srcs += ['Quake/sys_sdl.c', host_machine.system() == 'windows' ? 'Quake/sys_sdl_win.c' : 'Quake/sys_sdl_unix.c']
+endif
+
+# Phase 9 M6 (host inversion): main_sdl.c -- the process entry and frame
+# loop -- is quake-platform::main_sdl, exported as main / WinMain / SDL_main
+# from libquake_rs.a (quake-capi/src/entry.rs); sys_glue.c holds its
+# Host_Guard trampolines (Sys_Init, Host_Init, Host_Frame) and the compiler
+# banner. No C TU defines main or includes SDL3/SDL_main.h's entry shim in
+# that configuration. The C original stays the -Duse_rust_platform=disabled
+# comparison oracle
+if not use_rust_platform
+    srcs += ['Quake/main_sdl.c']
 endif
 
 # Phase 6: the progs VM. The flip is per-file and lands milestone by milestone

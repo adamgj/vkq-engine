@@ -26,3 +26,7 @@ pub mod pl;
 /// Phase 9 M5: `sys_sdl.c`/`sys_sdl_win.c`/`sys_sdl_unix.c`.
 #[cfg(feature = "platform")]
 pub mod sys;
+
+/// Phase 9 M6: `main_sdl.c`.
+#[cfg(feature = "platform")]
+pub mod main_sdl;

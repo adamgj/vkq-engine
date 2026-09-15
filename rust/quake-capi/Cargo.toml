@@ -51,7 +51,7 @@ libc = "0.2"
 [features]
 # forwarded to the pure crates; set by the Meson build when the C engine is
 # compiled with -D_DEBUG (see quake-math's engine-debug)
-engine-debug = ["quake-math/engine-debug", "quake-net/engine-debug", "quake-progs/engine-debug", "quake-types/engine-debug", "quake-render?/engine-debug"]
+engine-debug = ["quake-math/engine-debug", "quake-net/engine-debug", "quake-platform/engine-debug", "quake-progs/engine-debug", "quake-types/engine-debug", "quake-render?/engine-debug"]
 # installs the #[global_allocator] bound to the engine's vendored mimalloc
 # (ADR-013). Set only by the Meson build: plain cargo test binaries don't
 # link mem.o, so the mi_* symbols don't exist there.
@@ -119,7 +119,8 @@ sdl3 = ["quake-platform/sdl3"]
 # quake-platform SDL2 arm for the input/sys/main layers as they land
 sdl2 = ["quake-platform/sdl2"]
 # the Phase 9 platform-layer shims (net_wins, in_sdl*, pl_*, sys_sdl*,
-# main_sdl as they land); set by Meson when -Duse_rust_platform is enabled
+# main_sdl); set by Meson when -Duse_rust_platform is enabled. M6: the
+# process entry (`main` / `WinMain`) is exported from `entry.rs` under it
 platform = ["quake-platform/platform"]
 # tracks the C build's DO_USERDIRS (extra per-user localization lookups;
 # Phase 9 M5: also sys_sdl_unix.c's ~/.vkqr-engine userdir in quake-platform)

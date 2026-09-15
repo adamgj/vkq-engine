@@ -831,6 +831,8 @@ exclude = [
     "Sys_SelectFolder", "Sys_DoubleTime", "Sys_ConsoleInput", "Sys_Sleep",
     "Sys_PinCurrentThread", "Sys_StackTrace", "Sys_IsInDebugger", "Sys_DebugBreak",
     "Sys_GetSteamAPILibraryPath", "ChooseQuakeFlavor",
+    # Phase 9 M6 -- the process entry symbols (main_sdl.c); never declared
+    "main", "WinMain", "SDL_main",
     "GLMesh_UploadBuffers", "AliasMesh", "AllSurfacesDef", "JointPose",
     "QPathStr", "SkinDef", "SurfaceDef", "Md3XyzNormal", "Md5Vert", "Md5Vert8",
     "AliasHdr", "MAliasFrameDesc", "MSprite", "MSpriteFrameDesc",

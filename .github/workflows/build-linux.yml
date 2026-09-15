@@ -69,7 +69,7 @@ jobs:
         files: Packaging/AppImage/vkqr-engine-*.AppImage
 
   # Rust-migration mixed build + differential harness (the AppImage job above
-  # stays C-only; its docker image has no Rust toolchain)
+  # ships the mixed build since Phase 9 M6; the C-only oracle lives here)
   harness-linux:
     name: Harness Linux (shareware)
     runs-on: ubuntu-24.04

@@ -63,3 +63,6 @@ platform = []
 # Phase 9 M5: `DO_USERDIRS` (sys_sdl_unix.c's ~/.vkqr-engine userdir); the
 # Meson `do_userdirs` option forwards it
 userdirs = []
+# Phase 9 M6: `_DEBUG` (main_sdl.c's SDL debug log priority); the Meson
+# debug buildtypes forward it
+engine-debug = []

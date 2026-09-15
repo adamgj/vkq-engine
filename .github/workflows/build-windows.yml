@@ -36,7 +36,8 @@ jobs:
       fail-fast: false
       matrix:
         buildtype: [release, debug]
-        # no use_rust axis here: the harness job below builds both C-only and
+        # no use_rust axis here: the shipped binary is the mixed build (Rust
+        # migration Phase 9 M6); the harness job below builds both C-only and
         # mixed and diffs them, so a rust axis here would be duplicate work
     steps:
     - uses: actions/checkout@v6
@@ -62,10 +63,18 @@ jobs:
         arch: x64
     - name: Install meson
       run: pip install meson ninja
+    - uses: dtolnay/rust-toolchain@stable
+      with:
+        toolchain: 1.97.1
+        targets: x86_64-pc-windows-msvc
+    - name: Install cbindgen
+      uses: taiki-e/install-action@v2
+      with:
+        tool: cbindgen
     - name: Configure
       run: |
         $env:CC = 'clang-cl'
-        meson setup builddir --buildtype=${{ matrix.buildtype }} -Ddebug=true -Dstrip=false -Duse_sdl3=enabled -Duse_rust=disabled
+        meson setup builddir --buildtype=${{ matrix.buildtype }} -Ddebug=true -Dstrip=false -Duse_sdl3=enabled -Duse_rust=enabled
     - name: Build
       run: meson compile -C builddir
     - name: Upload vkqr-engine

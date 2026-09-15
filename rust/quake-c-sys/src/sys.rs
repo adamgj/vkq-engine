@@ -21,6 +21,36 @@ extern "C" {
     /* Guarded callback (ADR-009 rule 3) -- Quake/sys_glue.c. */
     /// `Host_Shutdown ()` (`Sys_Quit`, and `Sys_Error` on unix).
     pub fn SysGlue_HostShutdown() -> c_int;
+    /// `Sys_Init ()` (Phase 9 M6 -- the `main_sdl.c` startup sequence).
+    pub fn SysGlue_SysInit() -> c_int;
+    /// `Host_Init ()` (M6).
+    pub fn SysGlue_HostInit() -> c_int;
+    /// `Host_Frame (time)` (M6): the frame guard `Host_Glue_FrameInner`'s
+    /// `setjmp` used to provide.
+    pub fn SysGlue_HostFrame(time: f64) -> c_int;
+
+    /* M6 -- `main_sdl.c` callees that cannot raise. */
+    /// The `#if __clang__ / __GNUC__ / _MSC_VER` "Built with ..." banner;
+    /// stays in C so it reports the compiler that built the C remnant.
+    pub fn SysGlue_PrintCompilerBanner();
+    /// `ENGINE_NAME_AND_VER` from `quakedef.h`.
+    pub fn SysGlue_EngineNameAndVer() -> *const c_char;
+    /// `cls.timedemo`.
+    pub fn SysGlue_ClientTimedemo() -> qboolean;
+    /// `cl.paused`.
+    pub fn SysGlue_ClientPaused() -> qboolean;
+    /// `common.h:296`.
+    pub fn COM_InitArgv(argc: c_int, argv: *mut *mut c_char);
+    /// `harness.h:54` -- early, right after `COM_InitArgv`.
+    pub fn Harness_CheckArgs();
+    /// `harness.h:102`.
+    pub fn Harness_FrameTime() -> f64;
+    /// `harness.h:49`.
+    pub static mut harness_fixed_dt: qboolean;
+    /// `vid.h:89`.
+    pub fn VID_HasMouseOrInputFocus() -> qboolean;
+    /// `vid.h:90`.
+    pub fn VID_IsMinimized() -> qboolean;
 
     /* Direct callees that cannot raise. */
     /// `steam.h:47` -- resolves `game` to its install directory.
@@ -62,6 +92,7 @@ extern "C" {
      * stdio (Rust's `process::exit` does neither), and the stdio the
      * handle table shares with `FS_f*`. */
     pub fn exit(status: c_int) -> !;
+    pub fn atexit(func: Option<unsafe extern "C" fn()>) -> c_int;
     pub fn fputs(s: *const c_char, stream: *mut FILE) -> c_int;
     pub fn fread(ptr: *mut c_void, size: usize, nmemb: usize, stream: *mut FILE) -> usize;
     pub fn fwrite(ptr: *const c_void, size: usize, nmemb: usize, stream: *mut FILE) -> usize;

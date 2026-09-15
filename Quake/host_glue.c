@@ -902,7 +902,7 @@ void Host_ServerFrame (void)
 /*
  * host.c:1085-1094 -- the setjmp shell of _Host_Frame, the outermost longjmp
  * target in the engine. ADR-009 rule 3 forbids a longjmp crossing a Rust frame,
- * so this setjmp cannot move into Rust and stays here until Phase 9.
+ * so this setjmp cannot move into Rust.
  *
  * No executable statement preceded the setjmp in host.c (only the static
  * accumulators, which are now Rust file statics), so the Rust core begins at
@@ -910,11 +910,19 @@ void Host_ServerFrame (void)
  * core catches the raise, Rust unwinds normally, and Host_Reraise re-issues the
  * same jump from this pure C frame onto this frame's own setjmp, taking the
  * early return exactly as the C build did.
+ *
+ * Phase 9 M6 (host inversion): under USE_RUST_PLATFORM the frame loop is Rust
+ * (quake-platform::main_sdl) and calls Host_Frame through sys_glue.c's
+ * SysGlue_HostFrame, a Host_Guard whose setjmp is the outermost target; the
+ * re-raise below lands on it and the guard's status ends the frame in the Rust
+ * loop. This frame is then a plain call.
  */
 void Host_Glue_FrameInner (double time)
 {
+#ifndef USE_RUST_PLATFORM
 	if (setjmp (host_abortserver))
 		return; // something bad happened, or the server disconnected
+#endif
 
 	Host_Reraise (quake_rs_host_frame_core (time));
 }
