@@ -16,6 +16,7 @@ pub mod cl_tent;
 pub mod console;
 pub mod host;
 pub mod host_cmd;
+pub mod input;
 pub mod keys;
 pub mod menu;
 pub mod net_dgrm_orch;

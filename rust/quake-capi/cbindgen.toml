@@ -625,6 +625,29 @@ VkDeviceMemory GL_HeapGetAllocationMemory(glheapallocation_t *allocation);
 VkDeviceSize GL_HeapGetAllocationOffset(glheapallocation_t *allocation);
 glheapstats_t *GL_HeapGetStats(glheap_t *heap);
 #endif
+/* Phase 9 M3: the input.h entry points quake-capi exports under the
+ * `platform` feature (in_sdl.rs). IN_Move takes usercmd_t, which has no C
+ * spelling in the Rust mirrors, so the whole family is declared by hand,
+ * guarded on input.h's own include guard: input.h already declares each one,
+ * and check_capi_signatures.sh compiles both side by side. IN_Init,
+ * IN_SendKeyEvents and IN_Commands themselves are Quake/in_sdl_glue.c's
+ * Host_Reraise frames over the quake_rs_in_* cores below. */
+#ifdef _QUAKE_INPUT_H
+int quake_rs_in_init(void);
+int quake_rs_in_send_key_events(void);
+int quake_rs_in_commands(void);
+void IN_Shutdown(void);
+void IN_MouseMotion(float dx, float dy);
+void IN_UpdateInputMode(void);
+void IN_Move(usercmd_t *cmd);
+void IN_ClearStates(void);
+void IN_Activate(void);
+void IN_Deactivate(qboolean free_cursor);
+void IN_DeactivateForConsole(void);
+void IN_HideCursor(void);
+void IN_GetMousePos(int *outx, int *outy);
+void IN_ScaleMouseCoords(float x, float y, int *outx, int *outy);
+#endif
 #ifdef __cplusplus
 } /* extern "C" -- these hand-written declarations sit outside cbindgen's own
    * cpp_compat guard, so they carry their own */
@@ -720,6 +743,11 @@ exclude = [
     "SNDDMA_Init", "SNDDMA_GetDMAPos", "SNDDMA_Shutdown",
     "SNDDMA_LockBuffer", "SNDDMA_Submit", "SNDDMA_BlockSound",
     "SNDDMA_UnblockSound",
+    # Phase 9 M3 -- declared by hand above, guarded on input.h
+    "quake_rs_in_init", "quake_rs_in_send_key_events", "quake_rs_in_commands",
+    "IN_Shutdown", "IN_MouseMotion", "IN_UpdateInputMode", "IN_Move",
+    "IN_ClearStates", "IN_Activate", "IN_Deactivate", "IN_DeactivateForConsole",
+    "IN_HideCursor", "IN_GetMousePos", "IN_ScaleMouseCoords",
     "GLMesh_UploadBuffers", "AliasMesh", "AllSurfacesDef", "JointPose",
     "QPathStr", "SkinDef", "SurfaceDef", "Md3XyzNormal", "Md5Vert", "Md5Vert8",
     "AliasHdr", "MAliasFrameDesc", "MSprite", "MSpriteFrameDesc",

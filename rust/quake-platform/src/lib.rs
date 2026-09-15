@@ -14,3 +14,7 @@ compile_error!("quake-platform: the `platform` feature needs exactly one of `sdl
 
 #[cfg(feature = "sdl3")]
 pub mod snd_sdl3;
+
+/// Phase 9 M3: `in_sdl.c`/`in_sdl2.c`/`in_sdl3.c`.
+#[cfg(feature = "platform")]
+pub mod input;

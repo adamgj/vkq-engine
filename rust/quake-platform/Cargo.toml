@@ -17,6 +17,7 @@ sdl3 = { version = "0.18.4", optional = true }
 # the distro library exactly as the C files do
 sdl2 = { version = "0.38", optional = true, default-features = false }
 quake-c-sys = { path = "../quake-c-sys" }
+quake-types = { path = "../quake-types" }
 
 [features]
 sdl3 = ["dep:sdl3"]

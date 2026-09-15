@@ -248,9 +248,6 @@ srcs = [
     'Quake/pr_trace.c',
     'Quake/image.c',
     'Quake/image_stb.c',
-    'Quake/in_sdl.c',
-    'Quake/in_sdl2.c',
-    'Quake/in_sdl3.c',
     'Quake/main_sdl.c',
     'Quake/mem.c',
     'Quake/net_loop.c',
@@ -541,6 +538,19 @@ else
     # Windows) live in libquake_rs.a once use_rust_net is on; the C drivers
     # are only built for the oracle
     srcs += host_machine.system() == 'windows' ? ['Quake/net_wins.c'] : ['Quake/net_udp.c']
+endif
+
+# Phase 9 M3 (ADR-017): the input layer. in_sdl.c plus whichever of
+# in_sdl2.c/in_sdl3.c matches -Duse_sdl3 move to libquake_rs.a's
+# quake-platform::input (the other one is an empty TU under its #ifdef);
+# Quake/in_sdl_glue.c keeps in_debugkeys and the twelve joy_* cvars C-owned
+# (ADR-007) and holds the Host_Guard trampolines / Host_Reraise frames around
+# the event pump's raising callees (ADR-009). The C originals stay the
+# -Duse_rust_platform=disabled comparison oracle
+if use_rust_platform
+    srcs += ['Quake/in_sdl_glue.c']
+else
+    srcs += ['Quake/in_sdl.c', 'Quake/in_sdl2.c', 'Quake/in_sdl3.c']
 endif
 
 # Phase 6: the progs VM. The flip is per-file and lands milestone by milestone

@@ -78,6 +78,8 @@ pub mod host; // host.c
 pub mod host_cmd; // host_cmd.c
 #[cfg(feature = "image")]
 pub mod image_decode;
+#[cfg(feature = "platform")]
+pub mod in_sdl; // in_sdl.c + in_sdl2.c/in_sdl3.c (Phase 9 M3)
 pub mod json;
 #[cfg(feature = "host")]
 pub mod keys; // keys.c

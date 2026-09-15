@@ -448,6 +448,7 @@ name = "quake-platform"
 version = "0.1.0"
 dependencies = [
  "quake-c-sys",
+ "quake-types",
  "sdl2",
  "sdl3",
 ]
