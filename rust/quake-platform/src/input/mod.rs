@@ -19,7 +19,7 @@
 //! stays `void`.
 
 use core::ffi::{c_char, c_int, CStr};
-use core::ptr::addr_of_mut;
+use core::ptr::{addr_of, addr_of_mut};
 
 use quake_c_sys as sys;
 use quake_c_sys::cl_input::{
@@ -227,6 +227,10 @@ pub unsafe fn hide_cursor() {
 
 /// The mouse-motion half of in_sdl.c `IN_FilterMouseEvents`, called from the
 /// backend's SDL event filter.
+///
+/// # Safety
+/// Main thread, from inside the SDL event filter (SDL calls it on the
+/// thread that pushes the event; the engine pumps on the main thread only).
 pub(crate) unsafe fn filter_mouse_motion(x: f32, y: f32) {
     // SAFETY: `key_dest` is the engine's keydest_t; Con_Mousemove cannot raise
     unsafe {
@@ -320,7 +324,7 @@ unsafe fn startup_joystick() {
             return;
         }
 
-        let basedir = core::ptr::addr_of!(sys::manual::com_basedir).cast::<c_char>();
+        let basedir = addr_of!(sys::manual::com_basedir).cast::<c_char>();
         load_mappings(basedir);
         let parms = host_parms;
         if (*parms).userdir != (*parms).basedir {
@@ -334,8 +338,8 @@ unsafe fn startup_joystick() {
 /// `"%s/gamecontrollerdb.txt"` under `dir` (MAX_OSPATH-bounded like the
 /// `q_snprintf` in C), loaded and reported.
 unsafe fn load_mappings(dir: *const c_char) {
-    const MAX_OSPATH: usize = 1024;
-    // SAFETY: `dir` is a NUL-terminated engine path
+    use sys::MAX_OSPATH; // PATH_MAX per platform, as q_snprintf's buffer in C
+                         // SAFETY: `dir` is a NUL-terminated engine path
     unsafe {
         let dir = CStr::from_ptr(dir).to_bytes();
         let mut path = [0u8; MAX_OSPATH];
@@ -525,31 +529,33 @@ pub unsafe fn commands() -> Raise {
         for (i, v) in newaxisstate.iter_mut().enumerate() {
             *v = f32::from(backend::gamepad_axis(i)) / 32768.0;
         }
-        let old = *addr_of_mut!(JOY_AXISSTATE);
+        // Re-read per call like C: a reentrant `IN_Commands` (SCR_ModalMessage
+        // from Key_Event) may store into `joy_axisstate` between two calls.
+        let old = |n: usize| (*addr_of!(JOY_AXISSTATE))[n];
         let timer = |n: usize| addr_of_mut!(JOY_EMULATEDKEYTIMER).cast::<f64>().add(n);
 
         // emit emulated arrow keys so the analog sticks can be used in the menu
         if key_dest != KEY_GAME {
             raise!(joy_key_event(
-                old[AXIS_LEFTX] < -stickthreshold,
+                old(AXIS_LEFTX) < -stickthreshold,
                 newaxisstate[AXIS_LEFTX] < -stickthreshold,
                 K_LEFTARROW,
                 timer(0),
             ));
             raise!(joy_key_event(
-                old[AXIS_LEFTX] > stickthreshold,
+                old(AXIS_LEFTX) > stickthreshold,
                 newaxisstate[AXIS_LEFTX] > stickthreshold,
                 K_RIGHTARROW,
                 timer(1),
             ));
             raise!(joy_key_event(
-                old[AXIS_LEFTY] < -stickthreshold,
+                old(AXIS_LEFTY) < -stickthreshold,
                 newaxisstate[AXIS_LEFTY] < -stickthreshold,
                 K_UPARROW,
                 timer(2),
             ));
             raise!(joy_key_event(
-                old[AXIS_LEFTY] > stickthreshold,
+                old(AXIS_LEFTY) > stickthreshold,
                 newaxisstate[AXIS_LEFTY] > stickthreshold,
                 K_DOWNARROW,
                 timer(3),
@@ -558,13 +564,13 @@ pub unsafe fn commands() -> Raise {
 
         // emit emulated keys for the analog triggers
         raise!(joy_key_event(
-            old[AXIS_LEFT_TRIGGER] > triggerthreshold,
+            old(AXIS_LEFT_TRIGGER) > triggerthreshold,
             newaxisstate[AXIS_LEFT_TRIGGER] > triggerthreshold,
             K_LTRIGGER,
             timer(4),
         ));
         raise!(joy_key_event(
-            old[AXIS_RIGHT_TRIGGER] > triggerthreshold,
+            old(AXIS_RIGHT_TRIGGER) > triggerthreshold,
             newaxisstate[AXIS_RIGHT_TRIGGER] > triggerthreshold,
             K_RTRIGGER,
             timer(5),
@@ -639,11 +645,15 @@ unsafe fn joy_move(cmd: &mut UserCmd) {
         }
 
         let frametime = sys::host_frametime;
-        cl.viewangles[YAW] -=
-            (f64::from(look_eased.x * joy_sensitivity_yaw.value) * frametime) as f32;
+        // The float product is promoted to double, the compound assignment
+        // runs in double and rounds to float once (in_sdl.c:569-570).
+        cl.viewangles[YAW] = (f64::from(cl.viewangles[YAW])
+            - f64::from(look_eased.x * joy_sensitivity_yaw.value) * frametime)
+            as f32;
         let invert: f64 = if joy_invert.value != 0.0 { -1.0 } else { 1.0 };
-        cl.viewangles[PITCH] +=
-            (f64::from(look_eased.y * joy_sensitivity_pitch.value) * invert * frametime) as f32;
+        cl.viewangles[PITCH] = (f64::from(cl.viewangles[PITCH])
+            + f64::from(look_eased.y * joy_sensitivity_pitch.value) * invert * frametime)
+            as f32;
 
         if look_eased.x != 0.0 || look_eased.y != 0.0 {
             V_StopPitchDrift();
