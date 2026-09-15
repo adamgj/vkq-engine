@@ -10,7 +10,9 @@ own corpus (Misc/harness/render_corpus.json) driven through a real window:
                    observed minimum is the basis for the per-entry thresholds
   --compare B      run every entry on this build and on B: identical -renderhash
                    chains, screenshot SSIM >= the entry threshold, and (with
-                   --validation) no validation-layer messages on either side
+                   --validation) the validation layer loaded and printed no messages
+                                 on either side (needs a debug buildtype: the layer is
+                                 _DEBUG/engine-debug only, see gl_vidsdl.c)
   --timedemo       run the timedemo entries N times (no fixed timestep, no
                    -renderhash) and report the median fps; with --compare the
                    candidate must stay within --timedemo-tolerance of the
@@ -47,6 +49,7 @@ CORPUS = os.path.join(ROOT, "Misc", "harness", "render_corpus.json")
 SCREENSHOT_PREFIX = "vkqr-engine"
 FPS_RE = re.compile(r"(\d+) frames +([\d.]+) seconds +([\d.]+) fps")
 VALIDATION_RE = re.compile(r"Validation (Error|Warning)|VUID-|vkDebug", re.IGNORECASE)
+VALIDATION_ARMED = "Using VK_LAYER_KHRONOS_validation"
 
 
 # --- TGA + SSIM ---------------------------------------------------------------
@@ -200,7 +203,7 @@ def run_engine(exe, entry, args, label, out_dir, extra_args, renderhash=True):
             fps = {"frames": int(m.group(1)), "seconds": float(m.group(2)), "fps": float(m.group(3))}
         validation = [ln for ln in stdout.splitlines() if VALIDATION_RE.search(ln)]
         return {"rc": rc, "stdout_tail": stdout[-3000:], "hash": hash_lines, "shots": shots,
-                "fps": fps, "validation": validation}
+                "fps": fps, "validation": validation, "validation_armed": VALIDATION_ARMED in stdout}
     finally:
         if args.keep:
             print(f"basedir kept at {staging}")
@@ -252,6 +255,10 @@ def check_run(name, label, res, want_shots, args, failures):
     if args.validation and res["validation"]:
         failures.append(f"{name}/{label}: {len(res['validation'])} validation message(s), first: {res['validation'][0]}")
         ok = False
+    if args.validation and not res["validation_armed"]:
+        failures.append(f"{name}/{label}: validation layer not loaded (no '{VALIDATION_ARMED}' line; "
+                        "-validation only arms the layer in a _DEBUG/engine-debug build)")
+        ok = False
     if want_shots and len(res["shots"]) != want_shots:
         failures.append(f"{name}/{label}: expected {want_shots} screenshots, got {len(res['shots'])}")
         ok = False
@@ -278,7 +285,7 @@ def main():
     p.add_argument("--runs", type=int, default=None, help="runs per entry (stability: 2, timedemo: 3)")
     p.add_argument("--ssim-threshold", type=float, default=0.95, help="fallback when an entry has no threshold for this platform")
     p.add_argument("--ssim-margin", type=float, default=0.01, help="--stability: suggested threshold = observed min - margin")
-    p.add_argument("--validation", action="store_true", help="run with -validation and fail on any validation-layer message")
+    p.add_argument("--validation", action="store_true", help="run with -validation; fail if the layer did not load (release buildtypes ignore -validation) or printed any message")
     p.add_argument("--width", type=int, default=640)
     p.add_argument("--height", type=int, default=480)
     p.add_argument("--timeout", type=int, default=600, help="seconds per engine run")

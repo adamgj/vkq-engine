@@ -1,11 +1,32 @@
 [package]
 name = "xtask"
 version = "0.1.0"
-description = "build/codegen helper tasks (shader pipeline + pak embedding arrive in Phase 8)"
+description = "build/codegen helper tasks: the shader pipeline and the embedded pak (Phase 8 M11, task plan D8)"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
+
+# a library so quake-capi's build script can drive the pipeline in-process,
+# and the `cargo xtask` binary for the byte-identity differential against the
+# Meson bintoc/mkpak outputs (scripts/harness/xtask_diff.py)
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "xtask"
+path = "src/main.rs"
+
+[dependencies]
+# already in the workspace graph via quake-fs (ADR-003/ADR-012); the raw
+# deflate for the embedded pak must match Quake/miniz.c's
+# tdefl_compress_mem_to_heap byte for byte (quake-ctest xtask_differential)
+miniz_oxide = "0.8"
+
+[dev-dependencies]
+# the job table must name exactly quake-render's `Shader` set: quake-capi's
+# build script keys the embedded blobs by `Shader::name()`
+quake-render = { path = "../quake-render" }
 
 [lints]
 workspace = true

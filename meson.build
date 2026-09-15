@@ -94,6 +94,20 @@ endif
 
 glslang = find_program('glslangValidator')
 spirv_opt = find_program('spirv-opt')
+
+# use_rust and use_rust_render are decided here, ahead of the other per-module
+# switches (below, next to cflags), because the shader and embedded-pak
+# pipeline depends on them: under use_rust_render the quake-capi build script
+# compiles the shaders and builds the pak itself (`cargo xtask`, Phase 8 M11,
+# task plan D8) and bakes them into libquake_rs, so the custom targets below
+# are the C build's, and the byte-identity oracle for that pipeline
+# (scripts/harness/xtask_diff.py).
+cargo = find_program('cargo', required : get_option('use_rust'))
+use_rust = cargo.found() and not get_option('use_rust').disabled()
+if get_option('use_rust_render').enabled() and not use_rust
+    error('-Duse_rust_render=enabled requires -Duse_rust=enabled (the renderer ships in libquake_rs.a)')
+endif
+use_rust_render = use_rust and not get_option('use_rust_render').disabled()
 run_test_canonicalize_ids_spirv_opt = run_command(spirv_opt, '-h', check : false)
 has_canonicalize_ids_spirv_opt = (run_test_canonicalize_ids_spirv_opt.stdout().strip().contains('--canonicalize-ids'))
 bintoc = executable('bintoc', ['Shaders/bintoc.c'], native: true)
@@ -118,6 +132,10 @@ mkpak_toc_file = join_paths(vq_pak_path, 'vq_pak_contents.txt')
 
 mkpak_command = [mkpak, '@OUTPUT@', vq_pak_path, mkpak_toc_file, '@DEPFILE@']
 
+if use_rust_render
+    # embedded_pak.c's symbols come from libquake_rs (quake-capi/src/embedded_pak.rs)
+    run_generate_embedded_pak = []
+else
 run_mkpak = custom_target('run-mkpak',
   output : 'vkquake.pak',
   depfile : 'vkquake.pak.d',
@@ -130,6 +148,7 @@ run_generate_embedded_pak = custom_target('run-embed_vkquake_pak',
 							output : 'embedded_pak.c',
 							input : run_mkpak,
 							command : bintoc_compress_command)
+endif
 
 # shader sources compiled multiple times with different preprocessor defines
 shader_variants = [
@@ -185,6 +204,11 @@ endforeach
 foreach variant : shader_variants
     shader_jobs += [[variant[0], variant[1], variant[2]]]
 endforeach
+if use_rust_render
+    # the <name>_spv arrays come from libquake_rs (quake-capi/src/shaders.rs);
+    # the job table lives in rust/xtask/src/shaders.rs and must match this one
+    shader_jobs = []
+endif
 
 shaders_c = []
 foreach job : shader_jobs
@@ -313,8 +337,6 @@ if cc.get_id() == 'clang' or cc.get_id() == 'clang-cl'
     cflags += cc.get_supported_arguments('-Wno-unused-function')
 endif
 
-cargo = find_program('cargo', required : get_option('use_rust'))
-use_rust = cargo.found() and not get_option('use_rust').disabled()
 # Phase 2: first per-module switch; the C filesystem stays the comparison
 # oracle under -Duse_rust_fs=disabled. 'auto' follows use_rust; asking for it
 # explicitly without the Rust staticlib is a contradiction, not a downgrade
@@ -375,10 +397,6 @@ if get_option('use_rust_tasks').enabled() and not use_rust
     error('-Duse_rust_tasks=enabled requires -Duse_rust=enabled (the task system ships in libquake_rs.a)')
 endif
 use_rust_tasks = use_rust and not get_option('use_rust_tasks').disabled()
-if get_option('use_rust_render').enabled() and not use_rust
-    error('-Duse_rust_render=enabled requires -Duse_rust=enabled (the renderer ships in libquake_rs.a)')
-endif
-use_rust_render = use_rust and not get_option('use_rust_render').disabled()
 # the Rust filesystem does not implement the DO_USERDIRS lookup branches yet
 # (quake-capi fails this combination with a compile_error!); say so here
 # rather than several minutes into a cargo build
@@ -1190,6 +1208,9 @@ if use_rust
             '--header-output', '@OUTPUT1@',
         ],
         depfile : 'quake_rs.d',
+        # the quake-capi build script compiles the shaders with the same
+        # tools Meson found (Phase 8 M11); env is inherited through cargo
+        env : {'QUAKE_GLSLANG' : glslang.full_path(), 'QUAKE_SPIRV_OPT' : spirv_opt.full_path()},
         console : true,
         # cargo is its own (fast) change detector; always let it decide
         build_always_stale : true,

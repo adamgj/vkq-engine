@@ -88,7 +88,7 @@ Current coverage: `darwin-arm64` (full local tier, generated before Phase 7) and
 
 - **`-renderhash` identity** — the exact gate ADR-015 asks for (cull decisions and draw-call structure identical on captured frames). Structure, not pixels: it runs on any device, including lavapipe in Linux CI.
 - **SSIM** — 8x8-window structural similarity between the two builds' screenshots (pure-Python TGA reader and SSIM, no new dependency), gated on the mean window against the entry's per-`platform_key()` threshold. Thresholds come from `--stability`: the C build against itself, threshold = observed minimum − `--ssim-margin`. On the Windows dev box every run-to-run comparison is exactly 1.0, so `windows-x86_64` carries 0.99; other platforms fall back to `default` until a stability run records them.
-- **Validation** — `--validation` passes `-validation` (`VK_LAYER_KHRONOS_validation`) and fails on any layer message in the condebug log. Local gate only: the validation layer is not part of the SDK subset Linux CI installs.
+- **Validation** — `--validation` passes `-validation` (`VK_LAYER_KHRONOS_validation`) and fails on any layer message in the condebug log, and also fails if the run never printed `Using VK_LAYER_KHRONOS_validation`: the engine only requests the layer in a `_DEBUG` (`-Dbuildtype=debug`) build, so pass debug builds on both sides (`build-c-debug` vs `build-rs-debug`). Local gate only: the validation layer is not part of the SDK subset Linux CI installs.
 
 What the harness had to control to make a windowed run deterministic (all inside `render_corpus.py`):
 

@@ -32,12 +32,40 @@ jobs:
   lint:
     name: fmt + clippy + deny
     runs-on: ubuntu-latest
+    env:
+      VULKAN_SDK_VER: 1.4.341.1
     steps:
     - uses: actions/checkout@v6
     - uses: dtolnay/rust-toolchain@stable
       with:
         toolchain: 1.97.1
         components: clippy, rustfmt
+    # Phase 8 M11: quake-capi's build script compiles the shaders under the
+    # render feature, so the feature-gated clippy pass below needs the same
+    # glslangValidator/spirv-opt the engine builds use (distro spirv-tools
+    # lack --canonicalize-ids); same SDK subset and cache key as build-linux
+    - name: Cache Vulkan SDK tools
+      id: cache-vulkan
+      uses: actions/cache@v4
+      with:
+        path: vulkan-sdk
+        key: vulkan-sdk-${{ env.VULKAN_SDK_VER }}-linux-x86_64
+    - name: Install Vulkan SDK tools
+      if: steps.cache-vulkan.outputs.cache-hit != 'true'
+      run: |
+        wget -q -O vulkan-sdk.tar.xz "https://sdk.lunarg.com/sdk/download/${VULKAN_SDK_VER}/linux/vulkansdk-linux-x86_64-${VULKAN_SDK_VER}.tar.xz"
+        mkdir -p vulkan-sdk
+        tar -xf vulkan-sdk.tar.xz -C vulkan-sdk --strip-components=1 --wildcards \
+          "${VULKAN_SDK_VER}/x86_64/bin/glslang" \
+          "${VULKAN_SDK_VER}/x86_64/bin/glslangValidator" \
+          "${VULKAN_SDK_VER}/x86_64/bin/spirv-opt" \
+          "${VULKAN_SDK_VER}/x86_64/include" \
+          "${VULKAN_SDK_VER}/x86_64/lib/libvulkan.so*"
+        rm vulkan-sdk.tar.xz
+    - name: Export Vulkan SDK environment
+      run: |
+        echo "VULKAN_SDK=$PWD/vulkan-sdk/x86_64" >> "$GITHUB_ENV"
+        echo "$PWD/vulkan-sdk/x86_64/bin" >> "$GITHUB_PATH"
     - name: cargo fmt
       working-directory: rust
       run: cargo fmt --check
@@ -52,6 +80,14 @@ jobs:
     - name: cargo clippy (progs feature)
       working-directory: rust
       run: cargo clippy -p quake-capi --features progs,render --all-targets --locked -- -D warnings
+    # Phase 8 M11 (AC10): the xtask shader/pak outputs against Meson's
+    # custom targets is the build-linux harness job's xtask_diff step; here
+    # the pipeline's own unit tests and the miniz deflate parity differential
+    - name: xtask pipeline tests
+      working-directory: rust
+      run: |
+        cargo test -p xtask --locked
+        cargo test -p quake-ctest --test xtask_differential --locked
     - name: cargo deny
       uses: EmbarkStudios/cargo-deny-action@v2
       with:
@@ -78,6 +114,10 @@ jobs:
       with:
         toolchain: 1.97.1
         components: clippy
+    # Phase 8 M11: the render-feature clippy pass runs quake-capi's shader
+    # build script (spirv-opt is skipped on macOS, as in meson.build)
+    - name: Install shader tools
+      run: brew install glslang spirv-tools
     - name: cargo clippy
       working-directory: rust
       run: cargo clippy --workspace --all-targets --locked -- -D warnings

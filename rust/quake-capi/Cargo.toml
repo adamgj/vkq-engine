@@ -39,6 +39,11 @@ quake-render = { path = "../quake-render", optional = true }
 # hands the C seams; same feature set as quake-render (no defaults)
 ash = { version = "0.38", default-features = false, features = ["std", "debug"], optional = true }
 
+[build-dependencies]
+# Phase 8 M11 (task plan D8): build.rs compiles the shaders and builds the
+# embedded pak with the xtask pipeline under `render`; a no-op otherwise
+xtask = { path = "../xtask" }
+
 [target.'cfg(unix)'.dependencies]
 # Phase 5 M7b (ADR-003): errno constants for the UDP landriver shims
 libc = "0.2"

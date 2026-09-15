@@ -1841,9 +1841,11 @@ unsafe fn build_surface_display_list(fa: *mut MSurface) {
     unsafe {
         let pedges: *mut MEdge = (*CURRENTMODEL).edges;
         let lnumverts = (*fa).numedges;
+        // A 3-edge surface makes the C `(lnumverts - 4) * ...` term negative;
+        // signed arithmetic keeps the debug-profile overflow check quiet.
         let poly = c::Mem_Alloc(
-            core::mem::size_of::<GlPoly>()
-                + ((lnumverts as isize - 4)
+            (core::mem::size_of::<GlPoly>() as isize
+                + (lnumverts as isize - 4)
                     * VERTEXSIZE as isize
                     * core::mem::size_of::<f32>() as isize) as usize,
         )
