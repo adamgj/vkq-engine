@@ -913,19 +913,33 @@ void Host_ServerFrame (void)
  *
  * Phase 9 M6 (host inversion): under USE_RUST_PLATFORM the frame loop is Rust
  * (quake-platform::main_sdl) and calls Host_Frame through sys_glue.c's
- * SysGlue_HostFrame, a Host_Guard whose setjmp is the outermost target; the
- * re-raise below lands on it and the guard's status ends the frame in the Rust
- * loop. This frame is then a plain call.
+ * SysGlue_HostFrame, a Host_Guard whose setjmp is the outermost target and
+ * whose status ends the frame in the Rust loop. This frame has no setjmp of
+ * its own there, but it still may not let the re-raise jump through the Rust
+ * quake_rs_host_frame above it (rule 3), so it is a Host_Guard that hands the
+ * status back; quake_rs_host_frame returns it after Host_Frame's serverprofile
+ * tail and Host_Frame's Host_Reraise re-issues the jump from that C frame.
  */
-void Host_Glue_FrameInner (double time)
-{
 #ifndef USE_RUST_PLATFORM
+int Host_Glue_FrameInner (double time)
+{
 	if (setjmp (host_abortserver))
-		return; // something bad happened, or the server disconnected
-#endif
+		return HOST_GUARD_OK; // something bad happened, or the server disconnected
 
 	Host_Reraise (quake_rs_host_frame_core (time));
+	return HOST_GUARD_OK;
 }
+#else
+static void Host_InvokeFrameCore (void *p)
+{
+	Host_Reraise (quake_rs_host_frame_core (*(double *)p));
+}
+
+int Host_Glue_FrameInner (double time)
+{
+	return Host_Guard (Host_InvokeFrameCore, &time);
+}
+#endif
 
 void Host_Frame (double time)
 {

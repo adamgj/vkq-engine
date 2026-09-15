@@ -14,8 +14,10 @@ What is already true (Phase 9 M6/M7):
 
 - The Rust host loop (`quake-platform::main_sdl`) is the sole owner of
   frame-abort recovery under `USE_RUST_PLATFORM`: `Host_Glue_FrameInner`
-  is a plain call there, and `SysGlue_HostFrame`'s `Host_Guard` status is
-  consumed as `quake_host::error::HostError` in `main_sdl::recover`.
+  has no `setjmp` there (it is a `Host_Guard` whose status
+  `quake_rs_host_frame` hands back), and `SysGlue_HostFrame`'s
+  `Host_Guard` status is consumed as `quake_host::error::HostError` in
+  `main_sdl::recover`.
 - `Sys_Init`/`Host_Init` run under the same guard; a raise there is a
   `Sys_Error` (the C jumped to an un-`setjmp`ed buffer).
 - No Rust frame is ever unwound by `longjmp`: every C call that can raise
@@ -24,7 +26,10 @@ What is already true (Phase 9 M6/M7):
 
 ## Executable sites
 
-Comments stripped; `#include <setjmp.h>`, `jmp_buf`, `setjmp`, `longjmp`.
+Comments stripped; `#include <setjmp.h>`, `jmp_buf`, `setjmp`, `longjmp`
+over `Quake/*.{c,h,m}` -- the shipped C remnant. `rust/quake-ctest/stubs`
+keeps its own harness-only traps and is out of scope. Runs in CI (the
+`core headers bindgen smoke` job of `rust.yml`).
 
 | File:line | In | Site | Disposition | Why |
 |---|---|---|---|---|
@@ -67,7 +72,7 @@ Comments stripped; `#include <setjmp.h>`, `jmp_buf`, `setjmp`, `longjmp`.
 | `host_glue.c:343` | `Host_Guard` | `memcpy (screen_error, saved_screen_error, sizeof (jmp_buf));` | converted at Phase 10 | `Host_Guard`/`Host_Reraise` trampoline pair (ADR-009 rule 3); needed while any C caller can raise past a Rust frame |
 | `host_glue.c:361` | `Host_Reraise` | `longjmp (host_abortserver, 1);` | converted at Phase 10 | `Host_Guard`/`Host_Reraise` trampoline pair (ADR-009 rule 3); needed while any C caller can raise past a Rust frame |
 | `host_glue.c:363` | `Host_Reraise` | `longjmp (screen_error, 1);` | converted at Phase 10 | `Host_Guard`/`Host_Reraise` trampoline pair (ADR-009 rule 3); needed while any C caller can raise past a Rust frame |
-| `host_glue.c:923` | `Host_Glue_FrameInner` | `if (setjmp (host_abortserver))` | deleted with soak exit | the C frame's own `setjmp`, compiled only without `USE_RUST_PLATFORM`; the Rust loop (`quake-platform::main_sdl::recover`) owns frame-abort recovery, and the `#ifndef` goes with the `use_rust_platform` switch |
+| `host_glue.c:926` | `Host_Glue_FrameInner` | `if (setjmp (host_abortserver))` | deleted with soak exit | the C frame's own `setjmp`, compiled only without `USE_RUST_PLATFORM` (with it the frame is a `Host_Guard` whose status `quake_rs_host_frame` hands back); the Rust loop (`quake-platform::main_sdl::recover`) owns frame-abort recovery, and the `#ifndef` goes with the `use_rust_platform` switch |
 
 Totals: 19 converted at Phase 10, 21 deleted with soak exit.
 
@@ -95,7 +100,7 @@ The last column lists the Rust source files that call the TU's thunks
 | `gl_screen_glue.c` | 2 | 1 | `rust/quake-capi/src/gl_screen.rs` |
 | `gl_texmgr_glue.c` | 2 | 1 | `rust/quake-capi/src/gl_texmgr.rs` |
 | `host_cmd_glue.c` | 19 | 1 | `rust/quake-capi/src/host_cmd.rs` |
-| `host_glue.c` | 101 | 17 | `rust/quake-capi/src/host.rs`, `rust/quake-capi/src/host_cmd.rs`, `rust/quake-capi/src/menu.rs`, `rust/quake-capi/src/sbar.rs` |
+| `host_glue.c` | 102 | 18 | `rust/quake-capi/src/host.rs`, `rust/quake-capi/src/host_cmd.rs`, `rust/quake-capi/src/menu.rs`, `rust/quake-capi/src/sbar.rs` |
 | `in_sdl_glue.c` | 7 | 3 | `rust/quake-platform/src/input/mod.rs` |
 | `keys_glue.c` | 11 | 8 | `rust/quake-capi/src/keys.rs` |
 | `menu_glue.c` | 10 | 4 | `rust/quake-capi/src/menu.rs` |
@@ -121,7 +126,7 @@ The last column lists the Rust source files that call the TU's thunks
 | `sys_glue.c` | 4 | 3 | `rust/quake-platform/src/main_sdl.rs`, `rust/quake-platform/src/sys/unix.rs`, `rust/quake-platform/src/sys/win.rs` |
 | `view_glue.c` | 4 | 2 | `rust/quake-capi/src/view.rs` |
 | `world_glue.c` | 6 | 6 | `rust/quake-capi/src/host_cmd.rs`, `rust/quake-capi/src/progs_builtins_cl.rs`, `rust/quake-capi/src/progs_builtins_particles.rs`, `rust/quake-capi/src/progs_builtins_sv.rs`, `rust/quake-capi/src/progs_builtins_sv_msg.rs`, `rust/quake-capi/src/progs_builtins_te.rs`, `rust/quake-capi/src/sv_main.rs`, `rust/quake-capi/src/sv_move.rs`, `rust/quake-capi/src/sv_phys.rs`, `rust/quake-capi/src/sv_send.rs`, `rust/quake-capi/src/world.rs` |
-| **total (39 TUs)** | **342** | **136** | |
+| **total (39 TUs)** | **343** | **137** | |
 
 All of these convert at Phase 10 with the trampoline pair: once the raise
 itself is Rust (`Host_Error`/`Host_EndGame` return `Err(HostError)`), a

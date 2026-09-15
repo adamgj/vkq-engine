@@ -25,8 +25,8 @@ extern "C" {
     pub fn SysGlue_SysInit() -> c_int;
     /// `Host_Init ()` (M6).
     pub fn SysGlue_HostInit() -> c_int;
-    /// `Host_Frame (time)` (M6): the frame guard `Host_Glue_FrameInner`'s
-    /// `setjmp` used to provide.
+    /// `Host_Frame (time)` (M6): the outermost frame guard, what
+    /// `Host_Glue_FrameInner`'s `setjmp` used to provide.
     pub fn SysGlue_HostFrame(time: f64) -> c_int;
 
     /* M6 -- `main_sdl.c` callees that cannot raise. */

@@ -33,7 +33,8 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 //     exported by quake-capi under their C names directly.
 //  4. Carry the MSVC comctl32 v6 manifest pragma sys_sdl.c held.
 //  5. M6: guard Sys_Init, Host_Init and Host_Frame for the Rust main loop
-//     (the setjmp that Host_Glue_FrameInner held moves into the guard), and
+//     (the setjmp that Host_Glue_FrameInner held moves into the guard;
+//     Host_Glue_FrameInner becomes a status-returning guard itself), and
 //     hand it the compiler banner, ENGINE_NAME_AND_VER and the two client
 //     fields (cl.paused, cls.timedemo) main_sdl.c read -- the C-owned
 //     quakedef.h/client.h values that stay behind the glue boundary.

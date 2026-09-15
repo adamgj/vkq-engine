@@ -10,8 +10,10 @@
 //! through `Host_Guard` trampolines in `Quake/sys_glue.c`, and their status
 //! is consumed here as a [`HostError`] (Phase 9 M7). A frame that raises
 //! just ends -- what `Host_Glue_FrameInner`'s `setjmp` early return did
-//! before M6 (the guard now sits in this loop, the C frame wrapper is a
-//! plain call under `USE_RUST_PLATFORM`; see [`recover`]). A raise during
+//! before M6 (the outermost guard now sits in this loop; under
+//! `USE_RUST_PLATFORM` the C frame wrapper is itself a `Host_Guard` whose
+//! status `quake_rs_host_frame` hands back, so no jump crosses it; see
+//! [`recover`]). A raise during
 //! `Sys_Init` / `Host_Init` used to land on an un-`setjmp`ed
 //! `host_abortserver` (undefined behaviour in C); it is now a `Sys_Error`.
 
@@ -145,11 +147,13 @@ unsafe fn host_frame(time: f64) {
 
 /// Frame-abort recovery: the sole owner of it under `USE_RUST_PLATFORM`
 /// (Phase 9 D7), what `_Host_Frame`'s `setjmp (host_abortserver)` early
-/// return did in the C. `Host_Error`/`Host_EndGame` have already shut the
-/// server down and disconnected the client, so by ADR-009's post-guard
-/// invariant nothing here touches that state; the loop just goes round
-/// again. A status `Host_Guard` does not define has no C precedent (its
-/// `setjmp`s return 1) and is reported instead of ignored.
+/// return did in the C. For `AbortServer`, `Host_Error`/`Host_EndGame`
+/// have already shut the server down and disconnected the client, so by
+/// ADR-009's post-guard invariant nothing here touches that state; for
+/// `ScreenError` the jump was taken before either, and the loop continues
+/// with the server and client as they were, as `SCR_DrawGUI`'s own recovery
+/// point does. A status `Host_Guard` does not define has no C precedent
+/// (its `setjmp`s return 1) and is reported instead of ignored.
 fn recover(err: HostError) {
     match err {
         HostError::AbortServer | HostError::ScreenError => {}

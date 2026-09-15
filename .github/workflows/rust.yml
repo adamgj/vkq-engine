@@ -173,6 +173,10 @@ jobs:
       run: cargo install bindgen-cli --locked --version 0.72.1
     - name: Check core headers (standalone compile + bindgen)
       run: ./scripts/harness/check_headers.sh
+    # Phase 9 M7 (ADR-009): every remaining setjmp/longjmp site is classified
+    # and the committed inventory is current
+    - name: Residual setjmp inventory (ADR-009)
+      run: python3 scripts/setjmp_inventory.py --check
     - name: Regenerate quake-c-sys bindings and diff (ADR-011)
       run: |
         ./scripts/gen_c_bindings.sh

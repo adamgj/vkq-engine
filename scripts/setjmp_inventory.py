@@ -43,10 +43,9 @@ RULES = [
     ("host_glue.c", r"^(Host_Guard|Host_Reraise): ", P10, "`Host_Guard`/`Host_Reraise` trampoline pair (ADR-009 rule 3); needed while any C caller can raise past a Rust frame"),
     ("host_glue.c", r"longjmp \(screen_error, 1\)", P10, "`Host_Error` while CSQC draws the HUD; becomes an error path of the Rust render frame (ADR-009)"),
     ("host_glue.c", r"longjmp \(host_abortserver, 1\)", P10, "`Host_Error`/`Host_EndGame` raise; becomes `Err(HostError)` when the raise moves to Rust"),
-    ("host_glue.c", r"^Host_Glue_FrameInner: .*setjmp", SOAK, "the C frame's own `setjmp`, compiled only without `USE_RUST_PLATFORM`; the Rust loop (`quake-platform::main_sdl::recover`) owns frame-abort recovery, and the `#ifndef` goes with the `use_rust_platform` switch"),
+    ("host_glue.c", r"^Host_Glue_FrameInner: .*setjmp", SOAK, "the C frame's own `setjmp`, compiled only without `USE_RUST_PLATFORM` (with it the frame is a `Host_Guard` whose status `quake_rs_host_frame` hands back); the Rust loop (`quake-platform::main_sdl::recover`) owns frame-abort recovery, and the `#ifndef` goes with the `use_rust_platform` switch"),
     ("gl_screen_glue.c", r"#\s*include\s*<setjmp\.h>|extern jmp_buf screen_error", P10, "goes with `SCR_DrawGUI`'s `setjmp`"),
     ("gl_screen_glue.c", r"setjmp \(screen_error\)", P10, "`SCR_DrawGUI`'s CSQC recovery point; becomes an error path of the Rust render frame function (ADR-009 end state)"),
-    ("quakedef.h", r"jmp_buf", P10, "the raise targets' declarations; retired with the `jmp_buf`s (the header itself goes at soak exit per D7/I8, the declarations move with the C remnant until then)"),
 ]
 
 
@@ -80,7 +79,11 @@ def strip_comments(text):
 
 
 def c_files():
-    files = glob.glob(os.path.join(ROOT, QUAKE, "*.c")) + glob.glob(os.path.join(ROOT, QUAKE, "*.h"))
+    # the engine's C remnant only: the quake-ctest stubs keep their own
+    # jmp_bufs for the differential harness and are not shipped
+    files = []
+    for ext in ("*.c", "*.h", "*.m"):
+        files += glob.glob(os.path.join(ROOT, QUAKE, ext))
     return sorted(files, key=lambda p: os.path.basename(p))
 
 
@@ -180,8 +183,10 @@ def render(sites, guards, callers):
     w("")
     w("- The Rust host loop (`quake-platform::main_sdl`) is the sole owner of")
     w("  frame-abort recovery under `USE_RUST_PLATFORM`: `Host_Glue_FrameInner`")
-    w("  is a plain call there, and `SysGlue_HostFrame`'s `Host_Guard` status is")
-    w("  consumed as `quake_host::error::HostError` in `main_sdl::recover`.")
+    w("  has no `setjmp` there (it is a `Host_Guard` whose status")
+    w("  `quake_rs_host_frame` hands back), and `SysGlue_HostFrame`'s")
+    w("  `Host_Guard` status is consumed as `quake_host::error::HostError` in")
+    w("  `main_sdl::recover`.")
     w("- `Sys_Init`/`Host_Init` run under the same guard; a raise there is a")
     w("  `Sys_Error` (the C jumped to an un-`setjmp`ed buffer).")
     w("- No Rust frame is ever unwound by `longjmp`: every C call that can raise")
@@ -190,7 +195,10 @@ def render(sites, guards, callers):
     w("")
     w("## Executable sites")
     w("")
-    w("Comments stripped; `#include <setjmp.h>`, `jmp_buf`, `setjmp`, `longjmp`.")
+    w("Comments stripped; `#include <setjmp.h>`, `jmp_buf`, `setjmp`, `longjmp`")
+    w("over `Quake/*.{c,h,m}` -- the shipped C remnant. `rust/quake-ctest/stubs`")
+    w("keeps its own harness-only traps and is out of scope. Runs in CI (the")
+    w("`core headers bindgen smoke` job of `rust.yml`).")
     w("")
     w("| File:line | In | Site | Disposition | Why |")
     w("|---|---|---|---|---|")

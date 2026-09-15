@@ -28,9 +28,11 @@ pub enum HostError {
     /// server is already shut down and the client disconnected.
     AbortServer,
     /// `longjmp (screen_error, 1)`: `Host_Error` while CSQC was drawing the
-    /// HUD (`in_update_screen`). In the C this jump only ever had a target
-    /// inside `SCR_DrawGUI`; one that reaches the host loop was raised with
-    /// no such frame on the stack.
+    /// HUD (`in_update_screen`). Taken before `Host_ShutdownServer` and
+    /// `CL_Disconnect`, so unlike [`AbortServer`](Self::AbortServer) the
+    /// server and client are as they were. In the C this jump only ever had
+    /// a target inside `SCR_DrawGUI`; one that reaches the host loop was
+    /// raised with no such frame on the stack.
     ScreenError,
     /// A status `Host_Guard` does not define: a C-side contract violation.
     Unknown(c_int),
