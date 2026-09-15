@@ -74,7 +74,8 @@ ENV LD_LIBRARY_PATH=${VULKAN_SDK}/lib
 # Rust toolchain for the mixed build (Rust migration Phase 9 M6: the
 # AppImage ships the Rust entry point and libquake_rs.a); rustup's proxy
 # honours rust/rust-toolchain.toml, which names the same version and
-# components, so nothing is fetched at build time
+# components, so no toolchain is fetched at build time (the workspace's
+# crates still are: the registry is dropped from the image below)
 ENV RUSTUP_HOME=/opt/rustup
 ENV CARGO_HOME=/opt/cargo
 ENV PATH=${CARGO_HOME}/bin:${PATH}

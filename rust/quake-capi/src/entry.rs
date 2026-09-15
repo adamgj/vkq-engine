@@ -18,14 +18,15 @@
 //! entry shim any more (Meson drops `main_sdl.c` under
 //! `-Duse_rust_platform`).
 
-#![allow(clippy::missing_safety_doc)]
-
 use core::ffi::{c_char, c_int};
 
 #[cfg(not(all(windows, feature = "sdl3")))]
 use quake_platform::main_sdl::quake_main;
 
 /// `int main (int argc, char *argv[])`.
+///
+/// # Safety
+/// Called once by the C runtime on the main thread with its `argc`/`argv`.
 #[cfg(not(windows))]
 #[no_mangle]
 pub unsafe extern "C" fn main(argc: c_int, argv: *mut *mut c_char) -> c_int {
@@ -35,6 +36,9 @@ pub unsafe extern "C" fn main(argc: c_int, argv: *mut *mut c_char) -> c_int {
 
 /// `int WINAPI WinMain (HINSTANCE, HINSTANCE, LPSTR, int)` --
 /// `SDL3/SDL_main.h`'s Windows shim: `SDL_RunApp (0, NULL, SDL_main, NULL)`.
+///
+/// # Safety
+/// Called once by the CRT on the main thread.
 #[cfg(all(windows, feature = "sdl3"))]
 #[no_mangle]
 pub unsafe extern "system" fn WinMain(
@@ -49,6 +53,9 @@ pub unsafe extern "system" fn WinMain(
 
 /// `int SDL_main (int argc, char *argv[])` -- what `SDL2main.lib`'s
 /// `WinMain` calls after building the UTF-8 `argv`.
+///
+/// # Safety
+/// Called once by `SDL2main` on the main thread with its `argc`/`argv`.
 #[cfg(all(windows, feature = "sdl2"))]
 #[no_mangle]
 pub unsafe extern "C" fn SDL_main(argc: c_int, argv: *mut *mut c_char) -> c_int {

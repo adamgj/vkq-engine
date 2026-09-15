@@ -158,6 +158,8 @@ pub unsafe fn fopen(path: *const c_char, mode: *const c_char) -> *mut FILE {
 /// `static qboolean Sys_Exec (const char *cmd, ...)` -- `fork` + `execvp`
 /// with the child's stdout/stderr on `/dev/null` (the C `freopen`s are
 /// spelled as the `dup2` they amount to; the libc crate has no `stdout`).
+/// The `argv` array is built before the fork: the C's was a stack array,
+/// and the child must not allocate.
 ///
 /// # Safety
 /// `cmd` and `args` are NUL-terminated strings.
@@ -165,6 +167,11 @@ unsafe fn exec(cmd: *const c_char, args: &[*const c_char]) -> bool {
     // SAFETY: caller contract; the child only calls async-signal-safe
     // libc entry points before `execvp`.
     unsafe {
+        let mut argv: Vec<*const c_char> = Vec::with_capacity(args.len() + 2);
+        argv.push(cmd);
+        argv.extend_from_slice(args);
+        argv.push(ptr::null());
+
         let p = libc::fork();
         if p < 0 {
             // fork failed
@@ -172,10 +179,6 @@ unsafe fn exec(cmd: *const c_char, args: &[*const c_char]) -> bool {
         }
         if p == 0 {
             // child process
-            let mut argv: Vec<*const c_char> = Vec::with_capacity(args.len() + 2);
-            argv.push(cmd);
-            argv.extend_from_slice(args);
-            argv.push(ptr::null());
 
             // Disable stdout/stderr
             let null = libc::open(c"/dev/null".as_ptr(), libc::O_WRONLY);
