@@ -306,7 +306,6 @@ phase1_c_srcs = [
 if host_machine.system() == 'windows'
     srcs += [
         'Quake/net_win.c',
-        'Quake/pl_win.c',
         'Quake/sys_sdl_win.c',
     ]
     srcs += import('windows').compile_resources(
@@ -320,7 +319,6 @@ if host_machine.system() == 'windows'
 else
     srcs += [
         'Quake/net_bsd.c',
-        'Quake/pl_linux.c',
         'Quake/sys_sdl_unix.c',
     ]
 endif
@@ -551,6 +549,14 @@ if use_rust_platform
     srcs += ['Quake/in_sdl_glue.c']
 else
     srcs += ['Quake/in_sdl.c', 'Quake/in_sdl2.c', 'Quake/in_sdl3.c']
+endif
+
+# Phase 9 M4: the PL_* layer (window icon, clipboard, error dialog) is
+# quake-platform::pl -- the Win32 calls of pl_win.c on Windows, the SDL
+# calls of pl_linux.c everywhere else (pl_osx.m was never in this build).
+# Nothing in it can raise, so there is no glue TU.
+if not use_rust_platform
+    srcs += [host_machine.system() == 'windows' ? 'Quake/pl_win.c' : 'Quake/pl_linux.c']
 endif
 
 # Phase 6: the progs VM. The flip is per-file and lands milestone by milestone

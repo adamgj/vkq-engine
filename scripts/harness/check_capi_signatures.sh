@@ -105,6 +105,8 @@ qboolean	  Task_Join (task_handle_t handle, uint32_t timeout);
 /* Phase 9 M3: input.h's IN_* family (usercmd_t comes from protocol.h above)
  * is compiled next to quake_rs.h's hand-written copies. */
 #include "input.h"
+/* Phase 9 M4: platform.h's PL_* family, same arrangement. */
+#include "platform.h"
 #include "quake_rs.h"
 EOF
 

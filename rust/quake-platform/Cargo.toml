@@ -19,6 +19,17 @@ sdl2 = { version = "0.38", optional = true, default-features = false }
 quake-c-sys = { path = "../quake-c-sys" }
 quake-types = { path = "../quake-types" }
 
+# ADR-003 (Phase 9 M1 amendment, adopted M4): pl_win.c's icon, clipboard
+# and error-dialog calls, feature by feature as each milestone needs them
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_System_DataExchange",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Memory",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
 [features]
 sdl3 = ["dep:sdl3"]
 sdl2 = ["dep:sdl2"]

@@ -105,6 +105,8 @@ pub mod net_main;
 pub mod net_udp;
 #[cfg(feature = "net")]
 pub mod net_wins;
+#[cfg(feature = "platform")]
+pub mod pl; // pl_win.c/pl_linux.c (Phase 9 M4)
 #[cfg(any(feature = "progs", feature = "progs-host"))]
 pub mod pr_edict_arena; // pr_edict_arena.c (edict arena + progs string table)
 #[cfg(feature = "progs")]

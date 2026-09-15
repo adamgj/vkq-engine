@@ -216,6 +216,14 @@ milestone that first uses it:
   registry, DbgHelp, known folders, COM, clipboard, message box, multimedia
   timers, threading). Pre-approved by the Phase 5 M1 amendment above; the
   feature list is recorded per crate in the manifests when adopted.
+  **`quake-platform` adopted at M4** (2026-09-15) with `Win32_Foundation`,
+  `Win32_System_DataExchange`, `Win32_System_LibraryLoader`,
+  `Win32_System_Memory` and `Win32_UI_WindowsAndMessaging` for pl_win.c's
+  `LoadIcon`/`SetClassLongPtr`/`DestroyIcon`, clipboard and `MessageBox`
+  calls (`CF_TEXT` is a local constant rather than pulling in
+  `Win32_System_Ole`); M5 extends the list. `cargo deny check` after the
+  change: `advisories ok, bans ok, licenses ok, sources ok` (no new crate
+  enters `Cargo.lock`).
 - `socket2` 0.6 ("MIT OR Apache-2.0"), pre-approved above, was planned to
   become an unconditional dependency of `quake-net` at M2. **Amended at M2:
   it stays `cfg(unix)`-only.** The net_wins.c port calls the same ws2_32

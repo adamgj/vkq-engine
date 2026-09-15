@@ -18,3 +18,7 @@ pub mod snd_sdl3;
 /// Phase 9 M3: `in_sdl.c`/`in_sdl2.c`/`in_sdl3.c`.
 #[cfg(feature = "platform")]
 pub mod input;
+
+/// Phase 9 M4: `pl_win.c`/`pl_linux.c`.
+#[cfg(feature = "platform")]
+pub mod pl;

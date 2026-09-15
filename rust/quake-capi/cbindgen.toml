@@ -648,6 +648,15 @@ void IN_HideCursor(void);
 void IN_GetMousePos(int *outx, int *outy);
 void IN_ScaleMouseCoords(float x, float y, int *outx, int *outy);
 #endif
+/* Phase 9 M4: platform.h's PL_* family, exported under the C names
+ * (pl.rs); declared by hand on platform.h's own guard like the input.h
+ * family above so quake_rs.h never re-declares an engine-header name. */
+#ifdef _QUAKE_PLATFORM_H
+void PL_SetWindowIcon(void);
+void PL_VID_Shutdown(void);
+char *PL_GetClipboardData(void);
+void PL_ErrorDialog(const char *text);
+#endif
 #ifdef __cplusplus
 } /* extern "C" -- these hand-written declarations sit outside cbindgen's own
    * cpp_compat guard, so they carry their own */
@@ -748,6 +757,8 @@ exclude = [
     "IN_Shutdown", "IN_MouseMotion", "IN_UpdateInputMode", "IN_Move",
     "IN_ClearStates", "IN_Activate", "IN_Deactivate", "IN_DeactivateForConsole",
     "IN_HideCursor", "IN_GetMousePos", "IN_ScaleMouseCoords",
+    # Phase 9 M4 -- declared by hand above, guarded on platform.h
+    "PL_SetWindowIcon", "PL_VID_Shutdown", "PL_GetClipboardData", "PL_ErrorDialog",
     "GLMesh_UploadBuffers", "AliasMesh", "AllSurfacesDef", "JointPose",
     "QPathStr", "SkinDef", "SurfaceDef", "Md3XyzNormal", "Md5Vert", "Md5Vert8",
     "AliasHdr", "MAliasFrameDesc", "MSprite", "MSpriteFrameDesc",
