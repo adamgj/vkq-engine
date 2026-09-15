@@ -183,3 +183,45 @@ in the task plan's evidence table.
   Windows x86_64 leg; the D2 fallback (a `u64` newtype) was not needed.
 - `cargo deny check` is clean in both workspaces with `deny.toml`
   unchanged.
+
+## Amended (Phase 9 M1, 2026-09-14) — platform-layer dependencies
+
+Phase 9 (host inversion + platform; task plan
+`docs/ai/plans/rust-conversion-phase-9.md` D2) moves the SDL event/input
+pump, the `Sys_*`/`PL_*` layers, `main()` and the Windows UDP landriver into
+`quake-platform`/`quake-net`. Planned direct dependencies, each adopted by the
+milestone that first uses it:
+
+- `sdl2` 0.38.0 (MIT) with its transitives `sdl2-sys` 0.38.0 (MIT),
+  `bitflags` 1.3.2 ("MIT OR Apache-2.0"; a second major next to the
+  `bitflags` 2.x already in the tree — `[bans] multiple-versions` is `warn`),
+  `lazy_static` 1.5.0 (already in the tree), `version-compare` 0.1.1 (MIT)
+  and `cfg-if`/`libc` (already in the tree). Declared with
+  `default-features = false` and **without** `bundled`, `static-link`,
+  `use-pkgconfig` or `raw-window-handle`, so `sdl2-sys`'s build script only
+  emits `cargo:rustc-link-lib` directives and the Linux/macOS SDL2 legs link
+  the same distro library the C files do (ADR-017). Only `sdl2::sys` (the
+  raw C bindings) is used, as `snd_sdl3` already uses only `sdl3::sys`. The
+  crate is on this ADR's expected-direct list and reaches a build only under
+  `quake-platform`'s `sdl2` feature, which Meson sets for `use_rust` builds
+  configured with `-Duse_sdl3=disabled`; `sdl2` and `sdl3` are mutually
+  exclusive (`compile_error!`). **Adopted at M1** (the feature scaffolding);
+  the first code under it lands with the input port (M3).
+- `windows-sys` 0.61 ("MIT OR Apache-2.0", Microsoft; already transitive in
+  `Cargo.lock`) as a direct `[target.'cfg(windows)']` dependency of
+  `quake-net` (M2: `Win32_Networking_WinSock`,
+  `Win32_NetworkManagement_IpHelper`, `Win32_Foundation`) and of
+  `quake-platform` (M4/M5: console, registry, DbgHelp, known folders, COM,
+  clipboard, message box, multimedia timers, threading). Pre-approved by the
+  Phase 5 M1 amendment above; the feature list is recorded per crate in the
+  manifests when adopted.
+- `socket2` 0.6 ("MIT OR Apache-2.0"), pre-approved above, becomes an
+  unconditional dependency of `quake-net` at M2 (its Windows arm replaces
+  `net_wins.c`).
+
+Not adopted: `objc2` (the `pl_osx.m` clipboard read is served by
+`SDL_GetClipboardText`, task plan D5) and any `winit`/async runtime (task
+plan NG3).
+
+`cargo deny check licenses bans` after adding `sdl2`: `bans ok, licenses ok`
+(Windows dev box, 2026-09-14; the `bitflags` 1.x/2.x duplicate is a warn).

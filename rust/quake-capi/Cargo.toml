@@ -115,6 +115,12 @@ codec-opus = []
 # tracks the C build's USE_SDL3 (folder-picker dialog availability; with
 # snd, also selects the quake-platform SDL3 audio backend per ADR-017)
 sdl3 = ["quake-platform/sdl3"]
+# tracks the C build's SDL2 configuration (Phase 9 M1, ADR-017): selects the
+# quake-platform SDL2 arm for the input/sys/main layers as they land
+sdl2 = ["quake-platform/sdl2"]
+# the Phase 9 platform-layer shims (net_wins, in_sdl*, pl_*, sys_sdl*,
+# main_sdl as they land); set by Meson when -Duse_rust_platform is enabled
+platform = ["quake-platform/platform"]
 # tracks the C build's DO_USERDIRS (extra per-user localization lookups)
 userdirs = []
 

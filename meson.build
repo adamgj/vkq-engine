@@ -397,6 +397,14 @@ if get_option('use_rust_tasks').enabled() and not use_rust
     error('-Duse_rust_tasks=enabled requires -Duse_rust=enabled (the task system ships in libquake_rs.a)')
 endif
 use_rust_tasks = use_rust and not get_option('use_rust_tasks').disabled()
+# Phase 9: the platform layer (task plan D1). One crate-level switch; the C
+# platform files are dropped one milestone at a time under
+# `if use_rust_platform` blocks, and -Duse_rust_platform=disabled stays the
+# comparison oracle (build-rs-cplatform) through the release-cycle soak
+if get_option('use_rust_platform').enabled() and not use_rust
+    error('-Duse_rust_platform=enabled requires -Duse_rust=enabled (the platform layer ships in libquake_rs.a)')
+endif
+use_rust_platform = use_rust and not get_option('use_rust_platform').disabled()
 # the Rust filesystem does not implement the DO_USERDIRS lookup branches yet
 # (quake-capi fails this combination with a compile_error!); say so here
 # rather than several minutes into a cargo build
@@ -455,6 +463,10 @@ if use_rust
         rust_feature_list += 'render'
         cflags += '-DUSE_RUST_RENDER'
     endif
+    if use_rust_platform
+        rust_feature_list += 'platform'
+        cflags += '-DUSE_RUST_PLATFORM'
+    endif
     # Phase 7 M5: the server- and client-coupled pr_cmds.c/pr_ext.c builtins
     # and the ED_Parse* dispatchers straddle both strata -- the builtin tables
     # are progs, the sv/cl glue their cores call is host -- so the feature that
@@ -465,6 +477,10 @@ if use_rust
     # cargo features tracking C defines the fs shims must agree with
     if use_sdl3
         rust_feature_list += 'sdl3'
+    else
+        # Phase 9 (ADR-017): the Rust platform layer carries an SDL2 arm so
+        # the SDL2 legs keep building once in_sdl.c/main_sdl.c move to Rust
+        rust_feature_list += 'sdl2'
     endif
     if get_option('do_userdirs').enabled()
         rust_feature_list += 'userdirs'

@@ -1,8 +1,16 @@
 //! SDL2+SDL3 platform glue, input, video, sys/pl layers (ADR-017).
 //!
-//! Phase 4 M9 populates the SDL3 audio backend; the rest of the platform
-//! layer arrives in Phase 9. The `sdl2` fallback backend stays C until a
-//! use_rust+SDL2 CI leg exists to verify its Rust port.
+//! Phase 4 M9 populated the SDL3 audio backend. Phase 9 adds the rest of
+//! the platform layer under the `platform` feature, with `sdl2`/`sdl3`
+//! selecting the SDL generation the C engine was configured for. The SDL2
+//! *audio* backend stays C (ADR-017); only the event/input/sys layers carry
+//! an SDL2 arm.
+
+#[cfg(all(feature = "sdl2", feature = "sdl3"))]
+compile_error!("quake-platform: the `sdl2` and `sdl3` features are mutually exclusive (ADR-017)");
+
+#[cfg(all(feature = "platform", not(any(feature = "sdl2", feature = "sdl3"))))]
+compile_error!("quake-platform: the `platform` feature needs exactly one of `sdl2`/`sdl3`");
 
 #[cfg(feature = "sdl3")]
 pub mod snd_sdl3;
