@@ -309,7 +309,6 @@ phase1_c_srcs = [
 if host_machine.system() == 'windows'
     srcs += [
         'Quake/net_win.c',
-        'Quake/net_wins.c',
         'Quake/pl_win.c',
         'Quake/sys_sdl_win.c',
     ]
@@ -324,7 +323,6 @@ if host_machine.system() == 'windows'
 else
     srcs += [
         'Quake/net_bsd.c',
-        'Quake/net_udp.c',
         'Quake/pl_linux.c',
         'Quake/sys_sdl_unix.c',
     ]
@@ -539,6 +537,10 @@ if use_rust_net
     srcs += ['Quake/net_msg_glue.c', 'Quake/net_dgrm_glue.c', 'Quake/net_dgrm_orch_glue.c']
 else
     srcs += ['Quake/net_msg.c', 'Quake/net_dgrm_rel.c', 'Quake/net_dgrm.c']
+    # Phase 9 M2: the UDP landrivers (net_udp.c on unix, net_wins.c on
+    # Windows) live in libquake_rs.a once use_rust_net is on; the C drivers
+    # are only built for the oracle
+    srcs += host_machine.system() == 'windows' ? ['Quake/net_wins.c'] : ['Quake/net_udp.c']
 endif
 
 # Phase 6: the progs VM. The flip is per-file and lands milestone by milestone

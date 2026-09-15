@@ -101,6 +101,8 @@ pub mod net_loop;
 pub mod net_main;
 #[cfg(feature = "net")]
 pub mod net_udp;
+#[cfg(feature = "net")]
+pub mod net_wins;
 #[cfg(any(feature = "progs", feature = "progs-host"))]
 pub mod pr_edict_arena; // pr_edict_arena.c (edict arena + progs string table)
 #[cfg(feature = "progs")]

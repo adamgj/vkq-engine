@@ -209,15 +209,20 @@ milestone that first uses it:
   the first code under it lands with the input port (M3).
 - `windows-sys` 0.61 ("MIT OR Apache-2.0", Microsoft; already transitive in
   `Cargo.lock`) as a direct `[target.'cfg(windows)']` dependency of
-  `quake-net` (M2: `Win32_Networking_WinSock`,
-  `Win32_NetworkManagement_IpHelper`, `Win32_Foundation`) and of
-  `quake-platform` (M4/M5: console, registry, DbgHelp, known folders, COM,
-  clipboard, message box, multimedia timers, threading). Pre-approved by the
-  Phase 5 M1 amendment above; the feature list is recorded per crate in the
-  manifests when adopted.
-- `socket2` 0.6 ("MIT OR Apache-2.0"), pre-approved above, becomes an
-  unconditional dependency of `quake-net` at M2 (its Windows arm replaces
-  `net_wins.c`).
+  `quake-net` (**adopted at M2** with `Win32_Networking_WinSock` only:
+  net_wins.c's `WSAStartup`/`gethostname`/`getaddrinfo` calls need no
+  IpHelper or Foundation surface, and the WSA error table is the in-tree
+  `wsaerror.h` transliteration) and of `quake-platform` (M4/M5: console,
+  registry, DbgHelp, known folders, COM, clipboard, message box, multimedia
+  timers, threading). Pre-approved by the Phase 5 M1 amendment above; the
+  feature list is recorded per crate in the manifests when adopted.
+- `socket2` 0.6 ("MIT OR Apache-2.0"), pre-approved above, was planned to
+  become an unconditional dependency of `quake-net` at M2. **Amended at M2:
+  it stays `cfg(unix)`-only.** The net_wins.c port calls the same ws2_32
+  entry points the C driver did through `windows-sys` (`socket2` routes
+  socket creation through `WSASocketW` and would hide the
+  `WSAStartup`/`WSACleanup` refcount the driver reproduces), so no new crate
+  or feature enters the Windows tree.
 
 Not adopted: `objc2` (the `pl_osx.m` clipboard read is served by
 `SDL_GetClipboardText`, task plan D5) and any `winit`/async runtime (task

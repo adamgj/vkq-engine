@@ -174,6 +174,43 @@ size_t UTF8_WriteCodePoint (char *dst, size_t maxbytes, uint32_t codepoint);
 #define my_ipv6_address			 c_ref_my_ipv6_address
 #define ipv4Available			 c_ref_ipv4Available
 #define ipv6Available			 c_ref_ipv6Available
+/* net_wins.c (Phase 9 M2): the Winsock counterpart, Windows only (same
+ * scope: pure address functions; the socket entry points are compiled
+ * but never invoked by tests) */
+#define WINIPv4_Init				c_ref_WINIPv4_Init
+#define WINIPv4_Shutdown			c_ref_WINIPv4_Shutdown
+#define WINIPv4_Listen				c_ref_WINIPv4_Listen
+#define WINIPv4_OpenSocket			c_ref_WINIPv4_OpenSocket
+#define WINS_CloseSocket			c_ref_WINS_CloseSocket
+#define WINS_Connect				c_ref_WINS_Connect
+#define WINIPv4_CheckNewConnections	c_ref_WINIPv4_CheckNewConnections
+#define WINS_Read					c_ref_WINS_Read
+#define WINS_Write					c_ref_WINS_Write
+#define WINIPv4_Broadcast			c_ref_WINIPv4_Broadcast
+#define WINS_AddrToString			c_ref_WINS_AddrToString
+#define WINIPv4_StringToAddr		c_ref_WINIPv4_StringToAddr
+#define WINS_GetSocketAddr			c_ref_WINS_GetSocketAddr
+#define WINIPv4_GetNameFromAddr		c_ref_WINIPv4_GetNameFromAddr
+#define WINIPv4_GetAddrFromName		c_ref_WINIPv4_GetAddrFromName
+#define WINS_AddrCompare			c_ref_WINS_AddrCompare
+#define WINS_GetSocketPort			c_ref_WINS_GetSocketPort
+#define WINS_SetSocketPort			c_ref_WINS_SetSocketPort
+#define WINIPv4_GetAddresses		c_ref_WINIPv4_GetAddresses
+#define WINIPv6_Init				c_ref_WINIPv6_Init
+#define WINIPv6_Shutdown			c_ref_WINIPv6_Shutdown
+#define WINIPv6_Listen				c_ref_WINIPv6_Listen
+#define WINIPv6_OpenSocket			c_ref_WINIPv6_OpenSocket
+#define WINIPv6_CheckNewConnections	c_ref_WINIPv6_CheckNewConnections
+#define WINIPv6_Broadcast			c_ref_WINIPv6_Broadcast
+#define WINIPv6_StringToAddr		c_ref_WINIPv6_StringToAddr
+#define WINIPv6_GetNameFromAddr		c_ref_WINIPv6_GetNameFromAddr
+#define WINIPv6_GetAddrFromName		c_ref_WINIPv6_GetAddrFromName
+#define WINIPv6_GetAddresses		c_ref_WINIPv6_GetAddresses
+#define ntohs_v6word				c_ref_ntohs_v6word
+#define winsock_initialized			c_ref_winsock_initialized
+#define winsockdata					c_ref_winsockdata
+#define qgetaddrinfo				c_ref_qgetaddrinfo
+#define qfreeaddrinfo				c_ref_qfreeaddrinfo
 
 /* mplane_t comes from the real gl_model.h, included below (Phase 3) */
 

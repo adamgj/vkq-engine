@@ -345,9 +345,9 @@ qboolean rust_dgrm_CanSendMessage(qsocket_t *sock);
 qboolean rust_dgrm_CanSendUnreliableMessage(qsocket_t *sock);
 qboolean rust_dgrm_ProcessPacket(unsigned int length, qsocket_t *sock);
 int rust_dgrm_GetMessage(qsocket_t *sock);
-/* Phase 5 M7b: the Rust UDP landriver (unix only; net_wins.c stays C until
- * a Windows UDP runtime CI leg exists). */
-#if !defined(_WIN32)
+/* Phase 5 M7b: the Rust UDP landriver (net_udp.c); Phase 9 M2: the same
+ * slots on Windows from net_wins.rs (net_wins.c), which splits the
+ * GetNameFromAddr slot per family like its C driver. */
 sys_socket_t rust_udp4_Init(void);
 sys_socket_t rust_udp6_Init(void);
 void rust_udp4_Shutdown(void);
@@ -368,7 +368,12 @@ const char *rust_udp_AddrToString(struct qsockaddr *addr, qboolean masked);
 int rust_udp4_StringToAddr(const char *string, struct qsockaddr *addr);
 int rust_udp6_StringToAddr(const char *string, struct qsockaddr *addr);
 int rust_udp_GetSocketAddr(sys_socket_t socketid, struct qsockaddr *addr);
+#if defined(_WIN32)
+int rust_udp4_GetNameFromAddr(struct qsockaddr *addr, char *name);
+int rust_udp6_GetNameFromAddr(struct qsockaddr *addr, char *name);
+#else
 int rust_udp_GetNameFromAddr(struct qsockaddr *addr, char *name);
+#endif
 int rust_udp4_GetAddrFromName(const char *name, struct qsockaddr *addr);
 int rust_udp6_GetAddrFromName(const char *name, struct qsockaddr *addr);
 int rust_udp_AddrCompare(struct qsockaddr *addr1, struct qsockaddr *addr2);
@@ -376,7 +381,6 @@ int rust_udp_GetSocketPort(struct qsockaddr *addr);
 int rust_udp_SetSocketPort(struct qsockaddr *addr, int port);
 int rust_udp4_GetAddresses(qhostaddr_t *addresses, int maxaddresses);
 int rust_udp6_GetAddresses(qhostaddr_t *addresses, int maxaddresses);
-#endif
 /* Phase 5 M9: the ADR-009-safe net_main.c core (net_main.c keeps
  * trampolines; the dispatch funnels stay C). */
 double rust_net_SetNetTime(void);
@@ -755,6 +759,7 @@ exclude = [
     "rust_udp4_Broadcast", "rust_udp6_Broadcast", "rust_udp_AddrToString",
     "rust_udp4_StringToAddr", "rust_udp6_StringToAddr",
     "rust_udp_GetSocketAddr", "rust_udp_GetNameFromAddr",
+    "rust_udp4_GetNameFromAddr", "rust_udp6_GetNameFromAddr",
     "rust_udp4_GetAddrFromName", "rust_udp6_GetAddrFromName",
     "rust_udp_AddrCompare", "rust_udp_GetSocketPort",
     "rust_udp_SetSocketPort", "rust_udp4_GetAddresses",

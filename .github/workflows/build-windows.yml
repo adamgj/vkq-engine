@@ -261,3 +261,12 @@ jobs:
         $env:QUAKE_GAME_DATA = "$PWD\shareware-data"
         python scripts/harness/config_diff.py --vkquake build-c/vkqr-engine.exe --vkquake-b build-rs/vkqr-engine.exe
         if ($LASTEXITCODE -ne 0) { throw "config diff failed" }
+    # Phase 9 M2: the Windows UDP runtime leg the net_wins.c flip was gated
+    # on -- 4-way C/Rust interop over the Rust Winsock landriver (localhost
+    # IPv4; the C oracle ships no IPv6 landriver on MSVC/clang-cl, see
+    # net_win.c)
+    - name: Interop matrix (C/Rust client x server, protocol cells)
+      run: |
+        $env:QUAKE_GAME_DATA = "$PWD\shareware-data"
+        python scripts/harness/interop_matrix.py --vkquake-c build-c/vkqr-engine.exe --vkquake-rs build-rs/vkqr-engine.exe
+        if ($LASTEXITCODE -ne 0) { throw "interop matrix failed" }

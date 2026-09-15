@@ -7,7 +7,9 @@
 
 // ADR-004 (Phase 5 amendment): deny rather than forbid -- the M7 UDP
 // landriver adds one #[allow(unsafe_code)] `sys` module for the socket
-// syscall boundary; everything else in this crate stays unsafe-free.
+// syscall boundary (one arm per C driver since Phase 9 M2: `sys::unix` for
+// net_udp.c, `sys::windows` for net_wins.c); everything else in this crate
+// stays unsafe-free.
 #![deny(unsafe_code)]
 
 pub mod cnum;
@@ -17,5 +19,4 @@ pub mod loopback;
 pub mod msg;
 pub mod protocol;
 pub mod sizebuf;
-#[cfg(unix)]
 pub mod udp;
