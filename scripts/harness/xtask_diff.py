@@ -29,7 +29,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 
 
 def run_xtask(cargo, args):
-    cmd = [cargo, "run", "--quiet", "--package", "xtask", "--"] + args
+    cmd = [cargo, "run", "--quiet", "--locked", "--package", "xtask", "--"] + args
     subprocess.check_call(cmd, cwd=os.path.join(ROOT, "rust"))
 
 
@@ -45,7 +45,13 @@ def main():
     ap.add_argument("--cargo", default="cargo")
     a = ap.parse_args()
 
-    out = a.out or tempfile.mkdtemp(prefix="vkq-xtask-")
+    # xtask runs with cwd=rust, so both paths must be absolute before Cargo
+    # sees them; --out must not be the reference dir or the compare is a no-op.
+    build_dir = os.path.abspath(a.build_dir)
+    out = os.path.abspath(a.out) if a.out else tempfile.mkdtemp(prefix="vkq-xtask-")
+    if os.path.normcase(out) == os.path.normcase(build_dir):
+        print("FAIL: --out must not be the C build directory")
+        return 2
     os.makedirs(out, exist_ok=True)
     run_xtask(a.cargo, ["shaders", "--out", out, "--c"])
     run_xtask(a.cargo, ["pak", "--out", out])
@@ -61,9 +67,9 @@ def main():
         stem = spv[: -len(".spv")]
         for name, text in ((spv, False), (stem + ".c", True)):
             ours = os.path.join(out, name)
-            theirs = os.path.join(a.build_dir, name)
+            theirs = os.path.join(build_dir, name)
             if not os.path.exists(theirs):
-                failures.append(f"{name}: missing from {a.build_dir}")
+                failures.append(f"{name}: missing from {build_dir}")
                 continue
             same = read_text_lf(ours) == read_text_lf(theirs) if text else filecmp.cmp(ours, theirs, shallow=False)
             checked += 1
@@ -71,9 +77,9 @@ def main():
                 failures.append(f"{name}: differs")
     for name, text in (("vkquake.pak", False), ("embedded_pak.c", True)):
         ours = os.path.join(out, name)
-        theirs = os.path.join(a.build_dir, name)
+        theirs = os.path.join(build_dir, name)
         if not os.path.exists(theirs):
-            failures.append(f"{name}: missing from {a.build_dir}")
+            failures.append(f"{name}: missing from {build_dir}")
             continue
         same = read_text_lf(ours) == read_text_lf(theirs) if text else filecmp.cmp(ours, theirs, shallow=False)
         checked += 1
@@ -84,7 +90,7 @@ def main():
         print("FAIL:", f)
     if failures:
         return 1
-    print(f"OK: {checked} xtask outputs byte-identical to {a.build_dir} ({len(names)} shaders + .c, vkquake.pak, embedded_pak.c)")
+    print(f"OK: {checked} xtask outputs byte-identical to {build_dir} ({len(names)} shaders + .c, vkquake.pak, embedded_pak.c)")
     return 0
 
 
