@@ -7,20 +7,21 @@
 //! `quake-capi::entry` so the platform crate has no `#[no_mangle]` exports.
 //!
 //! Raising (ADR-009): `Sys_Init`, `Host_Init` and `Host_Frame` are called
-//! through `Host_Guard` trampolines in `Quake/sys_glue.c`. A frame that
-//! raises just ends -- what `Host_Glue_FrameInner`'s `setjmp` early return
-//! did before this milestone (the guard now sits in this loop, the C frame
-//! wrapper is a plain call under `USE_RUST_PLATFORM`). A raise during
+//! through `Host_Guard` trampolines in `Quake/sys_glue.c`, and their status
+//! is consumed here as a [`HostError`] (Phase 9 M7). A frame that raises
+//! just ends -- what `Host_Glue_FrameInner`'s `setjmp` early return did
+//! before M6 (the guard now sits in this loop, the C frame wrapper is a
+//! plain call under `USE_RUST_PLATFORM`; see [`recover`]). A raise during
 //! `Sys_Init` / `Host_Init` used to land on an un-`setjmp`ed
 //! `host_abortserver` (undefined behaviour in C); it is now a `Sys_Error`.
 
 use core::ffi::{c_char, c_int};
 use core::ptr;
 
-use quake_c_sys::host::HOST_GUARD_OK;
 use quake_c_sys::host::{host_parms, no_rendering, quakeparms_t, sys_ticrate};
 use quake_c_sys::sys as c;
 use quake_c_sys::{harness_active, isDedicated, listening, COM_CheckParm};
+use quake_host::error::HostError;
 
 #[cfg(feature = "sdl2")]
 use sdl2::sys::{SDL_Delay, SDL_GetError, SDL_Init, SDL_Quit};
@@ -133,10 +134,27 @@ static mut PARMS: quakeparms_t = quakeparms_t {
     errstate: 0,
 };
 
-/// `Host_Frame (time)` under the guard; a raised frame simply ends.
+/// `Host_Frame (time)` under the guard; a raised frame ends in [`recover`].
 unsafe fn host_frame(time: f64) {
     // SAFETY: main thread, after `Host_Init`.
-    let _status = unsafe { c::SysGlue_HostFrame(time) };
+    let status = unsafe { c::SysGlue_HostFrame(time) };
+    if let Err(err) = HostError::from_guard_status(status) {
+        recover(err);
+    }
+}
+
+/// Frame-abort recovery: the sole owner of it under `USE_RUST_PLATFORM`
+/// (Phase 9 D7), what `_Host_Frame`'s `setjmp (host_abortserver)` early
+/// return did in the C. `Host_Error`/`Host_EndGame` have already shut the
+/// server down and disconnected the client, so by ADR-009's post-guard
+/// invariant nothing here touches that state; the loop just goes round
+/// again. A status `Host_Guard` does not define has no C precedent (its
+/// `setjmp`s return 1) and is reported instead of ignored.
+fn recover(err: HostError) {
+    match err {
+        HostError::AbortServer | HostError::ScreenError => {}
+        HostError::Unknown(_) => sys_error(&format!("Host_Frame: {err}")),
+    }
 }
 
 /// `SDL_RunApp (0, NULL, SDL_main, NULL)` -- the body of `SDL3/SDL_main.h`'s
@@ -177,7 +195,7 @@ pub unsafe extern "C" fn quake_main(argc: c_int, argv: *mut *mut c_char) -> c_in
 
         init_sdl();
 
-        if c::SysGlue_SysInit() != HOST_GUARD_OK {
+        if HostError::from_guard_status(c::SysGlue_SysInit()).is_err() {
             sys_error("Sys_Init: Host_Error during startup");
         }
 
@@ -189,7 +207,7 @@ pub unsafe extern "C" fn quake_main(argc: c_int, argv: *mut *mut c_char) -> c_in
         c::SysGlue_PrintCompilerBanner();
 
         sys_printf("Host_Init\n");
-        if c::SysGlue_HostInit() != HOST_GUARD_OK {
+        if HostError::from_guard_status(c::SysGlue_HostInit()).is_err() {
             sys_error("Host_Init: Host_Error during startup");
         }
 

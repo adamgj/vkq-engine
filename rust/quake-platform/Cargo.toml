@@ -18,6 +18,9 @@ sdl3 = { version = "0.18.4", optional = true }
 sdl2 = { version = "0.38", optional = true, default-features = false }
 quake-c-sys = { path = "../quake-c-sys" }
 quake-types = { path = "../quake-types" }
+# Phase 9 M7 (ADR-009): `HostError`, the typed `Host_Guard` outcome the
+# host loop in `main_sdl` consumes
+quake-host = { path = "../quake-host" }
 
 # ADR-003 (Phase 9 M1 amendment, adopted M4): pl_win.c's icon, clipboard
 # and error-dialog calls, feature by feature as each milestone needs them;
