@@ -30,6 +30,7 @@ mod ffi {
         pub fn exp(x: c_double) -> c_double;
         pub fn log(x: c_double) -> c_double;
         pub fn pow(x: c_double, y: c_double) -> c_double;
+        pub fn powf(x: f32, y: f32) -> f32;
         pub fn sqrtf(x: f32) -> f32;
         pub fn sinf(x: f32) -> f32;
         pub fn cosf(x: f32) -> f32;
@@ -81,6 +82,11 @@ pub fn atan(x: f64) -> f64 {
 pub fn tanf(x: f32) -> f32 {
     // SAFETY: pure libm function, no preconditions
     unsafe { ffi::tanf(x) }
+}
+
+pub fn powf(x: f32, y: f32) -> f32 {
+    // SAFETY: pure libm function, no preconditions
+    unsafe { ffi::powf(x, y) }
 }
 
 pub fn floor(x: f64) -> f64 {

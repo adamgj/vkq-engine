@@ -16,6 +16,7 @@ pub mod cl_tent;
 pub mod console;
 pub mod host;
 pub mod host_cmd;
+pub mod input;
 pub mod keys;
 pub mod menu;
 pub mod net_dgrm_orch;
@@ -36,6 +37,7 @@ pub mod sv_move;
 pub mod sv_phys;
 pub mod sv_send;
 pub mod sv_user;
+pub mod sys;
 pub mod tasks;
 pub mod view;
 

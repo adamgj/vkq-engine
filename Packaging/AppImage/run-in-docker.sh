@@ -6,11 +6,14 @@ cd /usr/src/vkqr-engine
 rm -rf build/appimage
 rm -rf build/sdl2
 
-python3 /opt/meson/meson.py setup build/appimage -Ddebug=true -Dstrip=false -Dmp3_lib=mad
+# Rust migration Phase 9 M6: the shipped binary is the mixed build (Rust
+# entry point + libquake_rs.a); the C-only configuration stays a CI-only
+# comparison oracle in the harness jobs
+python3 /opt/meson/meson.py setup build/appimage -Ddebug=true -Dstrip=false -Dmp3_lib=mad -Duse_rust=enabled
 ninja -C build/appimage
 
 # Compile check the SDL2 backend (the AppImage ships SDL3)
-python3 /opt/meson/meson.py setup build/sdl2 -Ddebug=true -Dstrip=false -Dmp3_lib=mad -Duse_sdl3=disabled
+python3 /opt/meson/meson.py setup build/sdl2 -Ddebug=true -Dstrip=false -Dmp3_lib=mad -Duse_sdl3=disabled -Duse_rust=enabled
 ninja -C build/sdl2
 
 cd Packaging/AppImage

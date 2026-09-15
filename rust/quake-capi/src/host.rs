@@ -1805,19 +1805,21 @@ pub extern "C" fn quake_rs_host_frame(time: f64) -> Raise {
     // SAFETY: engine state, single-threaded.
     unsafe {
         if cvar_value(ptr::addr_of!(g::serverprofile)) == 0.0 {
-            g::Host_Glue_FrameInner(time);
-            return g::HOST_GUARD_OK;
+            return g::Host_Glue_FrameInner(time);
         }
 
+        // A raised frame's status is handed back, not jumped, so the timing
+        // tail below runs for it exactly as it did after `_Host_Frame`'s
+        // early return in the C.
         let time1 = c::Sys_DoubleTime();
-        g::Host_Glue_FrameInner(time);
+        let status = g::Host_Glue_FrameInner(time);
         let time2 = c::Sys_DoubleTime();
 
         PROFILE_TIMETOTAL += time2 - time1;
         PROFILE_TIMECOUNT += 1;
 
         if PROFILE_TIMECOUNT < 1000 {
-            return g::HOST_GUARD_OK;
+            return status;
         }
 
         let m = (PROFILE_TIMETOTAL * 1000.0 / PROFILE_TIMECOUNT as f64) as c_int;
@@ -1834,8 +1836,8 @@ pub extern "C" fn quake_rs_host_frame(time: f64) -> Raise {
         }
 
         c::Con_Printf(c"serverprofile: %2i clients %2i msec\n".as_ptr(), count, m);
+        status
     }
-    g::HOST_GUARD_OK
 }
 
 // ---------------------------------------------------------------------------
@@ -1991,7 +1993,10 @@ pub extern "C" fn quake_rs_host_shutdown() -> Raise {
         assert!(!g::Tasks_IsWorker());
 
         if SHUTDOWN_ISDOWN {
-            g::printf(c"recursive shutdown\n".as_ptr());
+            // `printf` is header-inline on the MSVC UCRT: a Rust reference to
+            // it only links when some C TU emits the out-of-line copy, which
+            // the clang-cl debug packaging build does not (Phase 9 M6).
+            c::sys::fputs(c"recursive shutdown\n".as_ptr(), c::sys::stdout_stream());
             return g::HOST_GUARD_OK;
         }
         SHUTDOWN_ISDOWN = true;

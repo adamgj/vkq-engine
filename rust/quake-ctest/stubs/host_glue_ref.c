@@ -658,9 +658,9 @@ static void Host_InvokeFrameCore (void *p)
 	Host_Reraise (quake_rs_host_frame_core (*(double *)p));
 }
 
-void Host_Glue_FrameInner (double time)
+int Host_Glue_FrameInner (double time)
 {
-	(void)Host_Guard (Host_InvokeFrameCore, &time);
+	return Host_Guard (Host_InvokeFrameCore, &time);
 }
 
 /*

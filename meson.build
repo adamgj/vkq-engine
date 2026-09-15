@@ -248,10 +248,6 @@ srcs = [
     'Quake/pr_trace.c',
     'Quake/image.c',
     'Quake/image_stb.c',
-    'Quake/in_sdl.c',
-    'Quake/in_sdl2.c',
-    'Quake/in_sdl3.c',
-    'Quake/main_sdl.c',
     'Quake/mem.c',
     'Quake/net_loop.c',
     'Quake/net_main.c',
@@ -260,7 +256,6 @@ srcs = [
     'Quake/pr_edict.c',
     'Quake/pr_ext.c',
     'Quake/steam_api.c',
-	'Quake/sys_sdl.c',
 	 run_generate_embedded_pak,
 ]
 
@@ -309,9 +304,6 @@ phase1_c_srcs = [
 if host_machine.system() == 'windows'
     srcs += [
         'Quake/net_win.c',
-        'Quake/net_wins.c',
-        'Quake/pl_win.c',
-        'Quake/sys_sdl_win.c',
     ]
     srcs += import('windows').compile_resources(
         'Windows/vkqr-engine.rc',
@@ -324,9 +316,6 @@ if host_machine.system() == 'windows'
 else
     srcs += [
         'Quake/net_bsd.c',
-        'Quake/net_udp.c',
-        'Quake/pl_linux.c',
-        'Quake/sys_sdl_unix.c',
     ]
 endif
 
@@ -397,6 +386,14 @@ if get_option('use_rust_tasks').enabled() and not use_rust
     error('-Duse_rust_tasks=enabled requires -Duse_rust=enabled (the task system ships in libquake_rs.a)')
 endif
 use_rust_tasks = use_rust and not get_option('use_rust_tasks').disabled()
+# Phase 9: the platform layer (task plan D1). One crate-level switch; the C
+# platform files are dropped one milestone at a time under
+# `if use_rust_platform` blocks, and -Duse_rust_platform=disabled stays the
+# comparison oracle (build-rs-cplatform) through the release-cycle soak
+if get_option('use_rust_platform').enabled() and not use_rust
+    error('-Duse_rust_platform=enabled requires -Duse_rust=enabled (the platform layer ships in libquake_rs.a)')
+endif
+use_rust_platform = use_rust and not get_option('use_rust_platform').disabled()
 # the Rust filesystem does not implement the DO_USERDIRS lookup branches yet
 # (quake-capi fails this combination with a compile_error!); say so here
 # rather than several minutes into a cargo build
@@ -455,6 +452,10 @@ if use_rust
         rust_feature_list += 'render'
         cflags += '-DUSE_RUST_RENDER'
     endif
+    if use_rust_platform
+        rust_feature_list += 'platform'
+        cflags += '-DUSE_RUST_PLATFORM'
+    endif
     # Phase 7 M5: the server- and client-coupled pr_cmds.c/pr_ext.c builtins
     # and the ED_Parse* dispatchers straddle both strata -- the builtin tables
     # are progs, the sv/cl glue their cores call is host -- so the feature that
@@ -465,6 +466,10 @@ if use_rust
     # cargo features tracking C defines the fs shims must agree with
     if use_sdl3
         rust_feature_list += 'sdl3'
+    else
+        # Phase 9 (ADR-017): the Rust platform layer carries an SDL2 arm so
+        # the SDL2 legs keep building once in_sdl.c/main_sdl.c move to Rust
+        rust_feature_list += 'sdl2'
     endif
     if get_option('do_userdirs').enabled()
         rust_feature_list += 'userdirs'
@@ -523,6 +528,55 @@ if use_rust_net
     srcs += ['Quake/net_msg_glue.c', 'Quake/net_dgrm_glue.c', 'Quake/net_dgrm_orch_glue.c']
 else
     srcs += ['Quake/net_msg.c', 'Quake/net_dgrm_rel.c', 'Quake/net_dgrm.c']
+    # Phase 9 M2: the UDP landrivers (net_udp.c on unix, net_wins.c on
+    # Windows) live in libquake_rs.a once use_rust_net is on; the C drivers
+    # are only built for the oracle
+    srcs += host_machine.system() == 'windows' ? ['Quake/net_wins.c'] : ['Quake/net_udp.c']
+endif
+
+# Phase 9 M3 (ADR-017): the input layer. in_sdl.c plus whichever of
+# in_sdl2.c/in_sdl3.c matches -Duse_sdl3 move to libquake_rs.a's
+# quake-platform::input (the other one is an empty TU under its #ifdef);
+# Quake/in_sdl_glue.c keeps in_debugkeys and the twelve joy_* cvars C-owned
+# (ADR-007) and holds the Host_Guard trampolines / Host_Reraise frames around
+# the event pump's raising callees (ADR-009). The C originals stay the
+# -Duse_rust_platform=disabled comparison oracle
+if use_rust_platform
+    srcs += ['Quake/in_sdl_glue.c']
+else
+    srcs += ['Quake/in_sdl.c', 'Quake/in_sdl2.c', 'Quake/in_sdl3.c']
+endif
+
+# Phase 9 M4: the PL_* layer (window icon, clipboard, error dialog) is
+# quake-platform::pl -- the Win32 calls of pl_win.c on Windows, the SDL
+# calls of pl_linux.c everywhere else (pl_osx.m was never in this build).
+# Nothing in it can raise, so there is no glue TU.
+if not use_rust_platform
+    srcs += [host_machine.system() == 'windows' ? 'Quake/pl_win.c' : 'Quake/pl_linux.c']
+endif
+
+# Phase 9 M5: the sys.h layer. sys_sdl.c (handle table, SDL helpers) plus
+# sys_sdl_win.c / sys_sdl_unix.c move to quake-platform::sys;
+# Quake/sys_glue.c keeps the variadic Sys_Error/Sys_Printf (formatted in C,
+# handed to the Rust cores as text), the Host_Guard trampoline around
+# Host_Shutdown and the Host_Reraise frames for Sys_Error/Sys_Quit/
+# Sys_SendKeyEvents (ADR-009), and the MSVC comctl32 manifest pragma. The C
+# originals stay the -Duse_rust_platform=disabled comparison oracle
+if use_rust_platform
+    srcs += ['Quake/sys_glue.c']
+else
+    srcs += ['Quake/sys_sdl.c', host_machine.system() == 'windows' ? 'Quake/sys_sdl_win.c' : 'Quake/sys_sdl_unix.c']
+endif
+
+# Phase 9 M6 (host inversion): main_sdl.c -- the process entry and frame
+# loop -- is quake-platform::main_sdl, exported as main / WinMain / SDL_main
+# from libquake_rs.a (quake-capi/src/entry.rs); sys_glue.c holds its
+# Host_Guard trampolines (Sys_Init, Host_Init, Host_Frame) and the compiler
+# banner. No C TU defines main or includes SDL3/SDL_main.h's entry shim in
+# that configuration. The C original stays the -Duse_rust_platform=disabled
+# comparison oracle
+if not use_rust_platform
+    srcs += ['Quake/main_sdl.c']
 endif
 
 # Phase 6: the progs VM. The flip is per-file and lands milestone by milestone

@@ -345,9 +345,9 @@ qboolean rust_dgrm_CanSendMessage(qsocket_t *sock);
 qboolean rust_dgrm_CanSendUnreliableMessage(qsocket_t *sock);
 qboolean rust_dgrm_ProcessPacket(unsigned int length, qsocket_t *sock);
 int rust_dgrm_GetMessage(qsocket_t *sock);
-/* Phase 5 M7b: the Rust UDP landriver (unix only; net_wins.c stays C until
- * a Windows UDP runtime CI leg exists). */
-#if !defined(_WIN32)
+/* Phase 5 M7b: the Rust UDP landriver (net_udp.c); Phase 9 M2: the same
+ * slots on Windows from net_wins.rs (net_wins.c), which splits the
+ * GetNameFromAddr slot per family like its C driver. */
 sys_socket_t rust_udp4_Init(void);
 sys_socket_t rust_udp6_Init(void);
 void rust_udp4_Shutdown(void);
@@ -368,7 +368,12 @@ const char *rust_udp_AddrToString(struct qsockaddr *addr, qboolean masked);
 int rust_udp4_StringToAddr(const char *string, struct qsockaddr *addr);
 int rust_udp6_StringToAddr(const char *string, struct qsockaddr *addr);
 int rust_udp_GetSocketAddr(sys_socket_t socketid, struct qsockaddr *addr);
+#if defined(_WIN32)
+int rust_udp4_GetNameFromAddr(struct qsockaddr *addr, char *name);
+int rust_udp6_GetNameFromAddr(struct qsockaddr *addr, char *name);
+#else
 int rust_udp_GetNameFromAddr(struct qsockaddr *addr, char *name);
+#endif
 int rust_udp4_GetAddrFromName(const char *name, struct qsockaddr *addr);
 int rust_udp6_GetAddrFromName(const char *name, struct qsockaddr *addr);
 int rust_udp_AddrCompare(struct qsockaddr *addr1, struct qsockaddr *addr2);
@@ -376,7 +381,6 @@ int rust_udp_GetSocketPort(struct qsockaddr *addr);
 int rust_udp_SetSocketPort(struct qsockaddr *addr, int port);
 int rust_udp4_GetAddresses(qhostaddr_t *addresses, int maxaddresses);
 int rust_udp6_GetAddresses(qhostaddr_t *addresses, int maxaddresses);
-#endif
 /* Phase 5 M9: the ADR-009-safe net_main.c core (net_main.c keeps
  * trampolines; the dispatch funnels stay C). */
 double rust_net_SetNetTime(void);
@@ -621,6 +625,96 @@ VkDeviceMemory GL_HeapGetAllocationMemory(glheapallocation_t *allocation);
 VkDeviceSize GL_HeapGetAllocationOffset(glheapallocation_t *allocation);
 glheapstats_t *GL_HeapGetStats(glheap_t *heap);
 #endif
+/* Phase 9 M3: the input.h entry points quake-capi exports under the
+ * `platform` feature (in_sdl.rs). IN_Move takes usercmd_t, which has no C
+ * spelling in the Rust mirrors, so the whole family is declared by hand,
+ * guarded on input.h's own include guard: input.h already declares each one,
+ * and check_capi_signatures.sh compiles both side by side. IN_Init,
+ * IN_SendKeyEvents and IN_Commands themselves are Quake/in_sdl_glue.c's
+ * Host_Reraise frames over the quake_rs_in_* cores below. */
+#ifdef _QUAKE_INPUT_H
+int quake_rs_in_init(void);
+int quake_rs_in_send_key_events(void);
+int quake_rs_in_commands(void);
+void IN_Shutdown(void);
+void IN_MouseMotion(float dx, float dy);
+void IN_UpdateInputMode(void);
+void IN_Move(usercmd_t *cmd);
+void IN_ClearStates(void);
+void IN_Activate(void);
+void IN_Deactivate(qboolean free_cursor);
+void IN_DeactivateForConsole(void);
+void IN_HideCursor(void);
+void IN_GetMousePos(int *outx, int *outy);
+void IN_ScaleMouseCoords(float x, float y, int *outx, int *outy);
+#endif
+/* Phase 9 M4: platform.h's PL_* family, exported under the C names
+ * (pl.rs); declared by hand on platform.h's own guard like the input.h
+ * family above so quake_rs.h never re-declares an engine-header name. */
+#ifdef _QUAKE_PLATFORM_H
+void PL_SetWindowIcon(void);
+void PL_VID_Shutdown(void);
+char *PL_GetClipboardData(void);
+void PL_ErrorDialog(const char *text);
+#endif
+/* Phase 9 M5: sys.h's Sys_* family and isDedicated (sys.rs), declared by
+ * hand on sys.h's own guard so quake_rs.h never re-declares an engine-header
+ * name (FUNC_NORETURN, qfilesize_t, findfile_t are sys.h's spellings).
+ * Sys_Error, Sys_Printf, Sys_Quit and Sys_SendKeyEvents themselves are
+ * Quake/sys_glue.c's frames over the quake_rs_sys_* cores below. */
+#ifdef _QUAKE_SYS_H
+extern qboolean isDedicated;
+int quake_rs_sys_error(char *text);
+void quake_rs_sys_printf(const char *text);
+int quake_rs_sys_quit(void);
+int quake_rs_sys_send_key_events(void);
+void Sys_FileInit(void);
+void Sys_Init(void);
+char *Sys_GetPrefPath(const char *org, const char *app);
+void Sys_MessageBoxWarning(const char *title, const char *message);
+FUNC_NORETURN void Sys_QuitNoShutdown(void);
+int Sys_fseek(FILE *file, qfileofs_t ofs, int origin);
+qfileofs_t Sys_ftell(FILE *file);
+qfilesize_t Sys_filelength(FILE *f);
+qfilesize_t Sys_FileOpenRead(const char *path, int *hndl);
+void Sys_MemFileOpenRead(const byte *memory, qfilesize_t size, int *hndl);
+int Sys_DuplicateHandle(int handle);
+int Sys_FileOpenWrite(const char *path);
+qfileofs_t Sys_FilePos(int handle);
+void Sys_FileClose(int handle);
+int Sys_FileSeek(int handle, qfileofs_t position);
+int Sys_fgetc(int handle);
+bool Sys_feof(int handle);
+int Sys_FileRead(int handle, void *dest, int count);
+int Sys_FileWrite(int handle, const void *data, int count);
+FILE *Sys_fopen(const char *path, const char *mode);
+void Sys_mkdir(const char *path);
+int Sys_FileType(const char *path);
+qboolean Sys_Explore(const char *path);
+findfile_t *Sys_FindFirst(const char *dir, const char *ext);
+findfile_t *Sys_FindNext(findfile_t *find);
+void Sys_FindClose(findfile_t *find);
+qboolean Sys_GetSteamDir(char *path, size_t pathsize);
+qboolean Sys_GetGOGQuakeDir(char *path, size_t pathsize);
+qboolean Sys_GetGOGQuakeEnhancedDir(char *path, size_t pathsize);
+qboolean Sys_GetEGSManifestDir(char *path, size_t pathsize);
+const char *Sys_GetEGSLauncherData(void);
+qboolean Sys_GetNightdiveUserDir(char *path, size_t pathsize, const char *steamlibrary);
+#ifdef USE_SDL3
+int Sys_SelectFolder(const char *title, const char *default_location, char *dst, size_t dstsize);
+#endif
+double Sys_DoubleTime(void);
+const char *Sys_ConsoleInput(void);
+void Sys_Sleep(unsigned long msecs);
+bool Sys_PinCurrentThread(int core_index);
+const char *Sys_StackTrace(void);
+bool Sys_IsInDebugger(void);
+void Sys_DebugBreak(void);
+#endif
+#ifdef _STEAM_H_
+qboolean Sys_GetSteamAPILibraryPath(char *path, size_t pathsize, const steamgame_t *game);
+quakeflavor_t ChooseQuakeFlavor(void);
+#endif
 #ifdef __cplusplus
 } /* extern "C" -- these hand-written declarations sit outside cbindgen's own
    * cpp_compat guard, so they carry their own */
@@ -716,6 +810,29 @@ exclude = [
     "SNDDMA_Init", "SNDDMA_GetDMAPos", "SNDDMA_Shutdown",
     "SNDDMA_LockBuffer", "SNDDMA_Submit", "SNDDMA_BlockSound",
     "SNDDMA_UnblockSound",
+    # Phase 9 M3 -- declared by hand above, guarded on input.h
+    "quake_rs_in_init", "quake_rs_in_send_key_events", "quake_rs_in_commands",
+    "IN_Shutdown", "IN_MouseMotion", "IN_UpdateInputMode", "IN_Move",
+    "IN_ClearStates", "IN_Activate", "IN_Deactivate", "IN_DeactivateForConsole",
+    "IN_HideCursor", "IN_GetMousePos", "IN_ScaleMouseCoords",
+    # Phase 9 M4 -- declared by hand above, guarded on platform.h
+    "PL_SetWindowIcon", "PL_VID_Shutdown", "PL_GetClipboardData", "PL_ErrorDialog",
+    # Phase 9 M5 -- declared by hand above, guarded on sys.h / steam.h
+    "isDedicated", "quake_rs_sys_error", "quake_rs_sys_printf", "quake_rs_sys_quit",
+    "quake_rs_sys_send_key_events",
+    "Sys_FileInit", "Sys_Init", "Sys_GetPrefPath", "Sys_MessageBoxWarning",
+    "Sys_QuitNoShutdown", "Sys_fseek", "Sys_ftell", "Sys_filelength",
+    "Sys_FileOpenRead", "Sys_MemFileOpenRead", "Sys_DuplicateHandle",
+    "Sys_FileOpenWrite", "Sys_FilePos", "Sys_FileClose", "Sys_FileSeek", "Sys_fgetc",
+    "Sys_feof", "Sys_FileRead", "Sys_FileWrite", "Sys_fopen", "Sys_mkdir",
+    "Sys_FileType", "Sys_Explore", "Sys_FindFirst", "Sys_FindNext", "Sys_FindClose",
+    "Sys_GetSteamDir", "Sys_GetGOGQuakeDir", "Sys_GetGOGQuakeEnhancedDir",
+    "Sys_GetEGSManifestDir", "Sys_GetEGSLauncherData", "Sys_GetNightdiveUserDir",
+    "Sys_SelectFolder", "Sys_DoubleTime", "Sys_ConsoleInput", "Sys_Sleep",
+    "Sys_PinCurrentThread", "Sys_StackTrace", "Sys_IsInDebugger", "Sys_DebugBreak",
+    "Sys_GetSteamAPILibraryPath", "ChooseQuakeFlavor",
+    # Phase 9 M6 -- the process entry symbols (main_sdl.c); never declared
+    "main", "WinMain", "SDL_main",
     "GLMesh_UploadBuffers", "AliasMesh", "AllSurfacesDef", "JointPose",
     "QPathStr", "SkinDef", "SurfaceDef", "Md3XyzNormal", "Md5Vert", "Md5Vert8",
     "AliasHdr", "MAliasFrameDesc", "MSprite", "MSpriteFrameDesc",
@@ -755,6 +872,7 @@ exclude = [
     "rust_udp4_Broadcast", "rust_udp6_Broadcast", "rust_udp_AddrToString",
     "rust_udp4_StringToAddr", "rust_udp6_StringToAddr",
     "rust_udp_GetSocketAddr", "rust_udp_GetNameFromAddr",
+    "rust_udp4_GetNameFromAddr", "rust_udp6_GetNameFromAddr",
     "rust_udp4_GetAddrFromName", "rust_udp6_GetAddrFromName",
     "rust_udp_AddrCompare", "rust_udp_GetSocketPort",
     "rust_udp_SetSocketPort", "rust_udp4_GetAddresses",

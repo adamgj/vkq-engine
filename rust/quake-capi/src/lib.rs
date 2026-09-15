@@ -39,6 +39,8 @@ pub mod crc;
 pub mod cvar; // cvar.c
 #[cfg(feature = "render")]
 pub mod embedded_pak; // embedded_pak.c (bintoc -c vkquake.pak)
+#[cfg(all(feature = "platform", not(test)))]
+pub mod entry; // main_sdl.c's main/WinMain (Phase 9 M6)
 #[cfg(feature = "fs")]
 pub mod fs;
 #[cfg(feature = "fs")]
@@ -78,6 +80,8 @@ pub mod host; // host.c
 pub mod host_cmd; // host_cmd.c
 #[cfg(feature = "image")]
 pub mod image_decode;
+#[cfg(feature = "platform")]
+pub mod in_sdl; // in_sdl.c + in_sdl2.c/in_sdl3.c (Phase 9 M3)
 pub mod json;
 #[cfg(feature = "host")]
 pub mod keys; // keys.c
@@ -101,6 +105,10 @@ pub mod net_loop;
 pub mod net_main;
 #[cfg(feature = "net")]
 pub mod net_udp;
+#[cfg(feature = "net")]
+pub mod net_wins;
+#[cfg(feature = "platform")]
+pub mod pl; // pl_win.c/pl_linux.c (Phase 9 M4)
 #[cfg(any(feature = "progs", feature = "progs-host"))]
 pub mod pr_edict_arena; // pr_edict_arena.c (edict arena + progs string table)
 #[cfg(feature = "progs")]
@@ -182,6 +190,8 @@ pub mod sv_phys; // sv_phys.c
 pub mod sv_send; // sv_send.c
 #[cfg(feature = "host")]
 pub mod sv_user; // sv_user.c
+#[cfg(feature = "platform")]
+pub mod sys; // sys_sdl.c + sys_sdl_win.c/sys_sdl_unix.c (Phase 9 M5)
 #[cfg(feature = "tasks")]
 pub mod tasks; // tasks.c
 #[cfg(feature = "host")]
