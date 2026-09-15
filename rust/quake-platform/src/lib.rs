@@ -22,3 +22,7 @@ pub mod input;
 /// Phase 9 M4: `pl_win.c`/`pl_linux.c`.
 #[cfg(feature = "platform")]
 pub mod pl;
+
+/// Phase 9 M5: `sys_sdl.c`/`sys_sdl_win.c`/`sys_sdl_unix.c`.
+#[cfg(feature = "platform")]
+pub mod sys;

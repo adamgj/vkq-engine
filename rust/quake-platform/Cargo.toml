@@ -20,15 +20,39 @@ quake-c-sys = { path = "../quake-c-sys" }
 quake-types = { path = "../quake-types" }
 
 # ADR-003 (Phase 9 M1 amendment, adopted M4): pl_win.c's icon, clipboard
-# and error-dialog calls, feature by feature as each milestone needs them
+# and error-dialog calls, feature by feature as each milestone needs them;
+# M5 adds the sys_sdl_win.c set (wide file API, registry / known folders /
+# shell, dedicated console, DbgHelp stack traces, thread affinity)
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
+    "Win32_Globalization",
+    "Win32_Media",
+    "Win32_Security",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Com",
+    "Win32_System_Console",
     "Win32_System_DataExchange",
+    "Win32_System_Diagnostics_Debug",
+    "Win32_System_Environment",
+    "Win32_System_IO",
+    "Win32_System_Kernel",
     "Win32_System_LibraryLoader",
     "Win32_System_Memory",
+    "Win32_System_Registry",
+    "Win32_System_SystemInformation",
+    "Win32_System_SystemServices",
+    "Win32_System_Threading",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_Shell",
+    "Win32_UI_Shell_Common",
     "Win32_UI_WindowsAndMessaging",
 ] }
+
+# ADR-003 (Phase 9 M5): sys_sdl_unix.c's POSIX calls (stat, fork/exec,
+# getpwuid, select/read, backtrace, sysctl, pthread affinity); MIT/Apache-2.0
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
 
 [features]
 sdl3 = ["dep:sdl3"]
@@ -36,3 +60,6 @@ sdl2 = ["dep:sdl2"]
 # Phase 9: the platform layer proper (input, pl, sys, main); each module
 # lands under this feature at its milestone
 platform = []
+# Phase 9 M5: `DO_USERDIRS` (sys_sdl_unix.c's ~/.vkqr-engine userdir); the
+# Meson `do_userdirs` option forwards it
+userdirs = []

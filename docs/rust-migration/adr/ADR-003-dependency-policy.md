@@ -223,7 +223,23 @@ milestone that first uses it:
   calls (`CF_TEXT` is a local constant rather than pulling in
   `Win32_System_Ole`); M5 extends the list. `cargo deny check` after the
   change: `advisories ok, bans ok, licenses ok, sources ok` (no new crate
-  enters `Cargo.lock`).
+  enters `Cargo.lock`). **M5 extension (2026-09-15)**, for the
+  sys_sdl.c/sys_sdl_win.c port: `Win32_Globalization`, `Win32_Media`,
+  `Win32_Security`, `Win32_Storage_FileSystem`, `Win32_System_Com`,
+  `Win32_System_Console`, `Win32_System_Diagnostics_Debug`,
+  `Win32_System_Environment`, `Win32_System_IO`, `Win32_System_Kernel`,
+  `Win32_System_Registry`, `Win32_System_SystemInformation`,
+  `Win32_System_SystemServices`, `Win32_System_Threading`,
+  `Win32_UI_Input_KeyboardAndMouse`, `Win32_UI_Shell`,
+  `Win32_UI_Shell_Common` (wide file API, registry / known folders / shell
+  explore, dedicated console, DbgHelp stack traces, `IsDebuggerPresent`,
+  thread affinity, `timeBeginPeriod`). Still no new crate in `Cargo.lock`.
+- `libc` 0.2 (already on the expected-direct list and in the tree as a
+  transitive) becomes a direct `[target.'cfg(unix)']` dependency of
+  `quake-platform` at **M5** for sys_sdl_unix.c's POSIX surface (`stat`,
+  `opendir`/`readdir`, `fork`/`execvp`, `getpwuid`, `select`/`read`,
+  `backtrace`, `sysctl`, `pthread_setaffinity_np`, `getline`). `cargo deny
+  check licenses` after the change: `licenses ok`.
 - `socket2` 0.6 ("MIT OR Apache-2.0"), pre-approved above, was planned to
   become an unconditional dependency of `quake-net` at M2. **Amended at M2:
   it stays `cfg(unix)`-only.** The net_wins.c port calls the same ws2_32

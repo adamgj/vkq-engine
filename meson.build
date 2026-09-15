@@ -257,7 +257,6 @@ srcs = [
     'Quake/pr_edict.c',
     'Quake/pr_ext.c',
     'Quake/steam_api.c',
-	'Quake/sys_sdl.c',
 	 run_generate_embedded_pak,
 ]
 
@@ -306,7 +305,6 @@ phase1_c_srcs = [
 if host_machine.system() == 'windows'
     srcs += [
         'Quake/net_win.c',
-        'Quake/sys_sdl_win.c',
     ]
     srcs += import('windows').compile_resources(
         'Windows/vkqr-engine.rc',
@@ -319,7 +317,6 @@ if host_machine.system() == 'windows'
 else
     srcs += [
         'Quake/net_bsd.c',
-        'Quake/sys_sdl_unix.c',
     ]
 endif
 
@@ -557,6 +554,19 @@ endif
 # Nothing in it can raise, so there is no glue TU.
 if not use_rust_platform
     srcs += [host_machine.system() == 'windows' ? 'Quake/pl_win.c' : 'Quake/pl_linux.c']
+endif
+
+# Phase 9 M5: the sys.h layer. sys_sdl.c (handle table, SDL helpers) plus
+# sys_sdl_win.c / sys_sdl_unix.c move to quake-platform::sys;
+# Quake/sys_glue.c keeps the variadic Sys_Error/Sys_Printf (formatted in C,
+# handed to the Rust cores as text), the Host_Guard trampoline around
+# Host_Shutdown and the Host_Reraise frames for Sys_Error/Sys_Quit/
+# Sys_SendKeyEvents (ADR-009), and the MSVC comctl32 manifest pragma. The C
+# originals stay the -Duse_rust_platform=disabled comparison oracle
+if use_rust_platform
+    srcs += ['Quake/sys_glue.c']
+else
+    srcs += ['Quake/sys_sdl.c', host_machine.system() == 'windows' ? 'Quake/sys_sdl_win.c' : 'Quake/sys_sdl_unix.c']
 endif
 
 # Phase 6: the progs VM. The flip is per-file and lands milestone by milestone

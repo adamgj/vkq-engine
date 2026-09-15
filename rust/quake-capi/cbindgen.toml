@@ -657,6 +657,64 @@ void PL_VID_Shutdown(void);
 char *PL_GetClipboardData(void);
 void PL_ErrorDialog(const char *text);
 #endif
+/* Phase 9 M5: sys.h's Sys_* family and isDedicated (sys.rs), declared by
+ * hand on sys.h's own guard so quake_rs.h never re-declares an engine-header
+ * name (FUNC_NORETURN, qfilesize_t, findfile_t are sys.h's spellings).
+ * Sys_Error, Sys_Printf, Sys_Quit and Sys_SendKeyEvents themselves are
+ * Quake/sys_glue.c's frames over the quake_rs_sys_* cores below. */
+#ifdef _QUAKE_SYS_H
+extern qboolean isDedicated;
+int quake_rs_sys_error(char *text);
+void quake_rs_sys_printf(const char *text);
+int quake_rs_sys_quit(void);
+int quake_rs_sys_send_key_events(void);
+void Sys_FileInit(void);
+void Sys_Init(void);
+char *Sys_GetPrefPath(const char *org, const char *app);
+void Sys_MessageBoxWarning(const char *title, const char *message);
+FUNC_NORETURN void Sys_QuitNoShutdown(void);
+int Sys_fseek(FILE *file, qfileofs_t ofs, int origin);
+qfileofs_t Sys_ftell(FILE *file);
+qfilesize_t Sys_filelength(FILE *f);
+qfilesize_t Sys_FileOpenRead(const char *path, int *hndl);
+void Sys_MemFileOpenRead(const byte *memory, qfilesize_t size, int *hndl);
+int Sys_DuplicateHandle(int handle);
+int Sys_FileOpenWrite(const char *path);
+qfileofs_t Sys_FilePos(int handle);
+void Sys_FileClose(int handle);
+int Sys_FileSeek(int handle, qfileofs_t position);
+int Sys_fgetc(int handle);
+bool Sys_feof(int handle);
+int Sys_FileRead(int handle, void *dest, int count);
+int Sys_FileWrite(int handle, const void *data, int count);
+FILE *Sys_fopen(const char *path, const char *mode);
+void Sys_mkdir(const char *path);
+int Sys_FileType(const char *path);
+qboolean Sys_Explore(const char *path);
+findfile_t *Sys_FindFirst(const char *dir, const char *ext);
+findfile_t *Sys_FindNext(findfile_t *find);
+void Sys_FindClose(findfile_t *find);
+qboolean Sys_GetSteamDir(char *path, size_t pathsize);
+qboolean Sys_GetGOGQuakeDir(char *path, size_t pathsize);
+qboolean Sys_GetGOGQuakeEnhancedDir(char *path, size_t pathsize);
+qboolean Sys_GetEGSManifestDir(char *path, size_t pathsize);
+const char *Sys_GetEGSLauncherData(void);
+qboolean Sys_GetNightdiveUserDir(char *path, size_t pathsize, const char *steamlibrary);
+#ifdef USE_SDL3
+int Sys_SelectFolder(const char *title, const char *default_location, char *dst, size_t dstsize);
+#endif
+double Sys_DoubleTime(void);
+const char *Sys_ConsoleInput(void);
+void Sys_Sleep(unsigned long msecs);
+bool Sys_PinCurrentThread(int core_index);
+const char *Sys_StackTrace(void);
+bool Sys_IsInDebugger(void);
+void Sys_DebugBreak(void);
+#endif
+#ifdef _STEAM_H_
+qboolean Sys_GetSteamAPILibraryPath(char *path, size_t pathsize, const steamgame_t *game);
+quakeflavor_t ChooseQuakeFlavor(void);
+#endif
 #ifdef __cplusplus
 } /* extern "C" -- these hand-written declarations sit outside cbindgen's own
    * cpp_compat guard, so they carry their own */
@@ -759,6 +817,20 @@ exclude = [
     "IN_HideCursor", "IN_GetMousePos", "IN_ScaleMouseCoords",
     # Phase 9 M4 -- declared by hand above, guarded on platform.h
     "PL_SetWindowIcon", "PL_VID_Shutdown", "PL_GetClipboardData", "PL_ErrorDialog",
+    # Phase 9 M5 -- declared by hand above, guarded on sys.h / steam.h
+    "isDedicated", "quake_rs_sys_error", "quake_rs_sys_printf", "quake_rs_sys_quit",
+    "quake_rs_sys_send_key_events",
+    "Sys_FileInit", "Sys_Init", "Sys_GetPrefPath", "Sys_MessageBoxWarning",
+    "Sys_QuitNoShutdown", "Sys_fseek", "Sys_ftell", "Sys_filelength",
+    "Sys_FileOpenRead", "Sys_MemFileOpenRead", "Sys_DuplicateHandle",
+    "Sys_FileOpenWrite", "Sys_FilePos", "Sys_FileClose", "Sys_FileSeek", "Sys_fgetc",
+    "Sys_feof", "Sys_FileRead", "Sys_FileWrite", "Sys_fopen", "Sys_mkdir",
+    "Sys_FileType", "Sys_Explore", "Sys_FindFirst", "Sys_FindNext", "Sys_FindClose",
+    "Sys_GetSteamDir", "Sys_GetGOGQuakeDir", "Sys_GetGOGQuakeEnhancedDir",
+    "Sys_GetEGSManifestDir", "Sys_GetEGSLauncherData", "Sys_GetNightdiveUserDir",
+    "Sys_SelectFolder", "Sys_DoubleTime", "Sys_ConsoleInput", "Sys_Sleep",
+    "Sys_PinCurrentThread", "Sys_StackTrace", "Sys_IsInDebugger", "Sys_DebugBreak",
+    "Sys_GetSteamAPILibraryPath", "ChooseQuakeFlavor",
     "GLMesh_UploadBuffers", "AliasMesh", "AllSurfacesDef", "JointPose",
     "QPathStr", "SkinDef", "SurfaceDef", "Md3XyzNormal", "Md5Vert", "Md5Vert8",
     "AliasHdr", "MAliasFrameDesc", "MSprite", "MSpriteFrameDesc",

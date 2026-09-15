@@ -121,8 +121,9 @@ sdl2 = ["quake-platform/sdl2"]
 # the Phase 9 platform-layer shims (net_wins, in_sdl*, pl_*, sys_sdl*,
 # main_sdl as they land); set by Meson when -Duse_rust_platform is enabled
 platform = ["quake-platform/platform"]
-# tracks the C build's DO_USERDIRS (extra per-user localization lookups)
-userdirs = []
+# tracks the C build's DO_USERDIRS (extra per-user localization lookups;
+# Phase 9 M5: also sys_sdl_unix.c's ~/.vkqr-engine userdir in quake-platform)
+userdirs = ["quake-platform/userdirs"]
 
 [lints]
 workspace = true
