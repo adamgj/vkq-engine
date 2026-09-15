@@ -55,7 +55,12 @@ jobs:
       run: |
         wget -q -O vulkan-sdk.tar.xz "https://sdk.lunarg.com/sdk/download/${VULKAN_SDK_VER}/linux/vulkansdk-linux-x86_64-${VULKAN_SDK_VER}.tar.xz"
         mkdir -p vulkan-sdk
-        tar -xf vulkan-sdk.tar.xz -C vulkan-sdk --strip-components=1 --wildcards           "${VULKAN_SDK_VER}/x86_64/bin/glslang"           "${VULKAN_SDK_VER}/x86_64/bin/glslangValidator"           "${VULKAN_SDK_VER}/x86_64/bin/spirv-opt"           "${VULKAN_SDK_VER}/x86_64/include"           "${VULKAN_SDK_VER}/x86_64/lib/libvulkan.so*"
+        tar -xf vulkan-sdk.tar.xz -C vulkan-sdk --strip-components=1 --wildcards \
+          "${VULKAN_SDK_VER}/x86_64/bin/glslang" \
+          "${VULKAN_SDK_VER}/x86_64/bin/glslangValidator" \
+          "${VULKAN_SDK_VER}/x86_64/bin/spirv-opt" \
+          "${VULKAN_SDK_VER}/x86_64/include" \
+          "${VULKAN_SDK_VER}/x86_64/lib/libvulkan.so*"
         rm vulkan-sdk.tar.xz
     - name: Export Vulkan SDK environment
       run: |

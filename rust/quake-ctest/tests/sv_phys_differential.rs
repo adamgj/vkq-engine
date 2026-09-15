@@ -1599,6 +1599,31 @@ fn run_raise_case(
     needle: &str,
     what: &str,
 ) {
+    // A raise inside SV_Physics longjmps past its epilogue (sv_phys.c:2456),
+    // so push_grid_active/push_cache_active stay set, the pushable cache and
+    // grid keep pointing into this test's arena and SV_Physics_Alloc_Hook
+    // stays installed -- on both sides, since both raised. The next test
+    // frees that arena, and a sv_fastpushmove 0 tick there scans the stale
+    // cache: NUM_FOR_EDICT "bad pointer", unarmed, abort (seen on CI when
+    // the lock order put the fastpushmove/pushgrid combinations right after
+    // the bad-movetype raise). Only a complete fast-pushers tick resets
+    // those statics; the shared alloc-hook slot is cleared explicitly. Done
+    // from a drop guard so a failing assertion below still resets them
+    // instead of turning one mismatch into an abort in whichever test runs
+    // next (the test profile unwinds; the file mutex is still held).
+    struct ResetPushers;
+    impl Drop for ResetPushers {
+        fn drop(&mut self) {
+            for side in [Side::C, Side::Rust] {
+                setup(side, DEFAULTS, &population(), 2, PROG_TICK);
+                side.physics();
+            }
+            // SAFETY: plain hook-slot reset, serialized by the file mutex.
+            unsafe { quake_c_sys::sv_phys::ED_AllocSetHook(None) };
+        }
+    }
+    let _reset = ResetPushers;
+
     let mut results = Vec::new();
     for side in [Side::C, Side::Rust] {
         setup(side, cv, specs, physics_mode, PROG_TICK);
@@ -1635,22 +1660,6 @@ fn run_raise_case(
     );
     assert_eq!(c.2, rust.2, "console log up to the raise ({what})");
     assert_eq!(c.3, rust.3, "sound log up to the raise ({what})");
-
-    // A raise inside SV_Physics longjmps past its epilogue (sv_phys.c:2456),
-    // so push_grid_active/push_cache_active stay set, the pushable cache and
-    // grid keep pointing into this test's arena and SV_Physics_Alloc_Hook
-    // stays installed -- on both sides, since both raised. The next test
-    // frees that arena, and a sv_fastpushmove 0 tick there scans the stale
-    // cache: NUM_FOR_EDICT "bad pointer", unarmed, abort (seen on CI when
-    // the lock order put the fastpushmove/pushgrid combinations right after
-    // the bad-movetype raise). Only a complete fast-pushers tick resets
-    // those statics; the shared alloc-hook slot is cleared explicitly.
-    for side in [Side::C, Side::Rust] {
-        setup(side, DEFAULTS, &population(), 2, PROG_TICK);
-        side.physics();
-    }
-    // SAFETY: plain hook-slot reset, serialized by the file mutex.
-    unsafe { quake_c_sys::sv_phys::ED_AllocSetHook(None) };
 }
 
 #[test]

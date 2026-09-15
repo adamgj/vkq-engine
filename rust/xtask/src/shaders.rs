@@ -251,7 +251,8 @@ pub fn compile(
 }
 
 /// Compiles every job into `out_dir`, in parallel; returns the `.spv` paths
-/// in [`jobs`] order.
+/// in [`jobs`] order. Under a build script Cargo's `NUM_JOBS` bounds the
+/// tool processes, since rustc jobs are already using the cores.
 pub fn compile_all(
     repo_root: &Path,
     out_dir: &Path,
@@ -260,9 +261,12 @@ pub fn compile_all(
 ) -> Result<Vec<PathBuf>, String> {
     std::fs::create_dir_all(out_dir).map_err(|e| format!("{}: {e}", out_dir.display()))?;
     let jobs = jobs();
-    let threads = std::thread::available_parallelism()
-        .map_or(1, |n| n.get())
-        .min(jobs.len().max(1));
+    let threads = std::env::var("NUM_JOBS")
+        .ok()
+        .and_then(|n| n.parse().ok())
+        .or_else(|| std::thread::available_parallelism().ok().map(|n| n.get()))
+        .unwrap_or(1)
+        .clamp(1, jobs.len().max(1));
     let chunk = jobs.len().div_ceil(threads);
     let results: Vec<Result<PathBuf, String>> = std::thread::scope(|scope| {
         let handles: Vec<_> = jobs

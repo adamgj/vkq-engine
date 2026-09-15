@@ -35,10 +35,10 @@ pub fn deflate_raw(input: &[u8]) -> Vec<u8> {
                 return output;
             }
             TDEFLStatus::Okay => {
+                // Okay under Finish means the output buffer is full, as in
+                // tdefl_compress_mem_to_heap: double it and continue.
                 input = &input[bytes_in..];
-                if output.len() - out_pos < 30 {
-                    output.resize(output.len() * 2, 0);
-                }
+                output.resize(output.len() * 2, 0);
             }
             status => panic!("deflate failed: {status:?}"),
         }
