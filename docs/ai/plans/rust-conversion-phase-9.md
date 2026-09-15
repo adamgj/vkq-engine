@@ -1,0 +1,259 @@
+# Feature task plan: Rust migration Phase 9 — Host inversion + platform (`quake-platform`, Rust `main()`)
+
+Status: approved (plan mode, 2026-09-14)
+Owner: adamgj / Claude Opus 5
+Baseline: `feature/rust-conversion-phase-9-fd0f10` at `5394a4f2` (master = merged Phase 8 M11-M12, PR #40)
+Last materially updated: 2026-09-14
+Commit target once approved: `docs/ai/plans/rust-conversion-phase-9.md` (first commit of M1)
+
+For Rust-migration work, this task plan is subordinate to `docs/rust-migration/PLAN.md`, `ROADMAP.md`, and applicable ADRs. It cannot change phase ordering or compatibility policy without an explicit approved documentation/ADR change.
+
+## Context
+
+Phases 0–8 are complete on `master`; the ROADMAP's next open phase is **Phase 9 — Host inversion + platform (M)** (`docs/rust-migration/ROADMAP.md:270-287`). It moves the process entry point and the platform layer to Rust: the Phase 5 carry-overs `net_wins.c` (Windows WINS landrivers) plus the driver-table files `net_bsd.c`/`net_win.c`; `main_sdl.c` (client + dedicated loops); `sys_sdl.c`/`sys_sdl_unix.c`/`sys_sdl_win.c` (file handles, timers, console I/O, store-location discovery, `Sys_Error` policy incl. the DbgHelp stack trace); `pl_win.c`/`pl_linux.c`/`pl_osx.m` (icon, clipboard, error dialog); `in_sdl.c`/`in_sdl3.c`/`in_sdl.h` (event pump, joystick, scancode table); the ADR-009 error-path end state; `quakedef.h`/PCH retirement; and the build-orchestration decision.
+
+The user asked to "implement phase 9 … then review and validate". Per `CLAUDE.md`/`AGENTS.md` and `docs/ai/FABLE5_WORKFLOW.md`, this is **one bounded architecture pass (this plan) followed by implementation one milestone at a time**, each milestone leaving every configured build and gate green and landing as its own commit.
+
+**Scope of the session that follows approval (decision, not a question):** land the milestones **in order (M1 → M8)**, each with its targeted verification and evidence row, and stop honestly at whichever milestone the session's verification stops being current — exactly as Phase 8 did. The Windows dev box is the local oracle (`build-c`, `build-rs` and the new `build-rs-cplatform` leg; `run_corpus.py --compare`; `save_diff.py`; cargo gates); Linux/macOS/Docker/MinGW checks are CI-only and are recorded as *not run locally*. No agent-parallel execution; `compatibility-reviewer` at the STOP points.
+
+Governing: ADR-001 (C oracle until this phase's soak completes), ADR-003 (new direct crates `sdl2`, `windows-sys`; `socket2` on Windows — all reviewed in D2), ADR-004 (unsafe concentrated in `quake-platform`/`quake-net::udp::sys`/`quake-capi`; every block documented), ADR-007 (cvars stay C-owned statics in glue TUs during the phase), ADR-009 (no `longjmp` through Rust frames; `Host_Guard`/`Host_Reraise` status-core pattern), ADR-010 (per-platform parity; no sim-observable change), ADR-017 (SDL2 and SDL3 both; Windows SDL3-only; SDL2 audio stays C), ADR-019 (gates first; the full suite at phase exit).
+
+## Objective
+
+Make the Rust staticlib own the process entry point (`main`/`WinMain`), the SDL event/input pump, the `Sys_*` platform layer, the `PL_*` desktop-integration layer and the Windows UDP landrivers behind one new meson switch (`use_rust_platform`), verified against the C build by the existing differential harness (headless corpus, save/config/condump diffs, interop matrix incl. a new Windows UDP runtime leg) plus manual windowed checks on the dev box — while keeping the C-only build (`-Duse_rust=disabled`) buildable and in CI for the release-cycle soak the ROADMAP requires before any C file is deleted.
+
+## Requirements and non-goals
+
+- R1: every `Sys_*` (`sys.h`), `PL_*` (`platform.h`), `IN_*` (`input.h`) and `main_sdl.c` behaviour is preserved observably: argument handling (`COM_InitArgv`, `-dedicated`, `Harness_CheckArgs`), banner text and order on stdout, `Sys_Error` text (`"\nERROR-OUT BEGIN\n\n"` / `"\nQUAKE ERROR: "`), exit codes (`exit(1)` on error, `exit(0)` on quit), dedicated-server console semantics (256-char line buffer, `\r`/`\b` handling, `console_unqueryable` degrade), file-handle table semantics (`file_handle_t`, `Sys_MemFileOpenRead`, `Sys_DuplicateHandle`), `Sys_DoubleTime` source (`SDL_GetPerformanceCounter/Frequency`), timer resolution (`timeBeginPeriod(1)` on Windows), frame pacing (`sys_ticrate`, focus/minimised `SDL_Delay(16/32)`, harness fixed-dt and ticrate pacing), store-location discovery (Steam/GOG/EGS/Nightdive registry+manifest logic), `Sys_FindFirst/Next/Close` ordering and attribute mapping, key/scancode mapping (the `IN_SDL_ScancodeToQuakeKey` table and `buttonremap`), joystick/gamepad handling incl. `gamecontrollerdb.txt` loading order (basedir then userdir), and the SDL2/SDL3 differences already encoded in `in_sdl.c` vs `in_sdl3.c`.
+- R2: the Windows UDP landriver (`net_wins.c`) ports onto the existing `quake-net::udp` core with a Windows `sys` arm; observable behaviour (WSAStartup/Cleanup pairing, `gethostbyname` name resolution incl. the `-ip` parameter, `FIONBIO` non-blocking sockets, `WSAECONNRESET` read → 0, `WSAEWOULDBLOCK` read → 0, local address enumeration, textual address forms) is identical; `net_win.c`'s driver table flips to the Rust landriver entries under `USE_RUST_NET`.
+- R3: every existing gate (`run_corpus --check/--compare`, save/config/condump/capture/record/netreplay diffs, interop/physics matrices, formats corpus, sndhash, render corpus, ctest suite, fmt/clippy/deny/audit, bindgen-smoke, capi-signature parity, header checks) stays green after every milestone on every existing leg, including the C-only legs.
+- R4: SDL2 and SDL3 both work with the Rust platform layer on Linux/macOS (the Linux harness job builds SDL2 for every leg); Windows stays SDL3-only (ADR-017); MinGW stays a C-only leg.
+- R5: no `longjmp` ever crosses a Rust frame: every C callee that can `Host_Error`/`Sys_Error`-longjmp (`Key_Event`, `Char_Event`, `Cbuf_AddText`, `CL_Disconnect`, `Cvar_RegisterVariable`, `Host_Frame`, `Host_Init`, `Host_Shutdown`, cvar callbacks) is reached from Rust only through a `Host_Guard` trampoline, and every Rust entry point reachable from C that can observe a raise returns the ADR-009 `Raise` status which the C glue wrapper `Host_Reraise`s.
+- R6: packaging (`Packaging/AppImage`, `Packaging/Windows`, mac archive job) is reproduced with `use_rust=enabled` (Rust `main`) once the Rust `main` lands; the harness jobs keep their `build-c` legs for the soak.
+- NG1: no port of `q_thread_sdl.c` (not in the Phase 9 scope list; `std::thread` is used by Rust code, the C primitives stay for the C remnant — Phase 8 NG2 wording).
+- NG2: no deletion of any C file in this phase's work sessions: the ROADMAP exit criteria require a release-cycle soak with C-only CI *before* the deletion list executes and `c-reference/final` is tagged. The deletion list and the soak record are captured at M8; the deletion itself is the soak-exit action (see D8 and the amendment log).
+- NG3: no modernisation of the platform layer (no async runtime, no `winit`, no `SDL_MAIN_USE_CALLBACKS`); the SDL C API is called through `sdl3-sys`/`sdl2-sys` exactly as the C code does.
+- NG4: no Linux goldens; no changes to simulation, parsing, the VM, save formats or the network protocol (R3 is the guard).
+- NG5: `objc2` is not introduced: `pl_osx.m`'s two behaviours (window icon no-op; clipboard via `NSPasteboard`) are reproduced with `SDL_GetClipboardText` (see D5, accepted divergence recorded).
+
+## Invariants and compatibility surfaces
+
+- I1: the headless harness (`-headless`, `no_rendering`) exercises `main`, `Sys_*`, `COM_InitArgv`, the dedicated loop and the file layer; `Sys_SendKeyEvents` runs every client frame regardless of `no_rendering` (`main_sdl.c` has no gate around it), so the Rust event pump runs in the headless CI legs too, but the SDL window/input events themselves are never generated there. So `run_corpus.py --compare build-c build-rs-cplatform build-rs` observes the loop/pacing/`Sys_DoubleTime` port; windowed behaviour (focus, minimise, mouse/keyboard, gamepad, clipboard, icon, error dialog) needs manual dev-box checks recorded as such.
+- I2: `Sys_Error` on a worker thread must not touch `host_parms->errstate`, must not longjmp, and writes through `houtput` on Windows (`sys_sdl_win.c:656-719`); the Rust port keeps the `Tasks_IsWorker()` branch verbatim.
+- I3: `quakeparms_t` (`quakedef.h:224-234`) is already mirrored in `rust/quake-c-sys/src/host.rs:34-67` with `host_parms` extern; the Rust `main` owns the `static parms` and sets `host_parms` before `COM_InitArgv`.
+- I4: `file_handle_t`/`sys_handles` (`sys_sdl.c`) are consumed only through `Sys_File*`; `Sys_MemFileOpenRead` memory ownership (`Mem_Free` on close) and `Sys_DuplicateHandle` sharing of the `FILE*` are preserved. `Sys_fopen`/`Sys_FileType`/`Sys_fseek`/`Sys_ftell`/`Sys_mkdir`/`Sys_FindFirst`… are called from the Rust side through `quake-c-sys` today — the Rust port must keep exporting them with the same C symbols (`check_capi_signatures.sh` parity).
+- I5: `Sys_Error`/`Sys_Printf` are variadic; Rust stable cannot define c-variadic functions, so both keep a C wrapper in `Quake/sys_glue.c` that formats (`q_vsnprintf`) and calls `quake_rs_sys_error(const char *)` / `quake_rs_sys_printf(const char *)` — the `Con_Printf` precedent (`Quake/console_glue.c:287`).
+- I6: `main_sdl.c` includes `<SDL3/SDL_main.h>` under SDL3 to get the inline `WinMain` shim (Windows GUI subsystem). With Rust `main`, Windows needs an exported `WinMain` — provided by Rust (`extern "system" fn WinMain`) which calls `SDL_RunApp(0, null, quake_main, null)`; non-Windows exports `#[no_mangle] extern "C" fn main(argc, argv)`. The staticlib is linked by Meson into `vkqr-engine` exactly as today; no cargo bin.
+- I7: `net_win.c`/`net_bsd.c` driver tables reference the landriver structs by name (`net_wins`/`net_udp`); under `USE_RUST_NET` they must reference the Rust landriver entries already exported for Unix (`rust_udp4_*`/`rust_udp6_*`/`rust_udp_*` in `quake-capi/src/net_udp.rs`). The driver-table files stay C until the soak deletion (they are two small tables).
+- I8: the meson PCH is `Quake/quakedef.h`; every remaining C TU includes it. It is **not** a Rust-side input (`rust/quake-c-sys/bindings_wrapper.h` uses explicit headers). Retiring it means removing 157 `#include "quakedef.h"` lines and the `c_pch` argument — a C-remnant refactor that changes nothing observable and can only be done once the C oracle is no longer built from the same tree. It is therefore scheduled with the soak deletion (D7), and M8 records the exact recipe.
+- I9: ADR-009 residual: after M7, the remaining `setjmp` sites are (a) `Host_Glue_FrameInner`'s frame guard for the **C-platform** builds and (b) the `Host_Guard` trampoline itself, used by every glue TU as the only legal longjmp landing pad. Both are C-remnant machinery deleted with the soak exit; the Rust `main` loop owns frame-abort recovery via the `Raise` result of `Host_Guard(Host_Frame, …)`.
+- Platforms/configs: Windows (clang-cl, MSVC, MinGW C-only, arm64), Linux (gcc, ASan), macOS (MoltenVK); SDL2 (Linux/macOS) and SDL3; configs `build-c`, `build-rs`, `build-rs-cplatform` (new), all existing `build-rs-c<module>` legs; packaging: AppImage docker, Windows NSIS scripts, mac archive.
+
+## Migration authority
+
+- Roadmap phase: **Phase 9** `[ ]` → `[~]` at M1; exit block at M8 with the soak/deletion record.
+- ADRs: 001, 003, 004, 007, 009, 010, 017, 019 (constraints above); ADR-003 amendment at M1 (D2).
+- C oracle: `build-c` (`-Duse_rust=disabled`) and the per-switch leg `build-rs-cplatform` (`-Duse_rust_platform=disabled`), plus `build-rs-cnet` for M2.
+- Deferred/deletion restrictions: NG1/NG2; ADR-005 formatter gaps untouched; Phase 10 items untouched.
+
+## Repository evidence
+
+| Fact/dependency | Evidence | Confidence |
+|---|---|---|
+| Phase 9 scope/exit/deletes | `ROADMAP.md:270-287` | confirmed |
+| `main_sdl.c` loops, banner, pacing, harness hooks | `Quake/main_sdl.c` (full read) | confirmed |
+| `sys_sdl_win.c` API incl. DbgHelp trace, console input, registry/store discovery | `Quake/sys_sdl_win.c` (986 lines, full read) | confirmed |
+| `sys_sdl.c` shared file-handle layer, `Sys_SelectFolder` (SDL3), `Sys_GetPrefPath`, `ChooseQuakeFlavor` | `Quake/sys_sdl.c` (458 lines) | confirmed |
+| `sys_sdl_unix.c` (`Sys_Error` non-longjmp worker path at `:566-597`, userdir, Steam paths) | `Quake/sys_sdl_unix.c` | confirmed |
+| `in_sdl.c`/`in_sdl3.c` differ only in SDL API names, text-input filter, gamepad IDs (`0` invalid in SDL3, `-1` in SDL2) | both files read | confirmed |
+| `in_sdl.h` scancode table + `buttonremap` | `Quake/in_sdl.h:12-243` | confirmed |
+| `pl_win.c`, `pl_linux.c`, `pl_osx.m` (icon, clipboard, error dialog) | files read | confirmed |
+| `net_wins.c` = `net_udp.c` twin with WSA calls; `net_win.c`/`net_bsd.c` driver tables | files read; Phase 5 M7b note in `net_udp.rs` header | confirmed |
+| `quake-net::udp` core is `cfg(unix)` (`lib.rs:20`), `socket2`/`libc` unix-only deps; `udp/sys.rs` uses `std::os::fd` | `rust/quake-net/Cargo.toml`, `src/udp/sys.rs` | confirmed |
+| `quake-capi/src/net_udp.rs` is `#![cfg(unix)]` and exports `rust_udp*` landriver functions | file header | confirmed |
+| `quake-platform` has only `snd_sdl3` behind feature `sdl3`; `sdl3 = "0.18.4"` via `sdl3::sys` | `rust/quake-platform/Cargo.toml`, `src/lib.rs` | confirmed |
+| `quake-host` is a stub whose doc says it becomes the bin in Phase 9 | `rust/quake-host/src/lib.rs` | confirmed |
+| Meson: `rust_feature_list` (`meson.build:413-470`, `sdl3` at 466), executable block with `c_pch: 'Quake/quakedef.h'`, `win_subsystem: 'windows'` | `meson.build:1195-1250` | confirmed |
+| Linux harness job builds SDL2 for every leg (`-Duse_sdl3=disabled`) and is the only job running `interop_matrix.py` | `.github/workflows/build-linux.yml:71-151` | confirmed |
+| Windows CI has no UDP runtime leg; mac harness uses SDL3 | `build-windows.yml:20-109`, `build-mac.yml:37-86` | confirmed |
+| Packaging jobs all configure with `use_rust=disabled`; AppImage docker image has no Rust toolchain | `Packaging/AppImage/{run-in-docker.sh,docker/Dockerfile}`, `build-windows.yml` packaging job, `build-mac.yml` archive job | confirmed |
+| ADR-003 pre-approved `socket2`, `libc`, `windows-sys` (Phase 5 M1 amendment) and lists `sdl2` as an expected direct dependency; `windows-sys` 0.61.2 already in `Cargo.lock` transitively | `docs/rust-migration/adr/ADR-003-dependency-policy.md:85-130` | confirmed |
+| Raise/`Host_Reraise` glue pattern | `rust/quake-capi/src/keys.rs`, `Quake/keys_glue.c`, `Quake/host_glue.c` (`Host_Guard`/`Host_Reraise`, `Host_Glue_FrameInner`) | confirmed |
+| `quakeparms_t` mirror + `host_parms` | `rust/quake-c-sys/src/host.rs:34-67` | confirmed |
+| Variadic `Con_Printf` keeps a C wrapper | `Quake/console_glue.c:287` | confirmed |
+| Baseline `build-c`/`build-rs` build green on the dev box (2026-09-14) | ninja run exit 0 | confirmed |
+
+## Architecture and decisions
+
+### D1: One switch, `use_rust_platform`; the Rust `main` is exported from the staticlib
+
+- New meson option `use_rust_platform` (feature, `auto` follows `use_rust`, effective only with `use_rust`) → cargo feature `platform` on `quake-capi` (→ `quake-platform/platform`). It gates, in Meson, dropping `main_sdl.c`, `sys_sdl.c`, `sys_sdl_unix.c`/`sys_sdl_win.c`, `pl_*.{c,m}`, `in_sdl.c`/`in_sdl3.c` from the source list (each replaced at its milestone; between milestones the switch drops only what has landed) and defines `USE_RUST_PLATFORM` for the glue TUs.
+- Build orchestration: **Meson retained (thin)**. The C remnant after Phase 9 is still >150k lines (codecs, mimalloc, miniz, stb, shaders/resource compile, packaging, four toolchains); cargo+`cc` would re-implement `meson.build`'s option matrix for no gain. The Rust `main` is a `#[no_mangle]` export from the `quake_rs` staticlib, linked by Meson into `vkqr-engine` as today; `quake-host` stays a library crate (doc updated). Recorded as the ROADMAP's "decide by remnant size" outcome at M8.
+- CI leg `build-rs-cplatform` (`-Duse_rust_platform=disabled`) on all three harness jobs; MinGW/arm64 legs stay C-only (`use_rust=disabled`) as today.
+
+### D2: Dependencies (ADR-003 introduction bar, recorded in the ADR-003 amendment at M1)
+
+| Crate | License | Use | Notes |
+|---|---|---|---|
+| `sdl2` (with `sdl2-sys`) | MIT | `quake-platform` feature `sdl2`: SDL2 event/input/timer/clipboard/messagebox via `sdl2::sys` | on ADR-003's expected-direct list; no `bundled`/`raw-window-handle` features, so the Linux SDL2 harness leg links the distro SDL2 as the C code does |
+| `windows-sys` 0.61 | MIT OR Apache-2.0 | `quake-net` (WinSock, IP helper), `quake-platform` (console, registry, DbgHelp, shell/known folders, COM, clipboard, messagebox, timers, threading) | pre-approved (Phase 5 M1 amendment); already transitive in the lock file; features enumerated per crate |
+| `socket2` 0.6 | MIT OR Apache-2.0 | made unconditional in `quake-net` (Windows arm of `udp::sys`) | pre-approved |
+
+`cargo deny check` and `cargo audit` must stay clean; `sdl2`/`sdl3` features are mutually exclusive, enforced with `compile_error!` in `quake-platform`.
+
+### D3: `net_wins.c` is a Windows arm of the existing `quake-net::udp` core (M2)
+
+- `quake-net/src/udp/sys.rs` gains `#[cfg(windows)]` implementations of the same `sys` API (`INVALID`, socket open/close, non-blocking, recv/send, `strerror` via `WSAGetLastError`+`FormatMessageW`, local-address enumeration, `gethostbyname`); `SysSocket` width must match `SOCKET` on Windows (verify the `quake-types::net` definition at M2). `WSAStartup` in `init`, `WSACleanup` in `shutdown`, mirroring `net_wins.c`.
+- `quake-capi/src/net_udp.rs` drops `#![cfg(unix)]`; `net_win.c`'s table references the Rust entries under `USE_RUST_NET`; Meson drops `net_wins.c` under `use_rust_net` on Windows (as it drops `net_udp.c` on Unix today).
+- Verification: a **Windows UDP runtime CI leg** (`interop_matrix.py` on the Windows harness job) is added so the deferral reason from Phase 5 M7b is closed, plus a local two-process Windows session between `build-c` and `build-rs`.
+
+### D4: Input → `quake-platform::input` with `sdl2`/`sdl3` backend modules (M3)
+
+- `input/mod.rs` (backend-neutral: `IN_Init/Shutdown/Commands/Move/ClearStates/Activate/Deactivate/…`, joystick axis math, dead-zone/easing functions, `gamecontrollerdb.txt` loading order), `input/scancode.rs` (the `in_sdl.h` table as a `match` on the SDL scancode integer — identical for SDL2/SDL3 because both use USB HID scancode values), `input/sdl2.rs`/`input/sdl3.rs` (event pump, gamepad handling, mouse filter).
+- Cvars (`joy_*`, `in_debugkeys`, …) stay C-owned statics in `Quake/in_sdl_glue.c` (ADR-007 dual-view as every Phase 6–8 glue); Rust reads them through `quake-c-sys` externs; registration via a `Host_Guard` trampoline.
+- Raise-capable callees (`Key_Event`, `Key_EventWithKeycode`, `Char_Event`, `Cbuf_AddText`, `CL_Disconnect`, cvar callbacks, `Con_Mousemove`) are reached through `Host_Guard` trampolines defined in the glue; `IN_SendKeyEvents`/`IN_Commands`/`IN_Move`/`IN_Init` glue wrappers `Host_Reraise` the `Raise` returned by the Rust cores. `SDL_EVENT_QUIT` → `CL_Disconnect` (guarded) then `Sys_Quit` (never returns).
+
+### D5: `PL_*` → `quake-platform::pl` (M4)
+
+- `pl_win.rs` via `windows-sys` (icon via `SetClassLongPtrW` on the HWND from the SDL3 window properties, `OpenClipboard`/`GetClipboardData(CF_TEXT)`, `MessageBoxA`); `pl_sdl.rs` for Linux/macOS via `SDL_SetWindowIcon` (Linux embedded icon data as today), `SDL_GetClipboardText`, `SDL_ShowSimpleMessageBox`. `pl_osx.m`'s `NSPasteboard` read is replaced by `SDL_GetClipboardText` (**accepted divergence**: same clipboard through SDL's Cocoa backend; recorded in the amendment log), so no `objc2` (NG5) and no kept ObjC stub.
+- `PL_GetClipboardData` allocates with `Mem_Alloc` (caller `Mem_Free`s) exactly as C.
+
+### D6: `Sys_*` → `quake-platform::sys` (M5) and `main` → `quake-platform::main` (M6)
+
+- `sys/handles.rs` (the `sys_sdl.c` table with the same index/free semantics, `FILE*` I/O via the C runtime so `Sys_DuplicateHandle` sharing is preserved), `sys/win.rs`, `sys/unix.rs`, `sys/common.rs` (`Sys_GetPrefPath`, `Sys_MessageBoxWarning`, `Sys_SelectFolder` under SDL3, `ChooseQuakeFlavor`).
+- `Sys_Error`/`Sys_Printf` C wrappers in `Quake/sys_glue.c` (I5); `Sys_Error` Rust core: `errstate` bump unless worker, `Sys_DebugBreak`, stack trace unless in debugger, `PR_SwitchQCVM(NULL)`, text output, `PL_ErrorDialog` or console + 3 s delay, `exit(1)`.
+- Windows DbgHelp stack trace via `windows-sys` `Win32_System_Diagnostics_Debug`, output formats verbatim; MSYS2 DWARF offset branch kept under `cfg(target_env = "gnu")`.
+- `main`: `quake_main(argc, argv)` does exactly `main_sdl.c`'s sequence; the frame loop calls `Host_Guard(Host_Frame_Trampoline, &time)` and inspects the `Raise` (frame abort → continue loop, as `Host_Glue_FrameInner`'s setjmp did). `Host_Init`/`Sys_Init` likewise guarded. Windows: `WinMain` → `SDL_RunApp`. `main_sdl.c` is dropped from the build under `use_rust_platform`; `USE_RUST_PLATFORM` makes `Host_Glue_FrameInner` a plain call (no setjmp) — the frame guard lives in the Rust loop.
+- Packaging flip (R6) lands with M6: AppImage Dockerfile gains rustup (1.97.1 pinned, `cbindgen`), `run-in-docker.sh` configures `-Duse_rust=enabled`; Windows packaging job and mac archive job configure `-Duse_rust=enabled`; harness jobs keep `build-c`.
+
+### D7: Error-path end state (M7) and `quakedef.h` (M8) are scoped to what the C oracle permits
+
+- ROADMAP says "last `setjmp`/`longjmp` removed". While the C oracle is built from the same tree and 50+ glue TUs use `Host_Guard`, the trampoline pair must remain. Phase 9's end state is: (a) the Rust `main` loop is the sole owner of frame-abort recovery (no setjmp in `Host_Glue_FrameInner` under `USE_RUST_PLATFORM`); (b) `HostError` (`quake-host::error`) is the typed result the Rust loop consumes; (c) a committed **residual setjmp inventory** (grep-generated, per TU) with each site mapped to "deleted with soak exit" or "converted at Phase 10"; (d) every `Host_Guard` use from Rust-owned callers inventoried. Recorded as an amendment to the ROADMAP exit wording (Phase 7/8 precedent for deferring deletions).
+- `quakedef.h`: same reasoning (I8): retirement recipe + PCH removal recorded at M8, executed with the soak deletion. `libquake_c.a` is not materialised (Meson thin, D1).
+
+### D8: Soak and deletion protocol (M8 record)
+
+- After M6 lands on `master` (with packaging flipped), the release-cycle soak begins: C-only legs stay in CI; any C-vs-Rust divergence found is fixed in Rust. Soak exit = one tagged release built from Rust `main` on all three OSes + green harness matrix. Then, as a separate PR: tag `c-reference/final`, delete the Phase 9 list, execute the `quakedef.h` recipe, retire C-only CI. M8 writes this protocol into the ROADMAP exit block and the amendment log so the deletion PR needs no new plan.
+
+## Change boundary
+
+### Expected to change
+
+- New: `rust/quake-platform/src/{input/,pl/,sys/,main.rs}`, `rust/quake-capi/src/{input.rs,pl.rs,sys.rs,platform_main.rs}`, `Quake/{in_sdl_glue.c,pl_glue.c,sys_glue.c}`, `Quake/net_glue.c` additions, Windows UDP CI leg wiring, ADR-003 amendment, ROADMAP Phase 9 status, this plan.
+- Modified: `meson_options.txt`, `meson.build`, `rust/quake-{capi,platform,net,host,c-sys}/Cargo.toml`, `rust/Cargo.lock`, `rust/quake-net/src/{lib.rs,udp/sys.rs}`, `rust/quake-capi/src/{lib.rs,net_udp.rs}`, `Quake/net_win.c` (table under `USE_RUST_NET`), `Quake/host_glue.c` (`USE_RUST_PLATFORM` frame guard), `cbindgen.toml`/`check_capi_signatures.sh` (new exports), `.github/workflows/build-{linux,windows,mac}.yml`, `Packaging/AppImage/*`, `Misc/harness/README.md`.
+
+### Must not change without plan amendment
+
+- Any simulation/parse/VM/protocol/save/config code (R3/NG4); `Quake/tasks*.c`, `q_thread_sdl.c` (NG1); the SDL2 audio C backend (ADR-017); the C-only build's behaviour; the deletion list (NG2); ADR texts other than the ADR-003 amendment and the ADR-009/ROADMAP exit-wording amendment recorded here.
+
+## Acceptance matrix
+
+| ID | Acceptance criterion | Verification/gate | Status |
+|---|---|---|---|
+| AC1 | `use_rust_platform` switch + `platform`/`sdl2`/`sdl3` features: `build-rs-cplatform` configures, builds and passes every gate identically to `build-rs`; `cargo check --features platform,sdl2` compiles on the dev box; CI legs added to all three harness jobs | meson configs + `run_corpus.py --compare` + CI | pending |
+| AC2 | ADR-003 amendment for `sdl2`/`windows-sys`/`socket2`; `cargo deny check` + `cargo audit` clean | `rust.yml` `lint`/`audit` | pending |
+| AC3 | Windows UDP landriver in Rust: `build-rs` on Windows links no `net_wins.c`; local two-process session C↔Rust works; Windows CI `interop_matrix.py` leg green | M2 targeted + CI | pending |
+| AC4 | Input in Rust (SDL2 + SDL3): scancode table unit test; `run_corpus.py --compare` identical; manual windowed check (keys, mouse, wheel, console text, gamepad connect/disconnect, quit) on the dev box | M3 targeted + manual | pending |
+| AC5 | `PL_*` in Rust: icon/clipboard/error dialog manual check on Windows; Linux/macOS via CI build only (behaviour manual-not-run, recorded) | M4 targeted + manual | pending |
+| AC6 | `Sys_*` in Rust: `run_corpus --compare`, `save_diff`, `config_diff`, `condump_diff` identical `build-c` vs `build-rs`; dedicated console manual check; `Sys_Error` path manual check (stack trace text, dialog, exit code 1) | M5 targeted + manual | pending |
+| AC7 | Rust `main`/`WinMain`: `build-rs` links without `main_sdl.c`; banner/exit codes identical; every gate identical; packaging jobs flipped to `use_rust=enabled` | M6 targeted + CI + packaging jobs | pending |
+| AC8 | Error-path end state: no setjmp in the Rust-main frame path; residual inventory committed; `HostError` consumed by the loop | grep inventory + M7 targeted | pending |
+| AC9 | Phase exit record: ROADMAP exit block with soak protocol, `quakedef.h` recipe, build-orchestration decision, deletion list | docs review | pending |
+
+## Milestones
+
+Graph: `M1 → M2 → M3 → M4 → M5 → M6 → M7 → M8` (serial; M2 is independent of M3–M6 but is first because it closes the Phase 5 deferral and its CI leg is needed by later legs). STOP A (compatibility-reviewer) after M3; STOP B after M6.
+
+### M1 — Gates first (no porting)
+
+- Scope: D1 switch + cargo features `platform` (capi → platform), `sdl2` in `quake-platform` (crate `sdl2` added, `compile_error!` on both features), Meson maps `sdl2`/`sdl3` feature by `use_sdl3`; CI legs `build-rs-cplatform` on the three harness jobs; ADR-003 amendment (D2); ROADMAP Phase 9 `[~]`; this plan committed.
+- Files: `meson_options.txt`, `meson.build`, `rust/quake-capi/Cargo.toml`, `rust/quake-platform/{Cargo.toml,src/lib.rs}`, `rust/Cargo.lock`, workflows, ADR-003, ROADMAP, plan.
+- AC: AC1, AC2.
+- Targeted: `meson setup build-rs-cplatform -Duse_rust=enabled -Duse_rust_platform=disabled` + `ninja`; `ninja -C build-rs`/`build-c`; `cargo check -p quake-capi --features platform,sdl2` (SDL2 arm compiles without an SDL2 install — `sdl2-sys` emits link directives only); `cargo fmt/clippy/test/deny`; `run_corpus.py --compare build-c build-rs-cplatform`.
+- Landmines: `sdl2-sys` default features must not pull `pkg-config`/`bundled`; the Linux harness leg links SDL2 from apt, matching C.
+
+### M2 — `net_wins.c`/`net_win.c`/`net_bsd.c` → Rust Windows UDP arm + Windows UDP CI leg
+
+- Scope: D3. `quake-net`: `socket2` unconditional, `windows-sys` (`Win32_Networking_WinSock`, `Win32_NetworkManagement_IpHelper`, `Win32_Foundation`), `udp/sys.rs` Windows arm; `quake-capi/net_udp.rs` on all targets; `net_win.c` table flips under `USE_RUST_NET`; Meson drops `net_wins.c` on Windows under `use_rust_net`; Windows harness job runs `interop_matrix.py` (`build-c`↔`build-rs`).
+- AC: AC3.
+- Targeted: `ninja -C build-rs` (Windows) links; two-process local session (`build-c -dedicated` ↔ `build-rs` client and vice-versa) via `interop_matrix.py` run locally; `run_corpus.py --compare build-c build-rs-cnet build-rs`; `cargo test -p quake-net` on Windows; `check_capi_signatures.sh`.
+- Landmines: `SysSocket` width on Windows (`SOCKET` = `usize`), `INVALID_SOCKET` = `!0`; `WSAECONNRESET` on `recvfrom` must return 0 not −1 (`net_wins.c` behaviour); `ioctlsocket(FIONBIO)`; `interop_matrix.py` may assume POSIX process/port behaviour — read before wiring.
+
+### M3 — `in_sdl.c`/`in_sdl3.c`/`in_sdl.h` → `quake-platform::input`
+
+- Scope: D4 in full; `Quake/in_sdl_glue.c` (cvars, trampolines, `Host_Reraise` wrappers); Meson drops the three input files under `use_rust_platform`; `quake-c-sys` externs for `Key_*`, `Char_Event`, `Con_Mousemove`, `VID_*`, `S_BlockSound/S_UnblockSound`, `vid` struct fields used (`vid.width/height/restart_next_frame`), `key_dest`, `cl.paused`.
+- AC: AC4.
+- Targeted: scancode unit test; `run_corpus.py --compare` (headless pump path); manual windowed check list (AC4); `check_capi_signatures.sh`; cargo gates; STOP A review.
+- Landmines: `vid` is a C struct with SDL-free layout (`vid.h`) — mirror only the fields touched or use accessor trampolines; `Cvar_FindVar("scr_conscale")->callback(NULL)` — a cvar callback may raise → trampoline; SDL2 `SDL_TEXTINPUT` vs SDL3 `SDL_EVENT_TEXT_INPUT` string ownership; `IN_FilterMouseEvents` filter function pointer identity check (`SDL_GetEventFilter` compares against our own `extern "C"` fn — keep one static fn).
+
+### M4 — `pl_win.c`/`pl_linux.c`/`pl_osx.m` → `quake-platform::pl`
+
+- Scope: D5; Meson drops `pl_*` under `use_rust_platform` (the `.m` file's `objc` language add stays for the C-only build).
+- AC: AC5.
+- Targeted: build on Windows; manual: window icon present, clipboard paste in console, `Sys_Error` dialog; cargo gates; CI build on Linux/macOS.
+- Landmines: `pl_win.c` obtains the HWND through SDL3 window properties (Windows is SDL3-only); the Windows icon resource ID comes from the `.rc` compiled by Meson.
+
+### M5 — `sys_sdl.c`/`sys_sdl_unix.c`/`sys_sdl_win.c` → `quake-platform::sys`
+
+- Scope: D6 sys part; `Quake/sys_glue.c` (variadic wrappers, `PR_SwitchQCVM` extern); Meson drops the three sys files under `use_rust_platform`; the Rust side's existing use of `Sys_*` through `quake-c-sys` re-verified.
+- AC: AC6.
+- Targeted: `run_corpus --compare`, `save_diff`, `config_diff`, `condump_diff`; dedicated console manual; `Sys_Error` manual; cargo gates.
+- Landmines: `Sys_fopen` wide-char path; `Sys_Init`'s AllocConsole ordering relative to the `Sys_Printf` banner; `Sys_DoubleTime` uses `counter_freq` set in `Sys_Init` (float division order preserved); `Sys_ConsoleInput` static buffer wrap `& 0xff`; `Sys_GetGOGQuakeDir` registry key set exactly; the MSVC `#pragma comment(linker, "/manifestdependency")` in `sys_sdl.c` must move to a TU that remains in the build (`sys_glue.c`).
+
+### M6 — `main_sdl.c` → Rust `main`/`WinMain`; packaging flipped
+
+- Scope: D6 main part; `Quake/host_glue.c` `USE_RUST_PLATFORM` frame guard change; Meson drops `main_sdl.c`; `quake-host` doc updated (library crate, `HostError` consumed by the loop); AppImage docker + `run-in-docker.sh`, Windows packaging job, mac archive job to `use_rust=enabled`.
+- AC: AC7.
+- Targeted: `ninja -C build-rs` (Windows, GUI subsystem links `WinMain`); banner diff (`build-c` vs `build-rs` stdout, `-dedicated -headless`); every harness gate `--compare`; `save_diff`; cargo gates; STOP B review; packaging jobs verified via CI (cannot run Docker/NSIS locally — record).
+- Landmines: with Rust `WinMain` calling `SDL_RunApp`, no C TU may include `SDL_main.h`'s `main` redefinition (grep); `atexit(Sys_AtExit)` order; `Harness_CheckArgs` before `Sys_InitSDL`; `sys_ticrate`/`cls.timedemo`/`harness_*` externs.
+
+### M7 — Error-path end state (ADR-009 scoped)
+
+- Scope: D7; residual setjmp inventory (`docs/rust-migration/setjmp-inventory.md`), `HostError` type consumed by the loop (`quake-host/src/error.rs`), ROADMAP exit wording amendment recorded here and in the amendment log.
+- AC: AC8.
+- Targeted: grep inventory; `run_corpus --compare`; a manual `Host_Error` (e.g. `map nonexistent`) in the Rust-main build recovers to the console; cargo gates.
+
+### M8 — Phase exit record
+
+- Scope: D8; ROADMAP Phase 9 exit block (`[~]` stays until soak exit; record what is complete, the soak protocol and the deletion PR recipe incl. `quakedef.h`/PCH removal and the Meson thin decision); plan evidence table completed; `Misc/harness/README.md` updated with the Windows UDP leg.
+- AC: AC9.
+- Targeted: docs review; final verification list below.
+
+## Final verification
+
+- Formatting: `cargo fmt --all -- --check`; `./format.sh` for touched C.
+- Rust: `cargo clippy --workspace --all-targets --locked -- -D warnings`; `cargo test --workspace --locked`; `cargo deny check`; `cargo audit` (CI).
+- Meson (Windows dev box, PowerShell for vcvars per memory note): `build-c`, `build-rs`, `build-rs-cplatform`, `build-rs-cnet`.
+- Harness: `run_corpus.py --check` (windows-x86_64 goldens) and `--compare` (C vs each leg), `save_diff`, `config_diff`, `condump_diff`, `interop_matrix.py` (Windows local + CI), `check_capi_signatures.sh`, `check_headers.sh`, `check_ctest_symbols.sh`.
+- CI workflows affected: `build-linux.yml`, `build-windows.yml`, `build-mac.yml`, `rust.yml`.
+- Cannot run locally: Linux/macOS/MinGW/arm64 legs, AppImage docker, NSIS packaging, SDL2 runtime — push after each milestone and read CI.
+
+## Risks, assumptions, and open questions
+
+- RA1: `sdl2` crate API drift vs the system SDL2 on the Linux runner — only `sdl2::sys` raw bindings are used, and only symbols that exist in 2.0.x. Mitigation: no `bundled`; if the CI leg fails on a missing symbol, drop to the symbol set of the C code (which builds against the same library).
+- RA2: Windows GUI-subsystem entry point: the linker expects `WinMain` when `win_subsystem: 'windows'`; SDL3's `SDL_main.h` currently supplies it inline in `main_sdl.c`. Rust exporting `WinMain` from a staticlib is standard (`#[no_mangle] pub extern "system" fn WinMain`); the linker's undefined-symbol search for the entry point pulls it from the archive — verify by linking at M6.
+- RA3: `sdl3-sys` may not expose `SDL_RunApp` (declared in `SDL_main.h`). If missing, declare it via `extern "C"` in `quake-platform` (documented unsafe).
+- RA4: the DbgHelp trace under `windows-sys` requires `SYMBOL_INFO` with a trailing name buffer — use a byte buffer exactly as the C code does.
+- RA5: `interop_matrix.py` Windows compatibility (process spawning, port reuse semantics differ) — read the script before M2.
+- RA6: the AppImage docker image build adds a rustup download — acceptable; `linuxdeploy` runs with `NO_STRIP=1` already.
+- Assumption A1: Windows CI runners allow loopback UDP (GitHub-hosted runners do).
+- Assumption A2: the harness's `-headless` path still calls `IN_Init`/`SDL_PollEvent` — verified by reading `main_sdl.c` (no `no_rendering` gate around `Sys_SendKeyEvents`); the Rust pump therefore runs in CI legs too.
+
+## Plan amendment log
+
+- 2026-09-14 (plan approval): ROADMAP "last `setjmp`/`longjmp` removed" is executed as D7's scoped end state (Rust-main loop owns frame recovery; residual inventory tied to the soak-exit deletion) — the trampoline pair cannot be deleted while the C oracle is built from the same tree (Phase 7/8 precedent for deferring deletions).
+- 2026-09-14: `quakedef.h` retirement and `libquake_c.a` are recorded as the soak-exit deletion PR's recipe (I8, D7); Meson is retained thin (D1) — this is the ROADMAP's "decide by remnant size" outcome.
+- 2026-09-14: `pl_osx.m` NSPasteboard read replaced by `SDL_GetClipboardText` (D5, accepted divergence — same clipboard through SDL's Cocoa backend); no `objc2`, no ObjC stub kept.
+- 2026-09-14: `q_thread_sdl.c` is a Phase 9 non-goal (NG1) — not in the ROADMAP's Phase 9 scope or deletion list.
+
+## Verification evidence and handoff
+
+| Milestone | Changed files/behavior | Check and result | Acceptance IDs | Remaining risk/next action |
+|---|---|---|---|---|
+
+## Completion gate
+
+- [ ] Requirements map to acceptance criteria (R1→AC4/5/6/7, R2→AC3, R3→AC1/3/4/6/7, R4→AC1/4, R5→AC4/6/8, R6→AC7).
+- [ ] ADR-003/004/007/009/010/017/019 constraints satisfied and cited in commits.
+- [ ] Each milestone landed as one commit with the tree green; evidence rows filled with current tool output (targeted / broad / manual / not-run distinguished).
+- [ ] ROADMAP status and amendment log updated (M8); `compatibility-reviewer` at STOP A/B.

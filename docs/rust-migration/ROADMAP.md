@@ -267,7 +267,7 @@ Crates: `quake-tasks`, `quake-render`. The largest phase; sub-slices land behind
 
 ---
 
-## Phase 9 — Host inversion + platform (M) `[ ]`
+## Phase 9 — Host inversion + platform (M) `[~]`
 
 Crates: `quake-host` (becomes the bin), `quake-platform`.
 
