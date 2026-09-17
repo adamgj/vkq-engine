@@ -38,7 +38,10 @@ cat > "$tmpdir/capi_sig_check.c" <<'EOF'
 #include "cfgfile.h"
 #include "wad.h"
 /* Phase 2: the filesystem surface (the COM_, FS_ and LOC_ families in
- * common.h, the discovery half of steam.h, mem.h for the Mem_ boundary) */
+ * common.h, the discovery half of steam.h, mem.h for the Mem_ boundary).
+ * Phase 9 M5: sys.h's whole Sys_* family (and steam.h's
+ * Sys_GetSteamAPILibraryPath / ChooseQuakeFlavor) is compiled next to
+ * quake_rs.h's hand-written copies, like input.h / platform.h below. */
 #include "sys.h"
 #include "mem.h"
 #include "common.h"
@@ -102,6 +105,11 @@ qboolean	  Task_Join (task_handle_t handle, uint32_t timeout);
 #include "protocol.h"
 @PER_LEVEL_LIMITS@
 #include "progs.h"
+/* Phase 9 M3: input.h's IN_* family (usercmd_t comes from protocol.h above)
+ * is compiled next to quake_rs.h's hand-written copies. */
+#include "input.h"
+/* Phase 9 M4: platform.h's PL_* family, same arrangement. */
+#include "platform.h"
 #include "quake_rs.h"
 EOF
 

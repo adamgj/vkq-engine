@@ -156,12 +156,18 @@ fn main() {
     ] {
         println!("cargo:rerun-if-changed={}", repo_root.join(src).display());
     }
-    // Phase 5 M7b: the unix UDP landriver oracle (net_wins.c stays C-only
-    // and untested here; see the task plan's ADR-017 deferral note)
+    // Phase 5 M7b: the unix UDP landriver oracle; Phase 9 M2: the Winsock
+    // one (net_wins.c) on Windows, where its ws2_32 imports need the import
+    // library the Rust side otherwise only pulls in through windows-sys
     if std::env::var_os("CARGO_CFG_UNIX").is_some() {
         let path = repo_root.join("Quake/net_udp.c");
         println!("cargo:rerun-if-changed={}", path.display());
         build.file(path);
+    } else if std::env::var_os("CARGO_CFG_WINDOWS").is_some() {
+        let path = repo_root.join("Quake/net_wins.c");
+        println!("cargo:rerun-if-changed={}", path.display());
+        build.file(path);
+        println!("cargo:rustc-link-lib=ws2_32");
     }
     // common_fs.c compiles miniz.c inside its own TU (stb-style include);
     // image_stb.c does the same with stb_image.h

@@ -146,6 +146,10 @@ extern "C" {
     pub fn Host_Glue_SV_SendClientMessages() -> c_int;
     pub fn Host_Glue_Key_UpdateForDest() -> c_int;
     pub fn Host_Glue_IN_UpdateInputMode() -> c_int;
+    /// The input pump reaches `Key_Event`, so it is guarded like the rest
+    /// of the `_Host_Frame` body (ADR-009 rule 3). Without the `platform`
+    /// feature it is the only way to the C `Sys_SendKeyEvents`.
+    pub fn Host_Glue_Sys_SendKeyEvents() -> c_int;
     pub fn Host_Glue_IN_Commands() -> c_int;
     pub fn Host_Glue_Con_UpdateMouseState() -> c_int;
     pub fn Host_Glue_Cbuf_Execute() -> c_int;
@@ -260,15 +264,17 @@ extern "C" {
     /// broadcast, kept whole in C because the buffer must not outlive the call.
     pub fn Host_Glue_BroadcastDisconnect(out_count: *mut c_int) -> c_int;
 
-    /// `host.c:1085-1094` -- the `_Host_Frame` setjmp shell. Swallows a caught
-    /// raise exactly as the C build's early `return` did, so it has no status.
-    pub fn Host_Glue_FrameInner(time: f64);
+    /// `host.c:1085-1094` -- the `_Host_Frame` setjmp shell. Without
+    /// `USE_RUST_PLATFORM` it swallows a caught raise exactly as the C build's
+    /// early `return` did and the status is always `HOST_GUARD_OK`; with it
+    /// (Phase 9) the shell is a `Host_Guard` and the status comes back to be
+    /// returned after `Host_Frame`'s `serverprofile` tail (ADR-009 rule 3).
+    pub fn Host_Glue_FrameInner(time: f64) -> c_int;
 
     /* Plain C callees host.c reaches that had no Rust declaration. All are
      * raise-free, so they are called straight through (ADR-009 rule 4). */
     pub fn Cbuf_Waited();
     pub fn Sys_ConsoleInput() -> *const c_char;
-    pub fn Sys_SendKeyEvents();
     pub fn SDL_Delay(ms: u32);
     pub fn Steam_SetStatus_Menu();
     pub fn Steam_SetStatus_SinglePlayer(map: *const c_char);
@@ -287,7 +293,6 @@ extern "C" {
     /* libc, as `host.c` used it. */
     pub fn atoi(s: *const c_char) -> c_int;
     pub fn strtoul(s: *const c_char, end: *mut *mut c_char, base: c_int) -> core::ffi::c_ulong;
-    pub fn printf(fmt: *const c_char, ...) -> c_int;
 }
 
 // Phase 8 M2: the task-system queries live in `crate::tasks` (ADR-016).

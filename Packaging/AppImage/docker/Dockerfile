@@ -5,6 +5,9 @@ ARG VULKAN_SDK_VER=1.4.341.1
 ARG MESON_VER=1.3.1
 ARG LIBDECOR_VER=0.2.3
 ARG SDL3_VER=3.4.12
+# the pin in rust/rust-toolchain.toml; cbindgen generates quake_rs.h for Meson
+ARG RUST_VER=1.97.1
+ARG CBINDGEN_VER=0.29.4
 
 RUN apt-get update \
  && apt-get install -y \
@@ -67,6 +70,18 @@ RUN cd /tmp \
 ENV VULKAN_SDK=/opt/vulkan-sdk/x86_64
 ENV PATH=${VULKAN_SDK}/bin:${PATH}
 ENV LD_LIBRARY_PATH=${VULKAN_SDK}/lib
+
+# Rust toolchain for the mixed build (Rust migration Phase 9 M6: the
+# AppImage ships the Rust entry point and libquake_rs.a); rustup's proxy
+# honours rust/rust-toolchain.toml, which names the same version and
+# components, so no toolchain is fetched at build time (the workspace's
+# crates still are: the registry is dropped from the image below)
+ENV RUSTUP_HOME=/opt/rustup
+ENV CARGO_HOME=/opt/cargo
+ENV PATH=${CARGO_HOME}/bin:${PATH}
+RUN wget -qO- https://sh.rustup.rs | sh -s -- -y --no-modify-path --profile minimal --default-toolchain ${RUST_VER} -c clippy -c rustfmt \
+ && cargo install cbindgen --version ${CBINDGEN_VER} --locked \
+ && rm -rf ${CARGO_HOME}/registry ${CARGO_HOME}/git
 
 RUN cd /opt \
  && wget https://github.com/mesonbuild/meson/releases/download/${MESON_VER}/meson-${MESON_VER}.tar.gz \

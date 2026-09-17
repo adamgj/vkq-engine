@@ -697,6 +697,15 @@ static const ctest_abi_entry_t ctest_abi_net_table[] = {
 	   drift between <sys/param.h> and the Rust constant would change which
 	   hostnames are connectable (Phase 5 M10 review fix) */
 	{"const.MAXHOSTNAMELEN", MAXHOSTNAMELEN},
+	/* Phase 9 M2: whether this toolchain's net_wins.c/net_win.c carry the
+	   IPv6 landriver at all. The Windows SDK makes IPPROTO_IPV6 an
+	   enumerator, not a macro, so the MSVC/clang-cl oracle has no IPv6 arm
+	   and net_wins_differential.rs must skip AF_INET6 inputs there. */
+#ifdef IPPROTO_IPV6
+	{"const.IPPROTO_IPV6_defined", 1},
+#else
+	{"const.IPPROTO_IPV6_defined", 0},
+#endif
 	{"const.NET_MAXMESSAGE", NET_MAXMESSAGE},
 	{"const.MAX_MSGLEN", MAX_MSGLEN},
 	{"const.MAX_DATAGRAM", MAX_DATAGRAM},

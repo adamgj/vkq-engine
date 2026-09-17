@@ -138,7 +138,6 @@ and are recorded in the plan's amendment log):
 """
 
 import argparse
-import errno
 import os
 import re
 import shutil
@@ -239,38 +238,81 @@ def summarize(path):
     return counts
 
 
-def wait_until_bound(host, port, timeout=20.0):
-    """Block until the dedicated server has bound `port`, or time out.
+# net_defs.h: the connection-control handshake the readiness probe speaks
+NETFLAG_CTL = 0x80000000
+CCREQ_SERVER_INFO = 0x02
+CCREP_SERVER_INFO = 0x83
+NET_PROTOCOL_VERSION = 3
+
+
+def server_info_request():
+    """The CCREQ_SERVER_INFO datagram (net_dgrm.c Datagram_SearchForHosts):
+    big-endian `NETFLAG_CTL | length` header, command byte, "QUAKE",
+    NET_PROTOCOL_VERSION."""
+    body = bytes([CCREQ_SERVER_INFO]) + b"QUAKE\0" + bytes([NET_PROTOCOL_VERSION])
+    return struct.pack(">I", NETFLAG_CTL | (4 + len(body))) + body
+
+
+class ServerProbe:
+    """Readiness probe for one dedicated server: `wait` blocks until the
+    server answers CCREQ_SERVER_INFO on `port`, or times out.
 
     The engine's stdout is block-buffered when it is not a tty, so a
     readiness *marker* never appears until the process flushes at exit --
-    polling its log cannot work. The bound socket itself is the signal:
-    UDP4_OpenSocket/UDP6_OpenSocket never set SO_REUSEADDR, so once the
-    server is listening our own bind of the same port fails EADDRINUSE.
-    Returns True if the port was observed bound.
+    polling its log cannot work. The previous probe bound the port itself
+    (UDP4_OpenSocket never sets SO_REUSEADDR, so EADDRINUSE meant the server
+    was listening), but that races the server's own bind: a probe socket
+    held for the microseconds between its bind and close makes the server's
+    bind fail EADDRINUSE and the dedicated server Sys_Error out ("Unable to
+    open any listening sockets") -- seen once in 24 cells on the Windows CI
+    runner. Asking the server is race-free: it replies from its accept
+    socket only once `_Host_ServerFrame` runs `SV_CheckForNewClients`, i.e.
+    once the frame-0 `map` command has made `sv.active` true, so a reply is
+    also the "map loaded" signal the old fixed sleep approximated.
 
-    The probe binds the wildcard address, not `127.0.0.1`/`::1`: the server
-    binds `INADDR_ANY`/`in6addr_any`, and on Windows a second bind of a
-    specific loopback address does NOT conflict with an existing wildcard
-    bind (no EADDRINUSE) -- only two wildcard binds do. Linux/macOS treat
-    both forms as conflicting, so the wildcard probe is correct everywhere.
+    Two details keep the probe out of the session's way. Requests go out at
+    most every 0.5s: the server answers one control datagram per frame
+    (`_Datagram_CheckNewConnections` returns after each), so anything queued
+    while the map loads is drained at sys_ticrate ahead of the client's
+    CCREQ_CONNECT. And the probe socket stays open until `close` (the cell's
+    teardown), so replies to the still-queued requests land on a live port
+    instead of provoking ICMP port-unreachable resets on the server's accept
+    socket (WSAECONNRESET on Windows).
+
+    Before the server binds, a request lands on a closed port; Windows
+    echoes that ICMP error as ConnectionResetError on the next recv,
+    Linux/macOS report nothing on an unconnected socket -- both are just
+    "retry".
     """
-    v6 = host.startswith("[")
-    family = socket.AF_INET6 if v6 else socket.AF_INET
-    bind_host = "::" if v6 else "0.0.0.0"
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        s = socket.socket(family, socket.SOCK_DGRAM)
-        try:
-            s.bind((bind_host, port))
-        except OSError as e:
-            if e.errno in (errno.EADDRINUSE, errno.EACCES):
+    INTERVAL = 0.5
+
+    def __init__(self, host, port):
+        v6 = host.startswith("[")
+        self.addr = (host.strip("[]"), port)
+        self.sock = socket.socket(socket.AF_INET6 if v6 else socket.AF_INET, socket.SOCK_DGRAM)
+        self.sock.settimeout(0.1)
+
+    def wait(self, timeout=20.0):
+        req = server_info_request()
+        deadline = time.time() + timeout
+        next_send = 0.0
+        while time.time() < deadline:
+            try:
+                if time.time() >= next_send:
+                    self.sock.sendto(req, self.addr)
+                    next_send = time.time() + self.INTERVAL
+                data, _ = self.sock.recvfrom(1024)
+            except socket.timeout:
+                continue
+            except (ConnectionResetError, ConnectionRefusedError):
+                time.sleep(0.1)
+                continue
+            if len(data) >= 5 and data[4] == CCREP_SERVER_INFO:
                 return True
-            raise
-        finally:
-            s.close()
-        time.sleep(0.1)
-    return False
+        return False
+
+    def close(self):
+        self.sock.close()
 
 
 def run_cell(server_exe, client_exe, game_data, cell, host, port, frames, map_name):
@@ -294,14 +336,14 @@ def run_cell(server_exe, client_exe, game_data, cell, host, port, frames, map_na
                 [os.path.abspath(server_exe), "-dedicated", "-basedir", ".",
                  "-port", str(port), "-harnesscmds", "harness.cmds"],
                 cwd=sv_dir, stdout=logf, stderr=subprocess.STDOUT, text=True)
+        probe = ServerProbe(host, port)
         try:
-            bound = wait_until_bound(host, port)
+            serving = probe.wait()
             if server.poll() is not None:
                 tail = open(sv_log).read()[-1500:]
                 return None, f"server exited early ({server.returncode}):\n{tail}"
-            if not bound:
-                return None, f"server never bound port {port}"
-            time.sleep(0.5)  # let the frame-0 `map` command finish
+            if not serving:
+                return None, f"server never answered CCREQ_SERVER_INFO on port {port}"
             client = subprocess.run(
                 [os.path.abspath(client_exe), "-headless", "-basedir", ".",
                  "-netcapture", "harness.cap",
@@ -316,6 +358,7 @@ def run_cell(server_exe, client_exe, game_data, cell, host, port, frames, map_na
                 server.wait(timeout=10)
             except subprocess.TimeoutExpired:
                 server.kill()
+            probe.close()
 
         out = client.stdout
         m = re.search(r"Using protocol (\S+)", out)
@@ -433,15 +476,15 @@ def run_soak_cell(server_exe, client_exe, game_data, protocol, host, port, frame
              "-port", str(port), "-harnesscmds", "harness.cmds",
              "-demohash", "server_hash.txt", "-exitafter", str(frames)],
             cwd=sv_dir, stdout=logf, stderr=subprocess.STDOUT, text=True)
+    probe = ServerProbe(host, port)
     try:
-        bound = wait_until_bound(host, port)
+        serving = probe.wait()
         if server.poll() is not None:
             result["error"] = f"server exited early ({server.returncode}):\n" + open(sv_log).read()[-1500:]
             return result
-        if not bound:
-            result["error"] = f"server never bound port {port}"
+        if not serving:
+            result["error"] = f"server never answered CCREQ_SERVER_INFO on port {port}"
             return result
-        time.sleep(0.5)  # let the frame-0 `map` command finish
 
         try:
             client = subprocess.run(
@@ -483,6 +526,7 @@ def run_soak_cell(server_exe, client_exe, game_data, protocol, host, port, frame
                 server.wait(timeout=10)
             except subprocess.TimeoutExpired:
                 server.kill()
+        probe.close()
 
     sv_log_text = open(sv_log).read()
     err = _scan_for_error(sv_log_text)

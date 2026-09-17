@@ -264,6 +264,7 @@ HOST_GUARD_VOID (SV_SendClientMessages)
 /* host.c:1110-1231 -- the _Host_Frame body's own calls. */
 HOST_GUARD_VOID (Key_UpdateForDest)
 HOST_GUARD_VOID (IN_UpdateInputMode)
+HOST_GUARD_VOID (Sys_SendKeyEvents)
 HOST_GUARD_VOID (IN_Commands)
 HOST_GUARD_VOID (Con_UpdateMouseState)
 HOST_GUARD_VOID (Cbuf_Execute)
@@ -658,9 +659,9 @@ static void Host_InvokeFrameCore (void *p)
 	Host_Reraise (quake_rs_host_frame_core (*(double *)p));
 }
 
-void Host_Glue_FrameInner (double time)
+int Host_Glue_FrameInner (double time)
 {
-	(void)Host_Guard (Host_InvokeFrameCore, &time);
+	return Host_Guard (Host_InvokeFrameCore, &time);
 }
 
 /*

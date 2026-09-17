@@ -37,6 +37,7 @@ use quake_net::cnum::c_atoi;
 use quake_net::msg;
 use quake_net::msg::MsgReader;
 use quake_net::sizebuf::{SizeBuf, WireError};
+use quake_net::udp::set_family;
 use quake_types::host::{Server, ServerStatic, NUM_PING_TIMES};
 use quake_types::net::{
     HostCache, NetLanDriver, PollProcedure, QBoolean, QHostAddr, QSockAddr, QSocket, SysSocket,
@@ -1792,33 +1793,6 @@ macro_rules! hc_field {
         $h.cast::<c_char>()
             .add(core::mem::offset_of!(HostCache, $f))
     };
-}
-
-/// `addr->qsa_family = fam` through the platform's family-field width.
-///
-/// A local copy of `quake_net::udp::set_family`: that module is `#[cfg(unix)]`
-/// and so is not reachable on the Windows leg, which this file must build on.
-fn set_family(addr: &mut QSockAddr, fam: c_int) {
-    #[cfg(any(
-        target_os = "macos",
-        target_os = "freebsd",
-        target_os = "netbsd",
-        target_os = "openbsd",
-        target_os = "dragonfly"
-    ))]
-    {
-        addr.qsa_family = fam as u8;
-    }
-    #[cfg(not(any(
-        target_os = "macos",
-        target_os = "freebsd",
-        target_os = "netbsd",
-        target_os = "openbsd",
-        target_os = "dragonfly"
-    )))]
-    {
-        addr.qsa_family = fam as i16;
-    }
 }
 
 /// C `memcmp (a, b, sizeof (struct qsockaddr))`. `QSockAddr` is `#[repr(C)]`

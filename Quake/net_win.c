@@ -64,6 +64,62 @@ net_driver_t net_drivers[] = {
 
 const int net_numdrivers = countof (net_drivers);
 
+#ifdef USE_RUST_NET
+/* Rust migration Phase 9 M2: both Winsock landrivers point at the Rust
+   implementation (quake-capi net_wins over quake-net::udp::sys::windows).
+   Designated initializers so same-signature slots cannot swap silently.
+   The IPv6 entry keeps the C table's IPPROTO_IPV6 guard: the Windows SDK
+   defines IPPROTO_IPV6 as an enumerator, not a macro, so the MSVC/clang-cl
+   oracle ships without the IPv6 landriver and the Rust table must too. */
+net_landriver_t net_landrivers[] = {
+	{.name = "Winsock TCPIP",
+	 .initialized = false,
+	 .controlSock = 0,
+	 .Init = rust_udp4_Init,
+	 .Shutdown = rust_udp4_Shutdown,
+	 .Listen = rust_udp4_Listen,
+	 .QueryAddresses = rust_udp4_GetAddresses,
+	 .Open_Socket = rust_udp4_OpenSocket,
+	 .Close_Socket = rust_udp_CloseSocket,
+	 .Connect = rust_udp_Connect,
+	 .CheckNewConnections = rust_udp4_CheckNewConnections,
+	 .Read = rust_udp_Read,
+	 .Write = rust_udp_Write,
+	 .Broadcast = rust_udp4_Broadcast,
+	 .AddrToString = rust_udp_AddrToString,
+	 .StringToAddr = rust_udp4_StringToAddr,
+	 .GetSocketAddr = rust_udp_GetSocketAddr,
+	 .GetNameFromAddr = rust_udp4_GetNameFromAddr,
+	 .GetAddrFromName = rust_udp4_GetAddrFromName,
+	 .AddrCompare = rust_udp_AddrCompare,
+	 .GetSocketPort = rust_udp_GetSocketPort,
+	 .SetSocketPort = rust_udp_SetSocketPort},
+#ifdef IPPROTO_IPV6
+	{.name = "Winsock IPv6",
+	 .initialized = false,
+	 .controlSock = 0,
+	 .Init = rust_udp6_Init,
+	 .Shutdown = rust_udp6_Shutdown,
+	 .Listen = rust_udp6_Listen,
+	 .QueryAddresses = rust_udp6_GetAddresses,
+	 .Open_Socket = rust_udp6_OpenSocket,
+	 .Close_Socket = rust_udp_CloseSocket,
+	 .Connect = rust_udp_Connect,
+	 .CheckNewConnections = rust_udp6_CheckNewConnections,
+	 .Read = rust_udp_Read,
+	 .Write = rust_udp_Write,
+	 .Broadcast = rust_udp6_Broadcast,
+	 .AddrToString = rust_udp_AddrToString,
+	 .StringToAddr = rust_udp6_StringToAddr,
+	 .GetSocketAddr = rust_udp_GetSocketAddr,
+	 .GetNameFromAddr = rust_udp6_GetNameFromAddr,
+	 .GetAddrFromName = rust_udp6_GetAddrFromName,
+	 .AddrCompare = rust_udp_AddrCompare,
+	 .GetSocketPort = rust_udp_GetSocketPort,
+	 .SetSocketPort = rust_udp_SetSocketPort},
+#endif
+};
+#else
 #include "net_wins.h"
 
 net_landriver_t net_landrivers[] = {
@@ -114,5 +170,6 @@ net_landriver_t net_landrivers[] = {
 	 WINS_SetSocketPort},
 #endif
 };
+#endif
 
 const int net_numlandrivers = countof (net_landrivers);

@@ -273,3 +273,33 @@ fn split_host_port_bound_matches_c_guard() {
     const MAXHOSTNAMELEN: usize = 256;
     assert!(udp::split_host_port(long.as_bytes(), MAXHOSTNAMELEN).is_none());
 }
+
+#[test]
+fn host_port_strtoul_clamp_matches_c() {
+    let _l = lock();
+    // strtoul clamps at the target's ULONG_MAX before the (unsigned short)
+    // cut: one past 2^32 is port 0xFFFF where unsigned long is 32-bit
+    // (Windows, 32-bit unix) and 0 on LP64. The pure helper mirrors the
+    // width via c_ulong; resolve "localhost" only to get the C value out.
+    for s in [
+        "localhost:4294967296",
+        "localhost:-1",
+        "localhost:18446744073709551616",
+    ] {
+        let mut cs = s.as_bytes().to_vec();
+        cs.push(0);
+        let mut ca = QSockAddr::zeroed();
+        // SAFETY: serialized by TEST_LOCK
+        let cret = unsafe { c_ref_UDP4_GetAddrFromName(cs.as_ptr().cast(), &mut ca) };
+        if cret != 0 {
+            eprintln!("skipped: localhost did not resolve ({cret})");
+            return;
+        }
+        let (_, port) = udp::split_host_port(s.as_bytes(), 64).unwrap();
+        assert_eq!(
+            udp::get_socket_port(&ca),
+            port.unwrap() as i32,
+            "input {s:?}"
+        );
+    }
+}

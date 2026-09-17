@@ -80,6 +80,15 @@ jobs:
     - name: cargo clippy (progs feature)
       working-directory: rust
       run: cargo clippy -p quake-capi --features progs,render --all-targets --locked -- -D warnings
+    # Phase 9 M1 (ADR-017): the platform layer is compiled under exactly one
+    # SDL arm; the engine builds only ever exercise the arm their -Duse_sdl3
+    # picked, so lint both here (sdl2-sys/sdl3-sys emit link directives
+    # only, nothing needs the libraries installed at clippy time)
+    - name: cargo clippy (platform feature, sdl3 and sdl2 arms)
+      working-directory: rust
+      run: |
+        cargo clippy -p quake-capi --features platform,sdl3 --all-targets --locked -- -D warnings
+        cargo clippy -p quake-capi --features platform,sdl2 --all-targets --locked -- -D warnings
     # Phase 8 M11 (AC10): the xtask shader/pak outputs against Meson's
     # custom targets is the build-linux harness job's xtask_diff step; here
     # the pipeline's own unit tests and the miniz deflate parity differential
@@ -124,6 +133,15 @@ jobs:
     - name: cargo clippy (progs feature)
       working-directory: rust
       run: cargo clippy -p quake-capi --features progs,render --all-targets --locked -- -D warnings
+    # Phase 9 M1 (ADR-017): the platform layer is compiled under exactly one
+    # SDL arm; the engine builds only ever exercise the arm their -Duse_sdl3
+    # picked, so lint both here (sdl2-sys/sdl3-sys emit link directives
+    # only, nothing needs the libraries installed at clippy time)
+    - name: cargo clippy (platform feature, sdl3 and sdl2 arms)
+      working-directory: rust
+      run: |
+        cargo clippy -p quake-capi --features platform,sdl3 --all-targets --locked -- -D warnings
+        cargo clippy -p quake-capi --features platform,sdl2 --all-targets --locked -- -D warnings
 
   # cargo-deny's advisories check already covers RustSec on every PR; this
   # standalone audit only adds value on the weekly cron
@@ -155,6 +173,10 @@ jobs:
       run: cargo install bindgen-cli --locked --version 0.72.1
     - name: Check core headers (standalone compile + bindgen)
       run: ./scripts/harness/check_headers.sh
+    # Phase 9 M7 (ADR-009): every remaining setjmp/longjmp site is classified
+    # and the committed inventory is current
+    - name: Residual setjmp inventory (ADR-009)
+      run: python3 scripts/setjmp_inventory.py --check
     - name: Regenerate quake-c-sys bindings and diff (ADR-011)
       run: |
         ./scripts/gen_c_bindings.sh

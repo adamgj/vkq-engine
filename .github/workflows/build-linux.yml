@@ -69,7 +69,7 @@ jobs:
         files: Packaging/AppImage/vkqr-engine-*.AppImage
 
   # Rust-migration mixed build + differential harness (the AppImage job above
-  # stays C-only; its docker image has no Rust toolchain)
+  # ships the mixed build since Phase 9 M6; the C-only oracle lives here)
   harness-linux:
     name: Harness Linux (shareware)
     runs-on: ubuntu-24.04
@@ -146,6 +146,10 @@ jobs:
         # (tasks.c at M2, then each renderer file as its slice lands)
         meson setup build-rs-ctasks -Duse_sdl3=disabled -Duse_rust=enabled -Duse_rust_tasks=disabled && ninja -C build-rs-ctasks
         meson setup build-rs-crender -Duse_sdl3=disabled -Duse_rust=enabled -Duse_rust_render=disabled && ninja -C build-rs-crender
+        # Phase 9: the C comparison oracle for the platform switch (each
+        # platform file as its milestone lands); SDL2 here, so this is the
+        # leg that keeps the quake-platform sdl2 arm honest (ADR-017)
+        meson setup build-rs-cplatform -Duse_sdl3=disabled -Duse_rust=enabled -Duse_rust_platform=disabled && ninja -C build-rs-cplatform
         # ADR-019 gate 3: the -Dtrace=true pair the progs differ compares
         meson setup build-c-trace -Duse_sdl3=disabled -Duse_rust=disabled -Dtrace=true && ninja -C build-c-trace
         meson setup build-rs-trace -Duse_sdl3=disabled -Duse_rust=enabled -Dtrace=true && ninja -C build-rs-trace
@@ -161,6 +165,7 @@ jobs:
         ./scripts/harness/check_capi_signatures.sh build-rs-chost/quake_rs.h
         ./scripts/harness/check_capi_signatures.sh build-rs-ctasks/quake_rs.h
         ./scripts/harness/check_capi_signatures.sh build-rs-crender/quake_rs.h
+        ./scripts/harness/check_capi_signatures.sh build-rs-cplatform/quake_rs.h
     # Phase 8 M11 (task plan D8, AC10): every .spv, bintoc .c, vkquake.pak
     # and embedded_pak.c the cargo xtask pipeline writes must be
     # byte-identical to the Meson custom targets' outputs in the C-only build
@@ -217,6 +222,10 @@ jobs:
       run: |
         export QUAKE_GAME_DATA="$PWD/shareware-data"
         python3 scripts/harness/run_corpus.py --vkquake build-c/vkqr-engine --compare build-rs-crender/vkqr-engine --tier shareware
+    - name: Mixed build identity (C platform vs C-only)
+      run: |
+        export QUAKE_GAME_DATA="$PWD/shareware-data"
+        python3 scripts/harness/run_corpus.py --vkquake build-c/vkqr-engine --compare build-rs-cplatform/vkqr-engine --tier shareware
     # Phase 6 (ADR-019 gate 3): instruction-level trace parity, the gate the
     # progs VM port is verified against. Demo playback never starts a server
     # and so emits zero records -- the oracle scenarios are maps, and

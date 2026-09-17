@@ -35,14 +35,18 @@ jobs:
       matrix:
         configuration: [release, debug]
         use-sdl3: ['auto', 'disabled']
-        # no use_rust axis here: the harness job below builds both C-only and
+        # no use_rust axis here: the shipped binary is the mixed build (Rust
+        # migration Phase 9 M6); the harness job below builds both C-only and
         # mixed and diffs them, so a rust axis here would be duplicate work
     steps:
     - uses: actions/checkout@v6
     - name: Install Dependencies
-      run: brew install molten-vk vulkan-headers glslang spirv-tools sdl2 sdl3 libvorbis flac opus opusfile flac mpg123 meson
+      run: brew install molten-vk vulkan-headers glslang spirv-tools sdl2 sdl3 libvorbis flac opus opusfile flac mpg123 meson cbindgen
+    - uses: dtolnay/rust-toolchain@stable
+      with:
+        toolchain: 1.97.1
     - name: Build vkqr-engine
-      run: meson setup build --buildtype=${{ matrix.configuration }} -Ddebug=true -Dstrip=false -Duse_sdl3=${{ matrix.use-sdl3 }} -Duse_rust=disabled && ninja -C build
+      run: meson setup build --buildtype=${{ matrix.configuration }} -Ddebug=true -Dstrip=false -Duse_sdl3=${{ matrix.use-sdl3 }} -Duse_rust=enabled && ninja -C build
     - name: Extract debug information and bundle it to .dSYM
       run: |
         dsymutil build/vkqr-engine -o build/vkqr-engine.dSYM
@@ -84,6 +88,8 @@ jobs:
         # Phase 8: the C comparison oracles for the two Phase 8 switches
         meson setup build-rs-ctasks -Duse_rust=enabled -Duse_rust_tasks=disabled && ninja -C build-rs-ctasks
         meson setup build-rs-crender -Duse_rust=enabled -Duse_rust_render=disabled && ninja -C build-rs-crender
+        # Phase 9: the C comparison oracle for the platform switch
+        meson setup build-rs-cplatform -Duse_rust=enabled -Duse_rust_platform=disabled && ninja -C build-rs-cplatform
     - name: FFI signature parity (quake_rs.h vs engine headers)
       run: |
         ./scripts/harness/check_capi_signatures.sh build-rs/quake_rs.h
@@ -91,6 +97,7 @@ jobs:
         ./scripts/harness/check_capi_signatures.sh build-rs-csnd/quake_rs.h
         ./scripts/harness/check_capi_signatures.sh build-rs-ctasks/quake_rs.h
         ./scripts/harness/check_capi_signatures.sh build-rs-crender/quake_rs.h
+        ./scripts/harness/check_capi_signatures.sh build-rs-cplatform/quake_rs.h
     # the corpus covers the map entries too, so the per-frame hash gate sees
     # real server/edict state and not just demo playback
     - name: Golden check (shareware tier, darwin-arm64)
@@ -132,6 +139,10 @@ jobs:
       run: |
         export QUAKE_GAME_DATA="$PWD/shareware-data"
         python3 scripts/harness/run_corpus.py --vkquake build-c/vkqr-engine --compare build-rs-crender/vkqr-engine --tier shareware
+    - name: Mixed build identity (C platform vs C-only)
+      run: |
+        export QUAKE_GAME_DATA="$PWD/shareware-data"
+        python3 scripts/harness/run_corpus.py --vkquake build-c/vkqr-engine --compare build-rs-cplatform/vkqr-engine --tier shareware
     # Phase 8 M1 probe (task plan RA2): does this runner have a Metal device
     # MoltenVK can drive? One windowed run of the smallest render-corpus
     # entry; non-fatal, its outcome decides whether the SSIM gate can run
