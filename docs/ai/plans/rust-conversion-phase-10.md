@@ -244,11 +244,64 @@ No Meson build is required (no C change; A7).
 ## 12. Amendment log
 
 - 2026-09-16 — Plan created at baseline `8711ab4a`.
+- 2026-09-16 (M2) — ADR-004's "single `quake-progs` island" was already
+  false at baseline: `quake_progs::image` (Phase 6) is a second
+  `allow(unsafe_code)` module. Recorded in the ADR-004 amendment instead of
+  removing the module; the inventory script's tier table lists both.
+- 2026-09-16 (M3) — I1 exception, recorded: three release-mode
+  `assert!(a == b)` in `quake-capi/src/gl_mesh.rs` (mesh-upload
+  invariants) became `assert_eq!`. Condition unchanged; only the panic text
+  differs, and no harness gate consumes it. Every other assert change is a
+  `debug_assert!` → `debug_assert_eq!`.
+- 2026-09-16 (M3) — Four local `#[allow]`s instead of workspace entries:
+  `wildcard_imports` on the `keys::*` tables (`quake-platform/src/input/
+  mod.rs`, `scancode.rs`) and `enum_glob_use` on the three bindgen SDL2 enum
+  tables (`sdl2.rs`), because the alternative is a 60-name import list that
+  no longer reads like `keys.h`; `redundant_closure_for_method_calls` on
+  two higher-ranked closures (`net.rs:372`, `net_dgrm_orch.rs:1020`) where
+  clippy's suggested method path fails to type-check (lifetime-generic
+  `with_net_message` callbacks).
+- 2026-09-16 (M3) — Workspace `allow` list grew past the plan's D3 sketch
+  by nine entries: `manual_midpoint` (`f32::midpoint` is not bit-identical
+  to the C `(a + b) / 2`, ADR-010), `case_sensitive_file_extension_comparisons`
+  (the C compares are case-sensitive), `ptr_cast_constness`, `ref_as_ptr`
+  and `unnecessary_wraps` (the same FFI-shim style as D3's pointer lints,
+  retired with the shims), and `decimal_bitwise_operands`,
+  `struct_field_names`, `match_same_arms`, `large_stack_arrays` ("read
+  like the C" cases, most surfaced only by the `progs,render` and
+  `platform` arms). 29 entries total, each commented in `rust/Cargo.toml`.
+- 2026-09-16 (M4) — `rust/fuzz/Cargo.lock` refresh (`windows-sys` under
+  `quake-net`, stale since Phase 9 M2) committed as a side effect of the
+  fuzz-workspace `cargo deny` run in §10; not a new dependency.
 
 ## 13. Verification evidence / handoff
 
-Filled in at the end of each milestone (see the ROADMAP Phase 10 block
-for the consolidated evidence table).
+Local, windows-x86_64, `cargo +1.97.1`, 2026-09-16, from `rust/` unless
+noted. CI runs the same commands on the PR; the results below are the
+pre-PR evidence.
+
+| Check | Kind | Result |
+| --- | --- | --- |
+| `cargo clippy --workspace --all-targets --locked -- -D warnings` | broad | clean |
+| `cargo clippy -p quake-capi --all-targets --locked --features progs,render -- -D warnings` | broad | clean |
+| `cargo clippy -p quake-capi --all-targets --locked --features platform,sdl3 -- -D warnings` | broad | clean |
+| `cargo clippy -p quake-capi --all-targets --locked --features platform,sdl2 -- -D warnings` | broad | clean |
+| `cargo fmt --all -- --check` | broad | clean |
+| `cargo test --workspace --locked` (debug) | broad | 1 566 passed, 0 failed |
+| `cargo test --workspace --locked --release` | broad | 1 566 passed, 0 failed |
+| `cargo deny check` | broad | clean (pre-existing `Unicode-3.0` unmatched-allowance warning) |
+| `cargo deny --manifest-path fuzz/Cargo.toml check licenses` | broad | clean |
+| `python scripts/setjmp_inventory.py --check` (repo root) | targeted | OK, 40 sites / 39 guarded TUs |
+| `python scripts/c_remnant_inventory.py --check` | targeted | OK |
+| `python scripts/unsafe_inventory.py --check` | targeted | OK |
+| `git diff --stat` shows no `Quake/`, `meson.build`, `Shaders/` change (A7) | targeted | 155 files, all under `rust/`, `docs/`, `scripts/`, `.github/` |
+| I1 semantic review of the M3 diff | manual | 172 non-trivial hunks read (everything that was not a semicolon, `writeln!`, `T::from(bool)`, `&[..]` for `vec![..]`, or a `match`→`if let` on the same arms); one deviation, the `gl_mesh.rs` `assert_eq!` (§12). The two `needless_continue` removals (`snd_dma.rs` `S_Update`, `quake-net/src/dgrm.rs` `get_message`) are at the tail of their loop bodies. |
+| Meson builds, harness corpus/render gates | not run | no C or build line changed (A7); the differential tests above are the Rust-side gate |
+
+Handoff: M1-M4 are the pre-deletion tranche in full. The single next
+action is the Phase 9 soak exit (tag `c-reference/final`, deletion PR);
+M5 is the first post-deletion milestone and starts as its own approved
+milestone under this plan.
 
 ## 14. Completion gate
 
