@@ -32,7 +32,18 @@ use core::ffi::{c_char, c_int, c_uint, c_void, CStr};
 
 use quake_c_sys as c;
 use quake_c_sys::host::HOST_GUARD_OK;
-use quake_c_sys::net_dgrm_orch::*;
+use quake_c_sys::net_dgrm_orch::{
+    atoi, com_protocolname, key_dest, m_return_onerror, m_return_reason, m_return_state, m_state,
+    messagesSent, net_connecttimeout, net_masters, net_messagetimeout, q_strcasecmp, q_strlcpy,
+    rcon_password, slist_scope, strcat, strcpy, strlen, sv_public, sv_reportheartbeats,
+    unreliableMessagesSent, Cmd_TokenizeString, Con_Redirect, Cvar_FindVarAfter,
+    Datagram_Rcon_Flush, MSG_BeginReading, MSG_ReadByte, MSG_ReadLong, MSG_ReadString,
+    NetDgrmOrch_GetInfoVerField, NetDgrmOrch_Glue_AddNetStatsCommand,
+    NetDgrmOrch_Glue_AddTestCommands, NetDgrmOrch_Glue_AfInet, NetDgrmOrch_Glue_AfInet6,
+    NetDgrmOrch_Glue_ConnectClient, NetDgrmOrch_Glue_DropClient, NetDgrmOrch_Glue_ExecuteString,
+    NetDgrmOrch_Glue_MasterQuery, NetDgrmOrch_Glue_MasterString, NetDgrmOrch_Glue_ProtocolName,
+    NetDgrmOrch_Glue_UpdateScreen, SchedulePollProcedure, RUST_DGRM_ORCH_NET_MESSAGE_OVERFLOW,
+};
 use quake_net::cnum::c_atoi;
 use quake_net::msg;
 use quake_net::msg::MsgReader;
@@ -400,7 +411,7 @@ pub unsafe extern "C" fn quake_rs_dgrm_get_any_message(out: *mut *mut QSocket) -
 unsafe fn print_stats(s: *mut QSocket) {
     // SAFETY: caller contract
     unsafe {
-        let can_send: u32 = if (*s).can_send { 1 } else { 0 };
+        let can_send: u32 = u32::from((*s).can_send);
         con_print_bytes(format!("canSend = {can_send:>4}   \n").as_bytes());
         con_print_bytes(format!("sendSeq = {:>4}   ", (*s).send_sequence).as_bytes());
         con_print_bytes(format!("recvSeq = {:>4}   \n", (*s).receive_sequence).as_bytes());
@@ -543,9 +554,8 @@ pub(crate) unsafe fn strip_port(host: *const c_char) -> *const c_char {
         buf[term] = 0;
 
         // strrchr (noport, ':')
-        let colon = match buf[..term].iter().rposition(|&ch| ch == b':') {
-            Some(i) => i,
-            None => return host,
+        let Some(colon) = buf[..term].iter().rposition(|&ch| ch == b':') else {
+            return host;
         };
         // strchr (p, ']') -- [::] should not be considered port 0
         if buf[colon..term].contains(&b']') {
@@ -796,8 +806,8 @@ pub unsafe extern "C" fn quake_rs_dgrm_rcon_flush(text: *const c_char) {
 
             // save space for the header, filled in later
             let r = msg::write_long(&mut msg, 0)
-                .and_then(|_| msg::write_byte(&mut msg, CCREP_RCON as c_int))
-                .and_then(|_| {
+                .and_then(|()| msg::write_byte(&mut msg, CCREP_RCON as c_int))
+                .and_then(|()| {
                     // C: MSG_WriteString (&msg, text). `None` is C's NULL
                     // branch (writes the terminator only); Con_Redirect never
                     // passes NULL, but the branch is kept.
@@ -1005,8 +1015,12 @@ unsafe fn with_net_message<R>(f: impl FnOnce(&mut SizeBuf<'_>) -> R) -> R {
 /// # Safety
 /// As [`with_net_message`].
 unsafe fn net_message_clear() {
-    // SAFETY: caller contract.
-    unsafe { with_net_message(|sb| sb.clear()) }
+    // SAFETY: caller contract. (The method path does not satisfy the
+    // higher-ranked closure bound, hence the closure.)
+    #[allow(clippy::redundant_closure_for_method_calls)]
+    unsafe {
+        with_net_message(|sb| sb.clear());
+    }
 }
 
 /// `*((int *)net_message.data) = BigLong (NETFLAG_CTL | (net_message.cursize
@@ -1991,26 +2005,25 @@ fn info_read_key(info: &[u8], key: &[u8], out: &mut [c_char]) {
 
             // success!
             return;
-        } else {
-            // skip the key
-            while p < info.len() && info[p] != b'\\' {
-                p += 1;
-            }
-
-            // validate that its a value now
-            if p >= info.len() {
-                // C reads the NUL through `*info++`, which is != '\\'
-                break; // error
-            }
-            let c = info[p];
+        }
+        // skip the key
+        while p < info.len() && info[p] != b'\\' {
             p += 1;
-            if c != b'\\' {
-                break; // error
-            }
-            // skip the value
-            while p < info.len() && info[p] != b'\\' {
-                p += 1;
-            }
+        }
+
+        // validate that its a value now
+        if p >= info.len() {
+            // C reads the NUL through `*info++`, which is != '\\'
+            break; // error
+        }
+        let c = info[p];
+        p += 1;
+        if c != b'\\' {
+            break; // error
+        }
+        // skip the value
+        while p < info.len() && info[p] != b'\\' {
+            p += 1;
         }
     }
     out[0] = 0;
@@ -2347,9 +2360,8 @@ unsafe fn datagram_search_for_hosts(xmit: QBoolean) -> QBoolean {
                         all.get(13..).unwrap_or(&[]).to_vec()
                     };
 
-                    let n = match find_or_add_host(&readaddr) {
-                        Some(n) => n,
-                        None => continue,
+                    let Some(n) = find_or_add_host(&readaddr) else {
+                        continue;
                     };
                     let h = host(n);
 
@@ -2405,9 +2417,8 @@ unsafe fn datagram_search_for_hosts(xmit: QBoolean) -> QBoolean {
             // (the C's commented-out "Server at %s claimed to be at %s" check
             // is not reproduced -- it is not compiled)
 
-            let n = match find_or_add_host(&readaddr) {
-                Some(n) => n,
-                None => continue,
+            let Some(n) = find_or_add_host(&readaddr) else {
+                continue;
             };
             let h = host(n);
 
@@ -3209,7 +3220,7 @@ pub unsafe extern "C" fn quake_rs_dgrm_test_poll(_unused: *mut c_void) {
             let mut line: Vec<u8> = Vec::new();
             line.extend_from_slice(&name);
             line.extend_from_slice(b"\n  frags:");
-            line.extend_from_slice(format!("{:3}", frags).as_bytes());
+            line.extend_from_slice(format!("{frags:3}").as_bytes());
             line.extend_from_slice(b"  colors:");
             line.extend_from_slice(format!("{}", colors >> 4).as_bytes());
             line.push(b' ');

@@ -35,6 +35,7 @@
 //!     exact digits the C engine writes.
 
 use std::ffi::{c_char, c_float, c_int, c_void, CStr, CString};
+use std::fmt::Write as _;
 use std::sync::{Mutex, MutexGuard};
 
 use quake_ctest as _; // links the cc-built c_ref_* archive
@@ -207,7 +208,7 @@ static TEST_LOCK: Mutex<()> = Mutex::new(());
 fn lock() -> MutexGuard<'static, ()> {
     TEST_LOCK
         .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 fn cs(s: &str) -> CString {
@@ -267,14 +268,14 @@ fn saved_bytes(savename: &str) -> Vec<u8> {
 /// built from the same fixture values arm_savegame() installs.
 fn expected_savegame(comment: &str, skill: i32, mapname: &str, time: f32) -> String {
     let mut out = String::new();
-    out.push_str(&format!("{SAVEGAME_VERSION}\n"));
-    out.push_str(&format!("{comment}\n"));
+    let _ = writeln!(out, "{SAVEGAME_VERSION}");
+    let _ = writeln!(out, "{comment}");
     for i in 0..NUM_BASIC_SPAWN_PARMS {
-        out.push_str(&format!("{:.6}\n", i as f32));
+        let _ = writeln!(out, "{:.6}", i as f32);
     }
-    out.push_str(&format!("{skill}\n"));
-    out.push_str(&format!("{mapname}\n"));
-    out.push_str(&format!("{time:.6}\n"));
+    let _ = writeln!(out, "{skill}");
+    let _ = writeln!(out, "{mapname}");
+    let _ = writeln!(out, "{time:.6}");
     for i in 0..MAX_LIGHTSTYLES {
         out.push_str(match i {
             0 => "a\n",

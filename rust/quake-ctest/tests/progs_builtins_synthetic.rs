@@ -253,7 +253,7 @@ impl BuiltinSys for MockSys {
 /// Lowercase-fold for the mock's compare seams.
 fn fold(s: &[u8], on: bool) -> Vec<u8> {
     if on {
-        s.iter().map(|b| b.to_ascii_lowercase()).collect()
+        s.iter().map(u8::to_ascii_lowercase).collect()
     } else {
         s.to_vec()
     }

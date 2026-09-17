@@ -224,7 +224,12 @@ unsafe fn texture_payload_len(tx: &Texture) -> usize {
         return mip;
     }
     // SAFETY: the mip chain was copied into the tail of the same allocation
-    let after = unsafe { (tx as *const Texture).add(1).cast::<u8>().add(mip) };
+    let after = unsafe {
+        std::ptr::from_ref::<Texture>(tx)
+            .add(1)
+            .cast::<u8>()
+            .add(mip)
+    };
     // SAFETY: two bytes of the same allocation (zero when the loader did not
     // copy them, which is exactly the divergence this catches)
     let colors = u16::from_le_bytes(unsafe { [*after, *after.add(1)] }) as usize;
@@ -612,7 +617,7 @@ pub unsafe fn alias_snapshot(
                 &format!("posevert[{i}]"),
                 blob(
                     p as *mut u8,
-                    scratch.base as *mut u8,
+                    scratch.base.cast_mut(),
                     scratch.base_len,
                     "file",
                 ),

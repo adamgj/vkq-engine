@@ -963,17 +963,14 @@ unsafe fn pscript_update_model_effects(model: *mut QModel) {
                 ptr::addr_of!((*model).name).cast::<c_char>(),
             ) == 0
             {
-                match (*ae).type_ {
-                    AE_TRAIL => {
-                        (*model).traileffect =
-                            pscript_find_particle_type(ptr::addr_of!((*ae).pname).cast::<c_char>());
-                    }
-                    _ => {
-                        (*model).emiteffect =
-                            pscript_find_particle_type(ptr::addr_of!((*ae).pname).cast::<c_char>());
-                        (*model).flags &= !((MOD_EMITREPLACE | MOD_EMITFORWARDS) as c_int);
-                        (*model).flags |= (*ae).flags as c_int;
-                    }
+                if (*ae).type_ == AE_TRAIL {
+                    (*model).traileffect =
+                        pscript_find_particle_type(ptr::addr_of!((*ae).pname).cast::<c_char>());
+                } else {
+                    (*model).emiteffect =
+                        pscript_find_particle_type(ptr::addr_of!((*ae).pname).cast::<c_char>());
+                    (*model).flags &= !((MOD_EMITREPLACE | MOD_EMITFORWARDS) as c_int);
+                    (*model).flags |= (*ae).flags as c_int;
                 }
             }
             ae = (*ae).next;
@@ -1011,7 +1008,7 @@ unsafe fn p_get_particle_type(
             name = dot.add(1);
         }
 
-        for (oldn, newn) in LEGACYNAMES.iter() {
+        for (oldn, newn) in &LEGACYNAMES {
             if g::strcmp(name, oldn.as_ptr()) == 0 {
                 name = newn.as_ptr();
                 break;
@@ -1226,7 +1223,7 @@ unsafe fn pscript_find_particle_type(fullname: *const c_char) -> c_int {
             cfg[0] = 0;
         }
 
-        for (oldn, newn) in LEGACYNAMES.iter() {
+        for (oldn, newn) in &LEGACYNAMES {
             if g::strcmp(name, oldn.as_ptr()) == 0 {
                 name = newn.as_ptr();
                 break;
@@ -3574,10 +3571,11 @@ unsafe fn p_import_effect_info(config: *const c_char, line: *mut c_char, part_pa
                 // dp scales them by 0.25
                 (*ptype).dl_corona_intensity = (g::atof(arg[1].as_ptr()) * 0.25) as c_float;
                 (*ptype).dl_corona_scale = g::atof(arg[2].as_ptr()) as c_float;
-            } else if (g::strcmp(arg[0].as_ptr(), c"staincolor".as_ptr()) == 0 && args == 3)
-                || (g::strcmp(arg[0].as_ptr(), c"stainalpha".as_ptr()) == 0 && args == 3)
-                || (g::strcmp(arg[0].as_ptr(), c"stainsize".as_ptr()) == 0 && args == 3)
-                || (g::strcmp(arg[0].as_ptr(), c"staintex".as_ptr()) == 0 && args == 3)
+            } else if !(args != 3
+                || g::strcmp(arg[0].as_ptr(), c"staincolor".as_ptr()) != 0
+                    && g::strcmp(arg[0].as_ptr(), c"stainalpha".as_ptr()) != 0
+                    && g::strcmp(arg[0].as_ptr(), c"stainsize".as_ptr()) != 0
+                    && g::strcmp(arg[0].as_ptr(), c"staintex".as_ptr()) != 0)
                 || (g::strcmp(arg[0].as_ptr(), c"stainless".as_ptr()) == 0 && args == 2)
             {
                 // stainmaps multiplier / stain-decals: not supported here.

@@ -313,8 +313,7 @@ fn steam_differential() {
         &steamroot,
         "config/libraryfolders.vdf",
         &format!(
-            "\"libraryfolders\"\n{{\n\t\"0\"\n\t{{\n\t\t\"path\"\t\"{}\"\n\t\t\"apps\"\n\t\t{{\n\t\t\t\"2310\"\t\"1\"\n\t\t}}\n\t}}\n}}\n",
-            long_lib
+            "\"libraryfolders\"\n{{\n\t\"0\"\n\t{{\n\t\t\"path\"\t\"{long_lib}\"\n\t\t\"apps\"\n\t\t{{\n\t\t\t\"2310\"\t\"1\"\n\t\t}}\n\t}}\n}}\n"
         ),
     );
     let toolong = find_game_compare(2310, "manifest path too long");

@@ -39,6 +39,49 @@ unsafe_op_in_unsafe_fn = "deny"
 
 [workspace.lints.clippy]
 undocumented_unsafe_blocks = "deny"
+# Phase 10 M3: the pedantic tier. Everything in the group warns (CI runs with
+# -D warnings) except the entries below, each of which fights a deliberate
+# property of the port. Retire an entry only by fixing every site it covers.
+pedantic = { level = "warn", priority = -1 }
+# `as` casts mirror the C conversions bit for bit (ADR-010 determinism); a
+# checked conversion would change behaviour on the values C truncates or wraps
+cast_possible_truncation = "allow"
+cast_possible_wrap = "allow"
+cast_sign_loss = "allow"
+cast_lossless = "allow"
+cast_precision_loss = "allow"
+# float comparisons are the C engine's bit-exact comparisons (ADR-010)
+float_cmp = "allow"
+# FFI boundary style in the transition crates; retired with the shims (Phase 10 M6)
+borrow_as_ptr = "allow"
+ptr_as_ptr = "allow"
+ptr_cast_constness = "allow"
+ref_as_ptr = "allow"
+cast_ptr_alignment = "allow"
+# status-code shims mirror the C return contract (ADR-004 consequence); gone with the shims
+unnecessary_wraps = "allow"
+# f32::midpoint is not bit-identical to the C `(a + b) / 2` (ADR-010)
+manual_midpoint = "allow"
+# the C comparisons are case-sensitive; the suggested Path::extension form is not
+case_sensitive_file_extension_comparisons = "allow"
+# constants and names are kept verbatim from the C source so a reviewer can
+# read the port side by side with the original
+unreadable_literal = "allow"
+decimal_bitwise_operands = "allow"
+similar_names = "allow"
+struct_field_names = "allow"
+match_same_arms = "allow"
+large_stack_arrays = "allow"
+many_single_char_names = "allow"
+too_many_lines = "allow"
+items_after_statements = "allow"
+if_not_else = "allow"
+struct_excessive_bools = "allow"
+# doc-comment volume: no behavioural content, revisit once the API surface is final
+doc_markdown = "allow"
+must_use_candidate = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
 
 # panic = "abort" in every profile: a Rust panic must never unwind into a C
 # frame (PLAN.md section 4.3); panics indicate engine bugs (ADR-009)

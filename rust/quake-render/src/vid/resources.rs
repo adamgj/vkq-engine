@@ -140,7 +140,10 @@ pub fn create_render_passes<E: VidEngine>(ctx: &mut Ctx<'_, E>) {
 
     for (scbx_index, multiplicity) in scbx_slots(SCBX_WORLD, SCBX_OIT_RESOLVE) {
         for i in 0..multiplicity {
-            debug_assert!(scbx_mut(ctx.vg, scbx_index, i).render_pass == vk::RenderPass::null());
+            debug_assert_eq!(
+                scbx_mut(ctx.vg, scbx_index, i).render_pass,
+                vk::RenderPass::null()
+            );
         }
     }
 
@@ -556,16 +559,17 @@ pub fn create_render_passes<E: VidEngine>(ctx: &mut Ctx<'_, E>) {
         if gui_render_pass != vk::RenderPass::null()
             || post_process_render_pass != vk::RenderPass::null()
         {
-            debug_assert!(gui_render_pass == post_process_render_pass);
-            debug_assert!(
-                scbx_mut(ctx.vg, SCBX_GUI as usize, 0).render_pass_index == RENDER_PASS_INDEX_UI
+            debug_assert_eq!(gui_render_pass, post_process_render_pass);
+            debug_assert_eq!(
+                scbx_mut(ctx.vg, SCBX_GUI as usize, 0).render_pass_index,
+                RENDER_PASS_INDEX_UI
             );
-            debug_assert!(scbx_mut(ctx.vg, SCBX_GUI as usize, 0).subpass == 0);
-            debug_assert!(
-                scbx_mut(ctx.vg, SCBX_POST_PROCESS as usize, 0).render_pass_index
-                    == RENDER_PASS_INDEX_UI
+            debug_assert_eq!(scbx_mut(ctx.vg, SCBX_GUI as usize, 0).subpass, 0);
+            debug_assert_eq!(
+                scbx_mut(ctx.vg, SCBX_POST_PROCESS as usize, 0).render_pass_index,
+                RENDER_PASS_INDEX_UI
             );
-            debug_assert!(scbx_mut(ctx.vg, SCBX_POST_PROCESS as usize, 0).subpass == 1);
+            debug_assert_eq!(scbx_mut(ctx.vg, SCBX_POST_PROCESS as usize, 0).subpass, 1);
         } else {
             // SAFETY: as for the main pass above.
             let render_pass = match unsafe {
@@ -1088,7 +1092,7 @@ pub fn update_descriptor_sets<E: VidEngine>(ctx: &mut Ctx<'_, E>, vid: &mut VidS
     // SAFETY: as above.
     unsafe {
         ctx.device
-            .update_descriptor_sets(&screen_effects_writes, &[])
+            .update_descriptor_sets(&screen_effects_writes, &[]);
     };
 
     #[cfg(feature = "engine-debug")]
@@ -1189,7 +1193,7 @@ fn create_main_frame_buffers<E: VidEngine>(ctx: &mut Ctx<'_, E>, vid: &mut VidSt
 
 /// `GL_DestroyMainFrameBuffers`.
 fn destroy_main_frame_buffers<E: VidEngine>(ctx: &mut Ctx<'_, E>, vid: &mut VidState) {
-    for framebuffer in vid.main_framebuffers.iter_mut() {
+    for framebuffer in &mut vid.main_framebuffers {
         if *framebuffer != vk::Framebuffer::null() {
             // SAFETY: created on `ctx.device` above; the device is idle.
             unsafe { ctx.device.destroy_framebuffer(*framebuffer, None) };
@@ -1348,7 +1352,7 @@ pub fn destroy_render_resources<E: VidEngine>(ctx: &mut Ctx<'_, E>, vid: &mut Vi
         // SAFETY: as above.
         unsafe {
             ctx.device
-                .destroy_semaphore(vid.image_aquired_semaphores[i], None)
+                .destroy_semaphore(vid.image_aquired_semaphores[i], None);
         };
         vid.image_aquired_semaphores[i] = vk::Semaphore::null();
     }
@@ -1356,7 +1360,7 @@ pub fn destroy_render_resources<E: VidEngine>(ctx: &mut Ctx<'_, E>, vid: &mut Vi
         // SAFETY: as above.
         unsafe {
             ctx.device
-                .destroy_semaphore(vid.draw_complete_semaphores[i], None)
+                .destroy_semaphore(vid.draw_complete_semaphores[i], None);
         };
         vid.draw_complete_semaphores[i] = vk::Semaphore::null();
     }
@@ -1442,7 +1446,7 @@ pub fn create_palette_octree_buffers<E: VidEngine>(
                 allocation.buffer,
                 vid.palette_colors_buffer,
                 core::slice::from_ref(&region),
-            )
+            );
         };
         staging.begin_copy();
         // SAFETY: `allocation.data` addresses `colors_size` mapped bytes
@@ -1479,7 +1483,7 @@ pub fn create_palette_octree_buffers<E: VidEngine>(
                 allocation.buffer,
                 vid.palette_octree_buffer,
                 core::slice::from_ref(&region),
-            )
+            );
         };
         staging.begin_copy();
         // SAFETY: as for the colours above.

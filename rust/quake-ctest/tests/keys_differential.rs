@@ -53,7 +53,9 @@ use quake_rs::cvar as rcvar;
 static TEST_LOCK: Mutex<()> = Mutex::new(());
 
 fn lock() -> MutexGuard<'static, ()> {
-    TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner())
+    TEST_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 /// `stubs/keys_ref.c`'s side convention: 1 = the `c_ref_*` oracle, 0 = the
@@ -416,13 +418,13 @@ fn binding(side: c_int, keynum: c_int) -> Option<String> {
 
 fn set_binding(side: c_int, keynum: c_int, value: Option<&str>) {
     let v = value.map(cs);
-    let p = v.as_ref().map_or(std::ptr::null(), |v| v.as_ptr());
+    let p = v.as_ref().map_or(std::ptr::null(), std::vec::Vec::as_ptr);
     // SAFETY: NUL-terminated or NULL; keys.c q_strdup's it.
     unsafe {
         if side == C {
-            c_ref_Key_SetBinding(keynum, p)
+            c_ref_Key_SetBinding(keynum, p);
         } else {
-            Key_SetBinding(keynum, p)
+            Key_SetBinding(keynum, p);
         }
     }
 }
@@ -433,9 +435,9 @@ fn run_cmd(side: c_int, text: &str, f: fn(c_int)) {
     // SAFETY: NUL-terminated; the tokenizer copies into that side's argv.
     unsafe {
         if side == C {
-            c_ref_Cmd_TokenizeString(t.as_ptr())
+            c_ref_Cmd_TokenizeString(t.as_ptr());
         } else {
-            rcmd::Cmd_TokenizeString(t.as_ptr())
+            rcmd::Cmd_TokenizeString(t.as_ptr());
         }
     }
     f(side);
@@ -445,9 +447,9 @@ fn bind_f(side: c_int) {
     // SAFETY: reads that side's tokenized argv only.
     unsafe {
         if side == C {
-            c_ref_Key_Bind_f()
+            c_ref_Key_Bind_f();
         } else {
-            Key_Bind_f()
+            Key_Bind_f();
         }
     }
 }
@@ -456,9 +458,9 @@ fn unbind_f(side: c_int) {
     // SAFETY: reads that side's tokenized argv only.
     unsafe {
         if side == C {
-            c_ref_Key_Unbind_f()
+            c_ref_Key_Unbind_f();
         } else {
-            Key_Unbind_f()
+            Key_Unbind_f();
         }
     }
 }
@@ -467,9 +469,9 @@ fn key_console(side: c_int, key: c_int) {
     // SAFETY: the plain entry point is the glue's re-raising wrapper.
     unsafe {
         if side == C {
-            c_ref_Key_Console(key)
+            c_ref_Key_Console(key);
         } else {
-            Key_Console(key)
+            Key_Console(key);
         }
     }
 }
@@ -478,9 +480,9 @@ fn char_console(side: c_int, key: c_int) {
     // SAFETY: as above.
     unsafe {
         if side == C {
-            c_ref_Char_Console(key)
+            c_ref_Char_Console(key);
         } else {
-            Char_Console(key)
+            Char_Console(key);
         }
     }
 }
@@ -489,9 +491,9 @@ fn key_event(side: c_int, key: c_int, down: bool) {
     // SAFETY: as above.
     unsafe {
         if side == C {
-            c_ref_Key_Event(key, down)
+            c_ref_Key_Event(key, down);
         } else {
-            Key_Event(key, down)
+            Key_Event(key, down);
         }
     }
 }
@@ -639,7 +641,7 @@ fn string_to_keynum_matches_over_every_name_ascii_and_junk() {
             "\u{7f}",
         ]
         .iter()
-        .map(|s| s.to_string()),
+        .map(std::string::ToString::to_string),
     );
 
     for name in &names {
@@ -836,9 +838,9 @@ fn unbindall_f_clears_every_binding_on_both_sides() {
         // SAFETY: reads/writes that side's keybindings[] only.
         unsafe {
             if side == C {
-                c_ref_Key_Unbindall_f()
+                c_ref_Key_Unbindall_f();
             } else {
-                Key_Unbindall_f()
+                Key_Unbindall_f();
             }
         }
     }
@@ -874,9 +876,9 @@ fn bindlist_f_matches_output_and_iteration_order() {
             // shared Con_SafePrintf capture, read back immediately below.
             unsafe {
                 if side == C {
-                    c_ref_Key_Bindlist_f()
+                    c_ref_Key_Bindlist_f();
                 } else {
-                    Key_Bindlist_f()
+                    Key_Bindlist_f();
                 }
             }
             con_log()
@@ -961,9 +963,9 @@ fn write_bindings_is_byte_identical() {
                 let f = tmpfile();
                 assert!(!f.is_null(), "tmpfile()");
                 if side == C {
-                    c_ref_Key_WriteBindings(f)
+                    c_ref_Key_WriteBindings(f);
                 } else {
-                    Key_WriteBindings(f)
+                    Key_WriteBindings(f);
                 }
                 bytes.push(slurp(f));
                 c::stdio::fclose(f);
@@ -1306,7 +1308,7 @@ fn console_enter_stores_history_and_prints_identically() {
                             after_first.hline,
                             second.len() as c_int,
                             1,
-                        )
+                        );
                     };
                     key_console(side, K_ENTER);
                     // ENTER pushes the line into that side's command buffer;
@@ -1449,33 +1451,37 @@ static R_TRACE: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
 fn trace(side: c_int) -> Vec<String> {
     let m = if side == C { &C_TRACE } else { &R_TRACE };
-    m.lock().unwrap_or_else(|p| p.into_inner()).clone()
+    m.lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .clone()
 }
 
 fn clear_trace(side: c_int) {
     let m = if side == C { &C_TRACE } else { &R_TRACE };
-    m.lock().unwrap_or_else(|p| p.into_inner()).clear();
+    m.lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .clear();
 }
 
 /// Records `argv[0] argv[1] ...` so the synthesized keynum parameter is
 /// visible, not just the command name.
 extern "C" fn c_probe_plus() {
-    record(C, "+probe", true)
+    record(C, "+probe", true);
 }
 extern "C" fn c_probe_minus() {
-    record(C, "-probe", true)
+    record(C, "-probe", true);
 }
 extern "C" fn c_probe_plain() {
-    record(C, "probe", true)
+    record(C, "probe", true);
 }
 extern "C" fn r_probe_plus() {
-    record(R, "+probe", false)
+    record(R, "+probe", false);
 }
 extern "C" fn r_probe_minus() {
-    record(R, "-probe", false)
+    record(R, "-probe", false);
 }
 extern "C" fn r_probe_plain() {
-    record(R, "probe", false)
+    record(R, "probe", false);
 }
 
 fn record(side: c_int, name: &str, oracle: bool) {
@@ -1501,7 +1507,9 @@ fn record(side: c_int, name: &str, oracle: bool) {
     };
     assert!(args.starts_with(name), "probe {name} saw {args:?}");
     let m = if side == C { &C_TRACE } else { &R_TRACE };
-    m.lock().unwrap_or_else(|p| p.into_inner()).push(args);
+    m.lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .push(args);
 }
 
 fn register_probes() {
@@ -1540,9 +1548,9 @@ fn exec_cbuf(side: c_int) {
     // the only commands the scenarios below can reach.
     unsafe {
         if side == C {
-            c_ref_Cbuf_Execute()
+            c_ref_Cbuf_Execute();
         } else {
-            Cbuf_Execute()
+            Cbuf_Execute();
         }
     }
 }
@@ -1701,9 +1709,9 @@ fn key_event_special_dispatch_matches() {
                     // SAFETY: the plain entry point re-raises; nothing raises here.
                     unsafe {
                         if side == C {
-                            c_ref_Key_EventWithKeycode(key, true, keycode)
+                            c_ref_Key_EventWithKeycode(key, true, keycode);
                         } else {
-                            Key_EventWithKeycode(key, true, keycode)
+                            Key_EventWithKeycode(key, true, keycode);
                         }
                     }
                     exec_cbuf(side);
@@ -1724,7 +1732,7 @@ fn key_event_special_dispatch_matches() {
                 assert_eq!(per_side[0].2, vec!["probe from menu"]);
             }
             "negative keynum" | "keynum past MAX_KEYS" => {
-                assert_eq!(per_side[0].0, KeysCalls::default())
+                assert_eq!(per_side[0].0, KeysCalls::default());
             }
             _ => {}
         }
@@ -1845,9 +1853,9 @@ fn key_init_fills_the_tables_identically() {
         // SAFETY: registers into that side's own cmd registry.
         unsafe {
             if side == C {
-                c_ref_Key_Init()
+                c_ref_Key_Init();
             } else {
-                Key_Init()
+                Key_Init();
             }
         }
     }
@@ -1904,9 +1912,9 @@ fn history_file_round_trips_byte_identically() {
         // SAFETY: writes history.txt under that side's com_gamedir.
         unsafe {
             if side == C {
-                c_ref_History_Shutdown()
+                c_ref_History_Shutdown();
             } else {
-                History_Shutdown()
+                History_Shutdown();
             }
         }
         written.push(std::fs::read(d.join("history.txt")).unwrap_or_default());
@@ -1916,9 +1924,9 @@ fn history_file_round_trips_byte_identically() {
         // SAFETY: reads history.txt back into key_lines[].
         unsafe {
             if side == C {
-                c_ref_History_Init()
+                c_ref_History_Init();
             } else {
-                History_Init()
+                History_Init();
             }
         }
         let st = snapshot(side);
@@ -1984,9 +1992,9 @@ fn text_entry_and_update_for_dest_match() {
                     // SAFETY: drives IN_* through the shared recorder.
                     unsafe {
                         if side == C {
-                            c_ref_Key_UpdateForDest()
+                            c_ref_Key_UpdateForDest();
                         } else {
-                            Key_UpdateForDest()
+                            Key_UpdateForDest();
                         }
                     }
                     (te, dest())
@@ -2024,27 +2032,27 @@ fn input_grab_captures_the_same_key_and_char() {
                 // wrappers; nothing here raises.
                 unsafe {
                     if side == C {
-                        c_ref_Key_BeginInputGrab()
+                        c_ref_Key_BeginInputGrab();
                     } else {
-                        Key_BeginInputGrab()
+                        Key_BeginInputGrab();
                     }
                 }
                 key_event(side, 'k' as c_int, true);
                 // SAFETY: keycode > 0 is what fills lastchar (keys.c:1065).
                 unsafe {
                     if side == C {
-                        c_ref_Key_EventWithKeycode(K_F1, true, 'Q' as c_int)
+                        c_ref_Key_EventWithKeycode(K_F1, true, 'Q' as c_int);
                     } else {
-                        Key_EventWithKeycode(K_F1, true, 'Q' as c_int)
+                        Key_EventWithKeycode(K_F1, true, 'Q' as c_int);
                     }
                 }
                 let grabbed = snapshot(side);
                 // SAFETY: as above.
                 unsafe {
                     if side == C {
-                        c_ref_Key_EndInputGrab()
+                        c_ref_Key_EndInputGrab();
                     } else {
-                        Key_EndInputGrab()
+                        Key_EndInputGrab();
                     }
                 }
                 (grabbed, snapshot(side))
@@ -2085,9 +2093,9 @@ fn clear_states_zeroes_the_same_keys() {
                 // SAFETY: the plain entry point re-raises; nothing raises here.
                 unsafe {
                     if side == C {
-                        c_ref_Key_ClearStates()
+                        c_ref_Key_ClearStates();
                     } else {
-                        Key_ClearStates()
+                        Key_ClearStates();
                     }
                 }
                 exec_cbuf(side);
@@ -2137,25 +2145,25 @@ fn chat_line_editing_matches() {
                 unsafe {
                     for ch in "hi there".chars() {
                         if side == C {
-                            c_ref_Char_Message(ch as c_int)
+                            c_ref_Char_Message(ch as c_int);
                         } else {
-                            Char_Message(ch as c_int)
+                            Char_Message(ch as c_int);
                         }
                     }
                     out.push(snapshot(side));
                     for _ in 0..3 {
                         if side == C {
-                            c_ref_Key_Message(K_BACKSPACE)
+                            c_ref_Key_Message(K_BACKSPACE);
                         } else {
-                            Key_Message(K_BACKSPACE)
+                            Key_Message(K_BACKSPACE);
                         }
                     }
                     out.push(snapshot(side));
                     // ESCAPE aborts the chat line; ENTER would send it
                     if side == C {
-                        c_ref_Key_Message(K_ESCAPE)
+                        c_ref_Key_Message(K_ESCAPE);
                     } else {
-                        Key_Message(K_ESCAPE)
+                        Key_Message(K_ESCAPE);
                     }
                     out.push(snapshot(side));
                 }

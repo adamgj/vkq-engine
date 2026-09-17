@@ -137,7 +137,7 @@ unsafe fn open_with(
     unsafe {
         let stream = S_CodecUtilOpen(filename, codec, loop_);
         if !stream.is_null() {
-            if (*codec).codec_open.map(|f| f(stream)).unwrap_or(false) {
+            if (*codec).codec_open.is_some_and(|f| f(stream)) {
                 (*stream).status = sys::stream_status_t_STREAM_PLAY;
             } else {
                 let mut s = stream;
@@ -230,7 +230,7 @@ pub unsafe extern "C" fn S_CodecOpenStreamAny(
                 }
                 let stream = S_CodecUtilOpen(tmp.as_ptr().cast(), codec, loop_);
                 if !stream.is_null() {
-                    if (*codec).codec_open.map(|f| f(stream)).unwrap_or(false) {
+                    if (*codec).codec_open.is_some_and(|f| f(stream)) {
                         (*stream).status = sys::stream_status_t_STREAM_PLAY;
                         return stream;
                     }
@@ -268,7 +268,7 @@ pub unsafe extern "C" fn S_CodecForwardStream(
             return false;
         }
         (*stream).codec = codec;
-        (*codec).codec_open.map(|f| f(stream)).unwrap_or(false)
+        (*codec).codec_open.is_some_and(|f| f(stream))
     }
 }
 
@@ -294,12 +294,7 @@ pub unsafe extern "C" fn S_CodecCloseStream(stream: *mut snd_stream_t) {
 #[no_mangle]
 pub unsafe extern "C" fn S_CodecRewindStream(stream: *mut snd_stream_t) -> c_int {
     // SAFETY: vtable dispatch
-    unsafe {
-        (*(*stream).codec)
-            .codec_rewind
-            .map(|f| f(stream))
-            .unwrap_or(-1)
-    }
+    unsafe { (*(*stream).codec).codec_rewind.map_or(-1, |f| f(stream)) }
 }
 
 /// C: `int S_CodecJumpToOrder (snd_stream_t *stream, int to)`
@@ -331,8 +326,7 @@ pub unsafe extern "C" fn S_CodecReadStream(
     unsafe {
         (*(*stream).codec)
             .codec_read
-            .map(|f| f(stream, bytes, buffer))
-            .unwrap_or(0)
+            .map_or(0, |f| f(stream, bytes, buffer))
     }
 }
 

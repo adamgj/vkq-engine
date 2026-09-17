@@ -194,7 +194,7 @@ pub fn find_library_for_app(libraryfolders_text: &[u8], appid: i32) -> Option<Ve
                 }
             } else if path.len() == 3 && key == appidstr && path[2] == b"apps" {
                 // C: `parser->result = parser->current` — even when NULL
-                result = current.clone();
+                result.clone_from(&current);
             }
         }
     });

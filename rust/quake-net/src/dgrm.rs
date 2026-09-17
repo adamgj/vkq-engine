@@ -613,7 +613,6 @@ pub fn get_message<S: NetSys>(
             let rml = sock.receive_message_length as usize;
             copy_from_scratch(&mut sock.receive_message[rml..rml + length], pkt, length);
             sock.receive_message_length += length as i32;
-            continue;
         }
     }
 

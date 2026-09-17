@@ -201,7 +201,7 @@ pub const SPIRV_OPT_ARGS: &[&str] = &["-Os", "--canonicalize-ids", "--strip-debu
 fn run(command: &mut Command) -> Result<(), String> {
     let output = command
         .output()
-        .map_err(|e| format!("{:?}: {e}", command.get_program()))?;
+        .map_err(|e| format!("{}: {e}", command.get_program().display()))?;
     if output.status.success() {
         return Ok(());
     }
@@ -264,7 +264,11 @@ pub fn compile_all(
     let threads = std::env::var("NUM_JOBS")
         .ok()
         .and_then(|n| n.parse().ok())
-        .or_else(|| std::thread::available_parallelism().ok().map(|n| n.get()))
+        .or_else(|| {
+            std::thread::available_parallelism()
+                .ok()
+                .map(std::num::NonZero::get)
+        })
         .unwrap_or(1)
         .clamp(1, jobs.len().max(1));
     let chunk = jobs.len().div_ceil(threads);

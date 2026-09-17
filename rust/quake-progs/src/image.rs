@@ -481,7 +481,7 @@ impl VmLoad {
                 src.as_ptr(),
                 (*self.vm).builtins.as_mut_ptr(),
                 src.len(),
-            )
+            );
         }
     }
 

@@ -15,7 +15,7 @@ where
     F: Fn(Option<u32>) + Send + Sync + 'static,
 {
     fn run(&self, index: Option<u32>) {
-        (self.0)(index)
+        (self.0)(index);
     }
 }
 

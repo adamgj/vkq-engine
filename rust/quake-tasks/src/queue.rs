@@ -71,7 +71,7 @@ mod crossbeam_impl {
                 match self.injector.steal_batch_and_pop(local) {
                     Steal::Success(index) => return Some(index),
                     Steal::Empty => break,
-                    Steal::Retry => continue,
+                    Steal::Retry => {}
                 }
             }
             let n = self.stealers.len();
@@ -81,7 +81,7 @@ mod crossbeam_impl {
                     match victim.steal() {
                         Steal::Success(index) => return Some(index),
                         Steal::Empty => break,
-                        Steal::Retry => continue,
+                        Steal::Retry => {}
                     }
                 }
             }

@@ -65,7 +65,9 @@ extern "C" {
 static TEST_LOCK: Mutex<()> = Mutex::new(());
 
 fn lock() -> MutexGuard<'static, ()> {
-    TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner())
+    TEST_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 /// deterministic xorshift64* for sweep values
@@ -430,7 +432,8 @@ fn sz_overflow_semantics_match_c() {
     }
     let mut cbuf = CBuf::new(256, false);
     // SAFETY: ctest_try_host arms the Host_Error trap around fill
-    let c_failed = unsafe { ctest_try_host(fill, (&mut cbuf.sb as *mut CSizeBuf).cast()) };
+    let c_failed =
+        unsafe { ctest_try_host(fill, std::ptr::from_mut::<CSizeBuf>(&mut cbuf.sb).cast()) };
     assert_eq!(c_failed, 1, "C Host_Error fired");
     let mut rstore = vec![0u8; 256];
     let mut rbuf = SizeBuf::new(&mut rstore);

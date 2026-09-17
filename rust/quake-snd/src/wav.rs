@@ -51,7 +51,7 @@ fn le32(wav: &[u8], p: usize) -> i32 {
     i32::from_le_bytes([wav[p], wav[p + 1], wav[p + 2], wav[p + 3]])
 }
 
-impl<'a> Iff<'a> {
+impl Iff<'_> {
     fn find_next_chunk(&mut self, name: &'static str, msgs: &mut Vec<Msg>) {
         loop {
             // C: if (last_chunk + 8 >= iff_end)

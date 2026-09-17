@@ -139,7 +139,7 @@ unsafe fn raster_warp_texture(cbx: *mut CbContext, tx: *mut Texture, warptess: f
 
             device.cmd_end_render_pass((*cbx).cb);
         }
-    })
+    });
 }
 
 /// `R_ComputeWarpTexture`: dispatches `cs_tex_warp` into the storage view of
@@ -178,7 +178,7 @@ unsafe fn compute_warp_texture(cbx: *mut CbContext, tx: *mut Texture) {
             ctx.device
                 .cmd_dispatch((*cbx).cb, WARPIMAGESIZE / 8, WARPIMAGESIZE / 8, 1);
         }
-    })
+    });
 }
 
 fn image_barrier(
@@ -237,7 +237,7 @@ pub unsafe extern "C" fn R_UpdateWarpTextures(_unused: *mut c_void) {
         }
 
         with_ctx(|ctx| {
-            cb::begin_debug_utils_label(&CmdProcs::new(ctx.vg), &*cbx, c"Update Warp Textures")
+            cb::begin_debug_utils_label(&CmdProcs::new(ctx.vg), &*cbx, c"Update Warp Textures");
         });
 
         let quality = f64::from(cvar_value(ptr::addr_of!(c::render::r_waterquality))).floor();

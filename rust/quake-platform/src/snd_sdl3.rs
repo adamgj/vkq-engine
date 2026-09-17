@@ -29,7 +29,7 @@ static mut BUFFERSIZE: c_int = 0;
 /// mathlib.h Q_nextPow2 (result == N when N is a power of 2)
 fn next_pow2(val: u32) -> u32 {
     if val > 1 {
-        1u32 << (31 - (val - 1).leading_zeros() + 1)
+        1u32 << ((val - 1).ilog2() + 1)
     } else {
         1
     }

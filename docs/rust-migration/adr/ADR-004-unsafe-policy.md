@@ -50,3 +50,35 @@ flow, `ED_Write`/`ED_Parse*` and the builtin bodies stay unsafe-free and
 fuzzable; the crate deliberately does not depend on `quake-c-sys`, so nothing
 in it can reach an engine global directly. The `extern "C"` VM entry points
 and the ambient-`qcvm` resolution live in `quake-capi` as usual (ADR-011).
+
+## Amended (Phase 10 M2, 2026-09-16): inventory made reproducible; second `quake-progs` island
+
+- The "unsafe inventory (grep-based count per crate)" is now
+  `scripts/unsafe_inventory.py`, which writes
+  [`unsafe-inventory.md`](../unsafe-inventory.md) and runs with `--check` in
+  CI. It encodes this ADR's tier table (forbid / deny-with-listed-modules /
+  open) and fails when a crate's `unsafe_code` attribute or its
+  `allow(unsafe_code)` module set departs from it, so the policy is enforced
+  rather than recorded.
+- **`quake-progs` has two islands, not one.** Phase 6 added
+  `quake_progs::image` (the raw view over a `progs.dat` image while it is
+  loaded) beside `arena`, documented in the crate but never here. It is the
+  same shape of problem as the arena — untyped C memory whose layout is
+  decided at runtime — and is accepted as the crate's second and last
+  `allow(unsafe_code)` module. The Phase 6 amendment's "single" is superseded
+  by this list: `arena`, `image`.
+- `quake-net`'s island is the inline `mod sys` in `src/udp.rs` (not a
+  separate file), as landed at Phase 5 M7b.
+- `quake-tasks` was named a concentrated location above but landed
+  `#![forbid(unsafe_code)]` (Phase 8; its scheduler unsafe lives in
+  `quake-capi`). The tier table records it as a pure crate.
+- Review outcome at this cut (6 791 tokens): `quake-capi` 5 350 (79 %,
+  spread over 94 of 98 files — the dual-view accessors and `extern "C"`
+  exports that Phase 10 M6 removes), `quake-platform` 406 (Phase 9 SDL/OS
+  calls), `quake-render` 323, `quake-c-sys` 286 (246 in `unsafe extern`
+  blocks), `quake-ctest` 207 (harness only), `quake-progs` 139,
+  `quake-net` 44; `quake-types` 36 are `unsafe extern "C" fn` pointer
+  *types* under `forbid`. Nothing outside the concentrated locations. The
+  minimization target is the M6/M7 shim removal, which this inventory will
+  measure; no unsafe was hand-removed at this cut because every remaining
+  site serves a C caller that still exists.

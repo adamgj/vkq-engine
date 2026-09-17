@@ -228,7 +228,7 @@ pub unsafe extern "C" fn GL_MakeAliasModelDisplayLists(m: *mut QModel, paliashdr
     // SAFETY: the caller's contract.
     unsafe {
         let hdr = &mut *paliashdr;
-        assert!(hdr.poseverttype == PV_QUAKE1);
+        assert_eq!(hdr.poseverttype, PV_QUAKE1);
         c::Con_DPrintf2(c"meshing %s...\n".as_ptr(), (*m).name.as_ptr());
 
         let numposes = hdr.numposes.max(0) as usize;
@@ -266,18 +266,17 @@ pub unsafe extern "C" fn GL_MakeAliasModelDisplayLists(m: *mut QModel, paliashdr
                     s += hdr.skinwidth / 2;
                 }
                 let key = (vertindex, (s as f32).to_bits(), (t as f32).to_bits());
-                let index = match vertex_to_index.get(&key) {
-                    Some(&found) => found,
-                    None => {
-                        let index = hdr.numverts_vbo as u16;
-                        vertex_to_index.insert(key, index);
-                        let d = &mut desc[hdr.numverts_vbo as usize];
-                        d.vertindex = vertindex;
-                        d.st[0] = s as f32;
-                        d.st[1] = t as f32;
-                        hdr.numverts_vbo += 1;
-                        index
-                    }
+                let index = if let Some(&found) = vertex_to_index.get(&key) {
+                    found
+                } else {
+                    let index = hdr.numverts_vbo as u16;
+                    vertex_to_index.insert(key, index);
+                    let d = &mut desc[hdr.numverts_vbo as usize];
+                    d.vertindex = vertindex;
+                    d.st[0] = s as f32;
+                    d.st[1] = t as f32;
+                    hdr.numverts_vbo += 1;
+                    index
                 };
                 indexes[hdr.numindexes as usize] = index;
                 hdr.numindexes += 1;
@@ -465,13 +464,13 @@ pub unsafe extern "C" fn GLMesh_UploadBuffers(
                 numindexes = hdr.numindexes;
             }
             PV_MD5 => {
-                assert!(hdr.numposes == 1);
+                assert_eq!(hdr.numposes, 1);
                 totalvbosize += hdr.numverts_vbo * core::mem::size_of::<Md5Vert>() as i32;
                 numverts = hdr.numverts_vbo;
                 numindexes = hdr.numindexes;
             }
             PV_MD5_8 => {
-                assert!(hdr.numposes == 1);
+                assert_eq!(hdr.numposes, 1);
                 totalvbosize += hdr.numverts_vbo * core::mem::size_of::<Md5Vert8>() as i32;
                 numverts = hdr.numverts_vbo;
                 numindexes = hdr.numindexes;
@@ -758,7 +757,7 @@ impl AsProcs {
         info: &vk::AccelerationStructureBuildGeometryInfoKHR<'_>,
         max_primitive_counts: &[u32],
     ) -> vk::AccelerationStructureBuildSizesInfoKHR<'static> {
-        debug_assert!(max_primitive_counts.len() == info.geometry_count as usize);
+        debug_assert_eq!(max_primitive_counts.len(), info.geometry_count as usize);
         let mut sizes = vk::AccelerationStructureBuildSizesInfoKHR::default();
         // SAFETY: the loaded entry point over the live device; `info` and
         // `max_primitive_counts` are complete and outlive the call.
@@ -826,7 +825,7 @@ impl AsProcs {
         infos: &[vk::AccelerationStructureBuildGeometryInfoKHR<'_>],
         range_ptrs: &[*const vk::AccelerationStructureBuildRangeInfoKHR],
     ) {
-        debug_assert!(infos.len() == range_ptrs.len());
+        debug_assert_eq!(infos.len(), range_ptrs.len());
         // SAFETY: the caller's contract.
         unsafe { (self.cmd_build)(cb, infos.len() as u32, infos.as_ptr(), range_ptrs.as_ptr()) }
     }
@@ -1215,7 +1214,10 @@ fn mesh_interpolate_push_constant_bytes(pc: &MeshInterpolatePushConstants) -> Ve
     bytes.extend_from_slice(&pc.num_verts.to_ne_bytes());
     bytes.extend_from_slice(&pc.blend_factor.to_ne_bytes());
     bytes.extend_from_slice(&pc.flags.to_ne_bytes());
-    debug_assert!(bytes.len() == core::mem::size_of::<MeshInterpolatePushConstants>());
+    debug_assert_eq!(
+        bytes.len(),
+        core::mem::size_of::<MeshInterpolatePushConstants>()
+    );
     bytes
 }
 

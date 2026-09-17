@@ -25,7 +25,7 @@ const MIN_HASH_SIZE: u32 = 32;
 /// `Q_nextPow2` (mathlib.h): identity on powers of two, 1 for val <= 1.
 pub fn q_next_pow2(val: u32) -> u32 {
     if val > 1 {
-        1u32 << ((31 - (val - 1).leading_zeros()) + 1)
+        1u32 << ((val - 1).ilog2() + 1)
     } else {
         1
     }

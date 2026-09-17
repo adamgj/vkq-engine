@@ -212,11 +212,7 @@ fn loc_corpus() -> Vec<u8> {
     c.extend_from_slice(b"KEY_HIGH=high\x80\xfebytes\n");
     // filler keys force modulo collisions in the numindices probe (2x load)
     for i in 0..50 {
-        c.extend_from_slice(
-            format!("KEY_F{:03}=filler {}\n", i, i)
-                .into_bytes()
-                .as_slice(),
-        );
+        c.extend_from_slice(format!("KEY_F{i:03}=filler {i}\n").into_bytes().as_slice());
     }
     c.extend_from_slice(b"KEY_LAST=no trailing newline\n");
     // C quirk (replicated by the Rust port, verified by lookup parity): an

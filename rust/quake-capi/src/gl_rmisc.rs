@@ -290,22 +290,22 @@ pub extern "C" fn GL_MemoryTypeFromProperties(
 
 #[no_mangle]
 pub extern "C" fn R_CreateDescriptorPool() {
-    with_ctx(rmisc::create_descriptor_pool)
+    with_ctx(rmisc::create_descriptor_pool);
 }
 
 #[no_mangle]
 pub extern "C" fn R_CreateDescriptorSetLayouts() {
-    with_ctx(rmisc::create_descriptor_set_layouts)
+    with_ctx(rmisc::create_descriptor_set_layouts);
 }
 
 #[no_mangle]
 pub extern "C" fn R_InitSamplers() {
-    with_ctx(rmisc::init_samplers)
+    with_ctx(rmisc::init_samplers);
 }
 
 #[no_mangle]
 pub extern "C" fn R_CreatePipelineLayouts() {
-    with_ctx(rmisc::create_pipeline_layouts)
+    with_ctx(rmisc::create_pipeline_layouts);
 }
 
 /// `R_CreatePipelines`: creates the shader modules, every pipeline family,
@@ -314,12 +314,12 @@ pub extern "C" fn R_CreatePipelineLayouts() {
 #[no_mangle]
 pub extern "C" fn R_CreatePipelines() {
     let mut modules = ShaderModules::new();
-    with_ctx(|ctx| rmisc::create_pipelines(ctx, &mut modules))
+    with_ctx(|ctx| rmisc::create_pipelines(ctx, &mut modules));
 }
 
 #[no_mangle]
 pub extern "C" fn R_DestroyPipelines() {
-    with_ctx(rmisc::destroy_pipelines)
+    with_ctx(rmisc::destroy_pipelines);
 }
 
 /* ---- glquake.h:885-901 (memory and buffers) ---- */
@@ -342,7 +342,7 @@ pub unsafe extern "C" fn R_AllocateVulkanMemory(
             counter(num_allocations),
         )
     };
-    with_ctx(|ctx| rmisc::allocate_vulkan_memory(ctx, memory, info, memory_type, counter))
+    with_ctx(|ctx| rmisc::allocate_vulkan_memory(ctx, memory, info, memory_type, counter));
 }
 
 /// # Safety
@@ -354,7 +354,7 @@ pub unsafe extern "C" fn R_FreeVulkanMemory(
 ) {
     // SAFETY: per the contract.
     let (memory, counter) = unsafe { (&mut *memory, counter(num_allocations)) };
-    with_ctx(|ctx| rmisc::free_vulkan_memory(ctx, memory, counter))
+    with_ctx(|ctx| rmisc::free_vulkan_memory(ctx, memory, counter));
 }
 
 /// # Safety
@@ -408,7 +408,7 @@ pub unsafe extern "C" fn R_FreeBuffer(
 ) {
     // SAFETY: per the contract.
     let (memory, counter) = unsafe { (&mut *memory, counter(num_allocations)) };
-    with_ctx(|ctx| rmisc::free_buffer(ctx, buffer, memory, counter))
+    with_ctx(|ctx| rmisc::free_buffer(ctx, buffer, memory, counter));
 }
 
 /// # Safety
@@ -499,7 +499,7 @@ pub unsafe extern "C" fn R_FreeBuffers(
             counter(num_allocations),
         )
     };
-    with_ctx(|ctx| rmisc::free_buffers(ctx, buffers, memory, counter))
+    with_ctx(|ctx| rmisc::free_buffers(ctx, buffers, memory, counter));
 }
 
 /* ---- glquake.h:902-903 (descriptor sets) ---- */
@@ -524,19 +524,19 @@ pub unsafe extern "C" fn R_FreeDescriptorSet(
 ) {
     // SAFETY: per the contract; the layout is only read.
     let layout = unsafe { &*layout };
-    with_ctx(|ctx| rmisc::free_descriptor_set(ctx, desc_set, layout))
+    with_ctx(|ctx| rmisc::free_descriptor_set(ctx, desc_set, layout));
 }
 
 /* ---- glquake.h:905-910 (staging) ---- */
 
 #[no_mangle]
 pub extern "C" fn R_InitStagingBuffers() {
-    with_ctx(|ctx| STAGING.init(ctx))
+    with_ctx(|ctx| STAGING.init(ctx));
 }
 
 #[no_mangle]
 pub extern "C" fn R_SubmitStagingBuffers() {
-    with_ctx(|ctx| STAGING.submit(ctx))
+    with_ctx(|ctx| STAGING.submit(ctx));
 }
 
 /// Writes `value` through an optional out-pointer: the C
@@ -576,12 +576,12 @@ pub unsafe extern "C" fn R_StagingAllocate(
 
 #[no_mangle]
 pub extern "C" fn R_StagingBeginCopy() {
-    STAGING.begin_copy()
+    STAGING.begin_copy();
 }
 
 #[no_mangle]
 pub extern "C" fn R_StagingEndCopy() {
-    STAGING.end_copy()
+    STAGING.end_copy();
 }
 
 /// # Safety
@@ -590,14 +590,14 @@ pub extern "C" fn R_StagingEndCopy() {
 pub unsafe extern "C" fn R_StagingUploadBuffer(buffer: vk::Buffer, size: usize, data: *const u8) {
     // SAFETY: per the contract.
     let data = unsafe { slice::from_raw_parts(data, size) };
-    with_ctx(|ctx| STAGING.upload_buffer(ctx, buffer, data))
+    with_ctx(|ctx| STAGING.upload_buffer(ctx, buffer, data));
 }
 
 /* ---- glquake.h:912-929 (dynamic buffers) ---- */
 
 #[no_mangle]
 pub extern "C" fn R_InitGPUBuffers() {
-    with_ctx(|ctx| DYN.init_gpu_buffers(ctx, &STAGING))
+    with_ctx(|ctx| DYN.init_gpu_buffers(ctx, &STAGING));
 }
 
 /// # Safety
@@ -622,12 +622,12 @@ pub unsafe extern "C" fn R_AddDynamicBufferGarbage(
         // SAFETY: non-null means exactly two sets (contract).
         Some(unsafe { slice::from_raw_parts(descriptor_sets, 2) })
     };
-    DYN.add_garbage(memory, &buffers, sets)
+    DYN.add_garbage(memory, &buffers, sets);
 }
 
 #[no_mangle]
 pub extern "C" fn R_SwapDynamicBuffers() {
-    DYN.swap()
+    DYN.swap();
 }
 
 const _: () = assert!(size_of::<VulkanMemory>() == size_of::<[u64; 3]>());
@@ -638,12 +638,12 @@ pub extern "C" fn R_FlushDynamicBuffers() {
     // `vulkan_memory_t` whose first word is the `VkDeviceMemory` handle
     // (size asserted above); a plain read on the main thread.
     let frame_upload = unsafe { (*ptr::addr_of!(g::frame_upload_buffers_memory))[0] };
-    with_ctx(|ctx| DYN.flush(ctx, vk::DeviceMemory::from_raw(frame_upload)))
+    with_ctx(|ctx| DYN.flush(ctx, vk::DeviceMemory::from_raw(frame_upload)));
 }
 
 #[no_mangle]
 pub extern "C" fn R_CollectDynamicBufferGarbage() {
-    with_ctx(|ctx| DYN.collect_garbage(ctx))
+    with_ctx(|ctx| DYN.collect_garbage(ctx));
 }
 
 /// # Safety

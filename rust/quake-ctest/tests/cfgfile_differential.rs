@@ -149,7 +149,7 @@ fn cfgfile_differential() {
     .iter()
     .map(|s| std::ffi::CString::new(*s).unwrap())
     .collect();
-    let mut argv: Vec<*mut c_char> = args.iter().map(|a| a.as_ptr() as *mut c_char).collect();
+    let mut argv: Vec<*mut c_char> = args.iter().map(|a| a.as_ptr().cast_mut()).collect();
     // SAFETY: argv outlives the calls; same args for both sides
     unsafe {
         ctest_set_args(argv.len() as c_int, argv.as_mut_ptr());

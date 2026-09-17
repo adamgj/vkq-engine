@@ -48,7 +48,9 @@ extern "C" {
 static VM_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 fn lock() -> std::sync::MutexGuard<'static, ()> {
-    VM_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+    VM_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 struct EngineSave;

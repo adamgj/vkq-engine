@@ -45,7 +45,9 @@ use quake_ctest as _; // links the cc-built c_ref_* archive
 static TEST_LOCK: Mutex<()> = Mutex::new(());
 
 fn lock() -> MutexGuard<'static, ()> {
-    TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner())
+    TEST_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 // ---------------------------------------------------------------------------
@@ -350,7 +352,7 @@ impl Cvars {
                 self.accelerate,
                 self.idealpitchscale,
                 self.edgefriction,
-            )
+            );
         };
     }
 }
@@ -418,7 +420,7 @@ fn set_ideal_pitch_off_ground_is_noop() {
     p.flags = 0.0; // not FL_ONGROUND
     p.idealpitch = 12.5; // a nonzero sentinel that must survive untouched
     let snap = diff_single(p, (0.0, 0.0, 0.0), Cvars::defaults(), 0.05, 10.0, |s| {
-        s.set_ideal_pitch()
+        s.set_ideal_pitch();
     });
     // Sanity: the early return (sv_user.c:61-62) really did nothing.
     assert_eq!(
@@ -437,7 +439,7 @@ fn set_ideal_pitch_on_ground_facing_variants() {
         let mut p = Player::blank();
         p.angles[YAW] = yaw;
         diff_single(p, (0.0, 0.0, 0.0), Cvars::defaults(), 0.05, 10.0, |s| {
-            s.set_ideal_pitch()
+            s.set_ideal_pitch();
         });
     }
 }
@@ -450,7 +452,7 @@ fn set_ideal_pitch_scale_cvar_boundary() {
     for scale in [0.0f32, 0.8, 1.0, -0.3] {
         let mut cv = Cvars::defaults();
         cv.idealpitchscale = scale;
-        diff_single(p, (0.0, 0.0, 0.0), cv, 0.05, 10.0, |s| s.set_ideal_pitch());
+        diff_single(p, (0.0, 0.0, 0.0), cv, 0.05, 10.0, Side::set_ideal_pitch);
     }
 }
 
@@ -465,7 +467,7 @@ fn client_think_movetype_none_is_noop() {
     p.velocity = [40.0, -10.0, 5.0]; // must survive untouched
     p.punchangle = [3.0, 0.0, 0.0]; // DropPunchAngle must not run either
     let snap = diff_single(p, (100.0, 0.0, 0.0), Cvars::defaults(), 0.05, 10.0, |s| {
-        s.client_think()
+        s.client_think();
     });
     let velocity: [u32; 3] = snap.vectors[3..6].try_into().unwrap();
     assert_eq!(
@@ -490,7 +492,7 @@ fn client_think_dead_early_return_after_droppunchangle() {
             Cvars::defaults(),
             1.0 / 72.0,
             10.0,
-            |s| s.client_think(),
+            Side::client_think,
         );
         // Sanity: punchangle actually moved (VectorNormalize/decay ran).
         let pa = &snap.vectors[12..15];
@@ -512,7 +514,7 @@ fn client_think_waterjump_branch() {
     p.movedir = [77.0, -33.0, 0.0];
     // vmtime > teleport_time so SV_WaterJump also clears FL_WATERJUMP.
     diff_single(p, (0.0, 0.0, 0.0), Cvars::defaults(), 0.05, 10.0, |s| {
-        s.client_think()
+        s.client_think();
     });
 
     let mut p2 = Player::blank();
@@ -521,7 +523,7 @@ fn client_think_waterjump_branch() {
     p2.teleport_time = 500.0; // vmtime(10.0) < teleport_time: flag survives
     p2.movedir = [1.0, 2.0, 0.0];
     diff_single(p2, (0.0, 0.0, 0.0), Cvars::defaults(), 0.05, 10.0, |s| {
-        s.client_think()
+        s.client_think();
     });
 }
 
@@ -535,7 +537,7 @@ fn client_think_altnoclip_branch() {
     let mut cv = Cvars::defaults();
     cv.altnoclip = 1.0;
     diff_single(p, (200.0, -50.0, 30.0), cv, 0.05, 10.0, |s| {
-        s.client_think()
+        s.client_think();
     });
 
     // altnoclip == 0: falls through to the waterlevel/AirMove chain instead
@@ -545,7 +547,7 @@ fn client_think_altnoclip_branch() {
     let mut cv0 = cv;
     cv0.altnoclip = 0.0;
     diff_single(p, (200.0, -50.0, 30.0), cv0, 0.05, 10.0, |s| {
-        s.client_think()
+        s.client_think();
     });
 }
 
@@ -559,17 +561,17 @@ fn client_think_watermove_branch() {
         p.velocity = [30.0, 0.0, -10.0];
         p.v_angle = [0.0, 90.0, 0.0];
         diff_single(p, (0.0, 0.0, 0.0), Cvars::defaults(), 0.05, 10.0, |s| {
-            s.client_think()
+            s.client_think();
         }); // drift-towards-bottom branch
         diff_single(p, (50.0, 25.0, 40.0), Cvars::defaults(), 0.05, 10.0, |s| {
-            s.client_think()
+            s.client_think();
         }); // explicit wish branch
     }
     // waterlevel just under 2 takes SV_AirMove instead -- the branch boundary.
     let mut p = Player::blank();
     p.waterlevel = 1.999;
     diff_single(p, (50.0, 0.0, 0.0), Cvars::defaults(), 0.05, 10.0, |s| {
-        s.client_think()
+        s.client_think();
     });
 }
 
@@ -585,7 +587,7 @@ fn client_think_airmove_onground_branch() {
         Cvars::defaults(),
         1.0 / 72.0,
         10.0,
-        |s| s.client_think(),
+        Side::client_think,
     );
     // A slower frametime pushes SV_UserFriction's analytic-vs-classic split
     // (sv_analyticphysics_frame is stub-controlled and out of this wave's
@@ -593,7 +595,7 @@ fn client_think_airmove_onground_branch() {
     // whatever the stub fixture currently latches -- the assertion is on
     // agreement, not on which branch fired).
     diff_single(p, (300.0, 100.0, 0.0), Cvars::defaults(), 0.2, 10.0, |s| {
-        s.client_think()
+        s.client_think();
     });
 }
 
@@ -616,7 +618,7 @@ fn client_think_airmove_onground_accelerate_clamp() {
         Cvars::defaults(),
         1.0 / 72.0,
         10.0,
-        |s| s.client_think(),
+        Side::client_think,
     );
 }
 
@@ -647,7 +649,7 @@ fn client_think_airmove_friction_edge_vs_solid_floor() {
             Cvars::defaults(),
             1.0 / 72.0,
             10.0,
-            |s| s.client_think(),
+            Side::client_think,
         );
     }
 }
@@ -664,7 +666,7 @@ fn client_think_airmove_airborne_branch() {
         Cvars::defaults(),
         0.05,
         10.0,
-        |s| s.client_think(),
+        Side::client_think,
     );
 }
 
@@ -681,13 +683,13 @@ fn client_think_movetype_walk_upmove_ignored() {
         Cvars::defaults(),
         0.05,
         10.0,
-        |s| s.client_think(),
+        Side::client_think,
     );
 
     let mut fly = Player::blank();
     fly.movetype = 5.0; // MOVETYPE_FLY, != MOVETYPE_WALK
     diff_single(fly, (0.0, 0.0, 400.0), Cvars::defaults(), 0.05, 10.0, |s| {
-        s.client_think()
+        s.client_think();
     });
 }
 
@@ -700,7 +702,7 @@ fn client_think_fixangle_suppresses_angle_update() {
     p.angles = [1.0, 2.0, 3.0];
     p.fixangle = 1.0;
     let snap = diff_single(p, (0.0, 0.0, 0.0), Cvars::defaults(), 0.05, 10.0, |s| {
-        s.client_think()
+        s.client_think();
     });
     // Sanity: PITCH/YAW must be untouched (only ROLL, always written); the
     // pre-existing values [1,2] survive since fixangle suppressed the update.
@@ -710,7 +712,7 @@ fn client_think_fixangle_suppresses_angle_update() {
     let mut p2 = p;
     p2.fixangle = 0.0;
     let snap2 = diff_single(p2, (0.0, 0.0, 0.0), Cvars::defaults(), 0.05, 10.0, |s| {
-        s.client_think()
+        s.client_think();
     });
     assert_ne!(
         f32::from_bits(snap2.vectors[6 + PITCH]),
@@ -766,7 +768,7 @@ fn setup_run_clients(
             ctest_svuser_set_cmd(c.slot, c.cmd.0, c.cmd.1, c.cmd.2);
             ctest_svuser_set_sv_paused(sv_paused as c_int);
             // key_game == 0 (Quake/keys.h); "menu" is any nonzero keydest_t.
-            ctest_svuser_set_key_dest(if key_dest_menu { 1 } else { 0 });
+            ctest_svuser_set_key_dest(i32::from(key_dest_menu));
         }
     }
 }
@@ -780,7 +782,7 @@ struct RunClientsSnap {
 
 fn diff_run_clients(
     maxclients: c_int,
-    clients: Vec<ClientSetup>,
+    clients: &[ClientSetup],
     sv_paused: bool,
     key_dest_menu: bool,
     frametime: f64,
@@ -791,7 +793,7 @@ fn diff_run_clients(
         setup_run_clients(
             side,
             maxclients,
-            &clients,
+            clients,
             sv_paused,
             key_dest_menu,
             frametime,
@@ -828,7 +830,7 @@ fn run_clients_inactive_client_is_skipped() {
     let _g = lock();
     let snap = diff_run_clients(
         2,
-        vec![
+        &[
             ClientSetup {
                 slot: 0,
                 active: true,
@@ -870,7 +872,7 @@ fn run_clients_unspawned_client_clears_cmd() {
     let _g = lock();
     let snap = diff_run_clients(
         1,
-        vec![ClientSetup {
+        &[ClientSetup {
             slot: 0,
             active: true,
             spawned: false,
@@ -900,7 +902,7 @@ fn run_clients_no_netconnection_republishes_viewangles() {
                        // instead thread v_angle through a dedicated case:
     let snap = diff_run_clients(
         1,
-        vec![ClientSetup {
+        &[ClientSetup {
             slot: 0,
             active: true,
             spawned: true,
@@ -922,7 +924,7 @@ fn run_clients_with_netconnection_does_not_touch_viewangles() {
     let _g = lock();
     let snap = diff_run_clients(
         1,
-        vec![ClientSetup {
+        &[ClientSetup {
             slot: 0,
             active: true,
             spawned: true,
@@ -944,7 +946,7 @@ fn run_clients_paused_suppresses_client_think() {
     let _g = lock();
     let snap = diff_run_clients(
         1,
-        vec![ClientSetup {
+        &[ClientSetup {
             slot: 0,
             active: true,
             spawned: true,
@@ -972,7 +974,7 @@ fn run_clients_menu_suppresses_think_only_in_single_player() {
     // maxclients == 1 (single player) and key_dest != key_game: suppressed.
     let snap_sp = diff_run_clients(
         1,
-        vec![ClientSetup {
+        &[ClientSetup {
             slot: 0,
             active: true,
             spawned: true,
@@ -993,7 +995,7 @@ fn run_clients_menu_suppresses_think_only_in_single_player() {
     // maxclients > 1: the key_dest gate is bypassed even in the menu.
     let snap_mp = diff_run_clients(
         2,
-        vec![
+        &[
             ClientSetup {
                 slot: 0,
                 active: true,
@@ -1026,7 +1028,7 @@ fn run_clients_normal_path_runs_client_think() {
     let _g = lock();
     let snap = diff_run_clients(
         1,
-        vec![ClientSetup {
+        &[ClientSetup {
             slot: 0,
             active: true,
             spawned: true,

@@ -23,3 +23,14 @@ Licensing note: libmad is GPL (compatible with the GPLv2+ engine); Symphonia is 
 - Phase 4 delivers a Rust mixer and framework without betting compatibility on decoder swaps.
 - External codec libraries remain runtime dependencies exactly as today (no packaging changes).
 - The per-codec swap path is open-ended future work with a clear gate, not a migration blocker.
+
+## Amendment (Phase 10 M1, 2026-09-16): the Symphonia option is closed by ADR-003
+
+The "optional later migration" above named Symphonia (MPL-2.0) and lewton.
+[ADR-003](ADR-003-dependency-policy.md) forbids MPL-2.0 anywhere in the
+dependency tree, so Symphonia is not an option under the project's crate
+policy; the licensing note above is superseded. `lewton` (MIT/Apache-2.0)
+remains admissible for Vorbis only. The codec bridges are therefore a
+**standing** ADR-002 remnant (listed in that ADR's Phase-10 appendix), not
+a pending swap: any future per-codec replacement needs a permissive decoder
+and its own ADR with the listening-test gate above.

@@ -282,7 +282,7 @@ impl EdictArena {
         unsafe {
             self.field(id, byte_ofs, 4)
                 .cast::<f32>()
-                .write_unaligned(value)
+                .write_unaligned(value);
         }
     }
 
@@ -292,7 +292,7 @@ impl EdictArena {
         unsafe {
             self.field(id, byte_ofs, 4)
                 .cast::<i32>()
-                .write_unaligned(value)
+                .write_unaligned(value);
         }
     }
 
@@ -301,7 +301,7 @@ impl EdictArena {
         unsafe {
             self.field(id, byte_ofs, 12)
                 .cast::<[f32; 3]>()
-                .write_unaligned(value)
+                .write_unaligned(value);
         }
     }
 
@@ -361,7 +361,7 @@ pub struct StringTable<'a> {
     pub(crate) _marker: core::marker::PhantomData<&'a mut ()>,
 }
 
-impl<'a> StringTable<'a> {
+impl StringTable<'_> {
     /// Build a table from the addresses of the fields it mutates, for callers
     /// that keep the string table outside a `qcvm_t` — the differential
     /// suites, which drive it beside the C original.
@@ -537,7 +537,7 @@ impl StringTable<'_> {
                 unsafe {
                     (*self.knownstrings)
                         .add(i as usize)
-                        .write(core::ptr::null())
+                        .write(core::ptr::null());
                 }
             }
             // SAFETY: the field is live for the table's lifetime.
@@ -1421,7 +1421,7 @@ impl VmRaw {
             self.edicts
                 .add(byteofs as usize)
                 .cast::<i32>()
-                .write_unaligned(v)
+                .write_unaligned(v);
         };
         Some(())
     }

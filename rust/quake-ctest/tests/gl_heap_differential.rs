@@ -193,7 +193,9 @@ fn run_trace(
     device_address: bool,
     ops: &[Op],
 ) -> (u64, u32, u32, u32) {
-    let _guard = C_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _guard = C_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let c = CHeap::create(segment_size, page_size, device_address);
     let mut rs: Heap<FakeBackend> = Heap::new(
         FakeBackend::default(),
@@ -317,7 +319,9 @@ fn large_segment_trace_matches_c() {
     const PAGES: u64 = 65534;
     const SEGMENT_SIZE: u64 = PAGE_SIZE as u64 * PAGES;
 
-    let _guard = C_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _guard = C_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let c = CHeap::create(SEGMENT_SIZE, PAGE_SIZE, false);
     let mut rs: Heap<FakeBackend> = Heap::new(
         FakeBackend::default(),
@@ -474,7 +478,9 @@ fn heap_test_f_shape_matches_c() {
         assert!(sizes.iter().all(Option::is_none));
     }
 
-    let _guard = C_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _guard = C_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let c = CHeap::create(TEST_HEAP_SIZE, TEST_HEAP_PAGE_SIZE, false);
     let mut rs: Heap<FakeBackend> = Heap::new(
         FakeBackend::default(),

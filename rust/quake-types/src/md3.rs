@@ -97,7 +97,7 @@ pub struct Md3Shader {
 }
 
 mod layout_asserts {
-    use super::*;
+    use super::{Md3Frame, Md3Header, Md3Shader, Md3St, Md3Surface, Md3Triangle};
     use core::mem::{offset_of, size_of};
 
     const _: () = assert!(size_of::<Md3Header>() == 108);

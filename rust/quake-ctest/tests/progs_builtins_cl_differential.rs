@@ -68,7 +68,9 @@ use quake_ctest as _; // links the cc-built c_ref_* archive
 static TEST_LOCK: Mutex<()> = Mutex::new(());
 
 fn lock() -> MutexGuard<'static, ()> {
-    TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner())
+    TEST_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 // ---------------------------------------------------------------------------
@@ -226,7 +228,7 @@ fn typestring_name() -> String {
 
 fn typestring_set_return(ret: bool) {
     // SAFETY: plain C setter.
-    unsafe { ctest_cl_pscript_typestring_set_return(if ret { 1 } else { 0 }) };
+    unsafe { ctest_cl_pscript_typestring_set_return(i32::from(ret)) };
 }
 
 fn effect_called() -> i32 {
@@ -246,7 +248,7 @@ fn effect_count() -> i32 {
 
 fn effect_set_return(ret: bool) {
     // SAFETY: plain C setter.
-    unsafe { ctest_cl_pscript_effect_set_return(if ret { 1 } else { 0 }) };
+    unsafe { ctest_cl_pscript_effect_set_return(i32::from(ret)) };
 }
 
 fn runparticle_called() -> i32 {
@@ -266,7 +268,7 @@ fn runparticle_count() -> i32 {
 
 fn makestatic_set_fail(fail: bool) {
     // SAFETY: plain C setter.
-    unsafe { ctest_cl_makestatic_set_fail(if fail { 1 } else { 0 }) };
+    unsafe { ctest_cl_makestatic_set_fail(i32::from(fail)) };
 }
 
 fn makestatic_calls() -> i32 {

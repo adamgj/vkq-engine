@@ -473,7 +473,7 @@ pub fn compute_normals(vertexes: &mut [u8], vertex_size: usize, numverts: usize,
         let scaled = norm;
         vector_scale(&scaled, angle, &mut norm);
 
-        for v in xyz.iter() {
+        for v in &xyz {
             let key = vec3_key(v);
             match map.lookup(&key) {
                 Some(i) => {

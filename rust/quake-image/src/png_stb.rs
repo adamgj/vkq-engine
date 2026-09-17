@@ -64,7 +64,7 @@ struct Cursor<'a> {
     pos: usize,
 }
 
-impl<'a> Cursor<'a> {
+impl Cursor<'_> {
     fn get8(&mut self) -> u8 {
         let b = self.buf.get(self.pos).copied().unwrap_or(0);
         self.pos = self.pos.saturating_add(1);
@@ -188,8 +188,7 @@ fn walk(file: &[u8]) -> Result<Result<Walked, ()>, Error> {
                     return Err(Error::Stb("0-pixel image"));
                 }
                 if pal_img_n == 0 {
-                    img_n =
-                        (if color & 2 != 0 { 3 } else { 1 }) + (if color & 4 != 0 { 1 } else { 0 });
+                    img_n = (if color & 2 != 0 { 3 } else { 1 }) + u32::from(color & 4 != 0);
                     if (1 << 30) / img_x / img_n < img_y {
                         return Err(Error::Stb("too large"));
                     }
@@ -324,9 +323,9 @@ fn walk(file: &[u8]) -> Result<Result<Walked, ()>, Error> {
     }
 }
 
-fn push_chunk(out: &mut Vec<u8>, ctype: &[u8; 4], data: &[u8]) {
+fn push_chunk(out: &mut Vec<u8>, ctype: [u8; 4], data: &[u8]) {
     out.extend_from_slice(&(data.len() as u32).to_be_bytes());
-    out.extend_from_slice(ctype);
+    out.extend_from_slice(&ctype);
     out.extend_from_slice(data);
     out.extend_from_slice(&[0u8; 4]); // dummy CRC; verification is off
 }
@@ -339,14 +338,14 @@ fn reconstruct(w: &mut Walked) -> Vec<u8> {
     ihdr.extend_from_slice(&w.ihdr.width.to_be_bytes());
     ihdr.extend_from_slice(&w.ihdr.height.to_be_bytes());
     ihdr.extend_from_slice(&[w.ihdr.depth, w.ihdr.color, 0, 0, w.ihdr.interlace]);
-    push_chunk(&mut out, b"IHDR", &ihdr);
+    push_chunk(&mut out, *b"IHDR", &ihdr);
     // PLTE only where the spec allows it (stb parses-and-ignores it for
     // grayscale; the reconstruction just leaves it out there)
     if !w.palette.is_empty() && (w.ihdr.color == 3 || w.ihdr.color & 2 != 0) {
-        push_chunk(&mut out, b"PLTE", &w.palette);
+        push_chunk(&mut out, *b"PLTE", &w.palette);
     }
     if let Some(trns) = &w.trns {
-        push_chunk(&mut out, b"tRNS", trns);
+        push_chunk(&mut out, *b"tRNS", trns);
     }
     // normalize the zlib CMF byte to cinfo=7 (stb ignores the declared
     // window; the crate does not have to): keep CM=8, rewrite FLG so the
@@ -357,8 +356,8 @@ fn reconstruct(w: &mut Walked) -> Vec<u8> {
     let mut idata = core::mem::take(&mut w.idata);
     idata[0] = 0x78;
     idata[1] = 0x01;
-    push_chunk(&mut out, b"IDAT", &idata);
-    push_chunk(&mut out, b"IEND", &[]);
+    push_chunk(&mut out, *b"IDAT", &idata);
+    push_chunk(&mut out, *b"IEND", &[]);
     out
 }
 
@@ -407,9 +406,8 @@ fn to_rgba(info: &png::OutputInfo, buf: &[u8]) -> Vec<u8> {
 /// Full decode. `file` is the whole resource, already classified as PNG by
 /// [`crate::stb_sniff`] (8-byte signature present).
 pub fn decode(file: &[u8]) -> Result<Png, Error> {
-    let mut walked = match walk(file)? {
-        Ok(w) => w,
-        Err(()) => return Ok(Png::Fallback),
+    let Ok(mut walked) = walk(file)? else {
+        return Ok(Png::Fallback);
     };
 
     // stb bounds every decode stage with stbi__mad3sizes_valid and degrades
@@ -458,7 +456,7 @@ pub fn decode(file: &[u8]) -> Result<Png, Error> {
 mod tests {
     use super::*;
 
-    fn chunk(ctype: &[u8; 4], data: &[u8]) -> Vec<u8> {
+    fn chunk(ctype: [u8; 4], data: &[u8]) -> Vec<u8> {
         let mut v = Vec::new();
         push_chunk(&mut v, ctype, data);
         v
@@ -473,7 +471,7 @@ mod tests {
         d.extend_from_slice(&w.to_be_bytes());
         d.extend_from_slice(&h.to_be_bytes());
         d.extend_from_slice(&[depth, color, 0, 0, interlace]);
-        chunk(b"IHDR", &d)
+        chunk(*b"IHDR", &d)
     }
 
     /// stored-block zlib stream (cmf 0x78, valid fcheck)
@@ -490,8 +488,8 @@ mod tests {
     fn minimal_gray_decodes() {
         let mut f = sig();
         f.extend(ihdr(2, 1, 8, 0, 0));
-        f.extend(chunk(b"IDAT", &stored_zlib(&[0, 10, 200]))); // filter 0 + 2 px
-        f.extend(chunk(b"IEND", &[]));
+        f.extend(chunk(*b"IDAT", &stored_zlib(&[0, 10, 200]))); // filter 0 + 2 px
+        f.extend(chunk(*b"IEND", &[]));
         let out = decode(&f).unwrap();
         assert_eq!(
             out,
@@ -515,21 +513,21 @@ mod tests {
         assert_eq!(decode(&f), Err(Error::UnknownChunk([0, 0, 0, 0])));
         // first chunk not IHDR
         let mut f = sig();
-        f.extend(chunk(b"IDAT", &[1, 2, 3]));
+        f.extend(chunk(*b"IDAT", &[1, 2, 3]));
         assert_eq!(decode(&f), Err(Error::Stb("first not IHDR")));
         // bad IHDR length
         let mut f = sig();
-        f.extend(chunk(b"IHDR", &[0; 12]));
+        f.extend(chunk(*b"IHDR", &[0; 12]));
         assert_eq!(decode(&f), Err(Error::Stb("bad IHDR len")));
         // missing IDAT
         let mut f = sig();
         f.extend(ihdr(1, 1, 8, 0, 0));
-        f.extend(chunk(b"IEND", &[]));
+        f.extend(chunk(*b"IEND", &[]));
         assert_eq!(decode(&f), Err(Error::Stb("no IDAT")));
         // unknown critical chunk
         let mut f = sig();
         f.extend(ihdr(1, 1, 8, 0, 0));
-        f.extend(chunk(b"AbCd", &[]));
+        f.extend(chunk(*b"AbCd", &[]));
         assert_eq!(decode(&f), Err(Error::UnknownChunk(*b"AbCd")));
         // truncated IDAT payload
         let mut f = sig();
@@ -547,15 +545,15 @@ mod tests {
         // certainly not by attempting the allocation)
         let mut f = sig();
         f.extend(ihdr(30000, 30000, 16, 0, 0));
-        f.extend(chunk(b"IDAT", &stored_zlib(&[0u8; 8])));
-        f.extend(chunk(b"IEND", &[]));
+        f.extend(chunk(*b"IDAT", &stored_zlib(&[0u8; 8])));
+        f.extend(chunk(*b"IEND", &[]));
         assert_eq!(decode(&f), Err(Error::Stb("outofmem")));
     }
 
     #[test]
     fn cgbi_routes_to_fallback() {
         let mut f = sig();
-        f.extend(chunk(b"CgBI", &[0; 4]));
+        f.extend(chunk(*b"CgBI", &[0; 4]));
         f.extend(ihdr(1, 1, 8, 0, 0));
         assert_eq!(decode(&f), Ok(Png::Fallback));
     }
@@ -565,8 +563,8 @@ mod tests {
         let build = |z: &[u8]| {
             let mut f = sig();
             f.extend(ihdr(1, 1, 8, 0, 0));
-            f.extend(chunk(b"IDAT", z));
-            f.extend(chunk(b"IEND", &[]));
+            f.extend(chunk(*b"IDAT", z));
+            f.extend(chunk(*b"IEND", &[]));
             f
         };
         assert_eq!(decode(&build(&[0x78])), Err(Error::Stb("bad zlib header")));

@@ -4293,7 +4293,7 @@ pub extern "C" fn R_FreeASScratchBuffer() {
                     ctx,
                     &mut *ptr::addr_of_mut!(AS_SCRATCH_MEMORY),
                     Some(&num_vulkan_dynbuf_allocations),
-                )
+                );
             });
         }
         as_scratch_buffer_size = 0;
@@ -4372,7 +4372,7 @@ pub extern "C" fn GL_DeleteBModelAccelerationStructures() {
                 (*m).address = 0;
             }
             debug_assert!((*m).buffer.is_null());
-            debug_assert!((*m).address == 0);
+            debug_assert_eq!((*m).address, 0);
         }
         with_ctx(|ctx| {
             free_buffers(
@@ -4380,7 +4380,7 @@ pub extern "C" fn GL_DeleteBModelAccelerationStructures() {
                 &buffers,
                 &mut *ptr::addr_of_mut!(BMODEL_AS_DEVICE_MEMORY),
                 bmodel_counter(),
-            )
+            );
         });
 
         procs.destroy(bmodel_tlas);
@@ -4390,7 +4390,7 @@ pub extern "C" fn GL_DeleteBModelAccelerationStructures() {
                 ctx,
                 &mut *ptr::addr_of_mut!(BMODEL_TLAS_DEVICE_MEMORY),
                 bmodel_counter(),
-            )
+            );
         });
 
         bmodel_tlas = vk::AccelerationStructureKHR::null();

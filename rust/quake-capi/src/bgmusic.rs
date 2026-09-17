@@ -211,7 +211,7 @@ unsafe fn play_noext(filename: &[u8], allowed_types: c_uint) {
     let st = state();
     // SAFETY: open calls + message match the C
     unsafe {
-        for &i in st.active.iter() {
+        for &i in &st.active {
             let h = &st.handlers[i];
             if h.type_ & allowed_types == 0 {
                 continue;
@@ -275,7 +275,7 @@ pub unsafe extern "C" fn BGM_Play(filename: *const c_char) {
         let extb = core::ffi::CStr::from_ptr(ext).to_bytes();
 
         let mut found: Option<usize> = None;
-        for &i in st.active.iter() {
+        for &i in &st.active {
             let h = &st.handlers[i];
             if h.is_available != 0 && eq_ignore_ascii(extb, h.ext.to_bytes()) {
                 found = Some(i);
@@ -328,7 +328,7 @@ pub unsafe extern "C" fn BGM_PlayCDtrack(track: u8, looping: qboolean) {
         let mut prev_id: c_uint = 0;
         let mut type_: c_uint = 0;
         let mut ext: Option<&'static core::ffi::CStr> = None;
-        for &i in st.active.iter() {
+        for &i in &st.active {
             let h = &st.handlers[i];
             if h.is_available == 0 {
                 continue;
@@ -468,42 +468,46 @@ unsafe fn update_stream() {
                 file_samples = res / (info.width * info.channels);
             }
 
-            if res > 0 {
-                // data: add to raw buffer
-                crate::snd_dma::S_RawSamples(
-                    file_samples,
-                    info.rate,
-                    info.width,
-                    info.channels,
-                    raw.as_mut_ptr(),
-                    sys::bgmvolume.value,
-                );
-                did_rewind = false;
-            } else if res == 0 {
-                // EOF
-                if st.bgmloop {
-                    if did_rewind {
-                        sys::Con_Printf(c"Stream keeps returning EOF.\n".as_ptr());
-                        BGM_Stop();
-                        return;
-                    }
+            match res.cmp(&0) {
+                core::cmp::Ordering::Greater => {
+                    // data: add to raw buffer
+                    crate::snd_dma::S_RawSamples(
+                        file_samples,
+                        info.rate,
+                        info.width,
+                        info.channels,
+                        raw.as_mut_ptr(),
+                        sys::bgmvolume.value,
+                    );
+                    did_rewind = false;
+                }
+                core::cmp::Ordering::Equal => {
+                    // EOF
+                    if st.bgmloop {
+                        if did_rewind {
+                            sys::Con_Printf(c"Stream keeps returning EOF.\n".as_ptr());
+                            BGM_Stop();
+                            return;
+                        }
 
-                    let res = crate::snd_codec::S_CodecRewindStream(st.stream);
-                    if res != 0 {
-                        sys::Con_Printf(c"Stream seek error (%i), stopping.\n".as_ptr(), res);
+                        let res = crate::snd_codec::S_CodecRewindStream(st.stream);
+                        if res != 0 {
+                            sys::Con_Printf(c"Stream seek error (%i), stopping.\n".as_ptr(), res);
+                            BGM_Stop();
+                            return;
+                        }
+                        did_rewind = true;
+                    } else {
                         BGM_Stop();
                         return;
                     }
-                    did_rewind = true;
-                } else {
+                }
+                core::cmp::Ordering::Less => {
+                    // some read error
+                    sys::Con_Printf(c"Stream read error (%i), stopping.\n".as_ptr(), res);
                     BGM_Stop();
                     return;
                 }
-            } else {
-                // res < 0: some read error
-                sys::Con_Printf(c"Stream read error (%i), stopping.\n".as_ptr(), res);
-                BGM_Stop();
-                return;
             }
         }
     }

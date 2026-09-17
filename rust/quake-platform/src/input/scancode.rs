@@ -5,6 +5,8 @@
 
 use core::ffi::c_int;
 
+// the K_* table mirrors keys.h
+#[allow(clippy::wildcard_imports)]
 use super::keys::*;
 
 // SDL_SCANCODE_* (SDL_scancode.h). Only the codes the C table names.

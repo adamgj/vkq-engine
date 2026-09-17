@@ -55,7 +55,9 @@ fn is_v6(a: &QSockAddr) -> bool {
 static TEST_LOCK: Mutex<()> = Mutex::new(());
 
 fn lock() -> MutexGuard<'static, ()> {
-    TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner())
+    TEST_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 struct Rng(u64);
@@ -135,7 +137,9 @@ fn addr_to_string_matches() {
             cases.push(mk_v4((rng.next() as u32).to_be_bytes(), rng.next() as u16));
         } else {
             let mut ip = [0u8; 16];
-            ip.iter_mut().for_each(|b| *b = rng.next() as u8);
+            for b in &mut ip {
+                *b = rng.next() as u8;
+            }
             let scope = if rng.next().is_multiple_of(3) {
                 rng.next() as u32
             } else {

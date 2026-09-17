@@ -1303,7 +1303,7 @@ fn pf_buf_cvarlist(vm: *mut QcVm) -> SvResult {
             b.used,
             size_of::<*mut c_char>(),
             buf_sort_ascending,
-        )
+        );
     };
     Ok(())
 }

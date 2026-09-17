@@ -59,7 +59,7 @@ struct Cursor<'a> {
     pos: usize,
 }
 
-impl<'a> Cursor<'a> {
+impl Cursor<'_> {
     fn get8(&mut self) -> u8 {
         let b = self.buf.get(self.pos).copied().unwrap_or(0);
         self.pos = self.pos.saturating_add(1);
@@ -294,7 +294,7 @@ pub fn decode(file: &[u8]) -> Result<Tga, Error> {
                 } else if tga_rgb16 != 0 {
                     read_rgb16(c, &mut raw_data);
                 } else {
-                    for slot in raw_data[..comp].iter_mut() {
+                    for slot in &mut raw_data[..comp] {
                         *slot = c.get8();
                     }
                 }

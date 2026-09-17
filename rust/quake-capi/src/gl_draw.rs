@@ -338,7 +338,9 @@ unsafe fn cache_new_pic(
 
     // SAFETY: `name` per the contract.
     let key = unsafe { truncated_name(name) };
-    let mut map = Q_CACHEPICS_MAP.lock().unwrap_or_else(|e| e.into_inner());
+    let mut map = Q_CACHEPICS_MAP
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     map.get_or_insert_with(HashMap::new)
         .insert(key, pic as usize);
 
@@ -489,7 +491,9 @@ pub unsafe extern "C" fn Draw_PicFromWad(name: *const c_char) -> *mut QPic {
 pub unsafe extern "C" fn Draw_GetCachedPic(path: *const c_char) -> *mut QPic {
     // SAFETY: per the contract.
     let key = unsafe { core::ffi::CStr::from_ptr(path) }.to_bytes();
-    let map = Q_CACHEPICS_MAP.lock().unwrap_or_else(|e| e.into_inner());
+    let map = Q_CACHEPICS_MAP
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     match map.as_ref().and_then(|m| m.get(key)) {
         // SAFETY: the map only holds live `Mem_Alloc` records (cleared with
         // the chain in `Draw_NewGame`).
@@ -718,7 +722,7 @@ pub unsafe extern "C" fn Draw_NewGame() {
 
     if let Some(map) = Q_CACHEPICS_MAP
         .lock()
-        .unwrap_or_else(|e| e.into_inner())
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
         .as_mut()
     {
         map.clear();
@@ -743,7 +747,9 @@ pub unsafe extern "C" fn Draw_NewGame() {
 /// and gfx.wad are up.
 #[no_mangle]
 pub unsafe extern "C" fn Draw_Init() {
-    *Q_CACHEPICS_MAP.lock().unwrap_or_else(|e| e.into_inner()) = Some(HashMap::new());
+    *Q_CACHEPICS_MAP
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(HashMap::new());
 
     // SAFETY: per the contract.
     unsafe {
@@ -848,7 +854,7 @@ unsafe fn draw_fill_character_quad(
 
     // SAFETY: main thread.
     let canvas_color = unsafe { *ptr::addr_of!(CANVAS_COLOR) };
-    for v in corner_verts.iter_mut() {
+    for v in &mut corner_verts {
         for (dst, src) in v.color.iter_mut().zip(canvas_color) {
             *dst = (src * 255.0) as u8;
         }
@@ -896,7 +902,7 @@ unsafe fn draw_characters(
         // SAFETY: `cbx.cb` is recording; the handles are live.
         unsafe {
             ctx.device
-                .cmd_bind_vertex_buffers(cbx.cb, 0, &[buffer], &[buffer_offset])
+                .cmd_bind_vertex_buffers(cbx.cb, 0, &[buffer], &[buffer_offset]);
         };
         cb::bind_pipeline(&procs, cbx, vk::PipelineBindPoint::GRAPHICS, pipeline);
         // SAFETY: `cbx.cb` is recording; the handles are live.
@@ -908,7 +914,7 @@ unsafe fn draw_characters(
                 0,
                 &[set],
                 &[],
-            )
+            );
         };
         // SAFETY: `cbx.cb` is recording; the handles are live.
         unsafe { cb::draw(&CmdProcs::new(ctx.vg), cbx.cb, num_verts, 1, 0, 0) };
@@ -1016,7 +1022,7 @@ fn draw_textured_quad(
         // SAFETY: `cbx.cb` is recording; the handles are live.
         unsafe {
             ctx.device
-                .cmd_bind_vertex_buffers(cbx.cb, 0, &[buffer], &[buffer_offset])
+                .cmd_bind_vertex_buffers(cbx.cb, 0, &[buffer], &[buffer_offset]);
         };
         cb::bind_pipeline(&procs, cbx, vk::PipelineBindPoint::GRAPHICS, pipeline);
         // SAFETY: `cbx.cb` is recording; the handles are live.
@@ -1028,7 +1034,7 @@ fn draw_textured_quad(
                 0,
                 &[set],
                 &[],
-            )
+            );
         };
         // SAFETY: `cbx.cb` is recording; the handles are live.
         unsafe { cb::draw(&CmdProcs::new(ctx.vg), cbx.cb, 6, 1, 0, 0) };
@@ -1075,7 +1081,7 @@ pub unsafe extern "C" fn Draw_Pic(
     corner_verts[3].position = [x, y + height, 0.0];
     corner_verts[3].texcoord = [gl.sl, gl.th];
 
-    for v in corner_verts.iter_mut() {
+    for v in &mut corner_verts {
         v.color[3] = (alpha * 255.0) as u8;
     }
 
@@ -1170,7 +1176,7 @@ pub unsafe extern "C" fn Draw_SubPic(
         gl.tl * (1.0 - t2) + t2 * gl.th,
     ];
 
-    for v in corner_verts.iter_mut() {
+    for v in &mut corner_verts {
         for (dst, src) in v.color.iter_mut().zip(rgba) {
             *dst = src as u8;
         }
@@ -1302,12 +1308,12 @@ pub unsafe extern "C" fn Draw_TileClear(
                 0,
                 &[set],
                 &[],
-            )
+            );
         };
         // SAFETY: `cbx.cb` is recording; the handles are live.
         unsafe {
             ctx.device
-                .cmd_bind_vertex_buffers(cbx.cb, 0, &[a.buffer], &[a.buffer_offset])
+                .cmd_bind_vertex_buffers(cbx.cb, 0, &[a.buffer], &[a.buffer_offset]);
         };
         // SAFETY: `cbx.cb` is recording; the handles are live.
         unsafe { cb::draw(&CmdProcs::new(ctx.vg), cbx.cb, 6, 1, 0, 0) };
@@ -1324,7 +1330,7 @@ fn draw_notex_quad(cbx: &mut CbContext, buffer: vk::Buffer, buffer_offset: vk::D
         // SAFETY: `cbx.cb` is recording; the handles are live.
         unsafe {
             ctx.device
-                .cmd_bind_vertex_buffers(cbx.cb, 0, &[buffer], &[buffer_offset])
+                .cmd_bind_vertex_buffers(cbx.cb, 0, &[buffer], &[buffer_offset]);
         };
         cb::bind_pipeline(&procs, cbx, vk::PipelineBindPoint::GRAPHICS, pipeline);
         // SAFETY: `cbx.cb` is recording; the handles are live.
@@ -1368,7 +1374,7 @@ pub unsafe extern "C" fn Draw_Fill(
     corner_verts[3].position[0] = x;
     corner_verts[3].position[1] = y + h;
 
-    for v in corner_verts.iter_mut() {
+    for v in &mut corner_verts {
         v.color = [pal[0], pal[1], pal[2], (alpha * 255.0) as u8];
     }
 
@@ -1404,7 +1410,7 @@ pub unsafe extern "C" fn Draw_FadeScreen(cbx: *mut CbContext) {
 
     corner_verts[3].position[1] = glheight;
 
-    for v in corner_verts.iter_mut() {
+    for v in &mut corner_verts {
         v.color[3] = 128;
     }
 
@@ -1590,7 +1596,7 @@ pub unsafe extern "C" fn GL_SetCanvas(cbx: *mut CbContext, newcanvas: c_int) {
                         48.0 * s,
                         0.0,
                         1.0,
-                    )
+                    );
                 };
             }
         }
@@ -1606,7 +1612,7 @@ pub unsafe extern "C" fn GL_SetCanvas(cbx: *mut CbContext, newcanvas: c_int) {
                     WARPIMAGESIZE,
                     0.0,
                     1.0,
-                )
+                );
             };
         }
         CANVAS_CROSSHAIR => {
@@ -1632,7 +1638,7 @@ pub unsafe extern "C" fn GL_SetCanvas(cbx: *mut CbContext, newcanvas: c_int) {
                     (vrect.height & !1) as f32,
                     0.0,
                     1.0,
-                )
+                );
             };
         }
         CANVAS_BOTTOMLEFT => {
@@ -1670,7 +1676,7 @@ pub unsafe extern "C" fn GL_SetCanvas(cbx: *mut CbContext, newcanvas: c_int) {
                     200.0 * s,
                     0.0,
                     1.0,
-                )
+                );
             };
         }
         // SAFETY: `Sys_Error` exits.
@@ -1781,7 +1787,7 @@ pub unsafe extern "C" fn Draw_String_3D(
                     size,
                     ch as c_char,
                     vertices.add(i * 6),
-                )
+                );
             };
             i += 1;
         }
@@ -1801,7 +1807,7 @@ pub unsafe extern "C" fn Draw_String_3D(
         // SAFETY: `cbx.cb` is recording; the handles are live.
         unsafe {
             ctx.device
-                .cmd_bind_vertex_buffers(cbx.cb, 0, &[a.buffer], &[a.buffer_offset])
+                .cmd_bind_vertex_buffers(cbx.cb, 0, &[a.buffer], &[a.buffer_offset]);
         };
         // SAFETY: `cbx.cb` is recording; the handles are live.
         unsafe {
@@ -1812,7 +1818,7 @@ pub unsafe extern "C" fn Draw_String_3D(
                 0,
                 &[set],
                 &[],
-            )
+            );
         };
         // SAFETY: `cbx.cb` is recording; the handles are live.
         unsafe { cb::draw(&CmdProcs::new(ctx.vg), cbx.cb, num_verts, 1, 0, 0) };

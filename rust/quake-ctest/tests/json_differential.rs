@@ -9,6 +9,7 @@ use quake_ctest as _; // links the cc-built c_ref_* archive
 use quake_types::json::{
     Json, JsonEntry, JSON_BOOLEAN, JSON_NULL, JSON_NUMBER, JSON_OBJECT, JSON_STRING,
 };
+use std::fmt::Write as _;
 
 extern "C" {
     fn c_ref_JSON_Parse(text: *const c_char) -> *mut Json;
@@ -40,9 +41,11 @@ fn serialize(entry: *const JsonEntry, out: &mut String) {
                 } else {
                     CStr::from_ptr(e.value.string).to_bytes()
                 };
-                out.push_str(&format!("s{:?}", s));
+                let _ = write!(out, "s{s:?}");
             }
-            t if t == JSON_NUMBER => out.push_str(&format!("n{:016x}", e.value.number.to_bits())),
+            t if t == JSON_NUMBER => {
+                let _ = write!(out, "n{:016x}", e.value.number.to_bits());
+            }
             t if t == JSON_BOOLEAN => out.push_str(if e.value.boolean { "bt" } else { "bf" }),
             t if t == JSON_NULL => out.push('z'),
             t if t == JSON_OBJECT => out.push('o'),
@@ -218,7 +221,7 @@ fn jsonish() -> impl Strategy<Value = Vec<u8>> {
         ]
     });
     prop_oneof![
-        4 => doc.prop_map(|s| s.into_bytes()),
+        4 => doc.prop_map(std::string::String::into_bytes),
         // arbitrary NUL-free noise: acceptance must still match
         1 => proptest::collection::vec(1u8..=255, 0..64),
     ]

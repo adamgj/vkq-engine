@@ -166,7 +166,7 @@ proptest! {
                 forward.as_ptr(),
                 if use_up { c_up.as_mut_ptr() } else { core::ptr::null_mut() },
                 c_angles.as_mut_ptr(),
-            )
+            );
         };
         let mut r_angles = [0.0f32; 3];
         m::vector_angles(&forward, if use_up { Some(&up) } else { None }, &mut r_angles);

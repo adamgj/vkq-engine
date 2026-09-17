@@ -379,7 +379,7 @@ fn pak_differential() {
         let msg = err.expect("negative dir must Sys_Error");
         assert!(
             msg.contains("Invalid packfile")
-                && msg.contains(&format!("dirlen: {}, dirofs: {}", dirlen, dirofs)),
+                && msg.contains(&format!("dirlen: {dirlen}, dirofs: {dirofs}")),
             "unexpected message: {msg}"
         );
         for side in BOTH {
@@ -390,7 +390,7 @@ fn pak_differential() {
     // --- case 5: 2048 entries mounts, 2049 fatals ---------------------------
     {
         let names: Vec<Vec<u8>> = (0..2049)
-            .map(|i| format!("f{:04}.dat", i).into_bytes())
+            .map(|i| format!("f{i:04}.dat").into_bytes())
             .collect();
         let full: Vec<(&[u8], &[u8])> = names.iter().map(|n| (n.as_slice(), &b"d"[..])).collect();
 
@@ -418,7 +418,7 @@ fn pak_differential() {
         // in the last entry's name field (after its NUL, invisible to the
         // parse) until the directory CRC matches the v1.06 retail value
         let names: Vec<Vec<u8>> = (0..339)
-            .map(|i| format!("retail{:03}.lmp", i).into_bytes())
+            .map(|i| format!("retail{i:03}.lmp").into_bytes())
             .collect();
         let entries: Vec<(&[u8], &[u8])> = names.iter().map(|n| (n.as_slice(), &b""[..])).collect();
         let mut pak = build_pak(&entries);

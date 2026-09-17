@@ -980,7 +980,7 @@ pub extern "C" fn quake_rs_host_shutdown_server(crash: c::qboolean) -> Raise {
                     }
                 }
                 i += 1;
-                host_client_set(host_client_get().offset(1));
+                host_client_set(host_client_get().add(1));
             }
             if (c::Sys_DoubleTime() - start) > 3.0 {
                 break;
@@ -1012,7 +1012,7 @@ pub extern "C" fn quake_rs_host_shutdown_server(crash: c::qboolean) -> Raise {
                     raise!(sv_drop_client_core(crash));
                 }
                 i += 1;
-                host_client_set(host_client_get().offset(1));
+                host_client_set(host_client_get().add(1));
             }
         }
 

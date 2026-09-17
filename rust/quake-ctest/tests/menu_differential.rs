@@ -109,7 +109,9 @@ use quake_ctest::fs as ctfs; // also links the cc-built c_ref_* archive
 static TEST_LOCK: Mutex<()> = Mutex::new(());
 
 fn lock() -> MutexGuard<'static, ()> {
-    TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner())
+    TEST_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 /// `stubs/menu_ref.c`'s side convention: 1 = the `c_ref_*` oracle, 0 = the port.
@@ -859,7 +861,7 @@ fn mouse_update_cursor_matches_over_the_hitbox_grid() {
                             top,
                             height,
                             index,
-                        )
+                        );
                     };
                     cursor
                 },
@@ -1088,7 +1090,7 @@ fn new_game_restores_the_saved_demonum() {
                             0,
                             0,
                             c"".as_ptr(),
-                        )
+                        );
                     };
                     // M_Menu_Main_f is what stashes m_save_demonum, so the
                     // restore has something to restore (menu.c:626-627).
@@ -1340,7 +1342,7 @@ fn options_menu_draw_matches_across_the_slider_value_branches() {
             move |side| {
                 // SAFETY: a command entry point under ctest_try_host.
                 unsafe { ctest_menu_menu_options_f(side) };
-                for (name, value) in sets.iter() {
+                for (name, value) in *sets {
                     set_cvar(side, name, value);
                 }
             },
@@ -1388,7 +1390,7 @@ fn graphics_menu_draw_matches_across_the_renderer_cvars_and_caps() {
                         ctest_menu_set_state(side, M_GRAPHICS);
                         ctest_menu_set_key_dest(KEY_MENU);
                     }
-                    for (name, value) in sets.iter() {
+                    for (name, value) in *sets {
                         set_cvar(side, name, value);
                     }
                 },
@@ -2160,7 +2162,7 @@ fn main_menu_stashes_and_restores_cls_demonum() {
                         SIGNONS,
                         0,
                         c"e1m1".as_ptr(),
-                    )
+                    );
                 };
             },
             move |side| {

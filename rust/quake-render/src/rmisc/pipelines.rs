@@ -337,7 +337,7 @@ fn stage(
         .name(c"main")
 }
 
-impl<'a> PipelineInfos<'a> {
+impl PipelineInfos<'_> {
     /// `R_InitDefaultStates`.
     fn defaults(vg: &VulkanGlobals, m: &ShaderModules) -> Self {
         let blend_attachments = core::array::from_fn(|i| {
@@ -526,7 +526,7 @@ fn create_compute<E: Engine>(
     spec: Option<&vk::SpecializationInfo<'_>>,
     name: &CStr,
 ) -> VulkanPipeline {
-    debug_assert!(layout.handle != vk::PipelineLayout::null());
+    debug_assert_ne!(layout.handle, vk::PipelineLayout::null());
     let mut stage_info = stage(vk::ShaderStageFlags::COMPUTE, module).flags(flags);
     if let Some(spec) = spec {
         stage_info = stage_info.specialization_info(spec);
@@ -1558,7 +1558,7 @@ fn create_model_family<E: Engine>(
 
             let mut infos = family;
             infos.set_render_pass(env.main_rp[MAIN_RENDER_PASS_MBOIT], 2, 1);
-            let [single, msaa] = family_desc.composite[if alpha_test { 0 } else { 1 }];
+            let [single, msaa] = family_desc.composite[usize::from(!alpha_test)];
             infos.set_fragment(env.pick(m.get(single), m.get(msaa)));
             infos.depth_stencil.depth_write_enable = vk::FALSE;
             set_mboit_composite_blend(&mut infos.blend_attachments);

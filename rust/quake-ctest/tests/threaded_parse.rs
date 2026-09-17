@@ -237,7 +237,7 @@ fn extents_sharded(fix: &mut ExtentsFixture, f: ExtentsFn, workers: usize) {
     // SAFETY (Shared): `model` and its arrays are only read for the duration of
     // the scope; each shard writes only `surfaces[start..end]`, and the ranges
     // are disjoint by construction.
-    let model = Shared(&mut *fix.model as *mut QModel);
+    let model = Shared(std::ptr::from_mut::<QModel>(&mut *fix.model));
     let surfaces = Shared(fix.surfaces.as_mut_ptr());
     std::thread::scope(|scope| {
         for w in 0..workers {
@@ -531,7 +531,7 @@ fn decompress_vis_off_main_thread_matches_c() {
         let mut buf = input.map(<[u8]>::to_vec);
         let p = buf
             .as_mut()
-            .map_or(core::ptr::null_mut(), |b| b.as_mut_ptr());
+            .map_or(core::ptr::null_mut(), std::vec::Vec::as_mut_ptr);
         // SAFETY: `p` is NULL or a row inside a live buffer, `m` a live model
         let out = unsafe { f(p, m) };
         assert!(!out.is_null());
@@ -550,7 +550,7 @@ fn decompress_vis_off_main_thread_matches_c() {
         }
         // SAFETY (Shared): the model is only read; the closure runs to
         // completion inside the scope
-        let m = Shared(&mut *model as *mut QModel);
+        let m = Shared(std::ptr::from_mut::<QModel>(&mut *model));
         let got = std::thread::scope(|scope| {
             scope
                 .spawn(move || run(quake_rs::model_parse::Mod_DecompressVis, m.ptr(), input))

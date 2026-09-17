@@ -144,7 +144,7 @@ fn bind(s: SysSocket, addr: &QSockAddr, len: usize) -> Result<(), i32> {
     // SAFETY: addr is a 64-byte qsockaddr blob punned to sockaddr_in/in6
     // (the same pun as the C driver); len is the family's sockaddr size
     unsafe {
-        if ws::bind(s, (addr as *const QSockAddr).cast(), len as i32) == 0 {
+        if ws::bind(s, std::ptr::from_ref::<QSockAddr>(addr).cast(), len as i32) == 0 {
             Ok(())
         } else {
             Err(last_error())
@@ -293,7 +293,7 @@ pub fn sendto(s: SysSocket, buf: &[u8], addr: &QSockAddr) -> (i32, i32) {
             buf.as_ptr(),
             buf.len() as i32,
             0,
-            (addr as *const QSockAddr).cast(),
+            std::ptr::from_ref::<QSockAddr>(addr).cast(),
             mem::size_of::<QSockAddr>() as i32,
         );
         let err = if ret == ws::SOCKET_ERROR {
@@ -454,7 +454,9 @@ pub fn getaddrinfo_pick6(node: &[u8], service: Option<&[u8]>) -> Result<Option<Q
         let mut res: *mut ws::ADDRINFOA = core::ptr::null_mut();
         let err = ws::getaddrinfo(
             cnode.as_ptr(),
-            cserv.as_ref().map_or(core::ptr::null(), |v| v.as_ptr()),
+            cserv
+                .as_ref()
+                .map_or(core::ptr::null(), std::vec::Vec::as_ptr),
             &hints,
             &mut res,
         );

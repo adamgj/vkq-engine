@@ -359,10 +359,10 @@ pub unsafe extern "C" fn quake_rs_rpart_parse_particle_effect() {
         let mut dir: Vec3 = [0.0; 3];
 
         let protocolflags = ptr::addr_of!(cl.protocolflags).read();
-        for o in org.iter_mut() {
+        for o in &mut org {
             *o = g::MSG_ReadCoord(protocolflags);
         }
-        for d in dir.iter_mut() {
+        for d in &mut dir {
             *d = (g::MSG_ReadChar() as f64 * (1.0 / 16.0)) as c_float;
         }
         let msgcount = g::MSG_ReadByte();

@@ -821,7 +821,7 @@ impl Sides {
                 ENV_SAMPLERS[2],
                 ENV_SAMPLERS[3],
                 ENV_WARP_RP,
-            )
+            );
         };
     }
 
@@ -835,7 +835,7 @@ impl Sides {
                 c.vid_anisotropic,
                 c.gl_max_size,
                 c.gl_picmip,
-            )
+            );
         };
     }
 
@@ -856,7 +856,7 @@ impl Sides {
                 format,
                 data.as_ptr(),
                 data.len(),
-            )
+            );
         };
     }
 
@@ -1427,8 +1427,12 @@ fn run_op(s: &mut Sides, op: &Op) -> Result<(), TestCaseError> {
 fn with_sides(
     f: impl FnOnce(&mut Sides) -> Result<(), TestCaseError>,
 ) -> Result<(), TestCaseError> {
-    let _guard = C_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let mut slot = sides().lock().unwrap_or_else(|e| e.into_inner());
+    let _guard = C_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut slot = sides()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     if slot.is_none() {
         *slot = Some(init());
     }

@@ -130,7 +130,8 @@ pub struct DynAllocation {
 }
 
 fn lock(ring: &Mutex<Ring>) -> MutexGuard<'_, Ring> {
-    ring.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    ring.lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 impl Default for DynBuffers {
@@ -345,7 +346,7 @@ impl DynBuffers {
                 allocation.buffer,
                 fan_index_buffer,
                 &[region],
-            )
+            );
         };
         staging.begin_copy();
         let indices = fan_indices();
@@ -356,7 +357,7 @@ impl DynBuffers {
                 indices.as_ptr().cast::<u8>(),
                 allocation.data,
                 buffer_size,
-            )
+            );
         };
         staging.end_copy();
     }
@@ -415,7 +416,7 @@ impl DynBuffers {
         let mut garbage = self
             .garbage
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let current = garbage.current;
         let frame = &mut garbage.frames[current];
         frame.memory.push(memory);
@@ -436,7 +437,7 @@ impl DynBuffers {
         let mut garbage = self
             .garbage
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         garbage.current = (garbage.current + 1) % GARBAGE_FRAME_COUNT;
         let collect = (garbage.current + 1) % GARBAGE_FRAME_COUNT;
         let frame = core::mem::take(&mut garbage.frames[collect]);

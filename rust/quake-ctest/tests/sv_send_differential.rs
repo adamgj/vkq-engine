@@ -60,7 +60,9 @@ use quake_ctest as _; // links the cc-built c_ref_* archive
 static TEST_LOCK: Mutex<()> = Mutex::new(());
 
 fn lock() -> MutexGuard<'static, ()> {
-    TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner())
+    TEST_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 // ---------------------------------------------------------------------------
@@ -1288,7 +1290,7 @@ fn baseline(st: St, idx: c_int, pext2: u32, proto: u32, pflags: u32) -> Vec<u8> 
         ..base()
     };
     diff(&fx, |side| {
-        drive_baseline(side, idx, 0, pext2, proto, pflags)
+        drive_baseline(side, idx, 0, pext2, proto, pflags);
     })
     .msg
 }

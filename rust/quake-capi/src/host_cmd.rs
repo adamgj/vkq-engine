@@ -853,7 +853,7 @@ unsafe fn ExtraMaps_Sort() {
         }
 
         let mut sum: c_int = 0;
-        for slot in counts.iter_mut() {
+        for slot in &mut counts {
             let tmp = *slot;
             *slot = sum;
             sum += tmp;
@@ -1232,7 +1232,7 @@ unsafe fn Modlist_GetFullName(item: *const FileListItem) -> *const c_char {
                 return full_name;
             }
         }
-        for entry in KNOWNMODS.iter() {
+        for entry in &KNOWNMODS {
             if c::cvar_cmd::q_strcasecmp(
                 ptr::addr_of!((*item).name).cast::<c_char>(),
                 entry[0].as_ptr(),
@@ -3198,11 +3198,7 @@ unsafe fn Host_Loadgame_f() -> Raise {
             ptr::null_mut()
         };
         let mut loadable: bool = false;
-        let mut j: c_int = if ptr::addr_of!(c::multiuser).read() {
-            0
-        } else {
-            1
-        };
+        let mut j: c_int = c_int::from(!ptr::addr_of!(c::multiuser).read());
         while j < 2 {
             if j == 0 {
                 c::cl_main::q_snprintf(

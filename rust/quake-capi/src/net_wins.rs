@@ -246,23 +246,23 @@ unsafe fn winsock_release() {
 /// the shared tail of `WINIPv4_OpenSocket`/`WINIPv6_OpenSocket` (prints
 /// included): the post-init bind failure warns and LEAKS the socket like
 /// C; every other failure takes the `ErrorReturn` label
-fn open_socket_fail(err: sys::OpenError, available: bool) -> SysSocket {
+fn open_socket_fail(err: &sys::OpenError, available: bool) -> SysSocket {
     match err {
         sys::OpenError::Socket(e) => {
-            safe_print(&format!("WINS_OpenSocket: {}\n", sys::strerror(e)));
+            safe_print(&format!("WINS_OpenSocket: {}\n", sys::strerror(*e)));
             INVALID
         }
-        sys::OpenError::Bind(e, _sock, ref address) if available => {
+        sys::OpenError::Bind(e, _sock, address) if available => {
             warning(&format!(
                 "Unable to bind to {} ({})\n",
                 udp::addr_to_string_wins(address, false),
-                sys::strerror(e)
+                sys::strerror(*e)
             ));
             INVALID
         }
         sys::OpenError::Ioctl(e, sock) | sys::OpenError::Bind(e, sock, _) => {
-            safe_print(&format!("WINS_OpenSocket: {}\n", sys::strerror(e)));
-            sys::close_socket(sock);
+            safe_print(&format!("WINS_OpenSocket: {}\n", sys::strerror(*e)));
+            sys::close_socket(*sock);
             INVALID
         }
     }
@@ -277,7 +277,7 @@ unsafe fn open_socket4(port: c_int) -> SysSocket {
     unsafe {
         match sys::open_socket4(BIND_ADDR4, port as u16) {
             Ok(s) => s,
-            Err(err) => open_socket_fail(err, c::ipv4Available),
+            Err(err) => open_socket_fail(&err, c::ipv4Available),
         }
     }
 }
@@ -293,7 +293,7 @@ unsafe fn open_socket6(port: c_int) -> SysSocket {
         let group = v6_bytes(&*core::ptr::addr_of!(BROADCAST_ADDR6));
         match sys::open_socket6(bind, port as u16, group) {
             Ok(s) => s,
-            Err(err) => open_socket_fail(err, c::ipv6Available),
+            Err(err) => open_socket_fail(&err, c::ipv6Available),
         }
     }
 }
@@ -928,7 +928,7 @@ pub unsafe extern "C" fn rust_udp6_GetAddrFromName(
                     if len >= DUPBASE {
                         len = DUPBASE - 1;
                     }
-                    let host = &bytes[1..1 + len];
+                    let host = &bytes[1..=len];
                     let service = if bytes.get(close + 1) == Some(&b':') {
                         Some(&bytes[close + 2..])
                     } else {
@@ -972,28 +972,25 @@ pub unsafe extern "C" fn rust_udp6_GetAddrFromName(
             }
         };
 
-        match found {
-            Some(mut a) => {
-                if udp::get_socket_port_wins(&a) == 0 {
-                    udp::set_socket_port_wins(&mut a, c::net_hostport);
-                }
-                // COMPAT: C memcpy's only ai_addrlen bytes, leaving the
-                // caller's tail; the port writes all 64. Unobservable --
-                // every caller gates on the return value (see the unix
-                // driver's note).
-                *addr = a;
-                0
+        if let Some(mut a) = found {
+            if udp::get_socket_port_wins(&a) == 0 {
+                udp::set_socket_port_wins(&mut a, c::net_hostport);
             }
-            None => {
-                // C sets `((struct sockaddr *)addr)->sa_family = 0` before
-                // walking the addrinfo list, so a lookup that SUCCEEDS with
-                // no AF_INET6 result leaves the caller's family clobbered
-                // even though it returns -1. Mirrored.
-                if resolved_but_unusable {
-                    udp::set_family(&mut *addr, 0);
-                }
-                -1
+            // COMPAT: C memcpy's only ai_addrlen bytes, leaving the
+            // caller's tail; the port writes all 64. Unobservable --
+            // every caller gates on the return value (see the unix
+            // driver's note).
+            *addr = a;
+            0
+        } else {
+            // C sets `((struct sockaddr *)addr)->sa_family = 0` before
+            // walking the addrinfo list, so a lookup that SUCCEEDS with
+            // no AF_INET6 result leaves the caller's family clobbered
+            // even though it returns -1. Mirrored.
+            if resolved_but_unusable {
+                udp::set_family(&mut *addr, 0);
             }
+            -1
         }
     }
 }

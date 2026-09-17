@@ -55,7 +55,9 @@ extern "C" {
 static TEST_LOCK: Mutex<()> = Mutex::new(());
 
 fn lock() -> MutexGuard<'static, ()> {
-    TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner())
+    TEST_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 struct Rng(u64);
@@ -322,13 +324,13 @@ fn c_call<T>(cw: &mut CWorld, f: impl FnOnce(&mut CWorld) -> T) -> T {
     }
 }
 
-fn r_globals<'a>(
-    rw: &'a mut RWorld,
+fn r_globals(
+    rw: &mut RWorld,
 ) -> (
-    DgrmGlobals<'a>,
-    &'a mut Box<QSocket>,
-    &'a mut Vec<u8>,
-    RustSys<'a>,
+    DgrmGlobals<'_>,
+    &mut Box<QSocket>,
+    &mut Vec<u8>,
+    RustSys<'_>,
 ) {
     let g = DgrmGlobals {
         net_time: rw.net_time,
@@ -419,7 +421,11 @@ fn run_op(step: usize, op: &Op, cw: &mut CWorld, rw: &mut RWorld) {
                 // SAFETY: the Host_Error trap catches the hostile-length
                 // SZ_GetSpace path (the longjmp crosses only trivial frames)
                 unsafe {
-                    if ctest_try_host(call_c_getmsg, (&mut args as *mut GetMsgArgs).cast()) != 0 {
+                    if ctest_try_host(
+                        call_c_getmsg,
+                        std::ptr::from_mut::<GetMsgArgs>(&mut args).cast(),
+                    ) != 0
+                    {
                         let msg = CStr::from_ptr(ctest_host_error_message());
                         assert_eq!(
                             msg.to_str().unwrap(),

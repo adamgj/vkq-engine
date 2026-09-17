@@ -1279,11 +1279,7 @@ pub unsafe extern "C" fn quake_rs_sbar_draw_face(
             f = 0;
         }
 
-        let anim = if cl.time <= cl.faceanimtime as f64 {
-            1
-        } else {
-            0
-        };
+        let anim = usize::from(cl.time <= cl.faceanimtime as f64);
         quake_rs_sbar_draw_pic(cbx, x, y, SB_FACES[f as usize][anim]);
     }
 }

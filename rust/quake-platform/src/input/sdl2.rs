@@ -33,6 +33,7 @@ pub(super) const GAMEPAD_INIT_WARNING: &CStr = c"could not initialize SDL Game C
 /// `(SDL_GameControllerButton)i` for `i < SDL_CONTROLLER_BUTTON_MAX`; the
 /// bindgen enum has no integer constructor.
 const BUTTONS: [SDL_GameControllerButton; BUTTON_COUNT] = {
+    #[allow(clippy::enum_glob_use)] // bindgen enum table, read like the C
     use SDL_GameControllerButton::*;
     [
         SDL_CONTROLLER_BUTTON_A,
@@ -61,6 +62,7 @@ const BUTTONS: [SDL_GameControllerButton; BUTTON_COUNT] = {
 
 /// `(SDL_GameControllerAxis)i` for `i < SDL_CONTROLLER_AXIS_MAX`.
 const AXES: [SDL_GameControllerAxis; 6] = {
+    #[allow(clippy::enum_glob_use)] // bindgen enum table, read like the C
     use SDL_GameControllerAxis::*;
     [
         SDL_CONTROLLER_AXIS_LEFTX,
@@ -263,6 +265,7 @@ pub(super) unsafe fn key_name(keycode: c_int) -> *const c_char {
 /// add/remove/remap arms are handled here; every other arm is translated
 /// into an [`Event`] for `handler`, whose non-zero status ends the loop.
 pub(super) unsafe fn poll_events(handler: &mut dyn FnMut(Event<'_>) -> Raise) -> Raise {
+    #[allow(clippy::enum_glob_use)] // bindgen enum table, read like the C
     use SDL_EventType::*;
     // SAFETY: main thread; each union member is read only under its own
     // event type

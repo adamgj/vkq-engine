@@ -476,10 +476,10 @@ fn tga_reject_parity() {
 // with stb but not the reason text: those cases go through
 // compare_both_masked_reason per the owner-approved warning-text policy.
 
-fn png_chunk(ctype: &[u8; 4], data: &[u8]) -> Vec<u8> {
+fn png_chunk(ctype: [u8; 4], data: &[u8]) -> Vec<u8> {
     let mut v = Vec::new();
     v.extend_from_slice(&(data.len() as u32).to_be_bytes());
-    v.extend_from_slice(ctype);
+    v.extend_from_slice(&ctype);
     v.extend_from_slice(data);
     v.extend_from_slice(&[0u8; 4]); // CRC: garbage — stb never checks it
     v
@@ -494,7 +494,7 @@ fn png_ihdr(w: u32, h: u32, depth: u8, color: u8, interlace: u8) -> Vec<u8> {
     d.extend_from_slice(&w.to_be_bytes());
     d.extend_from_slice(&h.to_be_bytes());
     d.extend_from_slice(&[depth, color, 0, 0, interlace]);
-    png_chunk(b"IHDR", &d)
+    png_chunk(*b"IHDR", &d)
 }
 
 fn png_channels(color: u8) -> usize {
@@ -575,14 +575,14 @@ fn build_png(
     let mut f = png_sig();
     f.extend(png_ihdr(w, h, depth, color, interlace));
     if let Some(p) = plte {
-        f.extend(png_chunk(b"PLTE", p));
+        f.extend(png_chunk(*b"PLTE", p));
     }
     if let Some(t) = trns {
-        f.extend(png_chunk(b"tRNS", t));
+        f.extend(png_chunk(*b"tRNS", t));
     }
     let raw = png_raw_stream(w, h, depth, color, interlace, seed, max_sample);
-    f.extend(png_chunk(b"IDAT", &deflate_zlib(&raw)));
-    f.extend(png_chunk(b"IEND", &[]));
+    f.extend(png_chunk(*b"IDAT", &deflate_zlib(&raw)));
+    f.extend(png_chunk(*b"IEND", &[]));
     f
 }
 
@@ -759,23 +759,23 @@ fn png_checksum_and_trailing_tolerance() {
     let z = deflate_zlib(&raw);
     let mut f = png_sig();
     f.extend(png_ihdr(4, 3, 8, 2, 0));
-    f.extend(png_chunk(b"IDAT", &z[..3]));
-    f.extend(png_chunk(b"IDAT", &[]));
-    f.extend(png_chunk(b"IDAT", &z[3..]));
-    f.extend(png_chunk(b"IEND", &[]));
+    f.extend(png_chunk(*b"IDAT", &z[..3]));
+    f.extend(png_chunk(*b"IDAT", &[]));
+    f.extend(png_chunk(*b"IDAT", &z[3..]));
+    f.extend(png_chunk(*b"IEND", &[]));
     let out = png_case(&mut n, &f);
     assert!(out.data.is_some(), "split IDAT must decode");
 
     // unknown ancillary chunk (lowercase first letter): skipped by both
     let mut f = png_sig();
     f.extend(png_ihdr(4, 3, 8, 0, 0));
-    f.extend(png_chunk(b"gAMA", &1000u32.to_be_bytes()));
-    f.extend(png_chunk(b"zzZZ", &[1, 2, 3]));
+    f.extend(png_chunk(*b"gAMA", &1000u32.to_be_bytes()));
+    f.extend(png_chunk(*b"zzZZ", &[1, 2, 3]));
     f.extend(png_chunk(
-        b"IDAT",
+        *b"IDAT",
         &deflate_zlib(&png_raw_stream(4, 3, 8, 0, 0, 71, 255)),
     ));
-    f.extend(png_chunk(b"IEND", &[]));
+    f.extend(png_chunk(*b"IEND", &[]));
     let out = png_case(&mut n, &f);
     assert!(out.data.is_some(), "ancillary chunks must be skipped");
 
@@ -787,8 +787,8 @@ fn png_checksum_and_trailing_tolerance() {
     z[1] = 0x00; // 0xF800 % 31 == 0, FDICT clear
     let mut f = png_sig();
     f.extend(png_ihdr(2, 2, 8, 0, 0));
-    f.extend(png_chunk(b"IDAT", &z));
-    f.extend(png_chunk(b"IEND", &[]));
+    f.extend(png_chunk(*b"IDAT", &z));
+    f.extend(png_chunk(*b"IEND", &[]));
     let out = png_case(&mut n, &f);
     assert!(out.data.is_some(), "cinfo=15 zlib header accepted like stb");
 }
@@ -809,7 +809,7 @@ fn png_structural_reject_parity() {
     };
     // IHDR not first
     let mut f = png_sig();
-    f.extend(png_chunk(b"sBIT", &[8]));
+    f.extend(png_chunk(*b"sBIT", &[8]));
     f.extend(png_ihdr(2, 2, 8, 0, 0));
     expect_reject(&mut n, &f, "first not IHDR");
     // 0-pixel
@@ -849,31 +849,31 @@ fn png_structural_reject_parity() {
     // PLTE length not a multiple of 3
     let mut f = png_sig();
     f.extend(png_ihdr(2, 2, 8, 3, 0));
-    f.extend(png_chunk(b"PLTE", &[1, 2, 3, 4]));
+    f.extend(png_chunk(*b"PLTE", &[1, 2, 3, 4]));
     expect_reject(&mut n, &f, "invalid PLTE");
     // paletted IDAT without PLTE
     let mut f = png_sig();
     f.extend(png_ihdr(2, 2, 8, 3, 0));
-    f.extend(png_chunk(b"IDAT", &[1, 2, 3]));
+    f.extend(png_chunk(*b"IDAT", &[1, 2, 3]));
     expect_reject(&mut n, &f, "no PLTE");
     // tRNS before PLTE / oversized tRNS / tRNS with alpha
     let mut f = png_sig();
     f.extend(png_ihdr(2, 2, 8, 3, 0));
-    f.extend(png_chunk(b"tRNS", &[1]));
+    f.extend(png_chunk(*b"tRNS", &[1]));
     expect_reject(&mut n, &f, "tRNS before PLTE");
     let mut f = png_sig();
     f.extend(png_ihdr(2, 2, 8, 3, 0));
-    f.extend(png_chunk(b"PLTE", &[1, 2, 3]));
-    f.extend(png_chunk(b"tRNS", &[1, 2]));
+    f.extend(png_chunk(*b"PLTE", &[1, 2, 3]));
+    f.extend(png_chunk(*b"tRNS", &[1, 2]));
     expect_reject(&mut n, &f, "bad tRNS len");
     let mut f = png_sig();
     f.extend(png_ihdr(2, 2, 8, 6, 0));
-    f.extend(png_chunk(b"tRNS", &[0; 8]));
+    f.extend(png_chunk(*b"tRNS", &[0; 8]));
     expect_reject(&mut n, &f, "tRNS with alpha");
     // unknown critical chunk: 4-char name lands in the reason
     let mut f = png_sig();
     f.extend(png_ihdr(2, 2, 8, 0, 0));
-    f.extend(png_chunk(b"AbCd", &[]));
+    f.extend(png_chunk(*b"AbCd", &[]));
     expect_reject(&mut n, &f, "AbCd PNG chunk not known");
     // missing IEND: the zero chunk header's NUL name truncates the reason
     // to an empty string -> "couldn't load <name> ()"
@@ -889,7 +889,7 @@ fn png_structural_reject_parity() {
     // IEND with no IDAT
     let mut f = png_sig();
     f.extend(png_ihdr(2, 2, 8, 0, 0));
-    f.extend(png_chunk(b"IEND", &[]));
+    f.extend(png_chunk(*b"IEND", &[]));
     expect_reject(&mut n, &f, "no IDAT");
     // truncated IDAT payload
     let mut f = png_sig();
@@ -908,8 +908,8 @@ fn png_structural_reject_parity() {
     let zbad = |z: &[u8]| {
         let mut f = png_sig();
         f.extend(png_ihdr(2, 2, 8, 0, 0));
-        f.extend(png_chunk(b"IDAT", z));
-        f.extend(png_chunk(b"IEND", &[]));
+        f.extend(png_chunk(*b"IDAT", z));
+        f.extend(png_chunk(*b"IEND", &[]));
         f
     };
     expect_reject(&mut n, &zbad(&[0x78, 0x02, 0, 0]), "bad zlib header");
@@ -938,8 +938,8 @@ fn png_crate_rejects_share_the_decision() {
     let z = deflate_zlib(&raw);
     let mut f = png_sig();
     f.extend(png_ihdr(4, 4, 8, 2, 0));
-    f.extend(png_chunk(b"IDAT", &z[..z.len() / 2]));
-    f.extend(png_chunk(b"IEND", &[]));
+    f.extend(png_chunk(*b"IDAT", &z[..z.len() / 2]));
+    f.extend(png_chunk(*b"IEND", &[]));
     let out = masked(&mut n, &f);
     assert_eq!(
         out.data, None,
@@ -950,16 +950,16 @@ fn png_crate_rejects_share_the_decision() {
     raw[0] = 5;
     let mut f = png_sig();
     f.extend(png_ihdr(3, 2, 8, 0, 0));
-    f.extend(png_chunk(b"IDAT", &deflate_zlib(&raw)));
-    f.extend(png_chunk(b"IEND", &[]));
+    f.extend(png_chunk(*b"IDAT", &deflate_zlib(&raw)));
+    f.extend(png_chunk(*b"IEND", &[]));
     let out = masked(&mut n, &f);
     assert_eq!(out.data, None, "invalid filter rejects on both sides");
     // stream deflates fine but holds too few rows: both reject
     let raw = png_raw_stream(4, 2, 8, 0, 0, 87, 255); // 2 of 4 rows
     let mut f = png_sig();
     f.extend(png_ihdr(4, 4, 8, 0, 0));
-    f.extend(png_chunk(b"IDAT", &deflate_zlib(&raw)));
-    f.extend(png_chunk(b"IEND", &[]));
+    f.extend(png_chunk(*b"IDAT", &deflate_zlib(&raw)));
+    f.extend(png_chunk(*b"IEND", &[]));
     let out = masked(&mut n, &f);
     assert_eq!(out.data, None, "short pixel data rejects on both sides");
 }
@@ -1219,8 +1219,8 @@ fn png_oversized_output_reject_decision_parity() {
     // (masked compare per the review-round amendment)
     let mut f = png_sig();
     f.extend(png_ihdr(30000, 30000, 16, 0, 0));
-    f.extend(png_chunk(b"IDAT", &deflate_zlib(&[0u8; 64])));
-    f.extend(png_chunk(b"IEND", &[]));
+    f.extend(png_chunk(*b"IDAT", &deflate_zlib(&[0u8; 64])));
+    f.extend(png_chunk(*b"IEND", &[]));
     let dir = file_dir();
     std::fs::write(dir.join("gfx/hugepng.png"), &f).unwrap();
     let out = compare_both_masked_reason(c"gfx/hugepng.png");

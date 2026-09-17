@@ -177,7 +177,7 @@ unsafe fn gl_draw_alias_frame(
             0.0
         };
 
-        let mut flags: u32 = if fb.is_null() { 0 } else { 1 };
+        let mut flags: u32 = u32::from(!fb.is_null());
         if *ptr::addr_of!(c::render::r_fullbright_cheatsafe)
             || (*ptr::addr_of!(c::render::r_lightmap_cheatsafe)
                 && (*ptr::addr_of!(c::render::r_fullbright)).value != 0.0)

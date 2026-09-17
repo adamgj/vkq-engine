@@ -3060,15 +3060,14 @@ unsafe fn md5anim_begin(ctx: &mut AnimCtx, fname: *const c_char) -> bool {
             return true;
         }
 
-        match md5anim_begin_body(ctx, fname) {
-            Ok(()) => true,
-            Err(()) => {
-                safe_free(&mut ctx.animfile);
-                ctx.buffer = null_mut();
-                ctx.numposes = 0;
-                ctx.numjoints = 0;
-                false
-            }
+        if let Ok(()) = md5anim_begin_body(ctx, fname) {
+            true
+        } else {
+            safe_free(&mut ctx.animfile);
+            ctx.buffer = null_mut();
+            ctx.numposes = 0;
+            ctx.numjoints = 0;
+            false
         }
     }
 }
@@ -3135,13 +3134,12 @@ unsafe fn md5anim_load(
 ) -> bool {
     // SAFETY: caller's contract
     unsafe {
-        match md5anim_load_body(ctx, joints, joint_poses, numjoints) {
-            Ok(v) => v,
-            Err(()) => {
-                safe_free(&mut ctx.posedata);
-                safe_free(&mut ctx.animfile);
-                false
-            }
+        if let Ok(v) = md5anim_load_body(ctx, joints, joint_poses, numjoints) {
+            v
+        } else {
+            safe_free(&mut ctx.posedata);
+            safe_free(&mut ctx.animfile);
+            false
         }
     }
 }
@@ -3330,7 +3328,7 @@ unsafe fn md5anim_load_body(
 
         md5_expect(&mut buffer, fname, c"baseframe")?;
         md5_expect(&mut buffer, fname, c"{")?;
-        for aj in ab.iter_mut() {
+        for aj in &mut ab {
             md5_expect(&mut buffer, fname, c"(")?;
             aj.basepos[0] = md5_float(&mut buffer) as f32;
             aj.basepos[1] = md5_float(&mut buffer) as f32;
@@ -3360,7 +3358,7 @@ unsafe fn md5anim_load_body(
             md5_expect(&mut buffer, fname, c"}")?;
 
             // okay, we have our raw info, unpack the actual joint info.
-            for aj in ab.iter() {
+            for aj in &ab {
                 const SCALE: [f32; 3] = [1.0, 1.0, 1.0];
                 let mesh_index = aj.mesh_index;
                 if mesh_index < 0 {
@@ -3491,14 +3489,13 @@ unsafe fn mod_load_md5_mesh_model_data(
             return false;
         }
 
-        match md5_load_data_body(m, buffer, numjoints, nummeshes, &mut st) {
-            Ok(()) => true,
-            Err(()) => {
-                // Recoverable replacement-model failures fall back to the
-                // MDL, so release any partial MD5 state.
-                md5_load_cleanup(&mut st, nummeshes);
-                false
-            }
+        if let Ok(()) = md5_load_data_body(m, buffer, numjoints, nummeshes, &mut st) {
+            true
+        } else {
+            // Recoverable replacement-model failures fall back to the
+            // MDL, so release any partial MD5 state.
+            md5_load_cleanup(&mut st, nummeshes);
+            false
         }
     }
 }

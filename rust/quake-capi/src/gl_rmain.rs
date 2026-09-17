@@ -230,7 +230,7 @@ pub unsafe extern "C" fn R_CullBox(emins: *const f32, emaxs: *const f32) -> bool
     // SAFETY: per the contract; `frustum` is written on the main thread
     // before the frame's tasks run.
     unsafe {
-        for p in (*ptr::addr_of!(frustum)).iter() {
+        for p in &(*ptr::addr_of!(frustum)) {
             let signbits = p.signbits;
             let pick = |bit: u8, i: usize| {
                 if signbits & bit != 0 {

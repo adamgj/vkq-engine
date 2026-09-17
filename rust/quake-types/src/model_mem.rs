@@ -518,7 +518,12 @@ pub struct AliasHdr {
 
 #[cfg(target_pointer_width = "64")]
 mod layout_asserts {
-    use super::*;
+    use super::{
+        AliasHdr, AliasMesh, AllSurfacesDef, Hull, JointPose, MAliasFrameDesc, MClipnode, MEdge,
+        MLeaf, MNode, MSprite, MSpriteFrame, MSpriteFrameDesc, MSpriteGroup, MSurface, MTexInfo,
+        MTriangle, MVertex, Md3XyzNormal, Md5Vert, Md5Vert8, QModel, QPathStr, SkinDef, SurfaceDef,
+        Texture,
+    };
     use std::mem::{offset_of, size_of};
 
     const _: () = assert!(size_of::<MVertex>() == 12);

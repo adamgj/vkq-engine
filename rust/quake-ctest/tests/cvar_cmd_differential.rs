@@ -37,7 +37,9 @@ use quake_rs::cvar as rcvar;
 static TEST_LOCK: Mutex<()> = Mutex::new(());
 
 fn lock() -> MutexGuard<'static, ()> {
-    TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner())
+    TEST_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 // ---------------------------------------------------------------------------
@@ -159,7 +161,7 @@ fn new_cvar(name: &str, value: &str, flags: c::cvarflags_t) -> *mut c::cvar_t {
         completion: None,
         next: core::ptr::null_mut(),
     });
-    Box::leak(cvar) as *mut c::cvar_t
+    std::ptr::from_mut::<c::cvar_t>(Box::leak(cvar))
 }
 
 /// Ensures `Cvar_Init`/`Cmd_Init` ran on both sides exactly once for this
@@ -581,7 +583,7 @@ fn tokenizer_quotes_and_plain_tokens() {
         b"",
         b"   ",
     ] {
-        assert_eq!(tokenize_c(input), tokenize_r(input), "input: {:?}", input);
+        assert_eq!(tokenize_c(input), tokenize_r(input), "input: {input:?}");
     }
 }
 
@@ -597,7 +599,7 @@ fn tokenizer_comment_latch_and_newline_stop() {
         b"a/b", // single slash: not a comment, ordinary token char
         b"a/",  // buffer ending in a single '/'
     ] {
-        assert_eq!(tokenize_c(input), tokenize_r(input), "input: {:?}", input);
+        assert_eq!(tokenize_c(input), tokenize_r(input), "input: {input:?}");
     }
 }
 
@@ -648,27 +650,51 @@ static C_TRACE: Mutex<Vec<i32>> = Mutex::new(Vec::new());
 static R_TRACE: Mutex<Vec<i32>> = Mutex::new(Vec::new());
 
 fn c_trace() -> Vec<i32> {
-    C_TRACE.lock().unwrap_or_else(|p| p.into_inner()).clone()
+    C_TRACE
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .clone()
 }
 fn r_trace() -> Vec<i32> {
-    R_TRACE.lock().unwrap_or_else(|p| p.into_inner()).clone()
+    R_TRACE
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .clone()
 }
 fn clear_traces() {
-    C_TRACE.lock().unwrap_or_else(|p| p.into_inner()).clear();
-    R_TRACE.lock().unwrap_or_else(|p| p.into_inner()).clear();
+    C_TRACE
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .clear();
+    R_TRACE
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .clear();
 }
 
 extern "C" fn c_trace_1() {
-    C_TRACE.lock().unwrap_or_else(|p| p.into_inner()).push(1);
+    C_TRACE
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .push(1);
 }
 extern "C" fn c_trace_2() {
-    C_TRACE.lock().unwrap_or_else(|p| p.into_inner()).push(2);
+    C_TRACE
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .push(2);
 }
 extern "C" fn r_trace_1() {
-    R_TRACE.lock().unwrap_or_else(|p| p.into_inner()).push(1);
+    R_TRACE
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .push(1);
 }
 extern "C" fn r_trace_2() {
-    R_TRACE.lock().unwrap_or_else(|p| p.into_inner()).push(2);
+    R_TRACE
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .push(2);
 }
 
 #[test]

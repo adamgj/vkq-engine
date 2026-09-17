@@ -81,11 +81,11 @@ fn glibc_hex_prefix_quirk(bytes: &[u8]) -> bool {
     while i < bytes.len() && matches!(bytes[i], b' ' | b'\t' | b'\n' | b'\x0b' | b'\x0c' | b'\r') {
         i += 1;
     }
-    if matches!(bytes.get(i), Some(b'-') | Some(b'+')) {
+    if matches!(bytes.get(i), Some(b'-' | b'+')) {
         i += 1;
     }
     bytes.get(i) == Some(&b'0')
-        && matches!(bytes.get(i + 1), Some(b'x') | Some(b'X'))
+        && matches!(bytes.get(i + 1), Some(b'x' | b'X'))
         && !bytes.get(i + 2).is_some_and(u8::is_ascii_hexdigit)
 }
 

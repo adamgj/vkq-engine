@@ -141,7 +141,7 @@ unsafe fn fixup_lump(
     };
 
     if let Some(problem) = repair_lump(&mut filepos, &mut size, disksize, file_len) {
-        warn(name as *const c_char, problem);
+        warn(name.cast_const(), problem);
     }
 
     // SAFETY: as above; the writes go back into the fields just read

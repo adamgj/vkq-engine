@@ -629,8 +629,9 @@ fn parse_rich_config_differential() {
         let mut found = [0 as c_int; 2];
         for (i, side) in SIDES.iter().enumerate() {
             // SAFETY: `full` outlives the call.
-            let raised =
-                unsafe { ctest_ftepart_find_type(*side, full.as_ptr(), &mut found[i] as *mut _) };
+            let raised = unsafe {
+                ctest_ftepart_find_type(*side, full.as_ptr(), std::ptr::from_mut(&mut found[i]))
+            };
             assert_eq!(raised, 0, "find_particle_type raised on side {side}");
         }
         assert_eq!(found[0], found[1], "index of {tag}{suffix}");

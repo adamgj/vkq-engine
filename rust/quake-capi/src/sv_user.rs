@@ -483,7 +483,7 @@ fn sv_water_move(ent: *mut Edict, cmd: &UserCmd) {
         let maxspeed = cvar_value(ptr::addr_of!(cu::sv_maxspeed));
         if wishspeed > maxspeed {
             let scale = maxspeed / wishspeed;
-            for c in wishvel.iter_mut() {
+            for c in &mut wishvel {
                 *c *= scale;
             }
             wishspeed = maxspeed;
@@ -631,7 +631,7 @@ fn sv_air_move(ent: *mut Edict, cmd: &UserCmd, onground: bool) -> Raise {
         let maxspeed = cvar_value(ptr::addr_of!(cu::sv_maxspeed));
         if wishspeed > maxspeed {
             let scale = maxspeed / wishspeed;
-            for c in wishvel.iter_mut() {
+            for c in &mut wishvel {
                 *c *= scale;
             }
             wishspeed = maxspeed;
@@ -750,7 +750,7 @@ fn sv_read_client_move(move_: *mut UserCmd) {
         (*hc).ping_times[idx] = ping;
         (*hc).num_pings = (*hc).num_pings.wrapping_add(1);
 
-        for a in angle.iter_mut() {
+        for a in &mut angle {
             // preserve the exact short-circuit order: the ProQuake angle
             // hack read must not run unless sv.protocol is NETQUAKE.
             let use_narrow = sv.protocol == PROTOCOL_NETQUAKE

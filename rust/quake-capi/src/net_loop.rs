@@ -226,16 +226,12 @@ pub unsafe extern "C" fn rust_loop_SendUnreliableMessage(
         debug_assert!(!core::ptr::eq(s.driverdata.cast::<QSocket>(), sock));
         let peer = &mut *s.driverdata.cast::<QSocket>();
         let payload = core::slice::from_raw_parts((*data).data, (*data).cursize as usize);
-        if loopback::push_unreliable(
+        i32::from(loopback::push_unreliable(
             &mut peer.receive_message,
             &mut peer.receive_message_length,
             payload,
             sequence,
-        ) {
-            1
-        } else {
-            0
-        }
+        ))
     }
 }
 

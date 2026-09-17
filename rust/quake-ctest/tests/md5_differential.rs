@@ -23,6 +23,7 @@ use core::ffi::{c_char, c_void, CStr};
 use quake_ctest::fs as ctfs;
 use quake_ctest::fs::Side;
 use quake_types::model_mem::{QModel, MAX_QPATH, PV_MD5};
+use std::fmt::Write as _;
 
 use mdx_record::{ctest_mdxstub_reset, recorded_skins, recorded_uploads, MdxSkin, Upload};
 use model_hash::{mdx_snapshot, Snapshot};
@@ -232,20 +233,23 @@ fn fd(v: f64) -> String {
 impl Md5 {
     fn mesh_text(&self) -> String {
         let mut s = String::new();
-        s.push_str(&format!("MD5Version {}\n", self.version));
+        let _ = writeln!(s, "MD5Version {}", self.version);
         s.push_str("commandline \"fixture\"\n");
-        s.push_str(&format!(
-            "numJoints {}\n",
+        let _ = writeln!(
+            s,
+            "numJoints {}",
             self.numjoints_override.unwrap_or(self.joints.len() as i64)
-        ));
-        s.push_str(&format!(
-            "numMeshes {}\n",
+        );
+        let _ = writeln!(
+            s,
+            "numMeshes {}",
             self.nummeshes_override.unwrap_or(self.meshes.len() as i64)
-        ));
-        s.push_str(&format!("{} {{\n", self.joints_keyword));
+        );
+        let _ = writeln!(s, "{} {{", self.joints_keyword);
         for j in &self.joints {
-            s.push_str(&format!(
-                "\t\"{}\" {} ( {} {} {} ) ( {} {} {} )\n",
+            let _ = writeln!(
+                s,
+                "\t\"{}\" {} ( {} {} {} ) ( {} {} {} )",
                 j.name,
                 j.parent,
                 f(j.pos[0]),
@@ -254,35 +258,38 @@ impl Md5 {
                 f(j.quat[0]),
                 f(j.quat[1]),
                 f(j.quat[2])
-            ));
+            );
         }
         s.push_str("}\n");
         for m in &self.meshes {
             s.push_str("mesh {\n");
-            s.push_str(&format!("\tshader \"{}\"\n", m.shader));
-            s.push_str(&format!(
-                "\tnumverts {}\n",
+            let _ = writeln!(s, "\tshader \"{}\"", m.shader);
+            let _ = writeln!(
+                s,
+                "\tnumverts {}",
                 m.numverts_override.unwrap_or(m.verts.len() as i64)
-            ));
+            );
             for (i, v) in m.verts.iter().enumerate() {
                 let idx = if i == 0 {
                     m.bad_vert_index.unwrap_or(0)
                 } else {
                     i as i64
                 };
-                s.push_str(&format!(
-                    "\tvert {} ( {} {} ) {} {}\n",
+                let _ = writeln!(
+                    s,
+                    "\tvert {} ( {} {} ) {} {}",
                     idx,
                     f(v.st[0]),
                     f(v.st[1]),
                     v.firstweight,
                     v.count
-                ));
+                );
             }
-            s.push_str(&format!(
-                "\tnumtris {}\n",
+            let _ = writeln!(
+                s,
+                "\tnumtris {}",
                 m.numtris_override.unwrap_or(m.tris.len() as i64)
-            ));
+            );
             for (i, t) in m.tris.iter().enumerate() {
                 let idx = if i == 0 {
                     m.bad_tri_index.unwrap_or(0)
@@ -294,12 +301,13 @@ impl Md5 {
                 } else {
                     t[0] as i64
                 };
-                s.push_str(&format!("\ttri {} {} {} {}\n", idx, a, t[1], t[2]));
+                let _ = writeln!(s, "\ttri {} {} {} {}", idx, a, t[1], t[2]);
             }
-            s.push_str(&format!(
-                "\tnumweights {}\n",
+            let _ = writeln!(
+                s,
+                "\tnumweights {}",
                 m.numweights_override.unwrap_or(m.weights.len() as i64)
-            ));
+            );
             for (i, w) in m.weights.iter().enumerate() {
                 let idx = if i == 0 {
                     m.bad_weight_index.unwrap_or(0)
@@ -311,15 +319,16 @@ impl Md5 {
                 } else {
                     w.joint as i64
                 };
-                s.push_str(&format!(
-                    "\tweight {} {} {} ( {} {} {} )\n",
+                let _ = writeln!(
+                    s,
+                    "\tweight {} {} {} ( {} {} {} )",
                     idx,
                     j,
                     fd(w.bias),
                     fd(w.pos[0]),
                     fd(w.pos[1]),
                     fd(w.pos[2])
-                ));
+                );
             }
             s.push_str("}\n");
         }
@@ -331,22 +340,19 @@ impl Anim {
     fn text(&self) -> String {
         let numjoints = self.numjoints_override.unwrap_or(self.hierarchy.len());
         let mut s = String::new();
-        s.push_str(&format!("MD5Version {}\n", self.version));
+        let _ = writeln!(s, "MD5Version {}", self.version);
         s.push_str("commandline \"fixture\"\n");
-        s.push_str(&format!("numFrames {}\n", self.numframes));
-        s.push_str(&format!("numJoints {}\n", numjoints));
-        s.push_str(&format!("frameRate {}\n", self.framerate));
+        let _ = writeln!(s, "numFrames {}", self.numframes);
+        let _ = writeln!(s, "numJoints {numjoints}");
+        let _ = writeln!(s, "frameRate {}", self.framerate);
         let rawcount = self
             .num_animated_components
-            .unwrap_or_else(|| self.frames.first().map(|f| f.len()).unwrap_or(0));
-        s.push_str(&format!("numAnimatedComponents {}\n", rawcount));
+            .unwrap_or_else(|| self.frames.first().map_or(0, std::vec::Vec::len));
+        let _ = writeln!(s, "numAnimatedComponents {rawcount}");
 
         s.push_str("hierarchy {\n");
         for h in &self.hierarchy {
-            s.push_str(&format!(
-                "\t\"{}\" {} {} {}\n",
-                h.name, h.parent, h.flags, h.offset
-            ));
+            let _ = writeln!(s, "\t\"{}\" {} {} {}", h.name, h.parent, h.flags, h.offset);
         }
         s.push_str("}\n");
 
@@ -358,15 +364,16 @@ impl Anim {
 
         s.push_str("baseframe {\n");
         for (pos, quat) in &self.baseframe {
-            s.push_str(&format!(
-                "\t( {} {} {} ) ( {} {} {} )\n",
+            let _ = writeln!(
+                s,
+                "\t( {} {} {} ) ( {} {} {} )",
                 f(pos[0]),
                 f(pos[1]),
                 f(pos[2]),
                 f(quat[0]),
                 f(quat[1]),
                 f(quat[2])
-            ));
+            );
         }
         s.push_str("}\n");
 
@@ -376,9 +383,9 @@ impl Anim {
             } else {
                 i as i64
             };
-            s.push_str(&format!("frame {} {{\n", idx));
+            let _ = writeln!(s, "frame {idx} {{");
             for v in frame {
-                s.push_str(&format!("\t{}\n", f(*v)));
+                let _ = writeln!(s, "\t{}", f(*v));
             }
             s.push_str("}\n");
         }
@@ -530,8 +537,10 @@ fn field<'a>(snap: &'a Snapshot, key: &str) -> &'a str {
     snap.lines
         .iter()
         .find(|l| l.starts_with(&prefix))
-        .map(|l| &l[prefix.len()..])
-        .unwrap_or_else(|| panic!("no `{key}` line in snapshot"))
+        .map_or_else(
+            || panic!("no `{key}` line in snapshot"),
+            |l| &l[prefix.len()..],
+        )
 }
 
 /// An `mdl_t` header just complete enough for `MD5_HackyModelFlags`.
