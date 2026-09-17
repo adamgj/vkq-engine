@@ -304,6 +304,15 @@ No Meson build is required (no C change; A7).
   `bytes[1..=len]` with `len == 0` is the empty slice, not a panic
   (`1..=0` indexes as `1..1`), so `[]` still reaches the resolver as an
   empty host exactly as `1..1 + len` did and as the C does.
+  Second round: the same two jobs then failed on the one file the
+  Linux-target pass had skipped, `quake-ctest/tests/net_udp_differential.rs`
+  (`#![cfg(unix)]`; the crate was excluded because its `build.rs` compiles
+  C for the host) -- a `redundant_closure_for_method_calls` on the
+  poison-tolerant lock and a `needless_for_each`. Fixed mechanically. It
+  is the only non-Windows-gated file in `quake-ctest`, and it lints clean
+  on the Windows host with the gate line temporarily removed (clippy does
+  not link, so the `c_ref_*` externs are irrelevant; the gate was restored
+  before committing) -- that is the local evidence for it (§13).
 
 ## 13. Verification evidence / handoff
 
@@ -319,6 +328,7 @@ pre-PR evidence.
 | `cargo clippy -p quake-capi --all-targets --locked --features platform,sdl2 -- -D warnings` | broad | clean |
 | The same four arms with `--target x86_64-unknown-linux-gnu` (2026-09-17, after the PR #42 review fixes; `quake-ctest` excluded from the workspace arm because its `build.rs` compiles C for the host) | broad | clean |
 | `-p quake-capi --target x86_64-unknown-linux-gnu` with the `quake-ctest` feature union plus `progs,render,tasks`, alone and with each of `platform,sdl3` / `platform,sdl2` (no CI arm compiles these unions) | broad | clean |
+| `cargo clippy -p quake-ctest --test net_udp_differential -- -D warnings` on the Windows host with the file's `#![cfg(unix)]` line temporarily removed (2026-09-17, second review round; the only unix-gated file in `quake-ctest`) | targeted | clean |
 | `cargo fmt --all -- --check` | broad | clean |
 | `cargo test --workspace --locked` (debug) | broad | 1 566 passed, 0 failed |
 | `cargo test --workspace --locked --release` | broad | 1 566 passed, 0 failed |
