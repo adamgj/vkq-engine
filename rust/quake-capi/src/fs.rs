@@ -870,6 +870,8 @@ unsafe fn set_user_pref_dir() {
 
 #[cfg(feature = "sdl3")]
 mod basedirs {
+    // the module is a cfg-gated slice of this file, not a namespace boundary
+    #[allow(clippy::wildcard_imports)]
     use super::*;
 
     // indexed by quakeflavor_t
@@ -979,6 +981,7 @@ pub unsafe extern "C" fn COM_WriteSelectedBaseDir() {
     #[cfg(feature = "sdl3")]
     // SAFETY: main-thread statics + stdio, like the C.
     unsafe {
+        #[allow(clippy::wildcard_imports)]
         use basedirs::*;
         if !COM_PENDINGBASEDIRWRITE {
             return;
@@ -1169,6 +1172,7 @@ unsafe fn find_store_base_dir() -> bool {
         if !forced && !sys::isDedicated {
             #[cfg(feature = "sdl3")]
             {
+                #[allow(clippy::wildcard_imports)]
                 use basedirs::*;
                 load_selected_base_dirs();
 

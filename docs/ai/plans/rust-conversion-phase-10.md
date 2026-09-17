@@ -253,14 +253,17 @@ No Meson build is required (no C change; A7).
   invariants) became `assert_eq!`. Condition unchanged; only the panic text
   differs, and no harness gate consumes it. Every other assert change is a
   `debug_assert!` → `debug_assert_eq!`.
-- 2026-09-16 (M3) — Seven local `#[allow]` attributes (three lints, five files) instead of workspace entries:
+- 2026-09-16 (M3) — Ten local `#[allow]` attributes (three lints, six files) instead of workspace entries:
   `wildcard_imports` on the `keys::*` tables (`quake-platform/src/input/
   mod.rs`, `scancode.rs`) and `enum_glob_use` on the three bindgen SDL2 enum
   tables (`sdl2.rs`), because the alternative is a 60-name import list that
   no longer reads like `keys.h`; `redundant_closure_for_method_calls` on
   two higher-ranked closures (`net.rs:372`, `net_dgrm_orch.rs:1020`) where
   clippy's suggested method path fails to type-check (lifetime-generic
-  `with_net_message` callbacks).
+  `with_net_message` callbacks); and `wildcard_imports` on the three
+  `basedirs` glob imports in `quake-capi/src/fs.rs` (the `fs`+`sdl3`
+  slice, which no CI arm compiles -- found by the PR-review Linux-target
+  pass below).
 - 2026-09-16 (M3) — Workspace `allow` list grew past the plan's D3 sketch
   by nine entries: `manual_midpoint` (`f32::midpoint` is not bit-identical
   to the C `(a + b) / 2`, ADR-010), `case_sensitive_file_extension_comparisons`
@@ -276,15 +279,31 @@ No Meson build is required (no C change; A7).
   build-tool error message loses its quoting. No engine, harness or
   generated-output surface reads it.
 - 2026-09-16 (review) — `scripts/c_remnant_inventory.py --check` compares
-  the doc with every integer-only table cell masked, so a C-only edit that
-  moves a line count does not fail `rust.yml` until the doc is regenerated;
-  classification (rows, categories, `USE_RUST_*` arms, notes) is still
-  gated. The unsafe inventory keeps exact counts in its check on purpose:
-  it exists to measure the Rust side, and a Rust change that moves a count
+  the doc with the `Lines` column of every table masked, so a C-only edit
+  that moves a line count does not fail `rust.yml` until the doc is
+  regenerated; classification (rows, categories, file counts, `USE_RUST_*`
+  arms, notes) is still gated. (The first cut masked every integer-only
+  cell, which also hid the arms column; narrowed on the PR #42 review.)
+  The unsafe inventory keeps exact counts in its check on purpose: it
+  exists to measure the Rust side, and a Rust change that moves a count
   should regenerate it.
 - 2026-09-16 (M4) — `rust/fuzz/Cargo.lock` refresh (`windows-sys` under
   `quake-net`, stale since Phase 9 M2) committed as a side effect of the
   fuzz-workspace `cargo deny` run in §10; not a new dependency.
+- 2026-09-17 (PR #42 review) — The two Linux clippy jobs failed on two
+  pedantic sites in `quake-capi/src/net_udp.rs` (`range_plus_one`,
+  `single_match_else`) that the Windows dev box never compiles
+  (`cfg(unix)`); fixed to read like `net_wins.rs`, together with a
+  `redundant_closure_for_method_calls` in `quake-platform/src/sys/unix.rs`.
+  The local evidence now includes a `--target x86_64-unknown-linux-gnu`
+  clippy pass over the CI arms and the full feature union (§13), which also
+  surfaced the `fs.rs` wildcard imports above. Copilot's other two findings
+  were checked and not applied: the `cl_parse.rs:1238` `continue` was in
+  tail position (the `if`/`else if`/`else` chain is the last statement of
+  the `loop` body, and the C's `continue` lands at the same place), and
+  `bytes[1..=len]` with `len == 0` is the empty slice, not a panic
+  (`1..=0` indexes as `1..1`), so `[]` still reaches the resolver as an
+  empty host exactly as `1..1 + len` did and as the C does.
 
 ## 13. Verification evidence / handoff
 
@@ -298,6 +317,8 @@ pre-PR evidence.
 | `cargo clippy -p quake-capi --all-targets --locked --features progs,render -- -D warnings` | broad | clean |
 | `cargo clippy -p quake-capi --all-targets --locked --features platform,sdl3 -- -D warnings` | broad | clean |
 | `cargo clippy -p quake-capi --all-targets --locked --features platform,sdl2 -- -D warnings` | broad | clean |
+| The same four arms with `--target x86_64-unknown-linux-gnu` (2026-09-17, after the PR #42 review fixes; `quake-ctest` excluded from the workspace arm because its `build.rs` compiles C for the host) | broad | clean |
+| `-p quake-capi --target x86_64-unknown-linux-gnu` with the `quake-ctest` feature union plus `progs,render,tasks`, alone and with each of `platform,sdl3` / `platform,sdl2` (no CI arm compiles these unions) | broad | clean |
 | `cargo fmt --all -- --check` | broad | clean |
 | `cargo test --workspace --locked` (debug) | broad | 1 566 passed, 0 failed |
 | `cargo test --workspace --locked --release` | broad | 1 566 passed, 0 failed |
