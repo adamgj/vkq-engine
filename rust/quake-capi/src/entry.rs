@@ -12,7 +12,14 @@
 //!   inline `WinMain` did in `main_sdl.c` -- SDL converts the wide command
 //!   line to a UTF-8 `argv`;
 //! - Windows + SDL2: `SDL_main`, the symbol `SDL2main.lib`'s own `WinMain`
-//!   calls (`SDL.h` renamed `main` to it in the C build).
+//!   calls (`SDL.h` renamed `main` to it in the C build). This arm is
+//!   unreachable from Meson: `meson.build` refuses `-Duse_sdl3=disabled` on
+//!   Windows ("SDL2 is not supported on Windows"), so no build links it,
+//!   and CI's `platform,sdl2` clippy arms (`rust.yml`) run on Linux/macOS
+//!   where `cfg(windows)` is false -- only a local Windows
+//!   `cargo clippy --features platform,sdl2` type-checks this body. It is
+//!   kept as the spelling the C build used rather than a `compile_error!`
+//!   so a future Windows SDL2 build is a Meson decision, not a crate one.
 //!
 //! No C TU may define `main`/`WinMain` or include `SDL3/SDL_main.h`'s
 //! entry shim any more (Meson drops `main_sdl.c` under
@@ -52,7 +59,9 @@ pub unsafe extern "system" fn WinMain(
 }
 
 /// `int SDL_main (int argc, char *argv[])` -- what `SDL2main.lib`'s
-/// `WinMain` calls after building the UTF-8 `argv`.
+/// `WinMain` calls after building the UTF-8 `argv`. Unreachable today:
+/// Meson does not configure SDL2 on Windows (see the module doc), so this
+/// body is neither type-checked nor linked by any CI job.
 ///
 /// # Safety
 /// Called once by `SDL2main` on the main thread with its `argc`/`argv`.

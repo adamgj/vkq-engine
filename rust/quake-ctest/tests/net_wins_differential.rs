@@ -315,3 +315,36 @@ fn host_port_guards_match() {
     let split = udp::split_host_port(multi.as_bytes(), udp::MAXHOSTNAMELEN);
     assert!(split.is_some_and(|(host, _)| host.contains(&b':')));
 }
+
+#[test]
+fn host_port_strtoul_clamp_matches_c() {
+    let _l = lock();
+    // strtoul clamps at the target's ULONG_MAX before the (unsigned short)
+    // cut: one past 2^32 is port 0xFFFF where unsigned long is 32-bit
+    // (Windows, 32-bit unix) and 0 on LP64. The pure helper mirrors the
+    // width via c_ulong; resolve "localhost" only to get the C value out
+    // (gethostbyname needs Winsock up: the C driver's WINS_Init did that)
+    udp::sys::wsa_startup(2, 2).expect("WSAStartup");
+    for s in [
+        "localhost:4294967296",
+        "localhost:-1",
+        "localhost:18446744073709551616",
+    ] {
+        let mut cs = s.as_bytes().to_vec();
+        cs.push(0);
+        let mut ca = QSockAddr::zeroed();
+        // SAFETY: serialized by TEST_LOCK
+        let cret = unsafe { c_ref_WINIPv4_GetAddrFromName(cs.as_ptr().cast(), &mut ca) };
+        if cret != 0 {
+            eprintln!("skipped: localhost did not resolve ({cret})");
+            return;
+        }
+        let (_, port) = udp::split_host_port(s.as_bytes(), udp::MAXHOSTNAMELEN).unwrap();
+        assert_eq!(
+            udp::get_socket_port_wins(&ca),
+            port.unwrap() as i32,
+            "input {s:?}"
+        );
+    }
+    udp::sys::wsa_cleanup();
+}

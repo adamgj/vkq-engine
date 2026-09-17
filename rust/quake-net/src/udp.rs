@@ -13,6 +13,8 @@
 //! address at 4, the IPv6 address at 8 and the scope id at 24
 //! (native-endian) -- i.e. at offsets 0/2/6/22 of the mirror's `qsa_data`.
 
+use core::ffi::c_ulong;
+
 use crate::cnum::c_atoi;
 use quake_types::net::QSockAddr;
 
@@ -335,8 +337,13 @@ pub fn split_host_port(name: &[u8], maxhostnamelen: usize) -> Option<(Vec<u8>, O
             }
             let host = name[..colon].to_vec();
             // strtoul(colon+1, NULL, 10) truncated to unsigned short:
-            // leading whitespace, optional sign ('-' wraps modulo
-            // ULONG_MAX+1), digits, clamp at ULONG_MAX, then the u16 cut
+            // leading whitespace, optional sign, digits; overflow returns
+            // ULONG_MAX unsigned (glibc and the UCRT agree) and only an
+            // in-range '-' value wraps modulo ULONG_MAX+1, then the u16 cut.
+            // The accumulator is the target's `unsigned long` because the
+            // clamp is width-dependent: 64-bit on LP64 unix, 32-bit on
+            // Windows (LLP64) and 32-bit targets, so `host:4294967296` is
+            // port 0xFFFF on Windows and 0 on 64-bit Linux
             let s = &name[colon + 1..];
             let mut i = 0;
             while i < s.len() && (s[i] == b' ' || (0x09..=0x0d).contains(&s[i])) {
@@ -347,12 +354,21 @@ pub fn split_host_port(name: &[u8], maxhostnamelen: usize) -> Option<(Vec<u8>, O
                 neg = s[i] == b'-';
                 i += 1;
             }
-            let mut v: u64 = 0;
+            let mut v: c_ulong = 0;
+            let mut overflow = false;
             while i < s.len() && s[i].is_ascii_digit() {
-                v = v.saturating_mul(10).saturating_add((s[i] - b'0') as u64);
+                match v
+                    .checked_mul(10)
+                    .and_then(|v| v.checked_add(c_ulong::from(s[i] - b'0')))
+                {
+                    Some(n) => v = n,
+                    None => overflow = true,
+                }
                 i += 1;
             }
-            if neg {
+            if overflow {
+                v = c_ulong::MAX;
+            } else if neg {
                 v = v.wrapping_neg();
             }
             Some((host, Some(v as u16)))
@@ -550,5 +566,30 @@ mod tests {
         assert_eq!(set_socket_port(&mut x, 5), -1);
         assert_eq!(set_socket_port_wins(&mut x, 5), 0);
         assert_eq!(get_socket_port_wins(&x), 5);
+    }
+
+    #[test]
+    fn split_host_port_strtoul_width() {
+        let port = |s: &str| split_host_port(s.as_bytes(), 256).unwrap().1.unwrap();
+        assert_eq!(port("h:26000"), 26000);
+        assert_eq!(port("h: +70000"), (70000u32 & 0xFFFF) as u16);
+        assert_eq!(port("h:-1"), 0xFFFF);
+        assert_eq!(port("h:junk"), 0);
+        // one past ULONG_MAX: strtoul clamps, so the u16 cut differs by
+        // target width -- 0xFFFF where unsigned long is 32-bit, 0 at 64
+        let past32 = port("h:4294967296");
+        let past64 = port("h:18446744073709551616");
+        if c_ulong::BITS == 32 {
+            assert_eq!(past32, 0xFFFF);
+        } else {
+            assert_eq!(past32, 0);
+        }
+        assert_eq!(past64, 0xFFFF);
+        // overflow with a sign is still ULONG_MAX, not its negation
+        assert_eq!(port("h:-18446744073709551616"), 0xFFFF);
+        assert_eq!(
+            port("h:-4294967296"),
+            if c_ulong::BITS == 32 { 0xFFFF } else { 0 }
+        );
     }
 }
