@@ -177,6 +177,12 @@ jobs:
     # and the committed inventory is current
     - name: Residual setjmp inventory (ADR-009)
       run: python3 scripts/setjmp_inventory.py --check
+    # Phase 10 M1/M2: every C TU and vendored library is classified (ADR-002)
+    # and the per-crate unsafe inventory is current (ADR-004)
+    - name: C remnant inventory (ADR-002)
+      run: python3 scripts/c_remnant_inventory.py --check
+    - name: Unsafe inventory (ADR-004)
+      run: python3 scripts/unsafe_inventory.py --check
     - name: Regenerate quake-c-sys bindings and diff (ADR-011)
       run: |
         ./scripts/gen_c_bindings.sh
