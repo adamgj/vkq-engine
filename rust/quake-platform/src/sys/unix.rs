@@ -180,11 +180,16 @@ unsafe fn exec(cmd: *const c_char, args: &[*const c_char]) -> bool {
         if p == 0 {
             // child process
 
-            // Disable stdout/stderr
+            // Disable stdout/stderr. The C used freopen, which replaced the
+            // streams in place; dup2 leaves the extra descriptor open, so
+            // close it rather than pass it to the child's exec image.
             let null = libc::open(c"/dev/null".as_ptr(), libc::O_WRONLY);
             if null >= 0 {
                 libc::dup2(null, 1);
                 libc::dup2(null, 2);
+                if null > 2 {
+                    libc::close(null);
+                }
             }
 
             libc::execvp(cmd, argv.as_ptr());

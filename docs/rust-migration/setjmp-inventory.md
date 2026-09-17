@@ -56,23 +56,23 @@ keeps its own harness-only traps and is out of scope. Runs in CI (the
 | `host.c:344` | `Host_Reraise` | `longjmp (host_abortserver, 1);` | deleted with soak exit | C-oracle TU (`use_rust_host` swaps in `host_glue.c`; Phase 9 deletion list) |
 | `host.c:346` | `Host_Reraise` | `longjmp (screen_error, 1);` | deleted with soak exit | C-oracle TU (`use_rust_host` swaps in `host_glue.c`; Phase 9 deletion list) |
 | `host.c:1093` | `_Host_Frame` | `if (setjmp (host_abortserver))` | deleted with soak exit | C-oracle TU (`use_rust_host` swaps in `host_glue.c`; Phase 9 deletion list) |
-| `host_glue.c:79` | - | `#include <setjmp.h>` | converted at Phase 10 | goes with the last `jmp_buf` |
-| `host_glue.c:112` | - | `jmp_buf host_abortserver;` | converted at Phase 10 | the two raise targets; become `Result` propagation once `Host_Error`/`Host_EndGame` are Rust (ADR-009 end state) |
-| `host_glue.c:113` | - | `jmp_buf screen_error;` | converted at Phase 10 | the two raise targets; become `Result` propagation once `Host_Error`/`Host_EndGame` are Rust (ADR-009 end state) |
-| `host_glue.c:225` | `Host_EndGame` | `longjmp (host_abortserver, 1);` | converted at Phase 10 | `Host_Error`/`Host_EndGame` raise; becomes `Err(HostError)` when the raise moves to Rust |
-| `host_glue.c:281` | `Host_Error` | `longjmp (screen_error, 1);` | converted at Phase 10 | `Host_Error` while CSQC draws the HUD; becomes an error path of the Rust render frame (ADR-009) |
-| `host_glue.c:296` | `Host_Error` | `longjmp (host_abortserver, 1);` | converted at Phase 10 | `Host_Error`/`Host_EndGame` raise; becomes `Err(HostError)` when the raise moves to Rust |
-| `host_glue.c:321` | `Host_Guard` | `jmp_buf saved_abortserver;` | converted at Phase 10 | `Host_Guard`/`Host_Reraise` trampoline pair (ADR-009 rule 3); needed while any C caller can raise past a Rust frame |
-| `host_glue.c:322` | `Host_Guard` | `jmp_buf saved_screen_error;` | converted at Phase 10 | `Host_Guard`/`Host_Reraise` trampoline pair (ADR-009 rule 3); needed while any C caller can raise past a Rust frame |
-| `host_glue.c:325` | `Host_Guard` | `memcpy (saved_abortserver, host_abortserver, sizeof (jmp_buf));` | converted at Phase 10 | `Host_Guard`/`Host_Reraise` trampoline pair (ADR-009 rule 3); needed while any C caller can raise past a Rust frame |
-| `host_glue.c:326` | `Host_Guard` | `memcpy (saved_screen_error, screen_error, sizeof (jmp_buf));` | converted at Phase 10 | `Host_Guard`/`Host_Reraise` trampoline pair (ADR-009 rule 3); needed while any C caller can raise past a Rust frame |
-| `host_glue.c:328` | `Host_Guard` | `if (setjmp (host_abortserver))` | converted at Phase 10 | `Host_Guard`/`Host_Reraise` trampoline pair (ADR-009 rule 3); needed while any C caller can raise past a Rust frame |
-| `host_glue.c:332` | `Host_Guard` | `else if (setjmp (screen_error))` | converted at Phase 10 | `Host_Guard`/`Host_Reraise` trampoline pair (ADR-009 rule 3); needed while any C caller can raise past a Rust frame |
-| `host_glue.c:342` | `Host_Guard` | `memcpy (host_abortserver, saved_abortserver, sizeof (jmp_buf));` | converted at Phase 10 | `Host_Guard`/`Host_Reraise` trampoline pair (ADR-009 rule 3); needed while any C caller can raise past a Rust frame |
-| `host_glue.c:343` | `Host_Guard` | `memcpy (screen_error, saved_screen_error, sizeof (jmp_buf));` | converted at Phase 10 | `Host_Guard`/`Host_Reraise` trampoline pair (ADR-009 rule 3); needed while any C caller can raise past a Rust frame |
-| `host_glue.c:361` | `Host_Reraise` | `longjmp (host_abortserver, 1);` | converted at Phase 10 | `Host_Guard`/`Host_Reraise` trampoline pair (ADR-009 rule 3); needed while any C caller can raise past a Rust frame |
-| `host_glue.c:363` | `Host_Reraise` | `longjmp (screen_error, 1);` | converted at Phase 10 | `Host_Guard`/`Host_Reraise` trampoline pair (ADR-009 rule 3); needed while any C caller can raise past a Rust frame |
-| `host_glue.c:926` | `Host_Glue_FrameInner` | `if (setjmp (host_abortserver))` | deleted with soak exit | the C frame's own `setjmp`, compiled only without `USE_RUST_PLATFORM` (with it the frame is a `Host_Guard` whose status `quake_rs_host_frame` hands back); the Rust loop (`quake-platform::main_sdl::recover`) owns frame-abort recovery, and the `#ifndef` goes with the `use_rust_platform` switch |
+| `host_glue.c:81` | - | `#include <setjmp.h>` | converted at Phase 10 | goes with the last `jmp_buf` |
+| `host_glue.c:114` | - | `jmp_buf host_abortserver;` | converted at Phase 10 | the two raise targets; become `Result` propagation once `Host_Error`/`Host_EndGame` are Rust (ADR-009 end state) |
+| `host_glue.c:115` | - | `jmp_buf screen_error;` | converted at Phase 10 | the two raise targets; become `Result` propagation once `Host_Error`/`Host_EndGame` are Rust (ADR-009 end state) |
+| `host_glue.c:227` | `Host_EndGame` | `longjmp (host_abortserver, 1);` | converted at Phase 10 | `Host_Error`/`Host_EndGame` raise; becomes `Err(HostError)` when the raise moves to Rust |
+| `host_glue.c:283` | `Host_Error` | `longjmp (screen_error, 1);` | converted at Phase 10 | `Host_Error` while CSQC draws the HUD; becomes an error path of the Rust render frame (ADR-009) |
+| `host_glue.c:298` | `Host_Error` | `longjmp (host_abortserver, 1);` | converted at Phase 10 | `Host_Error`/`Host_EndGame` raise; becomes `Err(HostError)` when the raise moves to Rust |
+| `host_glue.c:323` | `Host_Guard` | `jmp_buf saved_abortserver;` | converted at Phase 10 | `Host_Guard`/`Host_Reraise` trampoline pair (ADR-009 rule 3); needed while any C caller can raise past a Rust frame |
+| `host_glue.c:324` | `Host_Guard` | `jmp_buf saved_screen_error;` | converted at Phase 10 | `Host_Guard`/`Host_Reraise` trampoline pair (ADR-009 rule 3); needed while any C caller can raise past a Rust frame |
+| `host_glue.c:327` | `Host_Guard` | `memcpy (saved_abortserver, host_abortserver, sizeof (jmp_buf));` | converted at Phase 10 | `Host_Guard`/`Host_Reraise` trampoline pair (ADR-009 rule 3); needed while any C caller can raise past a Rust frame |
+| `host_glue.c:328` | `Host_Guard` | `memcpy (saved_screen_error, screen_error, sizeof (jmp_buf));` | converted at Phase 10 | `Host_Guard`/`Host_Reraise` trampoline pair (ADR-009 rule 3); needed while any C caller can raise past a Rust frame |
+| `host_glue.c:330` | `Host_Guard` | `if (setjmp (host_abortserver))` | converted at Phase 10 | `Host_Guard`/`Host_Reraise` trampoline pair (ADR-009 rule 3); needed while any C caller can raise past a Rust frame |
+| `host_glue.c:334` | `Host_Guard` | `else if (setjmp (screen_error))` | converted at Phase 10 | `Host_Guard`/`Host_Reraise` trampoline pair (ADR-009 rule 3); needed while any C caller can raise past a Rust frame |
+| `host_glue.c:344` | `Host_Guard` | `memcpy (host_abortserver, saved_abortserver, sizeof (jmp_buf));` | converted at Phase 10 | `Host_Guard`/`Host_Reraise` trampoline pair (ADR-009 rule 3); needed while any C caller can raise past a Rust frame |
+| `host_glue.c:345` | `Host_Guard` | `memcpy (screen_error, saved_screen_error, sizeof (jmp_buf));` | converted at Phase 10 | `Host_Guard`/`Host_Reraise` trampoline pair (ADR-009 rule 3); needed while any C caller can raise past a Rust frame |
+| `host_glue.c:363` | `Host_Reraise` | `longjmp (host_abortserver, 1);` | converted at Phase 10 | `Host_Guard`/`Host_Reraise` trampoline pair (ADR-009 rule 3); needed while any C caller can raise past a Rust frame |
+| `host_glue.c:365` | `Host_Reraise` | `longjmp (screen_error, 1);` | converted at Phase 10 | `Host_Guard`/`Host_Reraise` trampoline pair (ADR-009 rule 3); needed while any C caller can raise past a Rust frame |
+| `host_glue.c:929` | `Host_Glue_FrameInner` | `if (setjmp (host_abortserver))` | deleted with soak exit | the C frame's own `setjmp`, compiled only without `USE_RUST_PLATFORM` (with it the frame is a `Host_Guard` whose status `quake_rs_host_frame` hands back); the Rust loop (`quake-platform::main_sdl::recover`) owns frame-abort recovery, and the `#ifndef` goes with the `use_rust_platform` switch |
 
 Totals: 19 converted at Phase 10, 21 deleted with soak exit.
 
@@ -100,7 +100,7 @@ The last column lists the Rust source files that call the TU's thunks
 | `gl_screen_glue.c` | 2 | 1 | `rust/quake-capi/src/gl_screen.rs` |
 | `gl_texmgr_glue.c` | 2 | 1 | `rust/quake-capi/src/gl_texmgr.rs` |
 | `host_cmd_glue.c` | 19 | 1 | `rust/quake-capi/src/host_cmd.rs` |
-| `host_glue.c` | 102 | 18 | `rust/quake-capi/src/host.rs`, `rust/quake-capi/src/host_cmd.rs`, `rust/quake-capi/src/menu.rs`, `rust/quake-capi/src/sbar.rs` |
+| `host_glue.c` | 103 | 18 | `rust/quake-capi/src/host.rs`, `rust/quake-capi/src/host_cmd.rs`, `rust/quake-capi/src/menu.rs`, `rust/quake-capi/src/sbar.rs` |
 | `in_sdl_glue.c` | 7 | 3 | `rust/quake-platform/src/input/mod.rs` |
 | `keys_glue.c` | 11 | 8 | `rust/quake-capi/src/keys.rs` |
 | `menu_glue.c` | 10 | 4 | `rust/quake-capi/src/menu.rs` |
@@ -126,7 +126,7 @@ The last column lists the Rust source files that call the TU's thunks
 | `sys_glue.c` | 4 | 3 | `rust/quake-platform/src/main_sdl.rs`, `rust/quake-platform/src/sys/unix.rs`, `rust/quake-platform/src/sys/win.rs` |
 | `view_glue.c` | 4 | 2 | `rust/quake-capi/src/view.rs` |
 | `world_glue.c` | 6 | 6 | `rust/quake-capi/src/host_cmd.rs`, `rust/quake-capi/src/progs_builtins_cl.rs`, `rust/quake-capi/src/progs_builtins_particles.rs`, `rust/quake-capi/src/progs_builtins_sv.rs`, `rust/quake-capi/src/progs_builtins_sv_msg.rs`, `rust/quake-capi/src/progs_builtins_te.rs`, `rust/quake-capi/src/sv_main.rs`, `rust/quake-capi/src/sv_move.rs`, `rust/quake-capi/src/sv_phys.rs`, `rust/quake-capi/src/sv_send.rs`, `rust/quake-capi/src/world.rs` |
-| **total (39 TUs)** | **343** | **137** | |
+| **total (39 TUs)** | **344** | **137** | |
 
 All of these convert at Phase 10 with the trampoline pair: once the raise
 itself is Rust (`Host_Error`/`Host_EndGame` return `Err(HostError)`), a

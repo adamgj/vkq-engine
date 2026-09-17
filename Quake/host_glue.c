@@ -67,9 +67,11 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 //     PR_SwitchQCVM (pr_edict_load.c:36 -- a pointer swap whose only failure
 //     exit is Sys_Error), Cvar_RegisterVariable, Cvar_SetCallback,
 //     Cmd_AddCommand, COM_CheckParm, COM_Rand, Sys_DoubleTime, Sys_Printf,
-//     Sys_ConsoleInput, Sys_SendKeyEvents, SDL_Delay, SZ_Clear, Info_GetKey,
+//     Sys_ConsoleInput, SDL_Delay, SZ_Clear, Info_GetKey,
 //     q_vsnprintf/q_snprintf/q_strlcpy and the Steam_SetStatus_* shims cannot
-//     longjmp, so the Rust side calls them directly.
+//     longjmp, so the Rust side calls them directly. Sys_SendKeyEvents is
+//     not among them: the input pump reaches Key_Event (and, under
+//     USE_RUST_PLATFORM, sys_glue.c's Host_Reraise), so it is guarded.
 //
 // Host_Error (:218), Host_EndGame (:185), Host_Guard (:302) and Host_Reraise
 // (:339) are reproduced verbatim below: they are the raise machinery itself and
@@ -419,6 +421,7 @@ HOST_GUARD_VOID (SV_SendClientMessages)
 /* host.c:1110-1231 -- the _Host_Frame body's own calls. */
 HOST_GUARD_VOID (Key_UpdateForDest)
 HOST_GUARD_VOID (IN_UpdateInputMode)
+HOST_GUARD_VOID (Sys_SendKeyEvents)
 HOST_GUARD_VOID (IN_Commands)
 HOST_GUARD_VOID (Con_UpdateMouseState)
 HOST_GUARD_VOID (Cbuf_Execute)

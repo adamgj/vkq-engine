@@ -30,7 +30,7 @@
 //! `PR_SwitchQCVM`, `Cvar_RegisterVariable`, `Cvar_SetCallback`,
 //! `COM_CheckParm`, `COM_Rand`, `COM_FOpenPrefFile`, `COM_SkipPath`,
 //! `COM_StripExtension`, `Sys_DoubleTime`, `Sys_Printf`, `Sys_Error`,
-//! `Sys_ConsoleInput`, `Sys_SendKeyEvents`, `Mem_Alloc`, `Mem_Free`,
+//! `Sys_ConsoleInput`, `Mem_Alloc`, `Mem_Free`,
 //! `Info_GetKey`, `Tasks_IsWorker`, `Cbuf_Waited`, `SDL_Delay`, the
 //! `Steam_SetStatus_*` trio and the `stdio` calls in
 //! `Host_WriteConfiguration`.
@@ -1649,7 +1649,15 @@ pub extern "C" fn quake_rs_host_frame_core(time: f64) -> Raise {
             // get new key events
             raise!(g::Host_Glue_Key_UpdateForDest());
             raise!(g::Host_Glue_IN_UpdateInputMode());
-            g::Sys_SendKeyEvents();
+            // The input pump can raise (Key_Event), so it is never a plain
+            // call from this frame (ADR-009 rule 3): under `platform` the
+            // status-returning core is called directly (what sys_glue.c's
+            // `Sys_SendKeyEvents` wraps in `Host_Reraise`), otherwise the C
+            // pump goes through its `Host_Guard` thunk.
+            #[cfg(feature = "platform")]
+            raise!(quake_platform::sys::send_key_events());
+            #[cfg(not(feature = "platform"))]
+            raise!(g::Host_Glue_Sys_SendKeyEvents());
 
             // allow mice or other external controllers to add commands
             raise!(g::Host_Glue_IN_Commands());

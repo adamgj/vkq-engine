@@ -146,6 +146,10 @@ extern "C" {
     pub fn Host_Glue_SV_SendClientMessages() -> c_int;
     pub fn Host_Glue_Key_UpdateForDest() -> c_int;
     pub fn Host_Glue_IN_UpdateInputMode() -> c_int;
+    /// The input pump reaches `Key_Event`, so it is guarded like the rest
+    /// of the `_Host_Frame` body (ADR-009 rule 3). Without the `platform`
+    /// feature it is the only way to the C `Sys_SendKeyEvents`.
+    pub fn Host_Glue_Sys_SendKeyEvents() -> c_int;
     pub fn Host_Glue_IN_Commands() -> c_int;
     pub fn Host_Glue_Con_UpdateMouseState() -> c_int;
     pub fn Host_Glue_Cbuf_Execute() -> c_int;
@@ -271,7 +275,6 @@ extern "C" {
      * raise-free, so they are called straight through (ADR-009 rule 4). */
     pub fn Cbuf_Waited();
     pub fn Sys_ConsoleInput() -> *const c_char;
-    pub fn Sys_SendKeyEvents();
     pub fn SDL_Delay(ms: u32);
     pub fn Steam_SetStatus_Menu();
     pub fn Steam_SetStatus_SinglePlayer(map: *const c_char);
