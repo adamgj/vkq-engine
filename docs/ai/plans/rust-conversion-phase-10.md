@@ -253,7 +253,7 @@ No Meson build is required (no C change; A7).
   invariants) became `assert_eq!`. Condition unchanged; only the panic text
   differs, and no harness gate consumes it. Every other assert change is a
   `debug_assert!` → `debug_assert_eq!`.
-- 2026-09-16 (M3) — Four local `#[allow]`s instead of workspace entries:
+- 2026-09-16 (M3) — Seven local `#[allow]` attributes (three lints, five files) instead of workspace entries:
   `wildcard_imports` on the `keys::*` tables (`quake-platform/src/input/
   mod.rs`, `scancode.rs`) and `enum_glob_use` on the three bindgen SDL2 enum
   tables (`sdl2.rs`), because the alternative is a 60-name import list that
@@ -270,6 +270,18 @@ No Meson build is required (no C change; A7).
   `struct_field_names`, `match_same_arms`, `large_stack_arrays` ("read
   like the C" cases, most surfaced only by the `progs,render` and
   `platform` arms). 29 entries total, each commented in `rust/Cargo.toml`.
+- 2026-09-16 (M3) — One more text-only change beside the `gl_mesh.rs`
+  asserts: `rust/xtask/src/shaders.rs:204` formats the failing shader
+  compiler's program path with `Path::display()` instead of `{:?}`, so the
+  build-tool error message loses its quoting. No engine, harness or
+  generated-output surface reads it.
+- 2026-09-16 (review) — `scripts/c_remnant_inventory.py --check` compares
+  the doc with every integer-only table cell masked, so a C-only edit that
+  moves a line count does not fail `rust.yml` until the doc is regenerated;
+  classification (rows, categories, `USE_RUST_*` arms, notes) is still
+  gated. The unsafe inventory keeps exact counts in its check on purpose:
+  it exists to measure the Rust side, and a Rust change that moves a count
+  should regenerate it.
 - 2026-09-16 (M4) — `rust/fuzz/Cargo.lock` refresh (`windows-sys` under
   `quake-net`, stale since Phase 9 M2) committed as a side effect of the
   fuzz-workspace `cargo deny` run in §10; not a new dependency.
@@ -295,7 +307,7 @@ pre-PR evidence.
 | `python scripts/c_remnant_inventory.py --check` | targeted | OK |
 | `python scripts/unsafe_inventory.py --check` | targeted | OK |
 | `git diff --stat` shows no `Quake/`, `meson.build`, `Shaders/` change (A7) | targeted | 155 files, all under `rust/`, `docs/`, `scripts/`, `.github/` |
-| I1 semantic review of the M3 diff | manual | 172 non-trivial hunks read (everything that was not a semicolon, `writeln!`, `T::from(bool)`, `&[..]` for `vec![..]`, or a `match`→`if let` on the same arms); one deviation, the `gl_mesh.rs` `assert_eq!` (§12). The two `needless_continue` removals (`snd_dma.rs` `S_Update`, `quake-net/src/dgrm.rs` `get_message`) are at the tail of their loop bodies. |
+| I1 semantic review of the M3 diff | manual | 172 non-trivial hunks read (everything that was not a semicolon, `writeln!`, `T::from(bool)`, `&[..]` for `vec![..]`, or a `match`→`if let` on the same arms); one deviation, the `gl_mesh.rs` `assert_eq!` (§12). The five `needless_continue` sites are all in tail position of their loop bodies: `quake-capi/src/snd_dma.rs` `S_Update` (after `combine = Some(j)`), `quake-net/src/dgrm.rs` `get_message` (end of the `NETFLAG_DATA` arm), `quake-capi/src/cl_parse.rs:1238` (the `removeflag` arm that ends the `loop`), `quake-capi/src/progs_edict_dispatch.rs:296` and `:546` (`PRPARSE_OK => {}`, the `match` is the last statement of each labeled loop), and `quake-tasks/src/queue.rs:74`/`:84` (`Steal::Retry => {}` in a `loop { match .. }`). The `net_wins.rs` `open_socket_fail(&OpenError, ..)` by-reference change is inert (no `Drop` on `OpenError` or `SysSocket`). |
 | Meson builds, harness corpus/render gates | not run | no C or build line changed (A7); the differential tests above are the Rust-side gate |
 
 Handoff: M1-M4 are the pre-deletion tranche in full. The single next

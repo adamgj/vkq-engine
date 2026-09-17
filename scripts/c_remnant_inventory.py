@@ -24,7 +24,7 @@ Categories:
 
 Usage:
   python3 scripts/c_remnant_inventory.py            # regenerate the doc
-  python3 scripts/c_remnant_inventory.py --check    # CI: stale doc or
+  python3 scripts/c_remnant_inventory.py --check    # CI: stale classification or
                                                     # unclassified file -> 1
   python3 scripts/c_remnant_inventory.py --ninja build.ninja --kind mixed|oracle
       # cross-check the table against a configured Meson build: every TU that
@@ -218,6 +218,14 @@ def md_code(s):
     return "`" + s.replace("`", "'") + "`"
 
 
+_COUNT_CELL = re.compile(r"\| \d+ (?=\|)")
+
+
+def mask_counts(text):
+    """Blank every integer-only table cell (file and line counts)."""
+    return _COUNT_CELL.sub("| N ", text)
+
+
 def render(rows, vendored):
     by_cat = {c: [] for c in CATEGORY_ORDER}
     for r in rows:
@@ -233,9 +241,11 @@ def render(rows, vendored):
     w("Every C/Objective-C translation unit and vendored native library in the")
     w("tree, classified by the rule table in `scripts/c_remnant_inventory.py`.")
     w("Regenerate with `python3 scripts/c_remnant_inventory.py`; `--check` fails")
-    w("when the doc is stale, a file has no rule, or a rule disagrees with")
-    w("`meson.build`. `--ninja <build.ninja> --kind mixed|oracle` cross-checks a")
-    w("configured build's TU list against the table.")
+    w("when the classification is stale, a file has no rule, or a rule disagrees")
+    w("with `meson.build` (the file and line counts are informational and not")
+    w("compared, so a C-only edit does not fail CI). `--ninja <build.ninja>")
+    w("--kind mixed|oracle` cross-checks a configured build's TU list against")
+    w("the table.")
     w("")
     w("This is the **pre-deletion** cut: the Phase 9 soak exit has not occurred,")
     w("so the `oracle` rows still exist and the `glue` rows still compile. The")
@@ -326,7 +336,10 @@ def main():
     path = os.path.join(ROOT, DOC)
     if args.check:
         current = read(path) if os.path.exists(path) else ""
-        if current != doc:
+        # the line counts are informational: a C-only edit must not turn CI
+        # red until someone regenerates the doc. Classification (rows,
+        # categories, arms, notes) is what --check guards.
+        if mask_counts(current) != mask_counts(doc):
             print("error: %s is stale; run scripts/c_remnant_inventory.py" % DOC, file=sys.stderr)
             return 1
         return 1 if errors else 0

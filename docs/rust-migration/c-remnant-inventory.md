@@ -6,9 +6,11 @@ Rust migration Phase 10 M1 ([ADR-002](adr/ADR-002-c-not-cpp-fallback.md)).
 Every C/Objective-C translation unit and vendored native library in the
 tree, classified by the rule table in `scripts/c_remnant_inventory.py`.
 Regenerate with `python3 scripts/c_remnant_inventory.py`; `--check` fails
-when the doc is stale, a file has no rule, or a rule disagrees with
-`meson.build`. `--ninja <build.ninja> --kind mixed|oracle` cross-checks a
-configured build's TU list against the table.
+when the classification is stale, a file has no rule, or a rule disagrees
+with `meson.build` (the file and line counts are informational and not
+compared, so a C-only edit does not fail CI). `--ninja <build.ninja>
+--kind mixed|oracle` cross-checks a configured build's TU list against
+the table.
 
 This is the **pre-deletion** cut: the Phase 9 soak exit has not occurred,
 so the `oracle` rows still exist and the `glue` rows still compile. The
