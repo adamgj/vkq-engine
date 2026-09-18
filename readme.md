@@ -89,6 +89,18 @@ Phase 0 landed the scaffolding: a Cargo workspace in `rust/` builds a staticlib 
 > 
 > For Linux, you will need at least Vulkan SDK version 1.2.162 or newer. When building for Linux this is not always the case for the SDK provided by the distribution. Install the latest LunarG SDK if necessary.
 
+### Quick start with cargo xtask (all platforms)
+
+With Meson, Ninja, the Vulkan SDK tools and the Rust toolchain installed (see the per-platform sections below for packages), the `xtask` crate wraps the Meson build and launches the result with one command line on every platform:
+
+~~~
+cd rust
+cargo xtask build                 # meson setup build -Duse_rust=enabled (first time), then meson compile
+cargo xtask run -- -window        # build, then launch vkqr-engine with any engine arguments after --
+~~~
+
+`build` defaults to a release `-Duse_rust=enabled` build in `build/` under the repository root; `--debug`, `--c-only`, `--build-dir DIR`, `--reconfigure`, and any Meson options after `--` (e.g. `-- -Duse_sdl3=disabled -Dtrace=true`) change that. On Windows it passes `--vsenv` so Meson activates the MSVC environment itself unless `CC` or a Developer shell already chose the compiler. `run` starts the engine with `-basedir` set to `--basedir DIR`, else `$QUAKE_GAME_DATA`, else the current directory; `--no-build` skips the build step. `cargo xtask` prints the full usage.
+
 ### Windows
 
 Clone the vkQuake repo from `https://github.com/Novum/vkQuake.git`
