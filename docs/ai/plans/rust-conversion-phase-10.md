@@ -313,6 +313,25 @@ No Meson build is required (no C change; A7).
   on the Windows host with the gate line temporarily removed (clippy does
   not link, so the `c_ref_*` externs are irrelevant; the gate was restored
   before committing) -- that is the local evidence for it (§13).
+- 2026-09-17 (PR #42 review, second round) — ten findings, all taken:
+  the two `nonminimal_bool` rewrites (`menu.rs` `m_in_scrollbar`,
+  `r_part_fte.rs` `stain*` tokens) had inverted the C's shape and the
+  `menu.rs` SAFETY comment had gone stale; both now read like the C, the
+  dropped duplicate term is recorded as an I1 deviation (§13, ROADMAP).
+  `scripts/unsafe_inventory.py` now counts `tests/**`, `benches/**` and
+  `build.rs` beside `src/**` (the `quake-ctest` differential suites carry
+  1 991 tokens the doc and the ADR-004 amendment did not mention; total
+  8 782, ADR-004 re-cut) and matches every `allow`/`expect(unsafe_code)`
+  attribute, `cfg_attr`-wrapped or not, refining with the `mod` name only
+  when one follows directly (an item-level allow records as the bare path
+  and fails the policy). `scripts/c_remnant_inventory.py`: the `--ninja`
+  regex accepts `objc_COMPILER` so a future `.m` TU is cross-checked, and
+  an `UNCLASSIFIED` TU renders (the run still exits 1). `rust.yml`
+  re-includes the two generated inventories in its `paths` filter so a
+  hand edit runs its own guard. The ADR-013/ADR-014 amendment headings say
+  M4, the milestone the plan assigns them. ADR-002's appendix names the
+  post-port host of the vendored code: Meson-compiled TUs of their own, no
+  `build.rs` `cc` step for engine code.
 
 ## 13. Verification evidence / handoff
 
@@ -337,8 +356,9 @@ pre-PR evidence.
 | `python scripts/setjmp_inventory.py --check` (repo root) | targeted | OK, 40 sites / 39 guarded TUs |
 | `python scripts/c_remnant_inventory.py --check` | targeted | OK |
 | `python scripts/unsafe_inventory.py --check` | targeted | OK |
+| `unsafe_inventory.py` attribute matcher probed against item-level, `expect`, `cfg_attr`-wrapped and comment-separated `allow(unsafe_code)` forms (2026-09-17, second review round; scratch script) | targeted | each form records, only a direct `mod` refines |
 | `git diff --stat` shows no `Quake/`, `meson.build`, `Shaders/` change (A7) | targeted | 155 files, all under `rust/`, `docs/`, `scripts/`, `.github/` |
-| I1 semantic review of the M3 diff | manual | 172 non-trivial hunks read (everything that was not a semicolon, `writeln!`, `T::from(bool)`, `&[..]` for `vec![..]`, or a `match`→`if let` on the same arms); one deviation, the `gl_mesh.rs` `assert_eq!` (§12). The five `needless_continue` sites are all in tail position of their loop bodies: `quake-capi/src/snd_dma.rs` `S_Update` (after `combine = Some(j)`), `quake-net/src/dgrm.rs` `get_message` (end of the `NETFLAG_DATA` arm), `quake-capi/src/cl_parse.rs:1238` (the `removeflag` arm that ends the `loop`), `quake-capi/src/progs_edict_dispatch.rs:296` and `:546` (`PRPARSE_OK => {}`, the `match` is the last statement of each labeled loop), and `quake-tasks/src/queue.rs:74`/`:84` (`Steal::Retry => {}` in a `loop { match .. }`). The `net_wins.rs` `open_socket_fail(&OpenError, ..)` by-reference change is inert (no `Drop` on `OpenError` or `SysSocket`). |
+| I1 semantic review of the M3 diff | manual | 172 non-trivial hunks read (everything that was not a semicolon, `writeln!`, `T::from(bool)`, `&[..]` for `vec![..]`, or a `match`→`if let` on the same arms); two source-shape deviations, the `gl_mesh.rs` `assert_eq!` (§12) and the `menu.rs` `m_in_scrollbar` duplicate term dropped for `nonminimal_bool` (integers only, behaviour unchanged; the second review round under-reported this, see §12). The `r_part_fte.rs` `stain*` chain is the other `nonminimal_bool` site: the `args == 3` repeat is folded out and, after the second review round, the OR-of-matches shape of the C is kept. The five `needless_continue` sites are all in tail position of their loop bodies: `quake-capi/src/snd_dma.rs` `S_Update` (after `combine = Some(j)`), `quake-net/src/dgrm.rs` `get_message` (end of the `NETFLAG_DATA` arm), `quake-capi/src/cl_parse.rs:1238` (the `removeflag` arm that ends the `loop`), `quake-capi/src/progs_edict_dispatch.rs:296` and `:546` (`PRPARSE_OK => {}`, the `match` is the last statement of each labeled loop), and `quake-tasks/src/queue.rs:74`/`:84` (`Steal::Retry => {}` in a `loop { match .. }`). The `net_wins.rs` `open_socket_fail(&OpenError, ..)` by-reference change is inert (no `Drop` on `OpenError` or `SysSocket`). |
 | Meson builds, harness corpus/render gates | not run | no C or build line changed (A7); the differential tests above are the Rust-side gate |
 
 Handoff: M1-M4 are the pre-deletion tranche in full. The single next

@@ -311,8 +311,9 @@ Task plan: `docs/ai/plans/rust-conversion-phase-10.md`. The phase is split into 
 
 **Deviations, recorded rather than glossed:**
 1. Three release-mode `assert!(a == b)` in `quake-capi/src/gl_mesh.rs` became `assert_eq!`; the condition is identical, only the panic text changes (the plan's I1 named panic text as untouchable only where the harness consumes it; these are mesh-upload invariants no gate reads).
-2. `rust/fuzz/Cargo.lock` gains the `windows-sys` entry for `quake-net` that the Phase 9 net change left stale; `cargo deny` on the fuzz workspace refreshed it and the refresh is committed rather than reverted.
-3. The "idiomatic debt pass" items in the scope above (dual-view globals, capi shims, `repr(C)` → idiomatic, `CbContext` lifetimes, ADR exceptions revisited) and the `quakedef.h`/`setjmp`/`Host_Error` end states inherited from Phase 9 are M5-M10 and wait for the soak exit; the pedantic allow entries that only exist for FFI style retire with them (M10).
+2. `quake-capi/src/menu.rs` `m_in_scrollbar` drops the duplicated final `m_mouse_y <= scrollbar_y + scrollbar_size` term that `menu.c:500` carries (its own copy-paste; `clippy::nonminimal_bool`). The remaining conjunction reads like the C (the PR #42 review replaced a De Morgan'd first attempt), as does the `r_part_fte.rs` `stain*` token chain (same lint, the `args == 3` repeat folded out, OR-of-matches shape kept).
+3. `rust/fuzz/Cargo.lock` gains the `windows-sys` entry for `quake-net` that the Phase 9 net change left stale; `cargo deny` on the fuzz workspace refreshed it and the refresh is committed rather than reverted.
+4. The "idiomatic debt pass" items in the scope above (dual-view globals, capi shims, `repr(C)` → idiomatic, `CbContext` lifetimes, ADR exceptions revisited) and the `quakedef.h`/`setjmp`/`Host_Error` end states inherited from Phase 9 are M5-M10 and wait for the soak exit; the pedantic allow entries that only exist for FFI style retire with them (M10).
 
 **Scope**
 - Remaining native modules, each isolated behind an explicit interface ([ADR-002](adr/ADR-002-c-not-cpp-fallback.md)): vendored **mimalloc** (revisit allocator choice — [ADR-013](adr/ADR-013-allocator.md)), **audio codec libraries** (optional per-codec Symphonia migration — [ADR-014](adr/ADR-014-audio-codecs.md)), **lodepng encoder** if pixel-parity for PNG writing was never accepted.

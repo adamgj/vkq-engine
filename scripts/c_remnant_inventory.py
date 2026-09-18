@@ -242,6 +242,9 @@ def render(rows, vendored):
     for r in rows:
         if r[0] != "vendored":
             by_cat.setdefault(r[0], []).append(r)
+    # an UNCLASSIFIED TU already fails the run; render it too so a local
+    # regen shows which file it was
+    cats = CATEGORY_ORDER + [c for c in by_cat if c not in CATEGORY_ORDER]
     out = []
     w = out.append
     w("# C remnant inventory")
@@ -277,8 +280,9 @@ def render(rows, vendored):
         "tool": ("native, build time", "keep for the C build; Rust build uses xtask"),
         "oracle": ("C-oracle build", "deleted by the Phase 9 soak-exit deletion PR"),
         "unbuilt": ("neither", "delete with the oracle"),
+        "UNCLASSIFIED": ("?", "no classification rule: add one to `classify`"),
     }
-    for cat in CATEGORY_ORDER:
+    for cat in cats:
         if cat == "vendored":
             n = len(vendored)
             lines = sum(v[2] for v in vendored)
@@ -288,7 +292,7 @@ def render(rows, vendored):
         c, d = disp[cat]
         w("| %s | %d | %d | %s | %s |" % (cat, n, lines, c, d))
     w("")
-    for cat in CATEGORY_ORDER:
+    for cat in cats:
         w("## %s" % cat)
         w("")
         if cat == "vendored":
@@ -310,7 +314,7 @@ def render(rows, vendored):
 def ninja_check(rows, path, kind):
     text = read(path)
     tus = set()
-    for m in re.finditer(r"^build [^:]*?\.(?:o|obj): c_COMPILER \.\./((?:Quake|Shaders|Misc/vq_pak)/[A-Za-z0-9_]+\.(?:c|m))", text, re.M):
+    for m in re.finditer(r"^build [^:]*?\.(?:o|obj): (?:c|objc)_COMPILER \.\./((?:Quake|Shaders|Misc/vq_pak)/[A-Za-z0-9_]+\.(?:c|m))", text, re.M):
         tus.add(m.group(1))
     cat_of = {rel: cat for cat, rel, _, _, _ in rows}
     problems = []

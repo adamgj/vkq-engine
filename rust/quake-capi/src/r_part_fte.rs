@@ -3571,11 +3571,11 @@ unsafe fn p_import_effect_info(config: *const c_char, line: *mut c_char, part_pa
                 // dp scales them by 0.25
                 (*ptype).dl_corona_intensity = (g::atof(arg[1].as_ptr()) * 0.25) as c_float;
                 (*ptype).dl_corona_scale = g::atof(arg[2].as_ptr()) as c_float;
-            } else if !(args != 3
-                || g::strcmp(arg[0].as_ptr(), c"staincolor".as_ptr()) != 0
-                    && g::strcmp(arg[0].as_ptr(), c"stainalpha".as_ptr()) != 0
-                    && g::strcmp(arg[0].as_ptr(), c"stainsize".as_ptr()) != 0
-                    && g::strcmp(arg[0].as_ptr(), c"staintex".as_ptr()) != 0)
+            } else if (args == 3
+                && (g::strcmp(arg[0].as_ptr(), c"staincolor".as_ptr()) == 0
+                    || g::strcmp(arg[0].as_ptr(), c"stainalpha".as_ptr()) == 0
+                    || g::strcmp(arg[0].as_ptr(), c"stainsize".as_ptr()) == 0
+                    || g::strcmp(arg[0].as_ptr(), c"staintex".as_ptr()) == 0))
                 || (g::strcmp(arg[0].as_ptr(), c"stainless".as_ptr()) == 0 && args == 2)
             {
                 // stainmaps multiplier / stain-decals: not supported here.

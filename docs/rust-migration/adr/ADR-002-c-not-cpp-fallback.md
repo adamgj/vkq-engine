@@ -48,7 +48,14 @@ Not a remnant, but still native at this cut and on a port list:
   `palette.c`, `net_loop.c`, `net_win.c`/`net_bsd.c`, `pr_trace.c`,
   `q_thread_sdl.c`, `steam_api.c`, `cd_null.c`, `snd_sdl.c` (SDL2 legs only,
   ADR-017), plus the three vendored host TUs `mem.c`, `image.c`,
-  `image_stb.c`. Ported at Phase 10 M8 (M9 for `mem.c`).
+  `image_stb.c`. Ported at Phase 10 M8 (M9 for `mem.c`). What those three
+  host TUs include and survives the port stays a Meson-compiled C TU of its
+  own -- `Quake/mimalloc/static.c` compiled directly if the ADR-013 keep
+  branch is taken, `lodepng.c` directly, and an implementation-only TU for
+  the stb headers -- because the build driver does not change in Phase 10
+  (ADR-001) and no `build.rs` `cc` step compiles engine code (`quake-ctest`'s
+  is the harness oracle only); the "Reached through" column is then re-cut
+  to name the new TUs.
 - `glue` TUs (55, 21 199 lines): Host_Guard trampolines and C-owned globals
   (ADR-007/ADR-009); removed TU by TU at Phase 10 M6.
 - `miniz` and `jsmn` are included only by C-oracle TUs (`common_fs.c`,

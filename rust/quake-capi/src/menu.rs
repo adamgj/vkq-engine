@@ -918,16 +918,16 @@ pub unsafe extern "C" fn quake_rs_menu_toggle_menu_f() -> Raise {
 /// # Safety
 /// Reads the menu-local scrollbar hit box and mouse position.
 unsafe fn m_in_scrollbar() -> bool {
-    // SAFETY: single-threaded menu state. The duplicated final term is
-    // menu.c's own copy-paste; it is kept so the expression matches
-    // one-for-one.
+    // SAFETY: single-threaded menu state. menu.c repeats the final
+    // `m_mouse_y <= scrollbar_y + scrollbar_size` term (its own copy-paste);
+    // the duplicate is dropped here, the rest reads like the C.
     unsafe {
         SCROLLBAR_GRAB
-            || !(SCROLLBAR_SIZE == 0
-                || M_MOUSE_X < SCROLLBAR_X
-                || M_MOUSE_X > SCROLLBAR_X + 8
-                || M_MOUSE_Y < SCROLLBAR_Y
-                || M_MOUSE_Y > SCROLLBAR_Y + SCROLLBAR_SIZE)
+            || (SCROLLBAR_SIZE != 0
+                && M_MOUSE_X >= SCROLLBAR_X
+                && M_MOUSE_X <= SCROLLBAR_X + 8
+                && M_MOUSE_Y >= SCROLLBAR_Y
+                && M_MOUSE_Y <= SCROLLBAR_Y + SCROLLBAR_SIZE)
     }
 }
 

@@ -72,13 +72,18 @@ and the ambient-`qcvm` resolution live in `quake-capi` as usual (ADR-011).
 - `quake-tasks` was named a concentrated location above but landed
   `#![forbid(unsafe_code)]` (Phase 8; its scheduler unsafe lives in
   `quake-capi`). The tier table records it as a pure crate.
-- Review outcome at this cut (6 791 tokens): `quake-capi` 5 350 (79 %,
-  spread over 94 of 98 files — the dual-view accessors and `extern "C"`
-  exports that Phase 10 M6 removes), `quake-platform` 406 (Phase 9 SDL/OS
-  calls), `quake-render` 323, `quake-c-sys` 286 (246 in `unsafe extern`
-  blocks), `quake-ctest` 207 (harness only), `quake-progs` 139,
-  `quake-net` 44; `quake-types` 36 are `unsafe extern "C" fn` pointer
-  *types* under `forbid`. Nothing outside the concentrated locations. The
+- Review outcome at this cut (8 782 tokens over `src/**`, `tests/**`,
+  `benches/**` and `build.rs`; the Phase 8 hand count covered `src/**`
+  only): `quake-capi` 5 350 (61 %, spread over 94 of 99 files — the
+  dual-view accessors and `extern "C"` exports that Phase 10 M6 removes),
+  `quake-ctest` 2 198 (harness only: 207 in `src/`, 1 991 in the
+  differential suites under `tests/`, which call the `c_ref_*` oracles
+  through raw FFI by design), `quake-platform` 406 (Phase 9 SDL/OS calls),
+  `quake-render` 323, `quake-c-sys` 286 (246 in `unsafe extern` blocks),
+  `quake-progs` 139, `quake-net` 44; `quake-types` 36 are
+  `unsafe extern "C" fn` pointer *types* under `forbid`. Nothing outside
+  the concentrated locations: no `tests/`, `benches/` or `build.rs` of any
+  other crate carries a token. The
   minimization target is the M6/M7 shim removal, which this inventory will
   measure; no unsafe was hand-removed at this cut because every remaining
   site serves a C caller that still exists.

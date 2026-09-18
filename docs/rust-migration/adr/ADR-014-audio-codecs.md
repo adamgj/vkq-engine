@@ -24,7 +24,7 @@ Licensing note: libmad is GPL (compatible with the GPLv2+ engine); Symphonia is 
 - External codec libraries remain runtime dependencies exactly as today (no packaging changes).
 - The per-codec swap path is open-ended future work with a clear gate, not a migration blocker.
 
-## Amendment (Phase 10 M3, 2026-09-16): the Symphonia option is closed by ADR-003
+## Amendment (Phase 10 M4, 2026-09-16): the Symphonia option is closed by ADR-003
 
 The "optional later migration" above named Symphonia (MPL-2.0) and lewton.
 [ADR-003](ADR-003-dependency-policy.md) forbids MPL-2.0 anywhere in the
