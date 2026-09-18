@@ -39,7 +39,7 @@ workspace `unsafe_op_in_unsafe_fn = deny` and
 | `quake-snd` | forbid | forbid | — | 0 | 0 | 0 | 0 | 0 | 0/6 |
 | `quake-tasks` | forbid | forbid | — | 0 | 0 | 0 | 0 | 0 | 0/8 |
 | `quake-util` | forbid | forbid | — | 0 | 0 | 0 | 0 | 0 | 0/11 |
-| `xtask` | open | none | — | 0 | 0 | 0 | 0 | 0 | 0/5 |
+| `xtask` | open | none | — | 0 | 0 | 0 | 0 | 0 | 0/6 |
 | **total** | | | | **8782** | | | | | |
 
 Token kinds overlap by construction (`unsafe extern "C" fn` counts as
