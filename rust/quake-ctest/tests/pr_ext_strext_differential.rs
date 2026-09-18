@@ -48,6 +48,7 @@
 //! see `cleared_known_string_raises_on_both_sides`.
 
 use core::ffi::{c_char, c_float, c_int, CStr};
+use std::fmt::Write as _;
 use std::sync::{Mutex, MutexGuard};
 
 use quake_ctest as _; // links the cc-built c_ref_* archive
@@ -55,7 +56,9 @@ use quake_ctest as _; // links the cc-built c_ref_* archive
 static TEST_LOCK: Mutex<()> = Mutex::new(());
 
 fn lock() -> MutexGuard<'static, ()> {
-    TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner())
+    TEST_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 /// `pr_comp.h`'s reserved global offsets.
@@ -644,7 +647,7 @@ fn infoadd_length_overflow_warns_identically() {
     // caps `value` well below that).
     let mut info = String::new();
     for i in 0..64 {
-        info.push_str(&format!("\\k{i:02}\\{}", "v".repeat(10)));
+        let _ = write!(info, "\\k{i:02}\\{}", "v".repeat(10));
     }
     assert!(info.len() > 900 && info.len() < 1024);
     let (c, rs) = both_infoadd(&info, "name", &"p".repeat(60));
@@ -666,7 +669,7 @@ fn infoadd_source_copy_overflow_breaks_identically() {
     // reports invalid source info.
     let mut info = String::new();
     for i in 0..40 {
-        info.push_str(&format!("\\k{i:02}\\{}", "v".repeat(24)));
+        let _ = write!(info, "\\k{i:02}\\{}", "v".repeat(24));
     }
     assert!(info.len() > 1024);
     let (c, rs) = both_infoadd(&info, "name", "player");

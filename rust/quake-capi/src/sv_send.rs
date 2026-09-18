@@ -3892,7 +3892,7 @@ pub unsafe extern "C" fn quake_rs_svsend_add_to_fat_pvs(
             org.cast::<c_float>(),
             node.cast::<MNode>(),
             worldmodel.cast::<QModel>(),
-        )
+        );
     };
     0
 }

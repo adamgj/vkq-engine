@@ -3,6 +3,7 @@
 //! Quake/ while they exist; the Phase 1 deletion step repoints this at frozen
 //! copies under csrc/.
 
+use std::fmt::Write as _;
 use std::path::PathBuf;
 
 const C_SOURCES: &[&str] = &[
@@ -81,17 +82,15 @@ fn generate_embedded_pak(out_dir: &std::path::Path) -> PathBuf {
         if i % 16 == 0 {
             src.push('\n');
         }
-        src.push_str(&format!("{},", b));
+        let _ = write!(src, "{b},");
     }
     src.push_str("\n};\n");
-    src.push_str(&format!(
-        "const int vkquake_pak_size = {};\n",
-        compressed.len()
-    ));
-    src.push_str(&format!(
-        "const int vkquake_pak_decompressed_size = {};\n",
+    let _ = writeln!(src, "const int vkquake_pak_size = {};", compressed.len());
+    let _ = writeln!(
+        src,
+        "const int vkquake_pak_decompressed_size = {};",
         pak.len()
-    ));
+    );
 
     let path = out_dir.join("embedded_pak.c");
     std::fs::write(&path, src).unwrap();

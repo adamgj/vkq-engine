@@ -203,9 +203,13 @@ pub fn block_checksum(input: &[u8]) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fmt::Write as _;
 
     fn hex(digest: &[u8; 16]) -> String {
-        digest.iter().map(|b| format!("{b:02x}")).collect()
+        digest.iter().fold(String::new(), |mut s, b| {
+            let _ = write!(s, "{b:02x}");
+            s
+        })
     }
 
     // RFC 1320 appendix A.5 test vectors

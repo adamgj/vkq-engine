@@ -45,3 +45,20 @@ linkage). Instead:
 - Cross-language alloc/free is sound by construction; a whole class of transition bugs is designed out.
 - The vendored mimalloc (~25k LOC of C) persists at least until Phase 10 — accepted as an ADR-002 native remnant with a scheduled revisit.
 - Allocation performance characteristics stay identical to the current engine throughout the migration (no perf-regression noise from allocator changes while porting).
+
+## Amendment (Phase 10 M4, 2026-09-16): revisit criterion made explicit; decision deferred to M9
+
+The Phase 10 revisit cannot be evaluated at the pre-deletion cut: 55 glue TUs
+and 19 shared engine TUs still allocate and free engine memory on the C side
+(`c-remnant-inventory.md`). The decision is taken at Phase 10 **M9**, after
+the Phase 9 deletion PR and the M6/M8 ports, against this criterion:
+
+- keep mimalloc if any surviving native remnant (codec bridges, lodepng, stb
+  hosts) still hands ownership of a `Mem_Alloc` buffer across the boundary,
+  or if a harness-measured allocation-heavy path regresses on the system
+  allocator by more than the noise floor of the Phase 8 render timings;
+- otherwise drop `engine-alloc`, `quake-c-sys::mi` and `Quake/mimalloc/`,
+  and let `mem.c`'s successor use the Rust global allocator.
+
+Until then mimalloc is a scheduled ADR-002 remnant, listed in that ADR's
+Phase-10 appendix.

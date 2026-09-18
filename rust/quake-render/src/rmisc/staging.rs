@@ -143,7 +143,7 @@ impl Staging {
     fn guard(&self) -> MutexGuard<'_, Shared> {
         self.shared
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     /// `QMutex_Lock (staging_mutex)`: wait for the logical lock, take it, and
@@ -159,7 +159,7 @@ impl Staging {
             g = self
                 .cond
                 .wait(g)
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
         }
         g.held = true;
         g.owner = Some(me);
@@ -185,12 +185,12 @@ impl Staging {
             g = self
                 .cond
                 .wait(g)
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             while g.held {
                 g = self
                     .cond
                     .wait(g)
-                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
             }
             g.held = true;
             g.owner = me;
@@ -199,7 +199,7 @@ impl Staging {
     }
 
     /// `R_CreateStagingBuffers`.
-    fn create_buffers<E: Engine>(&self, ctx: &mut Ctx<'_, E>, s: &mut Shared) {
+    fn create_buffers<E: Engine>(ctx: &mut Ctx<'_, E>, s: &mut Shared) {
         let size = staging_buffer_size(ctx) as u64;
         let info = vk::BufferCreateInfo::default()
             .size(size)
@@ -269,7 +269,7 @@ impl Staging {
     }
 
     /// `R_DestroyStagingBuffers`.
-    fn destroy_buffers<E: Engine>(&self, ctx: &mut Ctx<'_, E>, s: &mut Shared) {
+    fn destroy_buffers<E: Engine>(ctx: &mut Ctx<'_, E>, s: &mut Shared) {
         free_vulkan_memory(ctx, &mut s.memory, Some(ctx.counters.misc));
         for sb in &s.buffers {
             // SAFETY: every submission using the buffer has been waited for.
@@ -282,7 +282,7 @@ impl Staging {
         ctx.engine.con_printf("Initializing staging\n");
         let mut g = self.guard();
         let s = &mut *g;
-        self.create_buffers(ctx, s);
+        Self::create_buffers(ctx, s);
 
         let pool_info = vk::CommandPoolCreateInfo::default()
             .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER)
@@ -455,8 +455,8 @@ impl Staging {
                 Self::flush_command_buffer(ctx, &mut g.buffers[i]);
             }
             set_staging_buffer_size(ctx, size);
-            self.destroy_buffers(ctx, &mut g);
-            self.create_buffers(ctx, &mut g);
+            Self::destroy_buffers(ctx, &mut g);
+            Self::create_buffers(ctx, &mut g);
         }
 
         assert!(
@@ -520,13 +520,13 @@ impl Staging {
                     staging.buffer,
                     buffer,
                     &[region],
-                )
+                );
             };
             self.begin_copy();
             // SAFETY: `staging.data` points at `size` writable bytes of the
             // mapped staging buffer reserved for this allocation.
             unsafe {
-                core::ptr::copy_nonoverlapping(data.as_ptr().add(copy_offset), staging.data, size)
+                core::ptr::copy_nonoverlapping(data.as_ptr().add(copy_offset), staging.data, size);
             };
             self.end_copy();
             copy_offset += size;

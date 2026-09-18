@@ -56,9 +56,9 @@ fn file_dir() -> std::path::PathBuf {
 
 /// Builds a WAD2 image from (name, type, payload) entries, with optional
 /// header/lump corruption applied afterwards.
-fn build_wad(magic: &[u8; 4], entries: &[(&[u8], i8, Vec<u8>)]) -> Vec<u8> {
+fn build_wad(magic: [u8; 4], entries: &[(&[u8], i8, Vec<u8>)]) -> Vec<u8> {
     let mut out = Vec::new();
-    out.extend_from_slice(magic);
+    out.extend_from_slice(&magic);
     let mut payloads = Vec::new();
     let mut offset = 12usize;
     for (_, _, data) in entries {
@@ -145,7 +145,7 @@ fn gfx_wad_healthy_and_corrupt() {
     let cases: Vec<Vec<u8>> = vec![
         // healthy wad with a qpic (SwapPic applies) and a plain lump
         build_wad(
-            b"WAD2",
+            *b"WAD2",
             &[
                 (b"PIC_A", 66, qpic_payload(4, 2)),
                 (b"FLAT", 64, vec![1, 2, 3, 4]),
@@ -153,23 +153,23 @@ fn gfx_wad_healthy_and_corrupt() {
             ],
         ),
         // wrong magic: loader keeps going with zero lumps
-        build_wad(b"WAD3", &[(b"X", 64, vec![0; 4])]),
+        build_wad(*b"WAD3", &[(b"X", 64, vec![0; 4])]),
         // truncated directory: header extends beyond end
         {
-            let mut w = build_wad(b"WAD2", &[(b"PIC_A", 66, qpic_payload(2, 2))]);
+            let mut w = build_wad(*b"WAD2", &[(b"PIC_A", 66, qpic_payload(2, 2))]);
             w[4..8].copy_from_slice(&1000i32.to_le_bytes());
             w
         },
         // lump begins beyond end of file
         {
-            let mut w = build_wad(b"WAD2", &[(b"BAD", 64, vec![0; 4])]);
+            let mut w = build_wad(*b"WAD2", &[(b"BAD", 64, vec![0; 4])]);
             let dirofs = 12 + 4;
             w[dirofs..dirofs + 4].copy_from_slice(&100000i32.to_le_bytes());
             w
         },
         // lump size overruns but disksize fits (falls back to disksize)
         {
-            let mut w = build_wad(b"WAD2", &[(b"OVR", 64, vec![7; 10])]);
+            let mut w = build_wad(*b"WAD2", &[(b"OVR", 64, vec![7; 10])]);
             let dirofs = 12 + 10 + 8;
             w[dirofs..dirofs + 4].copy_from_slice(&50000i32.to_le_bytes()); // size
             w
@@ -178,7 +178,7 @@ fn gfx_wad_healthy_and_corrupt() {
         // way to reach the repair's q_max (0, size - filepos) clamp
         // (LumpProblem::ExtendsBeyond)
         {
-            let mut w = build_wad(b"WAD2", &[(b"EXT", 64, vec![7; 10])]);
+            let mut w = build_wad(*b"WAD2", &[(b"EXT", 64, vec![7; 10])]);
             let dirofs = 12 + 10;
             w[dirofs + 4..dirofs + 8].copy_from_slice(&50000i32.to_le_bytes()); // disksize
             w[dirofs + 8..dirofs + 12].copy_from_slice(&50000i32.to_le_bytes()); // size
@@ -186,7 +186,7 @@ fn gfx_wad_healthy_and_corrupt() {
         },
         // negative lump size
         {
-            let mut w = build_wad(b"WAD2", &[(b"NEG", 64, vec![7; 10])]);
+            let mut w = build_wad(*b"WAD2", &[(b"NEG", 64, vec![7; 10])]);
             let dirofs = 12 + 10 + 8;
             w[dirofs..dirofs + 4].copy_from_slice(&(-5i32).to_le_bytes());
             w
@@ -246,27 +246,27 @@ fn wad_list_matches() {
     std::fs::write(
         dir.join("texlist.wad"),
         build_wad(
-            b"WAD2",
+            *b"WAD2",
             &[(b"BRICK", 68, vec![1; 16]), (b"WATER", 68, vec![2; 16])],
         ),
     )
     .unwrap();
     std::fs::write(
         dir.join("gfx").join("gfxonly.wad"),
-        build_wad(b"WAD3", &[(b"SLIME", 68, vec![3; 16])]),
+        build_wad(*b"WAD3", &[(b"SLIME", 68, vec![3; 16])]),
     )
     .unwrap();
     std::fs::write(
         dir.join("badmagic.wad"),
-        build_wad(b"PACK", &[(b"X", 68, vec![0; 4])]),
+        build_wad(*b"PACK", &[(b"X", 68, vec![0; 4])]),
     )
     .unwrap();
-    std::fs::write(dir.join("empty.wad"), build_wad(b"WAD2", &[])).unwrap();
+    std::fs::write(dir.join("empty.wad"), build_wad(*b"WAD2", &[])).unwrap();
     // same ExtendsBeyond clamp, but through W_AddWadFile: it cleans the name
     // *before* warning and prints the size with %i instead of %u, so the two
     // loaders' repair paths are not interchangeable
     std::fs::write(dir.join("extlump.wad"), {
-        let mut w = build_wad(b"WAD2", &[(b"EXTLUMP", 68, vec![5; 16])]);
+        let mut w = build_wad(*b"WAD2", &[(b"EXTLUMP", 68, vec![5; 16])]);
         let dirofs = 12 + 16;
         w[dirofs + 4..dirofs + 8].copy_from_slice(&50000i32.to_le_bytes()); // disksize
         w[dirofs + 8..dirofs + 12].copy_from_slice(&50000i32.to_le_bytes()); // size
@@ -316,7 +316,7 @@ fn wad_list_matches() {
             let r_info = quake_rs::wad::W_GetLumpinfoList(
                 r_list as *mut quake_rs::wad::Wad,
                 name.as_ptr(),
-                &mut r_wad as *mut *mut CWad as *mut *mut quake_rs::wad::Wad,
+                std::ptr::from_mut::<*mut CWad>(&mut r_wad) as *mut *mut quake_rs::wad::Wad,
             );
             assert_eq!(c_info.is_null(), r_info.is_null(), "list lookup {name:?}");
             if !c_info.is_null() {

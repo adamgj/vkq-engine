@@ -296,21 +296,20 @@ impl<'a> ZipArchive<'a> {
                     - MZ_ZIP64_END_OF_CENTRAL_DIR_LOCATOR_SIZE
                     - MZ_ZIP64_END_OF_CENTRAL_DIR_HEADER_SIZE;
                 let valid = |b: &&[u8]| le32(b, 0) == MZ_ZIP64_END_OF_CENTRAL_DIR_HEADER_SIG;
-                let eocd64 =
-                    match file_read(data, direct_ofs, MZ_ZIP64_END_OF_CENTRAL_DIR_HEADER_SIZE)
+                let eocd64 = if let Some(b) =
+                    file_read(data, direct_ofs, MZ_ZIP64_END_OF_CENTRAL_DIR_HEADER_SIZE)
                         .filter(valid)
-                    {
-                        Some(b) => b,
-                        None => {
-                            let rel_ofs = le64(locator, 8);
-                            if rel_ofs > archive_size - MZ_ZIP64_END_OF_CENTRAL_DIR_HEADER_SIZE {
-                                return Err(ZipError::NotAnArchive);
-                            }
-                            file_read(data, rel_ofs, MZ_ZIP64_END_OF_CENTRAL_DIR_HEADER_SIZE)
-                                .filter(valid)
-                                .ok_or(ZipError::NotAnArchive)?
-                        }
-                    };
+                {
+                    b
+                } else {
+                    let rel_ofs = le64(locator, 8);
+                    if rel_ofs > archive_size - MZ_ZIP64_END_OF_CENTRAL_DIR_HEADER_SIZE {
+                        return Err(ZipError::NotAnArchive);
+                    }
+                    file_read(data, rel_ofs, MZ_ZIP64_END_OF_CENTRAL_DIR_HEADER_SIZE)
+                        .filter(valid)
+                        .ok_or(ZipError::NotAnArchive)?
+                };
                 zip64 = Some((locator, eocd64));
             }
         }

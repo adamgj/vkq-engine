@@ -45,7 +45,9 @@ extern "C" {
 static VM_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 fn lock() -> std::sync::MutexGuard<'static, ()> {
-    VM_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+    VM_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 const NUM_GLOBALS: c_int = 128;
@@ -91,7 +93,7 @@ impl ExecSys for TestSys {
     }
 
     fn sv_active(&mut self) -> bool {
-        SV_ACTIVE.with(|c| c.get())
+        SV_ACTIVE.with(std::cell::Cell::get)
     }
 
     fn strcmp(&mut self, a: *const c_char, b: *const c_char) -> c_int {

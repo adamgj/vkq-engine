@@ -262,10 +262,9 @@ unsafe fn com_find_file(
                             sys::Sys_fseek(*file, pf.filepos as sys::qfileofs_t, SEEK_SET);
                         }
                         return pf.filelen as sys::qfilesize_t;
-                    } else {
-                        // for COM_FileExists()
-                        return pf.filelen as sys::qfilesize_t;
                     }
+                    // for COM_FileExists()
+                    return pf.filelen as sys::qfilesize_t;
                 }
             } else {
                 // check a file in the directory tree
@@ -314,10 +313,9 @@ unsafe fn com_find_file(
                     };
                     sys::COM_SetThreadFileSize(size);
                     return size;
-                } else {
-                    // dummy valid value for COM_FileExists()
-                    return 0;
                 }
+                // dummy valid value for COM_FileExists()
+                return 0;
             }
             search = (*search).next;
         }
@@ -641,7 +639,7 @@ unsafe fn add_game_directory_root(base: &[u8], dir: &[u8], path_id: c_uint, add_
         let mut i = 0u32;
         loop {
             let mut pakfile = [0 as c_char; MAX_OSPATH];
-            let name = format!("pak{}.pak", i);
+            let name = format!("pak{i}.pak");
             path_join_into(
                 &mut pakfile,
                 bytes_of(&*ptr::addr_of!(com_gamedir)),
@@ -872,6 +870,8 @@ unsafe fn set_user_pref_dir() {
 
 #[cfg(feature = "sdl3")]
 mod basedirs {
+    // the module is a cfg-gated slice of this file, not a namespace boundary
+    #[allow(clippy::wildcard_imports)]
     use super::*;
 
     // indexed by quakeflavor_t
@@ -981,6 +981,7 @@ pub unsafe extern "C" fn COM_WriteSelectedBaseDir() {
     #[cfg(feature = "sdl3")]
     // SAFETY: main-thread statics + stdio, like the C.
     unsafe {
+        #[allow(clippy::wildcard_imports)]
         use basedirs::*;
         if !COM_PENDINGBASEDIRWRITE {
             return;
@@ -1171,6 +1172,7 @@ unsafe fn find_store_base_dir() -> bool {
         if !forced && !sys::isDedicated {
             #[cfg(feature = "sdl3")]
             {
+                #[allow(clippy::wildcard_imports)]
                 use basedirs::*;
                 load_selected_base_dirs();
 
@@ -1260,10 +1262,8 @@ unsafe fn find_store_base_dir() -> bool {
             0
         } else if original[0] != 0 && remastered[0] != 0 {
             sys::ChooseQuakeFlavor() as c_int
-        } else if remastered[0] != 0 {
-            1
         } else {
-            0
+            c_int::from(remastered[0] != 0)
         };
 
         let chosen = if flavor_choice == 1 {

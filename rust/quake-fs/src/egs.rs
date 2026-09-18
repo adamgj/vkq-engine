@@ -272,7 +272,7 @@ mod tests {
             r#"
 {{
 	"FormatVersion": 0,
-	"bIsIncompleteInstall": {},
+	"bIsIncompleteInstall": {incomplete},
 	"AppVersionString": "1.0.0",
 	"LaunchExecutable": "quake.exe",
 	"InstallLocation": "D:\\Epic\\Quake",
@@ -280,8 +280,7 @@ mod tests {
 	"CatalogNamespace": "quakenspace",
 	"CatalogItemId": "quakeitem"
 }}
-"#,
-            incomplete
+"#
         )
         .into_bytes()
     }

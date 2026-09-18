@@ -997,7 +997,7 @@ pub fn init_command_buffers<E: VidEngine>(ctx: &mut Ctx<'_, E>, vid: &mut VidSta
     }
 
     let fence_info = vk::FenceCreateInfo::default();
-    for fence in vid.command_buffer_fences.iter_mut() {
+    for fence in &mut vid.command_buffer_fences {
         // SAFETY: as above.
         *fence = match unsafe { ctx.device.create_fence(&fence_info, None) } {
             Ok(fence) => fence,

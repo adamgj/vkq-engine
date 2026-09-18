@@ -129,7 +129,7 @@ mod tests {
     #[test]
     fn value_string_truncates_at_32_bytes() {
         let out = value_string(1.0e30_f32 + 0.5);
-        assert!(out[31] == 0);
+        assert_eq!(out[31], 0);
         assert!(s(&out).len() <= 31);
     }
 

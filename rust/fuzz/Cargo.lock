@@ -191,6 +191,7 @@ dependencies = [
  "libc",
  "quake-types",
  "socket2",
+ "windows-sys",
 ]
 
 [[package]]

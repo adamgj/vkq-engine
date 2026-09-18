@@ -282,7 +282,7 @@ fn init_filesystem_differential() {
     std::fs::write(root.join("id1/gfx.txt"), b"id1 payload").unwrap();
     std::fs::write(root.join("mg1/mod.txt"), b"mod payload").unwrap();
     let root_str = root.to_str().unwrap().to_string();
-    let root_slash = format!("{}/", root_str);
+    let root_slash = format!("{root_str}/");
 
     let arg_sets: Vec<(Vec<&str>, bool, &str)> = vec![
         (vec!["quake", "-basedir", &root_str], false, "plain id1"),

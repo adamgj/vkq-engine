@@ -1238,7 +1238,6 @@ unsafe fn clfte_parse_entities_update(d: &mut Detail) -> Raise {
                 (*ent).update_type = 0; // no longer valid
                 (*ent).model = ptr::null_mut();
                 invalidate_trace_line_cache();
-                continue;
             } else if (*ent).update_type != 0 {
                 // simple update
                 let mut bits: c_uint = 0;
@@ -1402,7 +1401,7 @@ unsafe fn cl_parse_start_sound_packet(d: &mut Detail) -> Raise {
             return CLPARSE_ERR_SOUNDENT;
         }
 
-        for p in pos.iter_mut() {
+        for p in &mut pos {
             *p = MSG_ReadCoord(protocolflags());
         }
 
@@ -2086,7 +2085,7 @@ unsafe fn cl_parse_clientdata() {
             }
             let health = MSG_ReadShort() as i16;
             ammo = MSG_ReadByte() as u16;
-            for a in ammovals.iter_mut() {
+            for a in &mut ammovals {
                 *a = MSG_ReadByte() as u16;
             }
             activeweapon = MSG_ReadByte() as c_uint;
@@ -2224,7 +2223,7 @@ unsafe fn cl_parse_static_sound(version: c_int) {
     // `S_StaticSound`.
     unsafe {
         let mut org: [c_float; 3] = [0.0; 3];
-        for o in org.iter_mut() {
+        for o in &mut org {
             *o = MSG_ReadCoord(protocolflags());
         }
 

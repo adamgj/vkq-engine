@@ -1169,9 +1169,8 @@ impl<B: TexMgrBackend> TexMgr<B> {
         // The C asserts are `assert ()`; see `GL_HeapAllocate` in quake-capi.
         assert!(reqs.size > 0);
         assert!(reqs.alignment > 0);
-        let allocation = match self.heap().allocate(reqs.size, reqs.alignment, counter) {
-            Some(allocation) => allocation,
-            None => backend.sys_error("GL_HeapAllocate failed to allocate"),
+        let Some(allocation) = self.heap().allocate(reqs.size, reqs.alignment, counter) else {
+            backend.sys_error("GL_HeapAllocate failed to allocate")
         };
         let (memory, offset) = (allocation.memory(), allocation.offset());
         glt.allocation = Box::into_raw(Box::new(allocation)).cast();
@@ -1422,13 +1421,13 @@ impl<B: TexMgrBackend> TexMgr<B> {
                 // SAFETY: the staging block holds `staging_size` bytes (the
                 // sum of every mip); `data` holds the current mip (contract).
                 unsafe {
-                    ptr::copy_nonoverlapping(data.cast::<u8>(), dst.add(mip_offset as usize), n)
+                    ptr::copy_nonoverlapping(data.cast::<u8>(), dst.add(mip_offset as usize), n);
                 };
                 mip_offset += mipwidth * mipheight * 4;
                 if mipwidth > 1 && mipheight > 1 {
                     // SAFETY: per the contract; the C downsamples in place.
                     unsafe {
-                        backend.downsample(data, mipwidth, mipheight, mipwidth / 2, mipheight / 2)
+                        backend.downsample(data, mipwidth, mipheight, mipwidth / 2, mipheight / 2);
                     };
                 }
                 mipwidth /= 2;
@@ -1620,10 +1619,12 @@ impl<B: TexMgrBackend> TexMgr<B> {
                 // SAFETY: as above.
                 unsafe { Self::load_image32_with(lock, backend, glt, converted.as_mut_ptr()) };
             }
-            Some(SrcFormat::Lightmap)
-            | Some(SrcFormat::Rgba)
-            | Some(SrcFormat::SurfIndices)
-            | Some(SrcFormat::RgbaCubemap) => {
+            Some(
+                SrcFormat::Lightmap
+                | SrcFormat::Rgba
+                | SrcFormat::SurfIndices
+                | SrcFormat::RgbaCubemap,
+            ) => {
                 // SAFETY: per the contract.
                 unsafe { Self::load_image32_with(lock, backend, glt, data.cast()) };
             }
@@ -1687,7 +1688,7 @@ impl<B: TexMgrBackend> TexMgr<B> {
         let mut crc: u16 = 0;
         if flags & TEXPREF_OVERWRITE != 0 {
             let n = match SrcFormat::from_raw(format) {
-                Some(SrcFormat::Indexed) | Some(SrcFormat::IndexedPalette) => {
+                Some(SrcFormat::Indexed | SrcFormat::IndexedPalette) => {
                     Some(width as usize * height as usize)
                 }
                 Some(SrcFormat::Lightmap) => {
@@ -1704,7 +1705,7 @@ impl<B: TexMgrBackend> TexMgr<B> {
         let glt = if flags & TEXPREF_OVERWRITE != 0 {
             let found = lock.with(|m| m.find_texture(owner, Some(name)));
             if found.is_null() {
-                lock.with(|m| m.new_texture())
+                lock.with(TexMgr::new_texture)
             } else {
                 // SAFETY: arena pointer.
                 if unsafe { (*found).source_crc } == crc {
@@ -1713,7 +1714,7 @@ impl<B: TexMgrBackend> TexMgr<B> {
                 found
             }
         } else {
-            lock.with(|m| m.new_texture())
+            lock.with(TexMgr::new_texture)
         };
 
         // copy data
@@ -1823,7 +1824,9 @@ impl<B: TexMgrBackend> TexMgr<B> {
             match backend.read_source(file, t.source_offset, size) {
                 SourceRead::Ok(bytes) if bytes.len() == size => {
                     owned = Some(bytes);
-                    data = owned.as_mut().map_or(ptr::null_mut(), |v| v.as_mut_ptr());
+                    data = owned
+                        .as_mut()
+                        .map_or(ptr::null_mut(), std::vec::Vec::as_mut_ptr);
                 }
                 _ => {
                     invalid();
@@ -1832,19 +1835,16 @@ impl<B: TexMgrBackend> TexMgr<B> {
             }
         } else if has_file {
             let file = CStr::from_bytes_until_nul(&t.source_file).unwrap_or(c"");
-            match backend.image_load(file, t.path_id) {
-                Some(img) => {
-                    // simple file
-                    t.source_width = img.width as u32;
-                    t.source_height = img.height as u32;
-                    t.source_format = img.format;
-                    loaded = Some(img);
-                    data = img.data;
-                }
-                None => {
-                    invalid();
-                    return;
-                }
+            if let Some(img) = backend.image_load(file, t.path_id) {
+                // simple file
+                t.source_width = img.width as u32;
+                t.source_height = img.height as u32;
+                t.source_format = img.format;
+                loaded = Some(img);
+                data = img.data;
+            } else {
+                invalid();
+                return;
             }
         } else if t.source_offset != 0 {
             data = t.source_offset as *mut u8; // image in memory

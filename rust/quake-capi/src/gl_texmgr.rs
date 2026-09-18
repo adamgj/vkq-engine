@@ -208,7 +208,7 @@ impl TexMgrBackend for EngineBackend {
                 self.device(),
                 image.as_raw(),
                 ptr::from_mut(&mut reqs).cast(),
-            )
+            );
         };
         reqs
     }
@@ -299,7 +299,7 @@ impl TexMgrBackend for EngineBackend {
                 ptr::from_ref(&write).cast(),
                 0,
                 ptr::null(),
-            )
+            );
         }
     }
 
@@ -364,11 +364,11 @@ impl TexMgrBackend for EngineBackend {
     }
 
     fn staging_begin_copy(&self) {
-        crate::gl_rmisc::R_StagingBeginCopy()
+        crate::gl_rmisc::R_StagingBeginCopy();
     }
 
     fn staging_end_copy(&self) {
-        crate::gl_rmisc::R_StagingEndCopy()
+        crate::gl_rmisc::R_StagingEndCopy();
     }
 
     fn cmd_pipeline_barrier(
@@ -393,7 +393,7 @@ impl TexMgrBackend for EngineBackend {
                 ptr::null(),
                 1,
                 ptr::from_ref(barrier).cast(),
-            )
+            );
         }
     }
 
@@ -415,7 +415,7 @@ impl TexMgrBackend for EngineBackend {
                 layout.as_raw(),
                 regions.len() as u32,
                 regions.as_ptr().cast(),
-            )
+            );
         }
     }
 
@@ -696,7 +696,7 @@ pub unsafe extern "C" fn TexMgr_ReloadImage(glt: *mut GlTexture, shirt: c_int, p
             glt,
             shirt,
             pants,
-        )
+        );
     }
 }
 
@@ -886,7 +886,7 @@ pub unsafe extern "C" fn TexMgr_Rust_Imagelist_Completion_f(partial: *const c_ch
                 (*glt).name.as_ptr().cast::<c_char>(),
                 partial,
                 ptr::null(),
-            )
+            );
         }
     }
 }

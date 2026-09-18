@@ -271,10 +271,7 @@ pub unsafe extern "C" fn rust_net_Listen_f() {
     // SAFETY: caller contract
     unsafe {
         if c::Cmd_Argc() != 2 {
-            con_print(&format!(
-                "\"listen\" is \"{}\"\n",
-                if c::listening { 1 } else { 0 }
-            ));
+            con_print(&format!("\"listen\" is \"{}\"\n", i32::from(c::listening)));
             return;
         }
 

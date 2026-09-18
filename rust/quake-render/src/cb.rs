@@ -86,7 +86,7 @@ pub unsafe fn draw(
             instance_count,
             first_vertex,
             first_instance,
-        )
+        );
     }
 }
 
@@ -115,7 +115,7 @@ pub unsafe fn draw_indexed(
             first_index,
             vertex_offset,
             first_instance,
-        )
+        );
     }
 }
 
@@ -148,7 +148,7 @@ pub fn bind_pipeline(
     pipeline: VulkanPipeline,
 ) {
     static ZEROES: [u8; MAX_PUSH_CONSTANT_SIZE] = [0; MAX_PUSH_CONSTANT_SIZE];
-    debug_assert!(pipeline.handle != vk::Pipeline::null());
+    debug_assert_ne!(pipeline.handle, vk::Pipeline::null());
     if cbx.current_pipeline.handle != pipeline.handle {
         let bind = procs
             .bind_pipeline
@@ -175,7 +175,7 @@ pub fn bind_pipeline(
                     0,
                     new_range.size,
                     ZEROES.as_ptr().cast(),
-                )
+                );
             };
         }
 
@@ -199,7 +199,7 @@ pub fn bind_pipeline(
                     &procs.mboit_input_attachment_descriptor_set,
                     0,
                     core::ptr::null(),
-                )
+                );
             };
         }
     }
@@ -226,7 +226,7 @@ pub fn push_constants(
             offset,
             data.len() as u32,
             data.as_ptr().cast(),
-        )
+        );
     };
 }
 

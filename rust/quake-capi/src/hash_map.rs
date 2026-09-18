@@ -245,24 +245,24 @@ pub extern "C" fn TestHashMap_f() {
                         map,
                         4,
                         8,
-                        &i as *const i32 as *const c_void,
-                        &value as *const i64 as *const c_void,
+                        std::ptr::from_ref::<i32>(&i) as *const c_void,
+                        std::ptr::from_ref::<i64>(&value) as *const c_void,
                     ),
                     "value should not be overwritten\n",
                 );
             }
             for i in 0..TEST_SIZE {
-                let v = HashMap_LookupImpl(map, 4, &i as *const i32 as *const c_void);
+                let v = HashMap_LookupImpl(map, 4, std::ptr::from_ref::<i32>(&i) as *const c_void);
                 test_assert(
                     !v.is_null() && *(v as *const i64) == i as i64,
                     "wrong lookup\n",
                 );
             }
             for i in (0..TEST_SIZE).step_by(2) {
-                HashMap_EraseImpl(map, 4, &i as *const i32 as *const c_void);
+                HashMap_EraseImpl(map, 4, std::ptr::from_ref::<i32>(&i) as *const c_void);
             }
             for i in (1..TEST_SIZE).step_by(2) {
-                let v = HashMap_LookupImpl(map, 4, &i as *const i32 as *const c_void);
+                let v = HashMap_LookupImpl(map, 4, std::ptr::from_ref::<i32>(&i) as *const c_void);
                 test_assert(
                     !v.is_null() && *(v as *const i64) == i as i64,
                     "wrong lookup\n",
@@ -270,17 +270,19 @@ pub extern "C" fn TestHashMap_f() {
             }
             for i in (0..TEST_SIZE).step_by(2) {
                 test_assert(
-                    HashMap_LookupImpl(map, 4, &i as *const i32 as *const c_void).is_null(),
+                    HashMap_LookupImpl(map, 4, std::ptr::from_ref::<i32>(&i) as *const c_void)
+                        .is_null(),
                     "wrong lookup\n",
                 );
             }
             for i in 0..TEST_SIZE {
-                HashMap_EraseImpl(map, 4, &i as *const i32 as *const c_void);
+                HashMap_EraseImpl(map, 4, std::ptr::from_ref::<i32>(&i) as *const c_void);
             }
             test_assert(HashMap_Size(map) == 0, "map is not empty\n");
             for i in 0..TEST_SIZE {
                 test_assert(
-                    HashMap_LookupImpl(map, 4, &i as *const i32 as *const c_void).is_null(),
+                    HashMap_LookupImpl(map, 4, std::ptr::from_ref::<i32>(&i) as *const c_void)
+                        .is_null(),
                     "wrong lookup\n",
                 );
             }
@@ -313,19 +315,19 @@ pub extern "C" fn TestHashMap_f() {
                     map,
                     8,
                     4,
-                    k as *const i64 as *const c_void,
-                    &value as *const i32 as *const c_void,
+                    std::ptr::from_ref::<i64>(k) as *const c_void,
+                    std::ptr::from_ref::<i32>(&value) as *const c_void,
                 );
             }
             for (i, k) in keys.iter().enumerate() {
-                let v = HashMap_LookupImpl(map, 8, k as *const i64 as *const c_void);
+                let v = HashMap_LookupImpl(map, 8, std::ptr::from_ref::<i64>(k) as *const c_void);
                 test_assert(
                     !v.is_null() && *(v as *const i32) == i as i32,
                     "wrong lookup\n",
                 );
             }
             for k in keys.iter().rev() {
-                HashMap_EraseImpl(map, 8, k as *const i64 as *const c_void);
+                HashMap_EraseImpl(map, 8, std::ptr::from_ref::<i64>(k) as *const c_void);
             }
             test_assert(HashMap_Size(map) == 0, "map is not empty\n");
         }

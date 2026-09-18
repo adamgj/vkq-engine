@@ -273,7 +273,7 @@ pub unsafe extern "C" fn Sys_DoubleTime() -> f64 {
 /// C: `void Sys_Sleep (unsigned long msecs)`
 #[no_mangle]
 pub extern "C" fn Sys_Sleep(msecs: c_ulong) {
-    backend::sleep(msecs)
+    backend::sleep(msecs);
 }
 
 /* ---------------------------------------------------------------------------

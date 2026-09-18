@@ -50,7 +50,9 @@ use quake_types::fs::MAX_OSPATH;
 static TEST_LOCK: Mutex<()> = Mutex::new(());
 
 fn lock() -> MutexGuard<'static, ()> {
-    TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner())
+    TEST_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 /// `stubs/console_ref.c`'s side convention: 1 = the `c_ref_*` oracle, 0 = the
@@ -465,7 +467,7 @@ fn editline() -> (String, c_int, c_int) {
     let mut hist: c_int = 0;
     // SAFETY: ADR-004. `buf` holds MAXCMDLINE bytes, which is the cap passed.
     unsafe {
-        ctest_console_get_editline(buf.as_mut_ptr(), MAXCMDLINE as c_int, &mut pos, &mut hist)
+        ctest_console_get_editline(buf.as_mut_ptr(), MAXCMDLINE as c_int, &mut pos, &mut hist);
     };
     (c_field(&buf), pos, hist)
 }
@@ -1232,7 +1234,7 @@ fn con_strip_control_prefixes() {
             c_field(&buf)
         });
         let expected = match input.as_bytes().first() {
-            Some(1) | Some(2) => &input[1..],
+            Some(1 | 2) => &input[1..],
             _ => input,
         };
         assert_eq!(out, expected, "input {input:?}");
@@ -2116,7 +2118,7 @@ fn log_init_debuglog_and_close_write_the_same_bytes() {
         // The oracle's LOG_Init gates on -condebug (console.c:2414); the port's
         // gate stays in Quake/console_glue.c, so only the oracle needs this.
         let parm = cs("-condebug");
-        let mut argv = [cs("vkquake").into_raw(), parm.as_ptr() as *mut c_char];
+        let mut argv = [cs("vkquake").into_raw(), parm.as_ptr().cast_mut()];
         // SAFETY: ADR-004. `argv` and its strings outlive every call below.
         unsafe { ctest_set_args(2, argv.as_mut_ptr()) };
 

@@ -65,7 +65,9 @@ use quake_ctest as _; // links the cc-built c_ref_* archive
 static TEST_LOCK: Mutex<()> = Mutex::new(());
 
 fn lock() -> MutexGuard<'static, ()> {
-    TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner())
+    TEST_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 // ---------------------------------------------------------------------------
@@ -678,7 +680,7 @@ fn te_particlerain_zero_active_clients_writes_nothing() {
         setup_particle_weather([0.0, 0.0, 0.0], [1.0, 1.0, 1.0], [0.0, 0.0, 0.0], 10.0, 1.0);
         let status = invoke(side, pf::SV_TE_PARTICLERAIN);
         assert_eq!(status, PRBI_OK);
-        let raw = if side == Side::C { 0 } else { 1 };
+        let raw = i32::from(side != Side::C);
         assert!(
             datagram_bytes(raw).is_empty(),
             "{side:?}: MULTICAST_ALL_U has no broadcast-when-empty fallback"
@@ -695,7 +697,7 @@ fn te_particlerain_count_below_one_is_a_no_op() {
         setup_particle_weather([0.0, 0.0, 0.0], [1.0, 1.0, 1.0], [0.0, 0.0, 0.0], 0.5, 1.0);
         let status = invoke(side, pf::SV_TE_PARTICLERAIN);
         assert_eq!(status, PRBI_OK);
-        let raw = if side == Side::C { 0 } else { 1 };
+        let raw = i32::from(side != Side::C);
         assert!(
             client_datagram_bytes(raw, 0).is_empty(),
             "{side:?}: count < 1 must early-return before any write"

@@ -250,7 +250,7 @@ pub unsafe extern "C" fn Sky_LoadTexture(mod_: *mut QModel, mt: *mut Texture, te
         {
             let _guard = LOAD_SKYTEXTURE_MUTEX
                 .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             if tex_index > MAX_SKYTEXTURE_INDEX {
                 MAX_SKYTEXTURE_INDEX = tex_index;
                 ALPHASKYTEXTURE = TexMgr_LoadImage(
@@ -354,7 +354,7 @@ pub unsafe extern "C" fn Sky_LoadTextureQ64(mod_: *mut QModel, mt: *mut Texture,
         {
             let _guard = LOAD_SKYTEXTURE_MUTEX
                 .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             if tex_index > MAX_SKYTEXTURE_INDEX {
                 MAX_SKYTEXTURE_INDEX = tex_index;
                 if !ALPHASKYTEXTURE.is_null() {
@@ -435,7 +435,7 @@ pub unsafe extern "C" fn Sky_LoadSkyBox(name: *const c_char) {
         let notexture = (*ptr::addr_of!(c::render::notexture)).cast::<GlTexture>();
 
         // purge old textures
-        for tex in sb.textures.iter_mut() {
+        for tex in &mut sb.textures {
             if !tex.is_null() && *tex != notexture {
                 TexMgr_FreeTexture(*tex);
             }
@@ -535,7 +535,7 @@ pub unsafe extern "C" fn Sky_LoadSkyBox(name: *const c_char) {
 
         if nonefound {
             // go back to scrolling sky if skybox is totally missing
-            for tex in sb.textures.iter_mut() {
+            for tex in &mut sb.textures {
                 if !tex.is_null() && *tex != notexture {
                     TexMgr_FreeTexture(*tex);
                 }
@@ -701,11 +701,7 @@ unsafe fn project_poly(vecs: &[f32]) {
     }
     let av = [v[0].abs(), v[1].abs(), v[2].abs()];
     let axis = if av[0] > av[1] && av[0] > av[2] {
-        if v[0] < 0.0 {
-            1
-        } else {
-            0
-        }
+        usize::from(v[0] < 0.0)
     } else if av[1] > av[2] && av[1] > av[0] {
         if v[1] < 0.0 {
             3
@@ -1465,7 +1461,7 @@ pub unsafe extern "C" fn Sky_DrawSky(cbx: *mut CbContext) {
             let pipeline: VulkanPipeline = vg!(ctx, sky_box_pipeline[variant]);
             // SAFETY: per the contract.
             unsafe {
-                cb::bind_pipeline(&procs, &mut *cbx, vk::PipelineBindPoint::GRAPHICS, pipeline)
+                cb::bind_pipeline(&procs, &mut *cbx, vk::PipelineBindPoint::GRAPHICS, pipeline);
             };
         });
         // SAFETY: per the contract.

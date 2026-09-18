@@ -368,6 +368,8 @@ pub extern "C" fn MSG_ReadString() -> *const c_char {
     // SAFETY: single-threaded host frame; the static mirrors C's
     // function-static lifetime and aliasing (each call overwrites it)
     unsafe {
+        // the method path does not satisfy the higher-ranked closure bound
+        #[allow(clippy::redundant_closure_for_method_calls)]
         let s = with_reader(|r| r.read_string());
         let p = (&raw mut STRING_BUF).cast::<u8>();
         let n = s.len().min(2047);

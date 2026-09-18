@@ -1870,11 +1870,10 @@ pub unsafe extern "C" fn Con_AddToTabList(
                 // find max common between bash_partial and name (left side)
                 while i_bash2 != bash
                     && i_name2 != name.cast_mut()
-                    && q_toupper(*i_bash2.offset(-1) as c_int)
-                        == q_toupper(*i_name2.offset(-1) as c_int)
+                    && q_toupper(*i_bash2.sub(1) as c_int) == q_toupper(*i_name2.sub(1) as c_int)
                 {
-                    i_bash2 = i_bash2.offset(-1);
-                    i_name2 = i_name2.offset(-1);
+                    i_bash2 = i_bash2.sub(1);
+                    i_name2 = i_name2.sub(1);
                 }
                 if i_bash2 != bash {
                     ptr::copy(i_bash2, bash, strlen(i_bash2) + 1);
@@ -1995,7 +1994,7 @@ unsafe fn parse_command() {
         g::Cmd_TokenizeString(buf.as_ptr());
         // last arg should always be the one we're trying to complete, so we add a
         // new empty one if the command ends with a space
-        if end != buf.as_ptr() && *end.offset(-1) == b' ' as c_char {
+        if end != buf.as_ptr() && *end.sub(1) == b' ' as c_char {
             g::Cmd_AddArg(c"".as_ptr());
         }
     }
@@ -2368,7 +2367,7 @@ pub unsafe extern "C" fn quake_rs_con_tab_complete(mode: c_int) -> Raise {
                 && *TAB_C != b';' as c_char
                 && TAB_C != line
             {
-                TAB_C = TAB_C.offset(-1);
+                TAB_C = TAB_C.sub(1);
             }
             TAB_C = TAB_C.add(1);
         }

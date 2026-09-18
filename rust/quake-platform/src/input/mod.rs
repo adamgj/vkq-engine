@@ -29,7 +29,15 @@ use quake_c_sys::cl_input::{
 use quake_c_sys::cl_main::{lookstrafe, m_forward, m_pitch, m_side, m_yaw, sensitivity};
 use quake_c_sys::cl_parse::vid;
 use quake_c_sys::host::host_parms;
-use quake_c_sys::input::*;
+use quake_c_sys::input::{
+    in_debugkeys, joy_deadzone_look, joy_deadzone_move, joy_deadzone_trigger, joy_enable,
+    joy_exponent, joy_exponent_move, joy_invert, joy_outer_threshold_look,
+    joy_outer_threshold_move, joy_sensitivity_pitch, joy_sensitivity_yaw, joy_swapmovelook,
+    Con_Mousemove, InSdl_Glue_CLDisconnect, InSdl_Glue_CharEvent, InSdl_Glue_ConscaleCallback,
+    InSdl_Glue_KeyEvent, InSdl_Glue_KeyEventWithKeycode, InSdl_Glue_RegisterVariable,
+    InSdl_Glue_SysQuit, Key_TextEntry, S_BlockSound, S_UnblockSound, VID_FocusGained,
+    VID_FocusLost,
+};
 use quake_c_sys::keys::key_dest;
 use quake_c_sys::libm;
 use quake_c_sys::menu::scr_fov;
@@ -48,6 +56,8 @@ mod backend;
 #[path = "sdl3.rs"]
 mod backend;
 
+// the K_* table mirrors keys.h; every name is used here
+#[allow(clippy::wildcard_imports)]
 use keys::*;
 
 /// A `Host_Guard` status: 0 is `HOST_GUARD_OK`.
@@ -109,6 +119,7 @@ static mut JOY_EMULATEDKEYTIMER: [f64; 6] = [0.0; 6];
 
 /// One SDL event after the backend has read the union; `TextInput` borrows
 /// the event's own bytes.
+#[derive(Clone, Copy)]
 pub(crate) enum Event<'a> {
     FocusGained,
     FocusLost,

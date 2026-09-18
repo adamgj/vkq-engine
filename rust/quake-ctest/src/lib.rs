@@ -98,7 +98,7 @@ pub fn c_block_full_checksum(data: &[u8]) -> [u8; 16] {
             data.as_ptr() as *mut c_void,
             data.len() as c_int,
             out.as_mut_ptr(),
-        )
+        );
     };
     out
 }

@@ -98,7 +98,12 @@ fn constants_bytes<T: Copy>(constants: &T) -> &[u8] {
     // SAFETY: the callers' structs are `repr(C)` with only `u32`/`f32`
     // fields, so every byte of the value is initialized; the slice borrows
     // `constants` for its lifetime.
-    unsafe { slice::from_raw_parts((constants as *const T).cast::<u8>(), size_of::<T>()) }
+    unsafe {
+        slice::from_raw_parts(
+            std::ptr::from_ref::<T>(constants).cast::<u8>(),
+            size_of::<T>(),
+        )
+    }
 }
 
 /// The main-pass `(render_pass_index, subpass)` a secondary context in
@@ -425,7 +430,7 @@ fn screen_effects<E: VidEngine>(
                 &[barrier],
                 &[],
                 &[],
-            )
+            );
         };
         return;
     }
@@ -470,7 +475,7 @@ fn screen_effects<E: VidEngine>(
             &[],
             &[],
             &barriers,
-        )
+        );
     };
 
     engine.set_canvas(
@@ -517,7 +522,7 @@ fn screen_effects<E: VidEngine>(
                 0,
                 &[screen_effects_desc_set],
                 &[],
-            )
+            );
         };
         let mut flags = 0;
         if parms.render_warp {
@@ -617,7 +622,7 @@ fn screen_effects<E: VidEngine>(
     // SAFETY: `cb` is recording with the compute pipeline and its sets bound.
     unsafe {
         ctx.device
-            .cmd_dispatch(cb, width.div_ceil(8), height.div_ceil(8), 1)
+            .cmd_dispatch(cb, width.div_ceil(8), height.div_ceil(8), 1);
     };
 
     let barrier = vk::ImageMemoryBarrier::default()
@@ -639,7 +644,7 @@ fn screen_effects<E: VidEngine>(
             &[],
             &[],
             &[barrier],
-        )
+        );
     };
 
     cb::end_debug_utils_label(procs, cbx);
@@ -695,7 +700,7 @@ fn schedule_screenshot_copy<E: VidEngine>(
             &[],
             &[],
             &[to_transfer],
-        )
+        );
     };
 
     let region = vk::BufferImageCopy {
@@ -723,7 +728,7 @@ fn schedule_screenshot_copy<E: VidEngine>(
             vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
             buffer,
             &[region],
-        )
+        );
     };
 
     let to_present = vk::ImageMemoryBarrier::default()
@@ -743,7 +748,7 @@ fn schedule_screenshot_copy<E: VidEngine>(
             &[],
             &[],
             &[to_present],
-        )
+        );
     };
 
     (buffer, memory)
@@ -938,7 +943,7 @@ pub fn end_rendering_task<E: VidEngine>(
                 0,
                 &[vid.postprocess_descriptor_set],
                 &[],
-            )
+            );
         };
         cb::push_constants(
             &procs,
@@ -1048,7 +1053,7 @@ pub fn end_rendering_task<E: VidEngine>(
             render_passes_cb,
             &render_pass_begin_info,
             vk::SubpassContents::SECONDARY_COMMAND_BUFFERS,
-        )
+        );
     };
 
     let main_pass_last = if parms.use_oit {
@@ -1172,7 +1177,7 @@ pub fn end_rendering_task<E: VidEngine>(
                 vk::PipelineStageFlags::BOTTOM_OF_PIPE,
                 vid.timestamp_query_pool,
                 (cb_index * 2 + 1) as u32,
-            )
+            );
         };
         vid.timestamps_written[cb_index] = true;
     }

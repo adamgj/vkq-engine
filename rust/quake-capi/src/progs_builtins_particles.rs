@@ -210,7 +210,7 @@ unsafe fn num_for_edict(ent: *mut Edict) -> Result<c_int, SvRaise> {
         guarded(c::world::World_Glue_NumForEdict(
             ent.cast::<c_void>(),
             &mut out,
-        ))?
+        ))?;
     };
     Ok(out)
 }

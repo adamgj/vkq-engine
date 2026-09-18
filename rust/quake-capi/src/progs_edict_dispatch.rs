@@ -293,7 +293,7 @@ pub unsafe extern "C" fn quake_rs_ed_parse_globals(
             )
         };
         match epair_status {
-            PRPARSE_OK => continue,
+            PRPARSE_OK => {}
             PRPARSE_FALSE => break 'outer PREDD_ERR_EPAIR_PARSE,
             PRPARSE_ERR_ENTITY_RANGE => {
                 *detail = epair_detail;
@@ -543,7 +543,7 @@ pub unsafe extern "C" fn quake_rs_ed_parse_edict(
             )
         };
         match epair_status {
-            PRPARSE_OK => continue,
+            PRPARSE_OK => {}
             PRPARSE_FALSE => break 'outer PREDD_ERR_EPAIR_PARSE,
             PRPARSE_ERR_ENTITY_RANGE => {
                 *detail = epair_detail;

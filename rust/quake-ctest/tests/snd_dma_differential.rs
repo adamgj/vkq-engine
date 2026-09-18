@@ -184,7 +184,7 @@ fn raw_samples_sweep() {
             unsafe { ctest_snd_setup_dma(44100, 16, 2, 0, 16384, buf.as_mut_ptr()) };
             let painted = 30000;
             let mut data = vec![0u8; 4096 * channels as usize * width as usize];
-            for b in data.iter_mut() {
+            for b in &mut data {
                 *b = (lcg(&mut seed) >> 16) as u8;
             }
             let samples = 4096 / 4; // keep runs bounded

@@ -1,6 +1,7 @@
 //! `Shaders/bintoc.c`: a binary file as a C `const unsigned char` array,
 //! optionally raw-deflated with miniz's `TDEFL_MAX_PROBES_MASK` flags.
 
+use std::fmt::Write as _;
 use std::path::Path;
 
 use miniz_oxide::deflate::core::{compress, CompressorOxide, TDEFLFlush, TDEFLStatus};
@@ -56,17 +57,17 @@ pub fn symbol(name: &str) -> String {
 pub fn render(symbol: &str, bytes: &[u8], decompressed: Option<usize>) -> String {
     let mut out = String::with_capacity(bytes.len() * 6 + 256);
     out.push_str("// clang-format off\n");
-    out.push_str(&format!("const unsigned char {symbol}[] = {{\n"));
+    let _ = writeln!(out, "const unsigned char {symbol}[] = {{");
     for (i, b) in bytes.iter().enumerate() {
-        out.push_str(&format!("0x{b:02X}, "));
+        let _ = write!(out, "0x{b:02X}, ");
         if (i + 1) % 10 == 0 {
             out.push('\n');
         }
     }
     out.push_str("};\n");
-    out.push_str(&format!("const int {symbol}_size = {};\n", bytes.len()));
+    let _ = writeln!(out, "const int {symbol}_size = {};", bytes.len());
     if let Some(len) = decompressed {
-        out.push_str(&format!("const int {symbol}_decompressed_size = {len};\n"));
+        let _ = writeln!(out, "const int {symbol}_decompressed_size = {len};");
     }
     out
 }

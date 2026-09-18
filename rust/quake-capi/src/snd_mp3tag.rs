@@ -80,7 +80,7 @@ unsafe fn get_musicmatch_len(stream: *mut snd_stream_t) -> c_long {
         // Try finding the version info section
         let mut len: c_long = 0;
         let mut found = false;
-        for &metasize in METASIZES.iter() {
+        for &metasize in &METASIZES {
             // 48: footer, 20: offsets, 256: version info
             len = metasize + 48 + 20 + 256;
             if (*stream).fh.length < len as sys::qfilesize_t {

@@ -43,7 +43,9 @@ use quake_ctest as _; // links the cc-built c_ref_* archive
 static TEST_LOCK: Mutex<()> = Mutex::new(());
 
 fn lock() -> MutexGuard<'static, ()> {
-    TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner())
+    TEST_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 /// `pr_comp.h`'s reserved global offsets.

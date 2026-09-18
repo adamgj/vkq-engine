@@ -51,7 +51,9 @@ use quake_ctest as _; // links the cc-built c_ref_* archive
 static TEST_LOCK: Mutex<()> = Mutex::new(());
 
 fn lock() -> MutexGuard<'static, ()> {
-    TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner())
+    TEST_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 /// `stubs/sbar_ref.c`'s side convention: 1 = the `c_ref_*` oracle, 0 = the port.
@@ -740,7 +742,7 @@ fn draw_scroll_string_matches_across_the_scroll_phase() {
                         4,
                         width,
                         c"the quick brown fox jumps over the lazy dog".as_ptr(),
-                    )
+                    );
                 },
             );
         }
@@ -1214,7 +1216,7 @@ fn draw_scoreboard_matches_in_both_gametypes() {
                         gametype,
                         c"e1m1".as_ptr(),
                         c"the slipgate complex".as_ptr(),
-                    )
+                    );
                 };
             },
             // SAFETY: as above.

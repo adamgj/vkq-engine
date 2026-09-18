@@ -918,16 +918,15 @@ pub unsafe extern "C" fn quake_rs_menu_toggle_menu_f() -> Raise {
 /// # Safety
 /// Reads the menu-local scrollbar hit box and mouse position.
 unsafe fn m_in_scrollbar() -> bool {
-    // SAFETY: single-threaded menu state. The duplicated final term is
-    // menu.c's own copy-paste; it is kept so the expression matches
-    // one-for-one.
+    // SAFETY: single-threaded menu state. menu.c repeats the final
+    // `m_mouse_y <= scrollbar_y + scrollbar_size` term (its own copy-paste);
+    // the duplicate is dropped here, the rest reads like the C.
     unsafe {
         SCROLLBAR_GRAB
             || (SCROLLBAR_SIZE != 0
                 && M_MOUSE_X >= SCROLLBAR_X
                 && M_MOUSE_X <= SCROLLBAR_X + 8
                 && M_MOUSE_Y >= SCROLLBAR_Y
-                && M_MOUSE_Y <= SCROLLBAR_Y + SCROLLBAR_SIZE
                 && M_MOUSE_Y <= SCROLLBAR_Y + SCROLLBAR_SIZE)
     }
 }
@@ -1159,7 +1158,7 @@ unsafe fn m_main_draw(cbx: *mut c_void) {
     // SAFETY: caller contract plus single-threaded menu state.
     unsafe {
         let menu2 = get_menu2();
-        let main_items = MAIN_ITEMS + if !menu2.is_null() { 1 } else { 0 };
+        let main_items = MAIN_ITEMS + i32::from(!menu2.is_null());
 
         quake_rs_menu_draw_trans_pic(cbx, 16, 4, g::Draw_CachePic(cstr!("gfx/qplaque.lmp")));
         let p = g::Draw_CachePic(cstr!("gfx/ttl_main.lmp"));
@@ -1223,7 +1222,7 @@ unsafe fn m_main_key(key: c_int) -> Raise {
             K_DOWNARROW => {
                 g::S_LocalSound(cstr!("misc/menu1.wav"));
                 M_MAIN_CURSOR += 1;
-                if M_MAIN_CURSOR >= MAIN_ITEMS + if !menu2.is_null() { 1 } else { 0 } {
+                if M_MAIN_CURSOR >= MAIN_ITEMS + i32::from(!menu2.is_null()) {
                     M_MAIN_CURSOR = 0;
                 }
             }
@@ -1232,7 +1231,7 @@ unsafe fn m_main_key(key: c_int) -> Raise {
                 g::S_LocalSound(cstr!("misc/menu1.wav"));
                 M_MAIN_CURSOR -= 1;
                 if M_MAIN_CURSOR < 0 {
-                    M_MAIN_CURSOR = (MAIN_ITEMS + if !menu2.is_null() { 1 } else { 0 }) - 1;
+                    M_MAIN_CURSOR = (MAIN_ITEMS + i32::from(!menu2.is_null())) - 1;
                 }
             }
 
@@ -1275,7 +1274,7 @@ static mut M_SINGLEPLAYER_SHOWLEVELS: bool = false;
 #[inline]
 unsafe fn singleplayer_items() -> c_int {
     // SAFETY: single-threaded menu state.
-    unsafe { 3 + if M_SINGLEPLAYER_SHOWLEVELS { 1 } else { 0 } }
+    unsafe { 3 + i32::from(M_SINGLEPLAYER_SHOWLEVELS) }
 }
 
 /// `menu.c:731` -- `static void M_Menu_SinglePlayer_f (void)`.
@@ -1439,7 +1438,7 @@ unsafe fn m_scan_saves() {
                 cstr!("--- UNUSED SLOT ---"),
             );
             LOADABLE[i] = 0;
-            let mut j = if g::multiuser { 0 } else { 1 };
+            let mut j = i32::from(!g::multiuser);
             while j < 2 {
                 if j == 0 {
                     g::q_snprintf(
@@ -2866,7 +2865,7 @@ const GRAPHICS_OPTIONS_ITEMS: c_int = 16;
 /// Queries the Vulkan device through the glue.
 unsafe fn m_graphicsoptions_numitems() -> c_int {
     // SAFETY: the glue reads one already-initialised scalar.
-    unsafe { GRAPHICS_OPTIONS_ITEMS - if g::Menu_Glue_RayQuery() { 0 } else { 1 } }
+    unsafe { GRAPHICS_OPTIONS_ITEMS - i32::from(!g::Menu_Glue_RayQuery()) }
 }
 
 /// `menu.c:1741` -- `static int graphics_options_cursor = 0;`.
@@ -7706,7 +7705,7 @@ unsafe fn m_check_custom_gfx(
                 loop {
                     let more = n > 0;
                     n -= 1;
-                    if !(more && !ret) {
+                    if !more || ret {
                         break;
                     }
                     let want = *p;

@@ -23,13 +23,18 @@ pub static FS_LOCK: Mutex<()> = Mutex::new(());
 /// Poison-tolerant [`FS_LOCK`] acquisition: a panicking test must not turn
 /// every later fs test into a PoisonError failure.
 pub fn lock() -> std::sync::MutexGuard<'static, ()> {
-    FS_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+    FS_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 pub const MAX_BASEDIRS: usize = 4;
 
 mod cref {
-    use super::*;
+    use super::{
+        c_char, c_int, c_uint, c_void, qfilesize_t, steamgame_t, SearchPath, FILE, MAX_BASEDIRS,
+        MAX_OSPATH,
+    };
 
     extern "C" {
         // ---- c_ref globals (common_fs.c compiled under the rename prelude)
@@ -103,7 +108,7 @@ mod cref {
 }
 
 mod stub {
-    use super::*;
+    use super::{c_char, c_int, c_void};
 
     extern "C" {
         pub fn ctest_try(fn_: unsafe extern "C" fn(*mut c_void), arg: *mut c_void) -> c_int;
@@ -141,7 +146,7 @@ pub fn set_host_dirs(basedir: &str, userdir: Option<&str>) {
     let u = userdir.map(to_cstring);
     // SAFETY: NUL-terminated strings; the stub copies them into static bufs
     unsafe {
-        stub::ctest_set_host_dirs(b.as_ptr(), u.as_ref().map_or(ptr::null(), |u| u.as_ptr()))
+        stub::ctest_set_host_dirs(b.as_ptr(), u.as_ref().map_or(ptr::null(), |u| u.as_ptr()));
     };
 }
 
@@ -172,7 +177,7 @@ store_setter!(set_egs_launcher_data, ctest_set_egs_launcher_data);
 /// while the args are in use.
 pub fn set_args(args: &[&str]) -> Vec<std::ffi::CString> {
     let owned: Vec<std::ffi::CString> = args.iter().map(|a| to_cstring(a)).collect();
-    let mut argv: Vec<*mut c_char> = owned.iter().map(|a| a.as_ptr() as *mut c_char).collect();
+    let mut argv: Vec<*mut c_char> = owned.iter().map(|a| a.as_ptr().cast_mut()).collect();
     // SAFETY: argv pointers stay valid while `owned` lives (returned to the
     // caller); the stub copies the pointer array
     unsafe { stub::ctest_set_args(argv.len() as c_int, argv.as_mut_ptr()) };
@@ -245,7 +250,12 @@ pub fn catch_sys_error<F: FnMut()>(mut f: F) -> Option<String> {
         f();
     }
     // SAFETY: the trampoline is monomorphized for F and receives &mut f
-    let hit = unsafe { stub::ctest_try(trampoline::<F>, &mut f as *mut F as *mut c_void) };
+    let hit = unsafe {
+        stub::ctest_try(
+            trampoline::<F>,
+            std::ptr::from_mut::<F>(&mut f) as *mut c_void,
+        )
+    };
     if hit != 0 {
         // SAFETY: the stub message buffer is static and NUL-terminated
         let msg = unsafe { CStr::from_ptr(stub::ctest_sys_error_message()) };

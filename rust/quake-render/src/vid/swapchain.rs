@@ -45,15 +45,17 @@ pub fn create_swap_chain<E: VidEngine>(ctx: &mut Ctx<'_, E>, vid: &mut VidState)
             full_screen_exclusive_win32_info.hmonitor = engine.window_monitor() as vk::HMONITOR;
             full_screen_exclusive_info.full_screen_exclusive =
                 vk::FullScreenExclusiveEXT::APPLICATION_CONTROLLED;
-            full_screen_exclusive_info.p_next = (&mut full_screen_exclusive_win32_info
-                as *mut vk::SurfaceFullScreenExclusiveWin32InfoEXT)
-                .cast();
+            full_screen_exclusive_info.p_next = std::ptr::from_mut::<
+                vk::SurfaceFullScreenExclusiveWin32InfoEXT,
+            >(&mut full_screen_exclusive_win32_info)
+            .cast();
 
             let mut surface_info_2 =
                 vk::PhysicalDeviceSurfaceInfo2KHR::default().surface(vid.surface);
-            surface_info_2.p_next = (&full_screen_exclusive_info
-                as *const vk::SurfaceFullScreenExclusiveInfoEXT)
-                .cast();
+            surface_info_2.p_next = std::ptr::from_ref::<vk::SurfaceFullScreenExclusiveInfoEXT>(
+                &full_screen_exclusive_info,
+            )
+            .cast();
 
             let mut surface_capabilities_full_screen_exclusive =
                 vk::SurfaceCapabilitiesFullScreenExclusiveEXT::default();
@@ -287,15 +289,17 @@ pub fn create_swap_chain<E: VidEngine>(ctx: &mut Ctx<'_, E>, vid: &mut VidState)
     *vg_mut!(ctx, swap_chain_full_screen_acquired) = false;
     #[cfg(windows)]
     if use_exclusive_full_screen {
-        swapchain_create_info.p_next =
-            (&full_screen_exclusive_info as *const vk::SurfaceFullScreenExclusiveInfoEXT).cast();
+        swapchain_create_info.p_next = std::ptr::from_ref::<vk::SurfaceFullScreenExclusiveInfoEXT>(
+            &full_screen_exclusive_info,
+        )
+        .cast();
         *vg_mut!(ctx, swap_chain_full_screen_exclusive) = true;
     }
 
     *vg_mut!(ctx, swap_chain_format) = swap_chain_format;
     drop(surface_formats);
 
-    debug_assert!(vid.swapchain == vk::SwapchainKHR::null());
+    debug_assert_eq!(vid.swapchain, vk::SwapchainKHR::null());
     let create_swapchain = vid
         .procs
         .create_swapchain
@@ -336,7 +340,7 @@ pub fn create_swap_chain<E: VidEngine>(ctx: &mut Ctx<'_, E>, vid: &mut VidState)
     vid.current_present_id = 0; // present ids are scoped to the swapchain
 
     for i in 0..vid.num_swap_chain_images {
-        debug_assert!(vid.swapchain_images[i] == vk::Image::null());
+        debug_assert_eq!(vid.swapchain_images[i], vk::Image::null());
     }
 
     let get_swapchain_images = vid
@@ -390,7 +394,7 @@ pub fn create_swap_chain<E: VidEngine>(ctx: &mut Ctx<'_, E>, vid: &mut VidState)
 
     for i in 0..vid.num_swap_chain_images {
         ctx.name_object(vid.swapchain_images[i], c"Swap Chain");
-        debug_assert!(vid.swapchain_images_views[i] == vk::ImageView::null());
+        debug_assert_eq!(vid.swapchain_images_views[i], vk::ImageView::null());
         image_view_create_info.image = vid.swapchain_images[i];
         // SAFETY: `image_view_create_info` is complete over a swap chain image.
         vid.swapchain_images_views[i] =
@@ -402,7 +406,7 @@ pub fn create_swap_chain<E: VidEngine>(ctx: &mut Ctx<'_, E>, vid: &mut VidState)
     }
 
     for i in 0..DOUBLE_BUFFERED {
-        debug_assert!(vid.image_aquired_semaphores[i] == vk::Semaphore::null());
+        debug_assert_eq!(vid.image_aquired_semaphores[i], vk::Semaphore::null());
         // SAFETY: a default semaphore create info.
         vid.image_aquired_semaphores[i] =
             match unsafe { ctx.device.create_semaphore(&semaphore_create_info, None) } {
@@ -412,7 +416,7 @@ pub fn create_swap_chain<E: VidEngine>(ctx: &mut Ctx<'_, E>, vid: &mut VidState)
     }
 
     for i in 0..vid.num_swap_chain_images {
-        debug_assert!(vid.draw_complete_semaphores[i] == vk::Semaphore::null());
+        debug_assert_eq!(vid.draw_complete_semaphores[i], vk::Semaphore::null());
         // SAFETY: as above.
         vid.draw_complete_semaphores[i] =
             match unsafe { ctx.device.create_semaphore(&semaphore_create_info, None) } {

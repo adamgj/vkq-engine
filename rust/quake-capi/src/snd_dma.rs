@@ -347,7 +347,7 @@ fn find_name(st: &mut SndState, name: *const c_char) -> *mut Sfx {
     let mut i = st.num_sfx as usize;
     if st.num_sfx as usize == st.known_sfx.len() {
         flush_oldest_sounds(st);
-        debug_assert!(st.num_sfx as usize == MAX_SOUNDS);
+        debug_assert_eq!(st.num_sfx as usize, MAX_SOUNDS);
         i = MAX_SOUNDS;
     }
 
@@ -933,7 +933,6 @@ pub unsafe extern "C" fn S_Update(
                             (*ch).rightvol = 0;
                         }
                         combine = Some(j);
-                        continue;
                     }
                 }
             }

@@ -140,7 +140,7 @@ pub fn is_path_prefix(prefix: &[u8], path: &[u8]) -> bool {
     if !prefix.iter().zip(path).all(|(&a, &b)| norm(a) == norm(b)) {
         return false;
     }
-    matches!(path.get(prefix.len()), None | Some(&b'/') | Some(&b'\\'))
+    matches!(path.get(prefix.len()), None | Some(&b'/' | &b'\\'))
 }
 
 #[cfg(test)]

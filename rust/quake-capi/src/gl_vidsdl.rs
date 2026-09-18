@@ -196,7 +196,7 @@ impl VidEngine for CEngine {
                 height,
                 min_depth,
                 max_depth,
-            )
+            );
         }
     }
 
@@ -637,6 +637,6 @@ pub unsafe extern "C" fn R_CreatePaletteOctreeBuffers(
         )
     };
     with_ctx(|ctx| {
-        resources::create_palette_octree_buffers(ctx, vid_state(), &STAGING, colors, nodes)
+        resources::create_palette_octree_buffers(ctx, vid_state(), &STAGING, colors, nodes);
     });
 }

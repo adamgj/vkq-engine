@@ -376,13 +376,12 @@ fn main() {
     }
     let base = base.expect("--base <dir> required");
     let gamedir = gamedir.expect("--gamedir <name> required");
-    let names: Vec<String> = match list {
-        Some(f) => std::fs::read_to_string(f).expect("readable --list file"),
-        None => {
-            let mut s = String::new();
-            std::io::stdin().read_to_string(&mut s).expect("stdin");
-            s
-        }
+    let names: Vec<String> = if let Some(f) = list {
+        std::fs::read_to_string(f).expect("readable --list file")
+    } else {
+        let mut s = String::new();
+        std::io::stdin().read_to_string(&mut s).expect("stdin");
+        s
     }
     .lines()
     .map(str::trim)

@@ -339,7 +339,10 @@ pub unsafe extern "C" fn Fog_DisableGFog(cbx: *mut CbContext) {
     // SAFETY: as `Fog_EnableGFog`.
     let cbx = unsafe { &*cbx };
     with_ctx(|ctx| {
-        debug_assert!(cbx.current_pipeline.layout.handle == vg!(ctx, basic_pipeline_layout).handle);
+        debug_assert_eq!(
+            cbx.current_pipeline.layout.handle,
+            vg!(ctx, basic_pipeline_layout).handle
+        );
         let procs = CmdProcs::new(ctx.vg);
         push_fog_values(&procs, cbx, &[0.0; 4]);
     });

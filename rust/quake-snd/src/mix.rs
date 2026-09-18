@@ -517,7 +517,7 @@ pub fn paint_channels<S: SfxSource>(
 
         // clip each sample to 0dB, then reduce by 6dB (headroom for the
         // lowpass filter and the music); the lowpass smooths the clipping
-        for pb in st.paintbuffer[..block].iter_mut() {
+        for pb in &mut st.paintbuffer[..block] {
             pb.left = pb.left.clamp(-32768 * 256, 32767 * 256) / 2;
             pb.right = pb.right.clamp(-32768 * 256, 32767 * 256) / 2;
         }

@@ -653,7 +653,7 @@ pub unsafe extern "C" fn rust_udp6_GetAddrFromName(
                     if len >= DUPBASE {
                         len = DUPBASE - 1;
                     }
-                    let host = &bytes[1..1 + len];
+                    let host = &bytes[1..=len];
                     let service = if bytes.get(close + 1) == Some(&b':') {
                         Some(&bytes[close + 2..])
                     } else {
@@ -697,30 +697,27 @@ pub unsafe extern "C" fn rust_udp6_GetAddrFromName(
             }
         };
 
-        match found {
-            Some(mut a) => {
-                if udp::get_socket_port(&a) == 0 {
-                    udp::set_socket_port(&mut a, c::net_hostport);
-                }
-                // COMPAT: C memcpy's only ai_addrlen bytes, leaving the
-                // caller's tail; the port writes all 64. Unobservable --
-                // every caller gates on the return value and no consumer
-                // reads a whole qsockaddr from this path (same argument as
-                // quake_net::udp::string_to_addr4's note).
-                *addr = a;
-                0
+        if let Some(mut a) = found {
+            if udp::get_socket_port(&a) == 0 {
+                udp::set_socket_port(&mut a, c::net_hostport);
             }
-            None => {
-                // C sets `((struct sockaddr *)addr)->sa_family = 0` before
-                // walking the addrinfo list, so a lookup that SUCCEEDS with
-                // no AF_INET6 result leaves the caller's family clobbered
-                // even though it returns -1. Mirrored; a lookup that failed
-                // outright leaves the struct untouched, as in C.
-                if resolved_but_unusable {
-                    udp::set_family(&mut *addr, 0);
-                }
-                -1
+            // COMPAT: C memcpy's only ai_addrlen bytes, leaving the
+            // caller's tail; the port writes all 64. Unobservable --
+            // every caller gates on the return value and no consumer
+            // reads a whole qsockaddr from this path (same argument as
+            // quake_net::udp::string_to_addr4's note).
+            *addr = a;
+            0
+        } else {
+            // C sets `((struct sockaddr *)addr)->sa_family = 0` before
+            // walking the addrinfo list, so a lookup that SUCCEEDS with
+            // no AF_INET6 result leaves the caller's family clobbered
+            // even though it returns -1. Mirrored; a lookup that failed
+            // outright leaves the struct untouched, as in C.
+            if resolved_but_unusable {
+                udp::set_family(&mut *addr, 0);
             }
+            -1
         }
     }
 }

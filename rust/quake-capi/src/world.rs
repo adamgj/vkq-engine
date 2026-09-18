@@ -554,7 +554,11 @@ pub unsafe extern "C" fn SV_CreateAreaNode(
         let hi = read3(maxs);
         let size = [hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]];
 
-        (*anode).axis = if size[0] > size[1] { 0 } else { 1 };
+        // C: `size[0] > size[1] ? 0 : 1`; a NaN extent selects axis 1 like the C
+        (*anode).axis = match size[0].partial_cmp(&size[1]) {
+            Some(core::cmp::Ordering::Greater) => 0,
+            _ => 1,
+        };
 
         let max_depth_reached = if pr_checkextension_on() && sv_fte_createareanode_value() > 0.0 {
             depth == MAX_AREA_DEPTH || size[(*anode).axis as usize] < 500.0

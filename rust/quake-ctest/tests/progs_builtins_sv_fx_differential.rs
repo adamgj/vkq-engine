@@ -35,7 +35,9 @@ use quake_ctest as _; // links the cc-built c_ref_* archive
 static TEST_LOCK: Mutex<()> = Mutex::new(());
 
 fn lock() -> MutexGuard<'static, ()> {
-    TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner())
+    TEST_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 // ---------------------------------------------------------------------------
@@ -295,7 +297,7 @@ fn changelevel_last() -> String {
 
 fn sound_arm_raise(on: bool) {
     // SAFETY: plain C setter.
-    unsafe { ctest_phys_sound_arm_raise(if on { 1 } else { 0 }) };
+    unsafe { ctest_phys_sound_arm_raise(i32::from(on)) };
 }
 
 // ---------------------------------------------------------------------------

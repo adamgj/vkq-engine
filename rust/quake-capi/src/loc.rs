@@ -251,16 +251,15 @@ unsafe fn loc_load_file(file: *const c_char) {
                 return;
             };
 
-            match ZipArchive::open(&kpf).and_then(|zip| zip.extract(file_bytes)) {
-                Ok(extracted) => bytes = extracted,
-                Err(_) => {
-                    // the C's fail path for reader-init/extract failure
-                    // prints the same line (its Sys_FileClose already
-                    // happened above)
-                    // SAFETY: `file` is NUL-terminated
-                    unsafe { print_load_failure(file) };
-                    return;
-                }
+            if let Ok(extracted) = ZipArchive::open(&kpf).and_then(|zip| zip.extract(file_bytes)) {
+                bytes = extracted;
+            } else {
+                // the C's fail path for reader-init/extract failure
+                // prints the same line (its Sys_FileClose already
+                // happened above)
+                // SAFETY: `file` is NUL-terminated
+                unsafe { print_load_failure(file) };
+                return;
             }
         } else {
             if sz <= 0 {

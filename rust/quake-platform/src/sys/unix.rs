@@ -1029,7 +1029,7 @@ pub unsafe fn is_in_debugger() -> bool {
             let digits: String = rest
                 .trim_start()
                 .chars()
-                .take_while(|c| c.is_ascii_digit())
+                .take_while(char::is_ascii_digit)
                 .collect();
             let pid: i64 = digits.parse().unwrap_or(0);
             return pid != 0;

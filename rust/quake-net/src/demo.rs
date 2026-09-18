@@ -89,7 +89,7 @@ pub fn parse_forcetrack(buf: &[u8]) -> Option<(i32, usize)> {
     let mut base: i64 = 10;
     let mut digits = 0usize;
     if buf.get(i) == Some(&b'0') {
-        if matches!(buf.get(i + 1), Some(b'x') | Some(b'X'))
+        if matches!(buf.get(i + 1), Some(b'x' | b'X'))
             && buf.get(i + 2).is_some_and(u8::is_ascii_hexdigit)
         {
             base = 16;

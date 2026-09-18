@@ -610,22 +610,19 @@ fn leafs_lump(d: Dialect) -> Vec<u8> {
         };
         let visofs = if i == 0 { -1 } else { i * row };
         b.i32(contents).i32(visofs);
-        match d.bsp2() {
-            2 => {
-                for j in 0..3 {
-                    b.f32((i * 8 + j) as f32 - 40.0);
-                }
-                for j in 0..3 {
-                    b.f32((i * 8 + j) as f32 + 40.0);
-                }
+        if d.bsp2() == 2 {
+            for j in 0..3 {
+                b.f32((i * 8 + j) as f32 - 40.0);
             }
-            _ => {
-                for j in 0..3 {
-                    b.i16((i * 8 + j) as i16 - 40);
-                }
-                for j in 0..3 {
-                    b.i16((i * 8 + j) as i16 + 40);
-                }
+            for j in 0..3 {
+                b.f32((i * 8 + j) as f32 + 40.0);
+            }
+        } else {
+            for j in 0..3 {
+                b.i16((i * 8 + j) as i16 - 40);
+            }
+            for j in 0..3 {
+                b.i16((i * 8 + j) as i16 + 40);
             }
         }
         let first = i % 3;
@@ -654,22 +651,19 @@ fn nodes_lump(d: Dialect) -> Vec<u8> {
         for c in children {
             b.child(d.long_records(), c);
         }
-        match d.bsp2() {
-            2 => {
-                for j in 0..3 {
-                    b.f32((i * 4 + j) as f32 - 64.0);
-                }
-                for j in 0..3 {
-                    b.f32((i * 4 + j) as f32 + 64.0);
-                }
+        if d.bsp2() == 2 {
+            for j in 0..3 {
+                b.f32((i * 4 + j) as f32 - 64.0);
             }
-            _ => {
-                for j in 0..3 {
-                    b.i16((i * 4 + j) as i16 - 64);
-                }
-                for j in 0..3 {
-                    b.i16((i * 4 + j) as i16 + 64);
-                }
+            for j in 0..3 {
+                b.f32((i * 4 + j) as f32 + 64.0);
+            }
+        } else {
+            for j in 0..3 {
+                b.i16((i * 4 + j) as i16 - 64);
+            }
+            for j in 0..3 {
+                b.i16((i * 4 + j) as i16 + 64);
             }
         }
         let (firstface, numfaces) = (i as u32 * 2, 2u32);
@@ -736,7 +730,7 @@ fn entities_lump() -> Vec<u8> {
 }
 
 /// Assembles the 15 lumps into a `dheader_t`-prefixed file image.
-fn assemble(version: i32, lumps: [Vec<u8>; HEADER_LUMPS]) -> Vec<u8> {
+fn assemble(version: i32, lumps: &[Vec<u8>; HEADER_LUMPS]) -> Vec<u8> {
     let mut data = vec![0u8; 4 + HEADER_LUMPS * 8];
     data[..4].copy_from_slice(&version.to_le_bytes());
     for (i, payload) in lumps.iter().enumerate() {
@@ -761,15 +755,15 @@ fn build_bsp_with(d: Dialect, bad_clip_planenum: bool) -> Bsp {
     let lighting = lighting_lump();
     let visibility = visibility_lump();
     let mut lumps: [Vec<u8>; HEADER_LUMPS] = Default::default();
-    lumps[LUMP_ENTITIES] = entities.clone();
+    lumps[LUMP_ENTITIES].clone_from(&entities);
     lumps[LUMP_PLANES] = planes_lump();
     lumps[LUMP_TEXTURES] = textures_lump(d);
     lumps[LUMP_VERTEXES] = vertexes_lump();
-    lumps[LUMP_VISIBILITY] = visibility.clone();
+    lumps[LUMP_VISIBILITY].clone_from(&visibility);
     lumps[LUMP_NODES] = nodes_lump(d);
     lumps[LUMP_TEXINFO] = texinfo_lump();
     lumps[LUMP_FACES] = faces_lump(d);
-    lumps[LUMP_LIGHTING] = lighting.clone();
+    lumps[LUMP_LIGHTING].clone_from(&lighting);
     lumps[LUMP_CLIPNODES] = clipnodes_lump(d, bad_clip_planenum);
     lumps[LUMP_LEAFS] = leafs_lump(d);
     lumps[LUMP_MARKSURFACES] = marksurfaces_lump(d);
@@ -783,7 +777,7 @@ fn build_bsp_with(d: Dialect, bad_clip_planenum: bool) -> Bsp {
         _ => lighting.len() * 3,
     };
     Bsp {
-        data: assemble(d.version(), lumps),
+        data: assemble(d.version(), &lumps),
         vis_len: visibility.len(),
         light_len,
         entities,
@@ -829,7 +823,7 @@ struct Loaded {
 fn load_side(side: Side, bsp: &Bsp, sv_modelname: &std::ffi::CStr) -> Loaded {
     let s = seam(side);
     let d = bsp.data.clone();
-    let base = d.as_ptr() as *mut u8;
+    let base = d.as_ptr().cast_mut();
     let mut model = new_model(MAP_NAME, i32::from_le_bytes(d[..4].try_into().unwrap()));
     let m: *mut QModel = &raw mut *model;
     let bsp2 = match model.bspversion {

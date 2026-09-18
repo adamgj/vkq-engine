@@ -317,8 +317,10 @@ fn field<'a>(snap: &'a Snapshot, key: &str) -> &'a str {
     snap.lines
         .iter()
         .find(|l| l.starts_with(&prefix))
-        .map(|l| &l[prefix.len()..])
-        .unwrap_or_else(|| panic!("no `{key}` line in snapshot"))
+        .map_or_else(
+            || panic!("no `{key}` line in snapshot"),
+            |l| &l[prefix.len()..],
+        )
 }
 
 // ---------------------------------------------------------------------------

@@ -91,24 +91,28 @@ fn run_differential(
                         c_map,
                         4,
                         8,
-                        &k as *const u32 as *const c_void,
-                        &v as *const u64 as *const c_void,
+                        std::ptr::from_ref::<u32>(&k) as *const c_void,
+                        std::ptr::from_ref::<u64>(&v) as *const c_void,
                     );
                     let r = quake_rs::hash_map::HashMap_InsertImpl(
                         r_map,
                         4,
                         8,
-                        &k as *const u32 as *const c_void,
-                        &v as *const u64 as *const c_void,
+                        std::ptr::from_ref::<u32>(&k) as *const c_void,
+                        std::ptr::from_ref::<u64>(&v) as *const c_void,
                     );
                     prop_assert_eq!(c, r, "insert({}, {}) return", k, v);
                 }
                 Op::Erase(k) => {
-                    let c = c_ref_HashMap_EraseImpl(c_map, 4, &k as *const u32 as *const c_void);
+                    let c = c_ref_HashMap_EraseImpl(
+                        c_map,
+                        4,
+                        std::ptr::from_ref::<u32>(&k) as *const c_void,
+                    );
                     let r = quake_rs::hash_map::HashMap_EraseImpl(
                         r_map,
                         4,
-                        &k as *const u32 as *const c_void,
+                        std::ptr::from_ref::<u32>(&k) as *const c_void,
                     );
                     prop_assert_eq!(c, r, "erase({}) return", k);
                 }
@@ -131,11 +135,15 @@ fn run_differential(
             prop_assert_eq!(c_size, r_size, "size after {:?}", op);
 
             for k in 0u32..48 {
-                let c_val = c_ref_HashMap_LookupImpl(c_map, 4, &k as *const u32 as *const c_void);
+                let c_val = c_ref_HashMap_LookupImpl(
+                    c_map,
+                    4,
+                    std::ptr::from_ref::<u32>(&k) as *const c_void,
+                );
                 let r_val = quake_rs::hash_map::HashMap_LookupImpl(
                     r_map,
                     4,
-                    &k as *const u32 as *const c_void,
+                    std::ptr::from_ref::<u32>(&k) as *const c_void,
                 );
                 prop_assert_eq!(
                     c_val.is_null(),
@@ -202,9 +210,9 @@ proptest! {
         use quake_util::hash_map::hashers;
         // SAFETY: pointers to live locals with the sizes each hasher reads
         unsafe {
-            prop_assert_eq!(hashers::hash_int32(i32v), c_ref_HashInt32(&i32v as *const u32 as *const c_void));
-            prop_assert_eq!(hashers::hash_int64(i64v), c_ref_HashInt64(&i64v as *const u64 as *const c_void));
-            prop_assert_eq!(hashers::hash_float(f), c_ref_HashFloat(&f as *const f32 as *const c_void));
+            prop_assert_eq!(hashers::hash_int32(i32v), c_ref_HashInt32(std::ptr::from_ref::<u32>(&i32v) as *const c_void));
+            prop_assert_eq!(hashers::hash_int64(i64v), c_ref_HashInt64(std::ptr::from_ref::<u64>(&i64v) as *const c_void));
+            prop_assert_eq!(hashers::hash_float(f), c_ref_HashFloat(std::ptr::from_ref::<f32>(&f) as *const c_void));
             prop_assert_eq!(hashers::hash_combine(a, b), c_ref_HashCombine(a, b));
             prop_assert_eq!(hashers::hash_vec2(&v2), c_ref_HashVec2(v2.as_ptr() as *const c_void));
             prop_assert_eq!(hashers::hash_vec3(&v3), c_ref_HashVec3(v3.as_ptr() as *const c_void));
@@ -214,7 +222,7 @@ proptest! {
             let ptr = s_z.as_ptr();
             prop_assert_eq!(
                 hashers::hash_str(&s),
-                c_ref_HashStr(&ptr as *const *const u8 as *const c_void)
+                c_ref_HashStr(std::ptr::from_ref::<*const u8>(&ptr) as *const c_void)
             );
         }
     }
@@ -253,25 +261,29 @@ fn string_keys_first_match_semantics() {
                 c_map,
                 8,
                 4,
-                p as *const *const i8 as *const c_void,
-                &v as *const i32 as *const c_void,
+                std::ptr::from_ref::<*const i8>(p) as *const c_void,
+                std::ptr::from_ref::<i32>(&v) as *const c_void,
             );
             let r = quake_rs::hash_map::HashMap_InsertImpl(
                 r_map,
                 8,
                 4,
-                p as *const *const i8 as *const c_void,
-                &v as *const i32 as *const c_void,
+                std::ptr::from_ref::<*const i8>(p) as *const c_void,
+                std::ptr::from_ref::<i32>(&v) as *const c_void,
             );
             assert_eq!(c, r, "insert of index {i}");
         }
 
         for p in &ptrs {
-            let c = c_ref_HashMap_LookupImpl(c_map, 8, p as *const *const i8 as *const c_void);
+            let c = c_ref_HashMap_LookupImpl(
+                c_map,
+                8,
+                std::ptr::from_ref::<*const i8>(p) as *const c_void,
+            );
             let r = quake_rs::hash_map::HashMap_LookupImpl(
                 r_map,
                 8,
-                p as *const *const i8 as *const c_void,
+                std::ptr::from_ref::<*const i8>(p) as *const c_void,
             );
             assert!(!c.is_null() && !r.is_null());
             assert_eq!(*(c as *const i32), *(r as *const i32));

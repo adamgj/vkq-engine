@@ -206,7 +206,7 @@ fn run_scenario(sc: &Scenario, sfxs: &[SfxFixture]) {
     if let Some((extent, seed)) = sc.raw {
         rawend = sc.start_paintedtime + extent;
         let mut state = seed;
-        for pair in raw_ring.iter_mut() {
+        for pair in &mut raw_ring {
             state = state.wrapping_mul(214013).wrapping_add(2531011);
             pair.left = ((state >> 8) & 0xffffff) as i32 - 0x800000;
             state = state.wrapping_mul(214013).wrapping_add(2531011);

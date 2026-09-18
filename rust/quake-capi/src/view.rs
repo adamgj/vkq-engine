@@ -502,7 +502,7 @@ pub unsafe extern "C" fn quake_rs_v_parse_damage() {
         let blood = g::MSG_ReadByte();
         let protocolflags: c_uint = ptr::addr_of!((*clp).protocolflags).read();
         let mut from: Vec3 = [0.0; 3];
-        for f in from.iter_mut() {
+        for f in &mut from {
             *f = g::MSG_ReadCoord(protocolflags);
         }
 

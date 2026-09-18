@@ -65,7 +65,9 @@ use quake_ctest as _; // links the cc-built c_ref_* archive
 static TEST_LOCK: Mutex<()> = Mutex::new(());
 
 fn lock() -> MutexGuard<'static, ()> {
-    TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner())
+    TEST_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 /// `stubs/cl_input_ref.c`: side 1 == oracle (`c_ref_*`), side 0 == the plain
@@ -659,7 +661,7 @@ fn make_cmd(
             impulse,
             7,
             weapon,
-        )
+        );
     }
     buf
 }
@@ -874,7 +876,7 @@ fn key_down_up_empty_argv_console_paths() {
 fn in_handlers_press_and_release_their_own_button() {
     let _g = lock();
 
-    for &(down, up, idx) in IN_PAIRS.iter() {
+    for &(down, up, idx) in &IN_PAIRS {
         reset();
         let before = buttons(RUST);
 
@@ -1653,7 +1655,7 @@ fn init_input_registers_every_command() {
     let _g = lock();
     reset();
 
-    for c in IN_COMMANDS.iter() {
+    for c in &IN_COMMANDS {
         let name = std::ffi::CString::new(c.name).unwrap();
         assert_eq!(
             // SAFETY: a read-back accessor over the fixture's static storage.
@@ -1672,7 +1674,7 @@ fn init_input_registers_every_command() {
         CL_InitInput();
     }
 
-    for c in IN_COMMANDS.iter() {
+    for c in &IN_COMMANDS {
         let name = std::ffi::CString::new(c.name).unwrap();
         // SAFETY: a read-back accessor over the fixture's static storage.
         let o = unsafe { ctest_clinput_cmd_exists(ORACLE, name.as_ptr()) };

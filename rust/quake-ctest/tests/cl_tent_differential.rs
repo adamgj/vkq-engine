@@ -77,7 +77,9 @@ use quake_ctest as _; // links the cc-built c_ref_* archive
 static TEST_LOCK: Mutex<()> = Mutex::new(());
 
 fn lock() -> MutexGuard<'static, ()> {
-    TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner())
+    TEST_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 // ---------------------------------------------------------------------------
@@ -1222,5 +1224,10 @@ unsafe fn guarded_update_beam(side: c_int, start: &mut [f32; 3], end: &mut [f32;
         end: end.as_mut_ptr(),
     };
     // SAFETY: `arg` outlives the guarded call; Host_Guard's setjmp is in C.
-    unsafe { Host_Guard(invoke, &mut arg as *mut Arg as *mut core::ffi::c_void) }
+    unsafe {
+        Host_Guard(
+            invoke,
+            std::ptr::from_mut::<Arg>(&mut arg) as *mut core::ffi::c_void,
+        )
+    }
 }

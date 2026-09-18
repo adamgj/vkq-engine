@@ -421,7 +421,7 @@ fn init_particles_differential() {
 
     for (phase, (args, expect_num, expect_already_defined)) in phases.iter().enumerate() {
         let owned: Vec<CString> = args.iter().map(|a| CString::new(*a).unwrap()).collect();
-        let mut ptrs: Vec<*mut c_char> = owned.iter().map(|c| c.as_ptr() as *mut c_char).collect();
+        let mut ptrs: Vec<*mut c_char> = owned.iter().map(|c| c.as_ptr().cast_mut()).collect();
         // SAFETY: `ctest_set_args` copies the pointers; `owned` outlives the
         // whole phase, and every string is NUL-terminated.
         unsafe { ctest_set_args(ptrs.len() as c_int, ptrs.as_mut_ptr()) };
@@ -910,7 +910,7 @@ fn rocket_trail_differential() {
             // SAFETY: fixture drivers; every buffer below is a live [f32; 3]
             // and `start` is written in place by design.
             unsafe { ctest_rpart_clear_particles(side) };
-            for (start, end, ty) in calls.iter() {
+            for (start, end, ty) in &calls {
                 let mut s = *start;
                 let mut e = *end;
                 // SAFETY: as above.

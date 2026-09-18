@@ -38,7 +38,9 @@ extern "C" {
 static VM_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 fn lock() -> std::sync::MutexGuard<'static, ()> {
-    VM_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+    VM_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 fn c_vm() -> *mut QcVm {
@@ -222,7 +224,7 @@ impl Fixture {
                 // SAFETY: `nums` and `freetimes` are live for the call, and
                 // every entry of `nums` indexes `freetimes`.
                 unsafe {
-                    ctest_progs_sort_by_freetime(nums.as_mut_ptr(), nums.len(), freetimes.as_ptr())
+                    ctest_progs_sort_by_freetime(nums.as_mut_ptr(), nums.len(), freetimes.as_ptr());
                 };
             },
         );

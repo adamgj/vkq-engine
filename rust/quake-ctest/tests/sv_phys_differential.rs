@@ -41,7 +41,9 @@ use quake_ctest as _; // links the cc-built c_ref_* archive
 static TEST_LOCK: Mutex<()> = Mutex::new(());
 
 fn lock() -> MutexGuard<'static, ()> {
-    TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner())
+    TEST_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 // ---------------------------------------------------------------------------
@@ -317,7 +319,7 @@ impl Side {
             match self {
                 Side::C => ctest_phys_speeds_c(ms.as_mut_ptr(), counts.as_mut_ptr(), &mut analytic),
                 Side::Rust => {
-                    ctest_phys_speeds_plain(ms.as_mut_ptr(), counts.as_mut_ptr(), &mut analytic)
+                    ctest_phys_speeds_plain(ms.as_mut_ptr(), counts.as_mut_ptr(), &mut analytic);
                 }
             }
         }
@@ -1012,7 +1014,7 @@ fn check_all_ents_matches() {
         },
     ];
 
-    let c = diff(DEFAULTS, &specs, -1, |side| side.check_all_ents());
+    let c = diff(DEFAULTS, &specs, -1, Side::check_all_ents);
     assert!(
         c.con.iter().any(|l| l.contains("invalid position")),
         "no entity was reported in an invalid position, so the reporting arm \
@@ -1094,7 +1096,7 @@ fn check_water_transition_matches() {
 
 fn run_tick(cv: Cvars, physics_mode: c_int, prog: (c_int, c_int, c_int, f32)) -> Snap<()> {
     let specs = population();
-    diff_prog(cv, &specs, physics_mode, prog, |side| side.physics())
+    diff_prog(cv, &specs, physics_mode, prog, Side::physics)
 }
 
 #[test]
@@ -1486,7 +1488,7 @@ fn physics_client_move_frame_states_match() {
             &specs,
             -1,
             (-1, KIND_LOG, KIND_LOG, 0.0),
-            |side| side.physics(),
+            Side::physics,
         );
         assert_eq!(
             c.edicts.len(),
@@ -1520,7 +1522,7 @@ fn physics_pusher_blocked_matches() {
         .origin([64.0, 64.0, -80.0])
         .player_bbox();
 
-    let c = diff(DEFAULTS, &specs, -1, |side| side.physics());
+    let c = diff(DEFAULTS, &specs, -1, Side::physics);
     assert!(
         !c.touch.is_empty(),
         "the blocked pusher dispatched no QC at all"
@@ -1545,7 +1547,7 @@ fn physics_qc_side_effects_match() {
             .player_bbox()
             .nextthink(VMTIME as f32)
             .thinking(kind);
-        let c = diff(DEFAULTS, &specs, -1, |side| side.physics());
+        let c = diff(DEFAULTS, &specs, -1, Side::physics);
         assert!(
             !c.touch.is_empty(),
             "kind {kind}: the think never ran, so the side effect is untested"
@@ -1633,8 +1635,12 @@ fn run_raise_case(
 
         let mut args = RaiseArgs { side, which };
         // SAFETY: `raise_call` only touches `args`, which outlives the call.
-        let raised =
-            unsafe { ctest_try_host(raise_call, (&mut args as *mut RaiseArgs).cast::<c_void>()) };
+        let raised = unsafe {
+            ctest_try_host(
+                raise_call,
+                std::ptr::from_mut::<RaiseArgs>(&mut args).cast::<c_void>(),
+            )
+        };
         // SAFETY: the trap's message buffer is a static NUL-terminated C
         // string, only rewritten by the next Host_Error.
         let msg = unsafe {
@@ -1941,7 +1947,7 @@ fn impact_touch_stamps_one_time_across_both_dispatches() {
             .touching(KIND_LOG),
     );
 
-    let c = diff(DEFAULTS, &specs, -1, |side| side.physics());
+    let c = diff(DEFAULTS, &specs, -1, Side::physics);
 
     // the impact pair: two consecutive records naming 5 and 13 in either
     // order, both stamped with the same pr_global_struct->time

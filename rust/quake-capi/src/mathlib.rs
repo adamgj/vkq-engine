@@ -163,8 +163,8 @@ pub unsafe extern "C" fn RotatePointAroundVector(
     // SAFETY: vec3_t contracts per mathlib.h; see this fn's Safety section
     unsafe {
         map2(dir, point, dst, |d, p, o| {
-            m::rotate_point_around_vector(o, d, p, degrees)
-        })
+            m::rotate_point_around_vector(o, d, p, degrees);
+        });
     }
 }
 

@@ -59,21 +59,18 @@ fn diff_wavinfo(tag: &str, data: &[u8]) -> (WavInfo, bool) {
     let r = get_wavinfo(data);
     let r_log: Vec<String> = r.messages.iter().map(|m| render_msg(m, NAME)).collect();
 
-    match &err {
-        Some(msg) => {
-            assert!(
-                r.bad_loop_length,
-                "{tag}: C Sys_Error'd ({msg}), Rust did not"
-            );
-            assert_eq!(msg, &format!("{NAME} has a bad loop length"), "{tag}");
-        }
-        None => {
-            assert!(
-                !r.bad_loop_length,
-                "{tag}: Rust flagged bad loop length, C did not"
-            );
-            assert_eq!(c_info, r.info, "{tag}: wavinfo_t mismatch");
-        }
+    if let Some(msg) = &err {
+        assert!(
+            r.bad_loop_length,
+            "{tag}: C Sys_Error'd ({msg}), Rust did not"
+        );
+        assert_eq!(msg, &format!("{NAME} has a bad loop length"), "{tag}");
+    } else {
+        assert!(
+            !r.bad_loop_length,
+            "{tag}: Rust flagged bad loop length, C did not"
+        );
+        assert_eq!(c_info, r.info, "{tag}: wavinfo_t mismatch");
     }
     assert_eq!(c_log, r_log, "{tag}: console output mismatch");
     (r.info, r.bad_loop_length)
@@ -82,9 +79,9 @@ fn diff_wavinfo(tag: &str, data: &[u8]) -> (WavInfo, bool) {
 // ---------------------------------------------------------------------------
 // fixture builders
 
-fn chunk(id: &[u8; 4], body: &[u8]) -> Vec<u8> {
+fn chunk(id: [u8; 4], body: &[u8]) -> Vec<u8> {
     let mut v = Vec::new();
-    v.extend_from_slice(id);
+    v.extend_from_slice(&id);
     v.extend_from_slice(&(body.len() as u32).to_le_bytes());
     v.extend_from_slice(body);
     if body.len() % 2 == 1 {
@@ -101,7 +98,7 @@ fn fmt_chunk(format: u16, channels: u16, rate: u32, bits: u16) -> Vec<u8> {
     b.extend_from_slice(&(rate * channels as u32 * bits as u32 / 8).to_le_bytes());
     b.extend_from_slice(&(channels * bits / 8).to_le_bytes());
     b.extend_from_slice(&bits.to_le_bytes());
-    chunk(b"fmt ", &b)
+    chunk(*b"fmt ", &b)
 }
 
 fn cue_chunk(loopstart: u32) -> Vec<u8> {
@@ -109,7 +106,7 @@ fn cue_chunk(loopstart: u32) -> Vec<u8> {
     let mut b = vec![0u8; 28];
     b[0..4].copy_from_slice(&1u32.to_le_bytes());
     b[24..28].copy_from_slice(&loopstart.to_le_bytes());
-    chunk(b"cue ", &b)
+    chunk(*b"cue ", &b)
 }
 
 fn list_mark_chunk(loop_samples: u32) -> Vec<u8> {
@@ -118,7 +115,7 @@ fn list_mark_chunk(loop_samples: u32) -> Vec<u8> {
     let mut b = vec![0u8; 32];
     b[16..20].copy_from_slice(&loop_samples.to_le_bytes());
     b[20..24].copy_from_slice(b"mark");
-    chunk(b"LIST", &b)
+    chunk(*b"LIST", &b)
 }
 
 fn riff(inner: &[Vec<u8>]) -> Vec<u8> {
@@ -179,45 +176,45 @@ fn wavinfo_synthetic_fixtures() {
             v.extend_from_slice(b"WAVExxxx");
             v
         }),
-        ("no-fmt", riff(&[chunk(b"data", &pcm8(16))])),
+        ("no-fmt", riff(&[chunk(*b"data", &pcm8(16))])),
         ("short-fmt", {
             // fmt chunk of 8 bytes: the 16-byte field read clamp case
             riff(&[
-                chunk(b"fmt ", &[1, 0, 1, 0, 0x11, 0x2b, 0, 0]),
-                chunk(b"data", &pcm8(16)),
+                chunk(*b"fmt ", &[1, 0, 1, 0, 0x11, 0x2b, 0, 0]),
+                chunk(*b"data", &pcm8(16)),
             ])
         }),
         (
             "not-pcm",
-            riff(&[fmt_chunk(2, 1, 11025, 8), chunk(b"data", &pcm8(16))]),
+            riff(&[fmt_chunk(2, 1, 11025, 8), chunk(*b"data", &pcm8(16))]),
         ),
         (
             "bad-width",
-            riff(&[fmt_chunk(1, 1, 11025, 12), chunk(b"data", &pcm8(16))]),
+            riff(&[fmt_chunk(1, 1, 11025, 12), chunk(*b"data", &pcm8(16))]),
         ),
         (
             "stereo",
-            riff(&[fmt_chunk(1, 2, 11025, 8), chunk(b"data", &pcm8(16))]),
+            riff(&[fmt_chunk(1, 2, 11025, 8), chunk(*b"data", &pcm8(16))]),
         ),
         ("no-data", riff(&[fmt_chunk(1, 1, 11025, 8)])),
         (
             "mono8",
-            riff(&[fmt_chunk(1, 1, 11025, 8), chunk(b"data", &pcm8(64))]),
+            riff(&[fmt_chunk(1, 1, 11025, 8), chunk(*b"data", &pcm8(64))]),
         ),
         (
             "mono8-odd-len",
-            riff(&[fmt_chunk(1, 1, 11025, 8), chunk(b"data", &pcm8(63))]),
+            riff(&[fmt_chunk(1, 1, 11025, 8), chunk(*b"data", &pcm8(63))]),
         ),
         (
             "mono16",
-            riff(&[fmt_chunk(1, 1, 22050, 16), chunk(b"data", &pcm16(64))]),
+            riff(&[fmt_chunk(1, 1, 22050, 16), chunk(*b"data", &pcm16(64))]),
         ),
         (
             "looped",
             riff(&[
                 fmt_chunk(1, 1, 11025, 8),
                 cue_chunk(16),
-                chunk(b"data", &pcm8(64)),
+                chunk(*b"data", &pcm8(64)),
             ]),
         ),
         (
@@ -226,15 +223,15 @@ fn wavinfo_synthetic_fixtures() {
                 fmt_chunk(1, 1, 11025, 8),
                 cue_chunk(16),
                 list_mark_chunk(32),
-                chunk(b"data", &pcm8(64)),
+                chunk(*b"data", &pcm8(64)),
             ]),
         ),
         ("short-cue", {
             // cue chunk of 8 bytes: the 28-byte loopstart read clamp case
             riff(&[
                 fmt_chunk(1, 1, 11025, 8),
-                chunk(b"cue ", &[1, 0, 0, 0, 0, 0, 0, 0]),
-                chunk(b"data", &pcm8(64)),
+                chunk(*b"cue ", &[1, 0, 0, 0, 0, 0, 0, 0]),
+                chunk(*b"data", &pcm8(64)),
             ])
         }),
         (
@@ -242,7 +239,7 @@ fn wavinfo_synthetic_fixtures() {
             riff(&[
                 fmt_chunk(1, 1, 11025, 8),
                 cue_chunk(64),
-                chunk(b"data", &pcm8(64)),
+                chunk(*b"data", &pcm8(64)),
             ]),
         ),
         (
@@ -251,7 +248,7 @@ fn wavinfo_synthetic_fixtures() {
                 fmt_chunk(1, 1, 11025, 8),
                 cue_chunk(16),
                 list_mark_chunk(1000), // mark says more samples than data has
-                chunk(b"data", &pcm8(64)),
+                chunk(*b"data", &pcm8(64)),
             ]),
         ),
         (
@@ -259,8 +256,8 @@ fn wavinfo_synthetic_fixtures() {
             riff(&[
                 fmt_chunk(1, 1, 11025, 8),
                 cue_chunk(16),
-                chunk(b"LIST", &[0u8; 32]),
-                chunk(b"data", &pcm8(64)),
+                chunk(*b"LIST", &[0u8; 32]),
+                chunk(*b"data", &pcm8(64)),
             ]),
         ),
         (
@@ -268,8 +265,8 @@ fn wavinfo_synthetic_fixtures() {
             riff(&[
                 fmt_chunk(1, 1, 11025, 8),
                 cue_chunk(16),
-                chunk(b"LIST", &[0u8; 16]),
-                chunk(b"data", &pcm8(64)),
+                chunk(*b"LIST", &[0u8; 16]),
+                chunk(*b"data", &pcm8(64)),
             ]),
         ),
     ];
@@ -345,7 +342,7 @@ fn diff_resample(tag: &str, info: &WavInfo, pcm: &[u8], shm_speed: i32, loadas8b
             c_out.as_mut_ptr(),
             len,
             c_meta.as_mut_ptr(),
-        )
+        );
     };
 
     let mut r_out = vec![0u8; len as usize];
@@ -398,34 +395,34 @@ fn resample_synthetic_fixtures() {
     let cases: Vec<(&str, Vec<u8>)> = vec![
         (
             "mono8-11025",
-            riff(&[fmt_chunk(1, 1, 11025, 8), chunk(b"data", &pcm8(1000))]),
+            riff(&[fmt_chunk(1, 1, 11025, 8), chunk(*b"data", &pcm8(1000))]),
         ),
         (
             "mono8-22050",
-            riff(&[fmt_chunk(1, 1, 22050, 8), chunk(b"data", &pcm8(1000))]),
+            riff(&[fmt_chunk(1, 1, 22050, 8), chunk(*b"data", &pcm8(1000))]),
         ),
         (
             "mono8-44100",
-            riff(&[fmt_chunk(1, 1, 44100, 8), chunk(b"data", &pcm8(1000))]),
+            riff(&[fmt_chunk(1, 1, 44100, 8), chunk(*b"data", &pcm8(1000))]),
         ),
         (
             "mono16-11025",
-            riff(&[fmt_chunk(1, 1, 11025, 16), chunk(b"data", &pcm16(1000))]),
+            riff(&[fmt_chunk(1, 1, 11025, 16), chunk(*b"data", &pcm16(1000))]),
         ),
         (
             "mono16-44100",
-            riff(&[fmt_chunk(1, 1, 44100, 16), chunk(b"data", &pcm16(1000))]),
+            riff(&[fmt_chunk(1, 1, 44100, 16), chunk(*b"data", &pcm16(1000))]),
         ),
         (
             "mono16-8012",
-            riff(&[fmt_chunk(1, 1, 8012, 16), chunk(b"data", &pcm16(777))]),
+            riff(&[fmt_chunk(1, 1, 8012, 16), chunk(*b"data", &pcm16(777))]),
         ),
         (
             "looped-16",
             riff(&[
                 fmt_chunk(1, 1, 11025, 16),
                 cue_chunk(100),
-                chunk(b"data", &pcm16(500)),
+                chunk(*b"data", &pcm16(500)),
             ]),
         ),
     ];

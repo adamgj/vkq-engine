@@ -572,7 +572,7 @@ pub(crate) fn scbx_slots(first: c_int, last: c_int) -> impl Iterator<Item = (usi
 /// the init/teardown paths (`create_render_resources`,
 /// `destroy_render_resources`): main thread, no render task in flight, so
 /// nothing else touches the context for the returned lifetime.
-pub(crate) fn scbx_mut<'a>(vg: VgPtr<'a>, scbx: usize, i: usize) -> &'a mut CbContext {
+pub(crate) fn scbx_mut(vg: VgPtr<'_>, scbx: usize, i: usize) -> &mut CbContext {
     // SAFETY: `init_command_buffers` allocates `secondary_cb_contexts[scbx]`
     // with `SECONDARY_CB_MULTIPLICITY[scbx]` entries that are never freed
     // (see `scbx_ptr`); the callers' phase guarantees exclusivity.
