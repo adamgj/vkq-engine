@@ -5,7 +5,7 @@
 //! project defaults).
 
 use std::env;
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus};
 
@@ -98,6 +98,19 @@ pub fn default_cc(env_lookup: impl Fn(&str) -> Option<OsString>) -> Option<&'sta
     DEFAULT_CC.filter(|_| is_unset(env_lookup("CC")))
 }
 
+/// `path` without the directories that hold a `cl.exe`, and those
+/// directories. Meson's `--vsenv` activation returns early whenever a
+/// `cl.exe` is on PATH, taking it for an active Developer shell; a stray one
+/// (an old Visual C++ install, say) then leaves clang-cl without the MSVC
+/// INCLUDE/LIB environment and its sanity check fails to link. `meson
+/// compile` repeats the check, so both Meson commands get the filtered PATH.
+pub fn path_without_cl(path: &OsStr) -> (OsString, Vec<PathBuf>) {
+    let (dropped, kept): (Vec<PathBuf>, Vec<PathBuf>) =
+        env::split_paths(path).partition(|dir| dir.join("cl.exe").is_file());
+    let kept = env::join_paths(kept).expect("entries came from split_paths");
+    (kept, dropped)
+}
+
 /// The `meson setup` argument list for `options`, without the program name.
 /// `reconfigure` is passed only for a directory Meson already configured;
 /// on a fresh one it is a plain setup.
@@ -150,28 +163,43 @@ pub fn build(root: &Path, options: &BuildOptions) -> Result<PathBuf, String> {
     let build_dir = resolve_dir(root, &options.build_dir);
     let meson = env::var_os("MESON").unwrap_or_else(|| "meson".into());
     let configured = is_configured(&build_dir);
+    let vsenv = wants_vsenv(|name| env::var_os(name));
+    let path = vsenv
+        .then(|| env::var_os("PATH"))
+        .flatten()
+        .map(|path| path_without_cl(&path))
+        .filter(|(_, dropped)| !dropped.is_empty());
+    if let Some((_, dropped)) = &path {
+        for dir in dropped {
+            eprintln!(
+                "xtask: dropping {} from PATH for Meson: its cl.exe would make --vsenv a no-op",
+                dir.display()
+            );
+        }
+    }
+    let meson_command = || {
+        let mut command = Command::new(&meson);
+        command.current_dir(root);
+        if let Some((path, _)) = &path {
+            command.env("PATH", path);
+        }
+        command
+    };
     if options.reconfigure || !configured {
-        let vsenv = wants_vsenv(|name| env::var_os(name));
-        let mut setup = Command::new(&meson);
-        setup
-            .args(setup_args(
-                options,
-                &build_dir,
-                options.reconfigure && configured,
-                vsenv,
-            ))
-            .current_dir(root);
+        let mut setup = meson_command();
+        setup.args(setup_args(
+            options,
+            &build_dir,
+            options.reconfigure && configured,
+            vsenv,
+        ));
         if let Some(cc) = default_cc(|name| env::var_os(name)) {
             setup.env("CC", cc);
         }
         run_checked(setup, "meson setup")?;
     }
-    let mut compile = Command::new(&meson);
-    compile
-        .arg("compile")
-        .arg("-C")
-        .arg(&build_dir)
-        .current_dir(root);
+    let mut compile = meson_command();
+    compile.arg("compile").arg("-C").arg(&build_dir);
     run_checked(compile, "meson compile")?;
     let exe = engine_path(&build_dir);
     if !exe.is_file() {
@@ -334,6 +362,28 @@ mod tests {
             default_cc(|name| (name == "CC").then(|| OsString::from("gcc"))),
             None
         );
+    }
+
+    #[test]
+    fn stray_cl_dirs_leave_the_meson_path() {
+        let dir = env::temp_dir().join(format!("xtask-cl-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let (stray, clean) = (dir.join("vc98"), dir.join("tools"));
+        std::fs::create_dir_all(&stray).unwrap();
+        std::fs::create_dir_all(&clean).unwrap();
+        std::fs::write(stray.join("cl.exe"), b"").unwrap();
+        let path = env::join_paths([&clean, &stray, &clean]).unwrap();
+        let (kept, dropped) = path_without_cl(&path);
+        assert_eq!(dropped, std::slice::from_ref(&stray));
+        assert_eq!(
+            env::split_paths(&kept).collect::<Vec<_>>(),
+            [clean.clone(), clean.clone()]
+        );
+        std::fs::remove_file(stray.join("cl.exe")).unwrap();
+        let (kept, dropped) = path_without_cl(&path);
+        assert!(dropped.is_empty());
+        assert_eq!(kept, path);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
