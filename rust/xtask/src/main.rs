@@ -29,6 +29,8 @@ const USAGE: &str = "usage:
     the MESON environment variable overrides the `meson` program name; on an
     MSVC toolchain meson setup runs with CC=clang-cl unless CC is set, and
     with --vsenv unless a Visual Studio Developer shell is already active
+    (PATH directories holding a stray cl.exe, which would make Meson skip
+    the activation, are left out of the Meson commands' PATH)
   cargo xtask shaders --out DIR [--debug] [--no-spirv-opt] [--c]
       compile every meson.build shader job into DIR/<name>.spv; --c also
       writes the bintoc DIR/<name>.c files
