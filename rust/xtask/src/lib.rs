@@ -5,9 +5,11 @@
 //! `quake-capi`'s build script drives [`shaders`], [`pak`] and [`bintoc`]
 //! in-process under its `render` feature; the `cargo xtask` binary exposes
 //! the same steps so `scripts/harness/xtask_diff.py` can compare their
-//! outputs byte for byte against the Meson C-build's.
+//! outputs byte for byte against the Meson C-build's. [`engine`] adds the
+//! cross-platform `cargo xtask build` / `cargo xtask run` wrappers over Meson.
 
 pub mod bintoc;
+pub mod engine;
 pub mod pak;
 pub mod shaders;
 
