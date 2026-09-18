@@ -91,15 +91,16 @@ Phase 0 landed the scaffolding: a Cargo workspace in `rust/` builds a staticlib 
 
 ### Quick start with cargo xtask (all platforms)
 
-With Meson, Ninja, the Vulkan SDK tools and the Rust toolchain installed (see the per-platform sections below for packages), the `xtask` crate wraps the Meson build and launches the result with one command line on every platform:
+With Meson, Ninja, Python 3, the Vulkan SDK tools, the Rust toolchain and `cbindgen` (`cargo install cbindgen`; `-Duse_rust=enabled` generates the C header with it) installed (see the per-platform sections below for packages), the `xtask` crate wraps the Meson build and launches the result with one command line on every platform:
 
 ~~~
 cd rust
-cargo xtask build                 # meson setup build -Duse_rust=enabled (first time), then meson compile
-cargo xtask run -- -window        # build, then launch vkqr-engine with any engine arguments after --
+cargo xtask build                                  # meson setup build -Duse_rust=enabled (first time), then meson compile
+cargo xtask run --basedir ~/quake -- -window       # build, then launch vkqr-engine from ~/quake (holding id1/ or QuakeEX.kpf)
+cargo xtask run -- -window                         # same, letting the engine find a Steam/GOG/Epic install itself
 ~~~
 
-`build` defaults to a release `-Duse_rust=enabled` build in `build/` under the repository root; `--debug`, `--c-only`, `--build-dir DIR`, `--reconfigure`, and any Meson options after `--` (e.g. `-- -Duse_sdl3=disabled -Dtrace=true`) change that. On Windows it passes `--vsenv` so Meson activates the MSVC environment itself unless `CC` or a Developer shell already chose the compiler. `run` starts the engine with `-basedir` set to `--basedir DIR`, else `$QUAKE_GAME_DATA`, else the current directory; `--no-build` skips the build step. `cargo xtask` prints the full usage.
+`build` defaults to a release `-Duse_rust=enabled` build in `build/` under the repository root; `--debug`, `--c-only`, `--build-dir DIR`, `--reconfigure`, and any Meson options after `--` (e.g. `-- -Duse_sdl3=disabled -Dtrace=true`) change that. On Windows with the MSVC Rust toolchain it runs `meson setup` with `CC=clang-cl` unless `CC` is set and with `--vsenv` unless a Developer shell is already active, i.e. the same configuration as the manual commands below; a MinGW (`*-windows-gnu`) toolchain defaults to `--c-only`, since the Rust staticlib links only through clang-cl. `run` passes `-basedir` only when `--basedir DIR` or `$QUAKE_GAME_DATA` names the game directory (an explicit `-basedir` turns the engine's store detection off); `--no-build` skips the build step. `cargo xtask` prints the full usage.
 
 ### Windows
 

@@ -15,15 +15,20 @@ const USAGE: &str = "usage:
       configure (first time, or with --reconfigure) and compile the engine
       with Meson; the executable lands in the build directory
   cargo xtask run [BUILD-OPTIONS] [--no-build] [--basedir DIR] [-- ENGINE-ARGS...]
-      build, then launch vkqr-engine from DIR (default: $QUAKE_GAME_DATA,
-      else the current directory) with `-basedir DIR` and ENGINE-ARGS
+      build, then launch vkqr-engine with ENGINE-ARGS; with --basedir DIR
+      (else $QUAKE_GAME_DATA) it runs from DIR with `-basedir DIR`, otherwise
+      the engine looks for game data itself (working directory, then the
+      Steam/GOG/Epic store detection an explicit -basedir switches off)
     BUILD-OPTIONS:
       --build-dir DIR   Meson build directory (default: build, under the repo root)
       --debug           --buildtype=debug (default: release)
       --buildtype TYPE  any Meson buildtype
-      --c-only          -Duse_rust=disabled (the C oracle; default: enabled)
+      --c-only          -Duse_rust=disabled (the C oracle; default: enabled,
+                        except on a *-windows-gnu toolchain, which is C-only)
       --reconfigure     re-run meson setup --reconfigure on an existing directory
-    the MESON environment variable overrides the `meson` program name
+    the MESON environment variable overrides the `meson` program name; on an
+    MSVC toolchain meson setup runs with CC=clang-cl unless CC is set, and
+    with --vsenv unless a Visual Studio Developer shell is already active
   cargo xtask shaders --out DIR [--debug] [--no-spirv-opt] [--c]
       compile every meson.build shader job into DIR/<name>.spv; --c also
       writes the bintoc DIR/<name>.c files
@@ -118,6 +123,15 @@ fn run(args: &[String]) -> Result<ExitCode, String> {
     }
     let root = xtask::repo_root();
     let exe = if no_build {
+        let defaults = BuildOptions::default();
+        if options.buildtype != defaults.buildtype
+            || options.use_rust != defaults.use_rust
+            || options.reconfigure
+        {
+            return Err(format!(
+                "--no-build skips meson setup, so --debug/--buildtype/--c-only/--reconfigure have no effect; drop them or --no-build\n{USAGE}"
+            ));
+        }
         let build_dir = xtask::engine::resolve_dir(&root, &options.build_dir);
         let exe = xtask::engine::engine_path(&build_dir);
         if !exe.is_file() {
@@ -130,10 +144,8 @@ fn run(args: &[String]) -> Result<ExitCode, String> {
     } else {
         xtask::engine::build(&root, &options)?
     };
-    let cwd = std::env::current_dir().map_err(|e| format!("current directory: {e}"))?;
-    let basedir =
-        xtask::engine::resolve_basedir(basedir.as_deref(), |name| std::env::var_os(name), &cwd);
-    let status = xtask::engine::run(&exe, &basedir, engine_args)?;
+    let basedir = xtask::engine::resolve_basedir(basedir.as_deref(), |name| std::env::var_os(name));
+    let status = xtask::engine::run(&exe, basedir.as_deref(), engine_args)?;
     Ok(match status.code() {
         Some(0) => ExitCode::SUCCESS,
         Some(code) => {

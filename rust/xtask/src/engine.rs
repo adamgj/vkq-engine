@@ -1,12 +1,28 @@
 //! `cargo xtask build` / `cargo xtask run`: the Meson configure+compile step
 //! and launching the resulting `vkqr-engine` binary, with one command line on
 //! every platform. Meson stays the build system (AGENTS.md); these tasks only
-//! drive it, so the flags mirror what CI passes.
+//! drive it, with the same compiler and option choices CI makes (up to
+//! project defaults).
 
 use std::env;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus};
+
+/// Cargo builds `libquake_rs` for the host triple, and Meson links it only
+/// as the MSVC-ABI staticlib on Windows: the MinGW/clangarm64 builds stay
+/// C-only (PLAN.md section 3), so a `*-windows-gnu` xtask defaults to
+/// `-Duse_rust=disabled`.
+pub const RUST_LINKS_BY_DEFAULT: bool = !cfg!(all(windows, target_env = "gnu"));
+
+/// Windows builds go through clang-cl (PLAN.md section 3; `meson.build` has
+/// no `cl.exe` handling, e.g. the ADR-010 `-ffp-contract=off` pin), so an
+/// MSVC-toolchain xtask supplies `CC=clang-cl` when nothing set `CC`.
+pub const DEFAULT_CC: Option<&str> = if cfg!(all(windows, target_env = "msvc")) {
+    Some("clang-cl")
+} else {
+    None
+};
 
 /// What `cargo xtask build` configures.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -15,7 +31,8 @@ pub struct BuildOptions {
     pub build_dir: PathBuf,
     /// Meson `--buildtype`.
     pub buildtype: String,
-    /// `-Duse_rust=enabled` (the default) or `disabled` for the C-only oracle.
+    /// `-Duse_rust=enabled` (the default where the staticlib links) or
+    /// `disabled` for the C-only oracle.
     pub use_rust: bool,
     /// Re-run `meson setup --reconfigure` even if the directory is configured.
     pub reconfigure: bool,
@@ -28,7 +45,7 @@ impl Default for BuildOptions {
         Self {
             build_dir: PathBuf::from("build"),
             buildtype: "release".into(),
-            use_rust: true,
+            use_rust: RUST_LINKS_BY_DEFAULT,
             reconfigure: false,
             setup_args: Vec::new(),
         }
@@ -59,22 +76,39 @@ pub fn is_configured(build_dir: &Path) -> bool {
         .is_file()
 }
 
+fn is_unset(value: Option<OsString>) -> bool {
+    value.is_none_or(|v| v.is_empty())
+}
+
 /// Whether `meson setup` should activate the Visual Studio environment
 /// itself: only when this xtask (and so the staticlib cargo builds for the
-/// host triple) targets MSVC, and nothing else has picked a compiler through
-/// a `CC` override or an already active vcvars shell. A MinGW
-/// (`*-windows-gnu`) toolchain never asks for it (PLAN.md section 3).
+/// host triple) targets MSVC and no Developer shell already did. `CC` says
+/// which compiler to use, not that the environment is set up, so it does not
+/// count; a MinGW (`*-windows-gnu`) toolchain never asks for it.
 pub fn wants_vsenv(env_lookup: impl Fn(&str) -> Option<OsString>) -> bool {
     cfg!(all(windows, target_env = "msvc"))
-        && ["CC", "VSINSTALLDIR", "VCINSTALLDIR"]
+        && ["VSINSTALLDIR", "VCINSTALLDIR"]
             .iter()
-            .all(|var| env_lookup(var).is_none_or(|v| v.is_empty()))
+            .all(|var| is_unset(env_lookup(var)))
+}
+
+/// The `CC` value `meson setup` should run with when the caller set none:
+/// [`DEFAULT_CC`] on an MSVC toolchain, nothing elsewhere.
+pub fn default_cc(env_lookup: impl Fn(&str) -> Option<OsString>) -> Option<&'static str> {
+    DEFAULT_CC.filter(|_| is_unset(env_lookup("CC")))
 }
 
 /// The `meson setup` argument list for `options`, without the program name.
-pub fn setup_args(options: &BuildOptions, build_dir: &Path, vsenv: bool) -> Vec<OsString> {
+/// `reconfigure` is passed only for a directory Meson already configured;
+/// on a fresh one it is a plain setup.
+pub fn setup_args(
+    options: &BuildOptions,
+    build_dir: &Path,
+    reconfigure: bool,
+    vsenv: bool,
+) -> Vec<OsString> {
     let mut args: Vec<OsString> = vec!["setup".into(), build_dir.as_os_str().to_owned()];
-    if options.reconfigure {
+    if reconfigure {
         args.push("--reconfigure".into());
     }
     if vsenv {
@@ -115,12 +149,21 @@ fn run_checked(mut command: Command, program: &str) -> Result<(), String> {
 pub fn build(root: &Path, options: &BuildOptions) -> Result<PathBuf, String> {
     let build_dir = resolve_dir(root, &options.build_dir);
     let meson = env::var_os("MESON").unwrap_or_else(|| "meson".into());
-    if options.reconfigure || !is_configured(&build_dir) {
+    let configured = is_configured(&build_dir);
+    if options.reconfigure || !configured {
         let vsenv = wants_vsenv(|name| env::var_os(name));
         let mut setup = Command::new(&meson);
         setup
-            .args(setup_args(options, &build_dir, vsenv))
+            .args(setup_args(
+                options,
+                &build_dir,
+                options.reconfigure && configured,
+                vsenv,
+            ))
             .current_dir(root);
+        if let Some(cc) = default_cc(|name| env::var_os(name)) {
+            setup.env("CC", cc);
+        }
         run_checked(setup, "meson setup")?;
     }
     let mut compile = Command::new(&meson);
@@ -140,46 +183,67 @@ pub fn build(root: &Path, options: &BuildOptions) -> Result<PathBuf, String> {
     Ok(exe)
 }
 
-/// Where `cargo xtask run` launches the engine from: an explicit `--basedir`,
-/// else `QUAKE_GAME_DATA` (the harness convention), else the current
-/// directory. The engine resolves `id1/` under its `-basedir`.
+/// The `-basedir` `cargo xtask run` gives the engine: an explicit
+/// `--basedir`, else `QUAKE_GAME_DATA` (the harness convention), else none.
+/// With none the engine keeps its own lookup (the working directory, then
+/// the Steam/GOG/Epic store detection that an explicit `-basedir` would
+/// switch off).
 pub fn resolve_basedir(
     explicit: Option<&Path>,
     env_lookup: impl Fn(&str) -> Option<OsString>,
-    cwd: &Path,
-) -> PathBuf {
+) -> Option<PathBuf> {
     explicit.map_or_else(
         || {
             env_lookup("QUAKE_GAME_DATA")
                 .filter(|v| !v.is_empty())
-                .map_or_else(|| cwd.to_path_buf(), PathBuf::from)
+                .map(PathBuf::from)
         },
-        Path::to_path_buf,
+        |dir| Some(dir.to_path_buf()),
     )
 }
 
-/// Launch `exe` with `-basedir basedir` followed by `engine_args`, and
-/// return its exit status.
-pub fn run(exe: &Path, basedir: &Path, engine_args: &[String]) -> Result<ExitStatus, String> {
-    // absolute, not canonicalize: the engine gets a plain path, never a
-    // Windows `\\?\` one
-    let basedir =
-        std::path::absolute(basedir).map_err(|e| format!("basedir {}: {e}", basedir.display()))?;
-    if !basedir.is_dir() {
-        return Err(format!("basedir {} is not a directory", basedir.display()));
-    }
-    if !basedir.join("id1").is_dir() {
-        eprintln!(
-            "xtask: warning: {} has no id1/ directory; the engine will not find game data",
-            basedir.display()
-        );
-    }
+/// Whether `dir` holds game data the engine accepts as a basedir: classic
+/// `id1/` or the 2021 re-release `QuakeEX.kpf` (`COM_IsValidFlavorDir`).
+pub fn looks_like_basedir(dir: &Path) -> bool {
+    dir.join("id1").is_dir() || dir.join("QuakeEX.kpf").is_file()
+}
+
+/// Launch `exe` with `-basedir basedir` (if any, and unless `engine_args`
+/// already carry one: `COM_CheckParm` takes the first match, so ours would
+/// shadow theirs) followed by `engine_args`, and return its exit status.
+pub fn run(
+    exe: &Path,
+    basedir: Option<&Path>,
+    engine_args: &[String],
+) -> Result<ExitStatus, String> {
     let mut command = Command::new(exe);
-    command
-        .arg("-basedir")
-        .arg(&basedir)
-        .args(engine_args)
-        .current_dir(&basedir);
+    let basedir = match basedir {
+        Some(_) if engine_args.iter().any(|a| a == "-basedir") => {
+            eprintln!("xtask: engine arguments carry -basedir; leaving it to them");
+            None
+        }
+        Some(dir) => {
+            // absolute, not canonicalize: the engine gets a plain path, never
+            // a Windows `\\?\` one
+            let dir =
+                std::path::absolute(dir).map_err(|e| format!("basedir {}: {e}", dir.display()))?;
+            if !dir.is_dir() {
+                return Err(format!("basedir {} is not a directory", dir.display()));
+            }
+            if !looks_like_basedir(&dir) {
+                eprintln!(
+                    "xtask: warning: {} has neither id1/ nor QuakeEX.kpf; the engine will not find game data",
+                    dir.display()
+                );
+            }
+            Some(dir)
+        }
+        None => None,
+    };
+    if let Some(dir) = &basedir {
+        command.arg("-basedir").arg(dir).current_dir(dir);
+    }
+    command.args(engine_args);
     eprintln!("xtask: {command:?}");
     command
         .status()
@@ -199,16 +263,16 @@ mod tests {
     }
 
     #[test]
-    fn default_setup_args_mirror_ci() {
-        let args = setup_args(&BuildOptions::default(), Path::new("build"), false);
+    fn default_setup_args_match_ci_up_to_project_defaults() {
+        let args = setup_args(&BuildOptions::default(), Path::new("build"), false, false);
+        let use_rust = if RUST_LINKS_BY_DEFAULT {
+            "-Duse_rust=enabled"
+        } else {
+            "-Duse_rust=disabled"
+        };
         assert_eq!(
             strs(&args),
-            [
-                "setup",
-                "build",
-                "--buildtype=release",
-                "-Duse_rust=enabled"
-            ]
+            ["setup", "build", "--buildtype=release", use_rust]
         );
     }
 
@@ -221,7 +285,7 @@ mod tests {
             reconfigure: true,
             setup_args: vec!["-Dtrace=true".into(), "-Duse_sdl3=disabled".into()],
         };
-        let args = setup_args(&options, Path::new("build-c-trace"), true);
+        let args = setup_args(&options, Path::new("build-c-trace"), true, true);
         assert_eq!(
             strs(&args),
             [
@@ -235,20 +299,48 @@ mod tests {
                 "-Duse_sdl3=disabled",
             ]
         );
+        let fresh = setup_args(&options, Path::new("build-c-trace"), false, true);
+        assert!(!strs(&fresh).contains(&"--reconfigure"));
     }
 
     #[test]
-    fn vsenv_only_when_nothing_else_chose_a_compiler() {
+    fn vsenv_only_outside_a_developer_shell() {
         let msvc_host = cfg!(all(windows, target_env = "msvc"));
         assert_eq!(wants_vsenv(no_env), msvc_host);
-        for var in ["CC", "VSINSTALLDIR", "VCINSTALLDIR"] {
+        for var in ["VSINSTALLDIR", "VCINSTALLDIR"] {
             assert!(!wants_vsenv(
                 |name| (name == var).then(|| OsString::from("x"))
             ));
         }
         assert_eq!(
-            wants_vsenv(|name| (name == "CC").then(OsString::new)),
+            wants_vsenv(|name| (name == "VSINSTALLDIR").then(OsString::new)),
             msvc_host
+        );
+        // CC picks the compiler, it does not set up the environment
+        assert_eq!(
+            wants_vsenv(|name| (name == "CC").then(|| OsString::from("clang-cl"))),
+            msvc_host
+        );
+    }
+
+    #[test]
+    fn cc_defaults_to_clang_cl_only_when_unset() {
+        assert_eq!(default_cc(no_env), DEFAULT_CC);
+        assert_eq!(
+            default_cc(|name| (name == "CC").then(OsString::new)),
+            DEFAULT_CC
+        );
+        assert_eq!(
+            default_cc(|name| (name == "CC").then(|| OsString::from("gcc"))),
+            None
+        );
+    }
+
+    #[test]
+    fn rust_is_off_by_default_on_windows_gnu() {
+        assert_eq!(
+            BuildOptions::default().use_rust,
+            !cfg!(all(windows, target_env = "gnu"))
         );
     }
 
@@ -272,16 +364,32 @@ mod tests {
 
     #[test]
     fn basedir_precedence() {
-        let cwd = Path::new("cwd");
         let game_data = |name: &str| (name == "QUAKE_GAME_DATA").then(|| OsString::from("data"));
         assert_eq!(
-            resolve_basedir(Some(Path::new("explicit")), game_data, cwd),
-            Path::new("explicit")
+            resolve_basedir(Some(Path::new("explicit")), game_data).as_deref(),
+            Some(Path::new("explicit"))
         );
-        assert_eq!(resolve_basedir(None, game_data, cwd), Path::new("data"));
-        assert_eq!(resolve_basedir(None, no_env, cwd), cwd);
+        assert_eq!(
+            resolve_basedir(None, game_data).as_deref(),
+            Some(Path::new("data"))
+        );
+        assert_eq!(resolve_basedir(None, no_env), None);
         let empty = |name: &str| (name == "QUAKE_GAME_DATA").then(OsString::new);
-        assert_eq!(resolve_basedir(None, empty, cwd), cwd);
+        assert_eq!(resolve_basedir(None, empty), None);
+    }
+
+    #[test]
+    fn basedir_accepts_classic_and_rerelease_layouts() {
+        let dir = env::temp_dir().join(format!("xtask-basedir-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        assert!(!looks_like_basedir(&dir));
+        std::fs::write(dir.join("QuakeEX.kpf"), b"").unwrap();
+        assert!(looks_like_basedir(&dir));
+        std::fs::remove_file(dir.join("QuakeEX.kpf")).unwrap();
+        std::fs::create_dir(dir.join("id1")).unwrap();
+        assert!(looks_like_basedir(&dir));
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
