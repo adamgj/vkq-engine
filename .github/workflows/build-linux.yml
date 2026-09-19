@@ -146,10 +146,9 @@ jobs:
     - name: FFI signature parity (quake_rs.h vs engine headers)
       run: ./scripts/harness/check_capi_signatures.sh build-rs/quake_rs.h
     # linux-x86_64 goldens come from the generate-goldens-linux dispatch job
-    # below (the C oracle at c-reference/final). Until that set is committed
-    # --check skips every entry as "no golden" and the stability legs are the
-    # gate. All of these cover the map entries, i.e. real server/edict state
-    # rather than demo playback alone.
+    # below (the C oracle at c-reference/final; run 35460948153 committed
+    # the shareware set). All of these cover the map entries, i.e. real
+    # server/edict state rather than demo playback alone.
     - name: Golden check (shareware tier, linux-x86_64, plain and -sndhash)
       run: |
         export QUAKE_GAME_DATA="$PWD/shareware-data"
@@ -476,7 +475,7 @@ jobs:
         sh = lambda *a: subprocess.check_output(a, text=True).strip()
         m = {
           "platform": "linux-x86_64",
-          "generated_from_commit": sh("git", "rev-parse", "--short", "c-reference/final") + " (tag c-reference/final)",
+          "generated_from_commit": sh("git", "rev-parse", "--short", "c-reference/final^{commit}") + " (tag c-reference/final)",
           "generated_date": datetime.date.today().isoformat(),
           "generated_by_workflow_run": os.environ.get("GITHUB_RUN_ID", ""),
           "build": {

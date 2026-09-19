@@ -1,6 +1,6 @@
 {
   "platform": "linux-x86_64",
-  "generated_from_commit": "aa193fa1 (tag c-reference/final)",
+  "generated_from_commit": "fb372b7d (tag c-reference/final)",
   "generated_date": "2026-09-19",
   "generated_by_workflow_run": "35460948153",
   "build": {

@@ -77,7 +77,7 @@ What remains, from `docs/rust-migration/c-remnant-inventory.md`: 81 oracle TUs (
   - `pr_cmds.c` → remaining `PF_*` to `quake-progs::builtins` via `BuiltinSys`; builtin table moves to `quake-progs`; `RUST_PF` retired at M6c; goldens + committed `builtin_diff.py` dump.
   - `pr_ext.c` → M8b-2..6; `gl_model.c` → M8c-1..4 (below). `snd_sdl.c`, `mem.c` → M9.
 - **D9 Allocator procedure (M9).** `glue_deps.py --mem` lists `Mem_Alloc`/`Mem_Free` in remnant TUs and whether pointers cross to Rust. If none cross: build with `engine-alloc` off, compare `harness_render` timings + `--stability` wall-clock (3 runs) against the Phase 8 noise floor; within noise → drop `engine-alloc`, `quake-c-sys::mi`, `Quake/mimalloc/`; `Mem_*` become `quake-capi::mem` exports over `libc` (same CRT heap as Rust `System`). Otherwise keep and record the measurement in ADR-013.
-- **D10 CI shapes after M0.** harness-linux: `build-rs` (release SDL2) + `build-rs-trace`; `check_capi_signatures`; `--check`; `--stability` (plain, `-parthash`, `--sndhash`); `trace_diff` run-twice; `save/condump/config/record/netreplay_diff` self-mode; `interop_matrix.py --combos R/R`; worker-count perturbation; render corpus stability. Dropped: all `--compare`, `builtin_diff` C-vs-mixed, `capture_diff`, physics matrix, formats corpus (frozen into ctest), `xtask_diff`. harness-mac/windows: `build-rs` release+debug, `--check`, `--stability`, self-diffs, Windows interop R/R. rust.yml unchanged + `check_ctest_symbols.sh` against `csrc/`. Packaging jobs drop `-Duse_rust=enabled`.
+- **D10 CI shapes after M0.** harness-linux: `build-rs` (release SDL2) + `build-rs-trace`; `check_capi_signatures`; `--check`; `--stability` (plain, `-parthash`, `--sndhash`); `trace_diff` run-twice; `save/condump/config/record/netreplay_diff` self-mode; `interop_matrix.py --combos R/R`; worker-count perturbation; render corpus stability. Dropped: all `--compare`, `builtin_diff` C-vs-mixed, `capture_diff`, physics matrix, formats corpus (frozen into ctest), `xtask_diff`. harness-mac/windows: `build-rs` release+debug, `--check`, `--stability`, self-diffs, Windows interop R/R. rust.yml unchanged + `check_ctest_symbols.sh` against `csrc/`. Packaging jobs drop `-Duse_rust=enabled`. **Amended (2026-09-19, PR #45 review):** harness-linux keeps the two formats-corpus legs (frozen `csrc/` C loaders vs Rust; the only real-asset BSP/MDL/SPR/image parity gate) and runs `physics_matrix.py` in same-build self-compare mode; only `builtin_diff` stays dropped until M8b's committed dump (no builtin-numbering code changes before M8b). The ctest ABI probe (`stubs/abi_probe.c`, `tests/*_abi.rs`) compiles against the live `Quake/` headers, not `csrc/`, so a Phase 10 header change that `quake-types` does not follow fails a test.
 
 ## Change boundary
 
@@ -186,6 +186,24 @@ Commits: (1) eb097512 amendments D-A..D-D, tag `c-reference/final` = fb372b7d (l
 
 Acceptance: AC1 met (tag local, ADR-019 recipe). AC2 met for executable references (no `get_option('use_rust`, no `-Duse_rust` outside the tag-building dispatch job, no `#if USE_RUST` outside `csrc/`); ~320 comment mentions of the retired switches remain in glue TU headers, `quake-c-sys` doc comments, `Quake/net_dgrm_int.h:29`, `Quake/pr_cmds.c:77`, the goldens MANIFESTs (provenance) -- R1's "empty" reading is not met literally and is left for the TUs' deletion at M6/M8. AC3, AC11 not run (CI). AC4 met locally. AC5 met (19 sites, matches the plan's M0 count). AC12 met locally.
 
-Risks carried: RA1 (no `--compare` oracle); Linux `--check` is vacuous until the dispatch job's goldens are committed; the MANIFEST/README wording for the dispatch job is unverified against a real run; `glue_deps.py` is textual (RA5).
+Risks carried: RA1 (no `--compare` oracle). Resolved after review: the `generate-goldens-linux` dispatch (run 35460948153) committed the shareware `linux-x86_64` set as 4b9305d6, so Linux `--check` is a live gate; `glue_deps.py` is textual (RA5).
 
 Handoff: open the PR (push the branch and the `c-reference/final` tag together), run the `generate-goldens-linux` dispatch and commit its output, then start M5 (`/feature-implement docs/ai/plans/rust-conversion-phase-10-post-deletion.md M5`). The single next action after the PR is green is M5.
+
+### M0 review follow-up (2026-09-19, PR #45, commits 4b9305d6, a4547571 and the manifest/plan commit after it)
+
+Findings from the adversarial review and Copilot, and what was done:
+
+| Finding | Verdict | Resolution |
+|---|---|---|
+| ABI probe validated frozen `csrc/` headers, not the live `Quake/` ones | legitimate (coverage regression) | `quake-ctest/build.rs` builds `stubs/abi_probe.c` in its own `cc` build with `../../Quake` on the include path; `cargo test -p quake-ctest` across the nine `*_abi` tests: 51 passed, 0 failed |
+| formats-corpus gate dropped from all CI | legitimate | both legs restored in harness-linux; locally `run_formats_corpus.py`: id1 190 ok / 0 reject, vq_pak 7 ok with the 3 PNGs |
+| `builtin_diff` / `physics_matrix` removed rather than converted | half accepted | `physics_matrix.py --vkquake-a build-rs` (self-compare) restored: 84 ok / 0 failed locally. `builtin_diff` needs two builds; a committed dump is M8b work and no builtin code moves before M8b |
+| c2rust oracle scripts target deleted TUs | legitimate | `gen_compile_commands.sh` configures from a `c-reference/final` worktree; README/translate.sh reworded |
+| readme `make -j` fallback, orphaned `Quake/detect.sh` | legitimate | note replaced, `detect.sh` deleted (no remaining users) |
+| dead `-DDO_USERDIRS` block, stale `compile_error!` text | legitimate, cosmetic | both fixed; `meson setup --reconfigure build-rs` OK |
+| Copilot: Linux goldens not committed | legitimate | dispatch run 35460948153 committed 4b9305d6 (25 files); its MANIFEST recorded the annotated tag object `aa193fa1`, corrected to the commit `fb372b7d` and the workflow now resolves `c-reference/final^{commit}` |
+
+Verification for the follow-up: `cargo fmt --check` clean; `cargo clippy -p quake-ctest --all-targets -D warnings` clean; the three gates above; `sh -n` on the two c2rust scripts. Not run locally: the harness-linux job itself (CI on the pushed commits is the evidence for the restored steps and the now-live Linux `--check`).
+
+Handoff: once CI on the follow-up commits is green, start M5 (`/feature-implement docs/ai/plans/rust-conversion-phase-10-post-deletion.md M5`).
