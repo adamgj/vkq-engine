@@ -1,8 +1,8 @@
-//! `cargo xtask`: the Meson shader/pak pipeline steps as commands, for the
-//! byte-identity differential against the C tools' outputs
-//! (scripts/harness/xtask_diff.py) and for inspecting what the quake-capi
-//! build script embeds; plus `build`/`run`, which drive the Meson engine
-//! build and launch the result with one command line on every platform.
+//! `cargo xtask`: the Meson shader/pak pipeline steps as commands, for
+//! inspecting what the quake-capi build script embeds (and, while the C
+//! tools still ran, for the byte-identity differential against their
+//! outputs); plus `build`/`run`, which drive the Meson engine build and
+//! launch the result with one command line on every platform.
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;

@@ -9,7 +9,7 @@ publish.workspace = true
 
 # a library so quake-capi's build script can drive the pipeline in-process,
 # and the `cargo xtask` binary for the byte-identity differential against the
-# Meson bintoc/mkpak outputs (scripts/harness/xtask_diff.py)
+# Meson bintoc/mkpak outputs (the retired xtask_diff.py gate)
 [lib]
 path = "src/lib.rs"
 

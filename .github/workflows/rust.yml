@@ -93,9 +93,9 @@ jobs:
       run: |
         cargo clippy -p quake-capi --features platform,sdl3 --all-targets --locked -- -D warnings
         cargo clippy -p quake-capi --features platform,sdl2 --all-targets --locked -- -D warnings
-    # Phase 8 M11 (AC10): the xtask shader/pak outputs against Meson's
-    # custom targets is the build-linux harness job's xtask_diff step; here
-    # the pipeline's own unit tests and the miniz deflate parity differential
+    # Phase 8 M11 (AC10): the pipeline's own unit tests and the miniz deflate
+    # parity differential (the Meson bintoc/mkpak custom targets the outputs
+    # were byte-diffed against went with the C oracle)
     - name: xtask pipeline tests
       working-directory: rust
       run: |

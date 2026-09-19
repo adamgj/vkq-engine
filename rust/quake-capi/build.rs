@@ -2,8 +2,8 @@
 //! shader blobs and the embedded `vkquake.pak` are produced here by the xtask
 //! pipeline instead of Meson's `bintoc`/`mkpak` custom targets, and baked into
 //! the staticlib with `include_bytes!` (`src/shaders.rs`, `src/embedded_pak.rs`).
-//! Same tools, same flags, same outputs: `scripts/harness/xtask_diff.py` keeps
-//! them byte-identical to the C build's.
+//! Same tools, same flags, same outputs: they were byte-diffed against the C
+//! build's until the Meson custom targets went with the C oracle.
 
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};

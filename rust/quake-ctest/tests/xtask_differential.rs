@@ -3,8 +3,8 @@
 //! `bintoc -c` gets from the vendored miniz (`tdefl_compress_mem_to_heap`
 //! with `TDEFL_MAX_PROBES_MASK`), which common_fs.c compiles into the c_ref
 //! oracle, on the real `Misc/vq_pak` contents as well as synthetic inputs.
-//! The .spv/.c/vkquake.pak identity against Meson's outputs is the
-//! scripts/harness/xtask_diff.py gate (AC10).
+//! The .spv/.c/vkquake.pak identity against Meson's outputs was the
+//! xtask_diff.py gate (AC10) while the C build still produced them.
 
 use core::ffi::{c_int, c_void};
 

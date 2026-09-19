@@ -15,7 +15,7 @@ const TDEFL_MAX_PROBES_MASK: u32 = 0xFFF;
 /// miniz except for one heuristic: `miniz_oxide` never replaces a coded block
 /// of 32 bytes or fewer with a stored block, miniz does whenever the coded
 /// block is not smaller (quake-ctest's `xtask_differential` pins the
-/// boundary; `scripts/harness/xtask_diff.py` proves `Misc/vq_pak` is not
+/// boundary; the retired xtask_diff.py gate proved `Misc/vq_pak` is not
 /// affected, and either output inflates to the same bytes).
 pub fn deflate_raw(input: &[u8]) -> Vec<u8> {
     let mut compressor = CompressorOxide::new(TDEFL_MAX_PROBES_MASK);

@@ -77,8 +77,9 @@ jobs:
         draft: true
         files: Packaging/AppImage/vkqr-engine-*.AppImage
 
-  # Rust-migration mixed build + differential harness (the AppImage job above
-  # ships the mixed build since Phase 9 M6; the C-only oracle lives here)
+  # Rust-migration differential harness on the one engine configuration (the
+  # C-only oracle is tag c-reference/final since the Phase 9 deletion PR;
+  # the generate-goldens-linux dispatch job below rebuilds it for goldens)
   harness-linux:
     name: Harness Linux (shareware)
     runs-on: ubuntu-24.04
@@ -133,242 +134,124 @@ jobs:
         key: quake106-shareware-v1
     - name: Fetch shareware data
       run: python3 scripts/harness/fetch_shareware.py shareware-data
-    # C-only, fully mixed, and each per-module switch in its "keep the C"
-    # position: those legs are the only thing that keeps the C fallback
-    # compiling and linking as modules are ported (Phase 2/3 exit criterion)
-    - name: Build C-only and mixed
+    # Phase 9 deletion PR: there is no C-only configuration any more -- the
+    # oracle is tag c-reference/final (ADR-019) -- so this job builds the one
+    # engine configuration for SDL2 plus its -Dtrace=true twin and gates on
+    # the committed goldens, run-to-run stability and the single-build byte
+    # differs. Every C-vs-mixed --compare leg went with the C oracle.
+    - name: Build (SDL2 release, and the -Dtrace=true twin)
       run: |
-        meson setup build-c -Duse_sdl3=disabled -Duse_rust=disabled && ninja -C build-c
-        meson setup build-rs -Duse_sdl3=disabled -Duse_rust=enabled && ninja -C build-rs
-        meson setup build-rs-cfs -Duse_sdl3=disabled -Duse_rust=enabled -Duse_rust_fs=disabled && ninja -C build-rs-cfs
-        meson setup build-rs-cimg -Duse_sdl3=disabled -Duse_rust=enabled -Duse_rust_image=disabled && ninja -C build-rs-cimg
-        meson setup build-rs-cfmt -Duse_sdl3=disabled -Duse_rust=enabled -Duse_rust_formats=disabled && ninja -C build-rs-cfmt
-        meson setup build-rs-csnd -Duse_sdl3=disabled -Duse_rust=enabled -Duse_rust_snd=disabled && ninja -C build-rs-csnd
-        meson setup build-rs-cnet -Duse_sdl3=disabled -Duse_rust=enabled -Duse_rust_net=disabled && ninja -C build-rs-cnet
-        meson setup build-rs-cprogs -Duse_sdl3=disabled -Duse_rust=enabled -Duse_rust_progs=disabled && ninja -C build-rs-cprogs
-        # Phase 7: the C comparison oracle for the two Phase 7 switches. Since
-        # M2 (cvar.c/cmd.c) and M3 (world.c) this leg compiles genuinely
-        # different sources from build-rs -- the C originals instead of the
-        # glue files -- so it fails on its own when a C original stops
-        # building. See meson.build's Phase 7 comments.
-        meson setup build-rs-chost -Duse_sdl3=disabled -Duse_rust=enabled -Duse_rust_cvar=disabled -Duse_rust_host=disabled && ninja -C build-rs-chost
-        # Phase 8: the C comparison oracles for the two Phase 8 switches
-        # (tasks.c at M2, then each renderer file as its slice lands)
-        meson setup build-rs-ctasks -Duse_sdl3=disabled -Duse_rust=enabled -Duse_rust_tasks=disabled && ninja -C build-rs-ctasks
-        meson setup build-rs-crender -Duse_sdl3=disabled -Duse_rust=enabled -Duse_rust_render=disabled && ninja -C build-rs-crender
-        # Phase 9: the C comparison oracle for the platform switch (each
-        # platform file as its milestone lands); SDL2 here, so this is the
-        # leg that keeps the quake-platform sdl2 arm honest (ADR-017)
-        meson setup build-rs-cplatform -Duse_sdl3=disabled -Duse_rust=enabled -Duse_rust_platform=disabled && ninja -C build-rs-cplatform
-        # ADR-019 gate 3: the -Dtrace=true pair the progs differ compares
-        meson setup build-c-trace -Duse_sdl3=disabled -Duse_rust=disabled -Dtrace=true && ninja -C build-c-trace
-        meson setup build-rs-trace -Duse_sdl3=disabled -Duse_rust=enabled -Dtrace=true && ninja -C build-rs-trace
+        meson setup build-rs -Duse_sdl3=disabled && ninja -C build-rs
+        meson setup build-rs-trace -Duse_sdl3=disabled -Dtrace=true && ninja -C build-rs-trace
     - name: FFI signature parity (quake_rs.h vs engine headers)
-      run: |
-        ./scripts/harness/check_capi_signatures.sh build-rs/quake_rs.h
-        ./scripts/harness/check_capi_signatures.sh build-rs-cfs/quake_rs.h
-        ./scripts/harness/check_capi_signatures.sh build-rs-cimg/quake_rs.h
-        ./scripts/harness/check_capi_signatures.sh build-rs-cfmt/quake_rs.h
-        ./scripts/harness/check_capi_signatures.sh build-rs-csnd/quake_rs.h
-        ./scripts/harness/check_capi_signatures.sh build-rs-cnet/quake_rs.h
-        ./scripts/harness/check_capi_signatures.sh build-rs-cprogs/quake_rs.h
-        ./scripts/harness/check_capi_signatures.sh build-rs-chost/quake_rs.h
-        ./scripts/harness/check_capi_signatures.sh build-rs-ctasks/quake_rs.h
-        ./scripts/harness/check_capi_signatures.sh build-rs-crender/quake_rs.h
-        ./scripts/harness/check_capi_signatures.sh build-rs-cplatform/quake_rs.h
-    # Phase 8 M11 (task plan D8, AC10): every .spv, bintoc .c, vkquake.pak
-    # and embedded_pak.c the cargo xtask pipeline writes must be
-    # byte-identical to the Meson custom targets' outputs in the C-only build
-    - name: xtask shader/pak identity (xtask vs meson bintoc/mkpak)
-      run: python3 scripts/harness/xtask_diff.py --build-dir build-c
-    # no linux-x86_64 goldens yet, so gate on run-to-run stability and on the
-    # mixed build matching C-only; both cover the map entries, i.e. real
-    # server/edict state rather than demo playback alone
-    - name: Corpus stability (C-only, run-twice)
+      run: ./scripts/harness/check_capi_signatures.sh build-rs/quake_rs.h
+    # linux-x86_64 goldens come from the generate-goldens-linux dispatch job
+    # below (the C oracle at c-reference/final). Until that set is committed
+    # --check skips every entry as "no golden" and the stability legs are the
+    # gate. All of these cover the map entries, i.e. real server/edict state
+    # rather than demo playback alone.
+    - name: Golden check (shareware tier, linux-x86_64, plain and -sndhash)
       run: |
         export QUAKE_GAME_DATA="$PWD/shareware-data"
-        python3 scripts/harness/run_corpus.py --vkquake build-c/vkqr-engine --stability --tier shareware
-    - name: Mixed build identity (rust fs vs C-only)
+        python3 scripts/harness/run_corpus.py --vkquake build-rs/vkqr-engine --check --tier shareware
+        python3 scripts/harness/run_corpus.py --vkquake build-rs/vkqr-engine --check --sndhash --tier shareware
+    - name: Corpus stability (run-twice)
       run: |
         export QUAKE_GAME_DATA="$PWD/shareware-data"
-        python3 scripts/harness/run_corpus.py --vkquake build-c/vkqr-engine --compare build-rs/vkqr-engine --tier shareware
+        python3 scripts/harness/run_corpus.py --vkquake build-rs/vkqr-engine --stability --tier shareware
     # Phase 7 M10.5 (ADR-019 gate 1): the classic particle simulator's active
     # list. It stays OUT of the default state-hash chain -- folding it in
     # would change every committed golden on every platform -- so it rides an
-    # opt-in engine flag and is gated by --compare, which needs no goldens.
-    - name: Particle-sim hash identity (mixed vs C-only, -parthash)
+    # opt-in engine flag and is gated on run-twice stability, which needs no
+    # goldens.
+    - name: Particle-sim hash stability (-parthash, run-twice)
       run: |
         export QUAKE_GAME_DATA="$PWD/shareware-data"
-        python3 scripts/harness/run_corpus.py --vkquake build-c/vkqr-engine --compare build-rs/vkqr-engine --extra-args=-parthash --tier shareware
-    - name: Mixed build identity (C fs vs C-only)
-      run: |
-        export QUAKE_GAME_DATA="$PWD/shareware-data"
-        python3 scripts/harness/run_corpus.py --vkquake build-c/vkqr-engine --compare build-rs-cfs/vkqr-engine --tier shareware
-    - name: Mixed build identity (C sound vs C-only)
-      run: |
-        export QUAKE_GAME_DATA="$PWD/shareware-data"
-        python3 scripts/harness/run_corpus.py --vkquake build-c/vkqr-engine --compare build-rs-csnd/vkqr-engine --tier shareware
-    - name: Mixed build identity (C net vs C-only)
-      run: |
-        export QUAKE_GAME_DATA="$PWD/shareware-data"
-        python3 scripts/harness/run_corpus.py --vkquake build-c/vkqr-engine --compare build-rs-cnet/vkqr-engine --tier shareware
-    - name: Mixed build identity (C progs vs C-only)
-      run: |
-        export QUAKE_GAME_DATA="$PWD/shareware-data"
-        python3 scripts/harness/run_corpus.py --vkquake build-c/vkqr-engine --compare build-rs-cprogs/vkqr-engine --tier shareware
-    - name: Mixed build identity (C cvar/host vs C-only)
-      run: |
-        export QUAKE_GAME_DATA="$PWD/shareware-data"
-        python3 scripts/harness/run_corpus.py --vkquake build-c/vkqr-engine --compare build-rs-chost/vkqr-engine --tier shareware
-    # Phase 8: the scheduler is exercised headless (alias/MD5 skin fan-outs run
-    # on every map load), so these legs are real gates once M2 swaps tasks.c;
-    # both sides must see the same worker count (Tasks_NumWorkers chunking is
-    # sim-observable), hence the explicit -pinnedworkers on each
-    - name: Mixed build identity (C tasks vs C-only)
-      run: |
-        export QUAKE_GAME_DATA="$PWD/shareware-data"
-        python3 scripts/harness/run_corpus.py --vkquake build-c/vkqr-engine --compare build-rs-ctasks/vkqr-engine --tier shareware --extra-args "-pinnedworkers 0,1,2,3" --compare-extra-args "-pinnedworkers 0,1,2,3"
-    - name: Mixed build identity (C render vs C-only)
-      run: |
-        export QUAKE_GAME_DATA="$PWD/shareware-data"
-        python3 scripts/harness/run_corpus.py --vkquake build-c/vkqr-engine --compare build-rs-crender/vkqr-engine --tier shareware
-    - name: Mixed build identity (C platform vs C-only)
-      run: |
-        export QUAKE_GAME_DATA="$PWD/shareware-data"
-        python3 scripts/harness/run_corpus.py --vkquake build-c/vkqr-engine --compare build-rs-cplatform/vkqr-engine --tier shareware
-    # Phase 6 (ADR-019 gate 3): instruction-level trace parity, the gate the
-    # progs VM port is verified against. Demo playback never starts a server
-    # and so emits zero records -- the oracle scenarios are maps, and
-    # trace_diff.py's record floor enforces that.
-    - name: Progs trace stability (C-only, run-twice)
-      run: |
-        export QUAKE_GAME_DATA="$PWD/shareware-data"
-        python3 scripts/harness/trace_diff.py --vkquake build-c-trace/vkqr-engine \
-          --vkquake-b build-c-trace/vkqr-engine --map e1m1 --exitafter 300
-    - name: Progs trace parity (Rust VM vs C)
-      run: |
-        export QUAKE_GAME_DATA="$PWD/shareware-data"
-        # e1m1/e1m2/start are the shareware maps the corpus already
-        # proves are present; the wider map set and the mission-pack
-        # gamedirs are registered-tier and run locally
-        for m in e1m1 e1m2 start; do
-          python3 scripts/harness/trace_diff.py --vkquake build-c-trace/vkqr-engine \
-            --vkquake-b build-rs-trace/vkqr-engine --map "$m" --exitafter 400
-        done
-    # Phase 6 (ROADMAP exit criterion): builtin *numbering* is decided by
-    # PR_InitExtensions, PR_EnableExtensions and PR_PatchRereleaseBuiltins,
-    # and none of them shows up in an instruction trace unless a mod happens
-    # to call the affected builtin -- so the resolved table is diffed
-    # directly. The dump carries its own minimum-entry floor.
-    - name: Builtin-table dump diff (C-only vs mixed)
-      run: |
-        export QUAKE_GAME_DATA="$PWD/shareware-data"
-        for m in e1m1 start; do
-          python3 scripts/harness/builtin_diff.py --vkquake build-c/vkqr-engine \
-            --vkquake-b build-rs/vkqr-engine --map "$m"
-        done
+        python3 scripts/harness/run_corpus.py --vkquake build-rs/vkqr-engine --stability --extra-args=-parthash --tier shareware
     # Phase 4 (ADR-019 sound PCM-hash): the mixer runs on the deterministic
     # harness DMA clock under -sndhash; the per-frame paintbuffer+DMA chain
-    # must be bit-identical between the Rust sound engine and the C original
-    - name: Sound PCM-hash identity (mixed vs C sound, -sndhash)
+    # must be bit-identical run to run (and, once the linux goldens land,
+    # against the recorded oracle chain above)
+    - name: Sound PCM-hash stability (-sndhash, run-twice)
       run: |
         export QUAKE_GAME_DATA="$PWD/shareware-data"
-        python3 scripts/harness/run_corpus.py --vkquake build-rs/vkqr-engine --compare build-rs-csnd/vkqr-engine --sndhash --tier shareware
-    - name: Sound PCM-hash identity (C-only vs mixed, -sndhash)
+        python3 scripts/harness/run_corpus.py --vkquake build-rs/vkqr-engine --stability --sndhash --tier shareware
+    # Phase 6 (ADR-019 gate 3): instruction-level trace stability. Demo
+    # playback never starts a server and so emits zero records -- the
+    # scenarios are maps, and trace_diff.py's record floor enforces that.
+    # e1m1/e1m2/start are the shareware maps the corpus already proves are
+    # present; the wider map set and the mission-pack gamedirs are
+    # registered-tier and run locally.
+    - name: Progs trace stability (run-twice)
       run: |
         export QUAKE_GAME_DATA="$PWD/shareware-data"
-        python3 scripts/harness/run_corpus.py --vkquake build-c/vkqr-engine --compare build-rs/vkqr-engine --sndhash --tier shareware
-    - name: Savegame byte-diff (C-only vs mixed)
+        for m in e1m1 e1m2 start; do
+          python3 scripts/harness/trace_diff.py --vkquake build-rs-trace/vkqr-engine \
+            --vkquake-b build-rs-trace/vkqr-engine --map "$m" --exitafter 400
+        done
+    # ADR-019 gate 4, the byte differs in their single-build (self) mode: the
+    # savegame, the console dump (console.c's ring geometry plus keys.c's
+    # `bindlist`), the config (Key_WriteBindings and Cvar_WriteVariables
+    # through the ADR-005 formatter), the deterministic loopback session
+    # recorded to a .dem, and the captured-session replay (state-hash chains
+    # plus the demo recorded during the replay). Each parses its own output
+    # and fails on a missing or malformed surface.
+    - name: Savegame byte-diff (self)
       run: |
         export QUAKE_GAME_DATA="$PWD/shareware-data"
-        python3 scripts/harness/save_diff.py --vkquake build-c/vkqr-engine --vkquake-b build-rs/vkqr-engine
-        python3 scripts/harness/save_diff.py --vkquake build-c/vkqr-engine --vkquake-b build-rs-cfs/vkqr-engine
-        python3 scripts/harness/save_diff.py --vkquake build-c/vkqr-engine --vkquake-b build-rs-cnet/vkqr-engine
-    # Phase 7 M10 (ADR-019 gate 4): the console/keys byte gates. condump
-    # covers console.c's ring geometry plus keys.c's `bindlist`; config
-    # covers Key_WriteBindings and Cvar_WriteVariables through the ADR-005
-    # formatter. Neither surface emits network traffic, so capture_diff
-    # cannot observe either one.
-    - name: Console dump byte-diff (C-only vs mixed)
+        python3 scripts/harness/save_diff.py --vkquake build-rs/vkqr-engine
+    - name: Console dump byte-diff (self)
       run: |
         export QUAKE_GAME_DATA="$PWD/shareware-data"
-        python3 scripts/harness/condump_diff.py --vkquake build-c/vkqr-engine --vkquake-b build-rs/vkqr-engine
-        python3 scripts/harness/condump_diff.py --vkquake build-c/vkqr-engine --vkquake-b build-rs-chost/vkqr-engine
-    - name: Config byte-diff (C-only vs mixed)
+        python3 scripts/harness/condump_diff.py --vkquake build-rs/vkqr-engine
+    - name: Config byte-diff (self)
       run: |
         export QUAKE_GAME_DATA="$PWD/shareware-data"
-        python3 scripts/harness/config_diff.py --vkquake build-c/vkqr-engine --vkquake-b build-rs/vkqr-engine
-        python3 scripts/harness/config_diff.py --vkquake build-c/vkqr-engine --vkquake-b build-rs-chost/vkqr-engine
-    # Phase 5 (ADR-019 gate 4): -netcapture smoke over a live localhost
-    # session on the C build, then the structural differ in self-compare mode
-    # (parser sanity). Cross-build capture comparisons begin at the M5/M7
-    # driver flips; the byte gates are the netreplay/record_diff instruments.
-    - name: Net capture gate (C x3 for the noise floor, then C vs Rust)
+        python3 scripts/harness/config_diff.py --vkquake build-rs/vkqr-engine
+    - name: Demo record byte-diff (self)
       run: |
         export QUAKE_GAME_DATA="$PWD/shareware-data"
-        python3 scripts/harness/capture_session.py --vkquake build-c/vkqr-engine --out session-c.cap --frames 1200
-        python3 scripts/harness/capture_session.py --vkquake build-c/vkqr-engine --out session-c2.cap --frames 1200
-        python3 scripts/harness/capture_session.py --vkquake build-c/vkqr-engine --out session-c3.cap --frames 1200
+        python3 scripts/harness/record_diff.py --vkquake build-rs/vkqr-engine
+    - name: Captured-session replay byte gate (self)
+      run: |
+        export QUAKE_GAME_DATA="$PWD/shareware-data"
         python3 scripts/harness/capture_session.py --vkquake build-rs/vkqr-engine --out session-rs.cap --frames 1200
-        python3 scripts/harness/capture_diff.py session-c.cap session-rs.cap --window-from session-c2.cap --window-from session-c3.cap -v
-    # Phase 5 M4 (ADR-019 gate 4): deterministic loopback session recorded by
-    # both builds must produce byte-identical .dem files
-    - name: Demo record byte-diff (C self, then C vs Rust)
+        python3 scripts/harness/netreplay_diff.py --capture session-rs.cap --vkquake build-rs/vkqr-engine
+    # Phase 5 M8: client x server interop across the negotiable protocol
+    # cells (localhost IPv4; the IPv6 leg is local-only per the task plan).
+    # R/R is the only build combo left; the script keeps its two-build
+    # interface, so both sides name the same binary.
+    - name: Interop matrix (client x server, protocol cells)
       run: |
         export QUAKE_GAME_DATA="$PWD/shareware-data"
-        python3 scripts/harness/record_diff.py --vkquake build-c/vkqr-engine
-        python3 scripts/harness/record_diff.py --vkquake build-c/vkqr-engine --vkquake-b build-rs/vkqr-engine
-    # Phase 5 M8 (ADR-019 gate 4): the timing-noise-free byte gate -- replay
-    # the captured session on both builds; state-hash chains and the demo
-    # recorded during the replay must be byte-identical
-    - name: Captured-session replay byte gate (C self, then C vs Rust)
-      run: |
-        export QUAKE_GAME_DATA="$PWD/shareware-data"
-        python3 scripts/harness/netreplay_diff.py --capture session-c.cap --vkquake build-c/vkqr-engine
-        python3 scripts/harness/netreplay_diff.py --capture session-c.cap --vkquake build-c/vkqr-engine --vkquake-b build-rs/vkqr-engine
-    # Phase 5 M8: 4-way C/Rust interop across the negotiable protocol cells
-    # (localhost IPv4; the IPv6 leg is local-only per the task plan)
-    - name: Interop matrix (C/Rust client x server, protocol cells)
-      run: |
-        export QUAKE_GAME_DATA="$PWD/shareware-data"
-        python3 scripts/harness/interop_matrix.py --vkquake-c build-c/vkqr-engine --vkquake-rs build-rs/vkqr-engine
-    # Phase 7 M1 T1.3: the netplay-soak gate at its CI (smoke) frame budget.
-    # C/C only here -- with nothing ported yet the other three combos are the
-    # same binary pair; they join from M4, and the full-length 100k-frame runs
-    # are local-only (M9/M11) since CI cannot attest an hours-long run.
-    # Criterion is liveness + traffic profile, never hash identity: see the
-    # script's "Why this gate is not hash-exact".
+        python3 scripts/harness/interop_matrix.py --combos R/R \
+          --vkquake-c build-rs/vkqr-engine --vkquake-rs build-rs/vkqr-engine
+    # Phase 7 M1 T1.3: the netplay-soak gate at its CI (smoke) frame budget;
+    # the full-length 100k-frame runs are local-only since CI cannot attest
+    # an hours-long run. Criterion is liveness + traffic profile, never hash
+    # identity: see the script's "Why this gate is not hash-exact".
     #
     # 5000 frames, not the 20000 the M1 evidence run used: the sessions are
     # paced to real time (both processes run the sys_ticrate loop), so 20000
-    # frames is ~4.5 min per process run and ~30 min for this job serially,
-    # while both engine bugs this gate was built to catch surfaced by ~frame
-    # 128. 20000 stays the local/milestone budget.
-    - name: Netplay soak smoke (C/C, 5k server frames, both protocols)
+    # frames is ~4.5 min per process run, while both engine bugs this gate
+    # was built to catch surfaced by ~frame 128. 20000 stays the
+    # local/milestone budget.
+    - name: Netplay soak smoke (R/R, 5k server frames, both protocols)
       run: |
         export QUAKE_GAME_DATA="$PWD/shareware-data"
-        python3 scripts/harness/interop_matrix.py --soak --frames 5000 --combos C/C \
-          --vkquake-c build-c/vkqr-engine --vkquake-rs build-rs/vkqr-engine
-    # Phase 7 M1 T1.2: the physics cvar matrix (pusher modes 0-3, both
-    # hullcheck impls, both lerp settings). CI runs the 12-cell DEFAULT_CELLS
-    # trim; the full 16-cell factorial (--cells all) is a local/milestone leg.
-    # NOTE: the lerps axis is still vacuous on the current corpus -- see the
-    # script's KNOWN GAP; it is not yet a gate for the M4 sv_phys port.
-    - name: Physics cvar matrix (C vs Rust, 12-cell CI trim)
-      run: |
-        export QUAKE_GAME_DATA="$PWD/shareware-data"
-        python3 scripts/harness/physics_matrix.py --vkquake-a build-c/vkqr-engine --vkquake-b build-rs/vkqr-engine
+        python3 scripts/harness/interop_matrix.py --soak --frames 5000 --combos R/R \
+          --vkquake-c build-rs/vkqr-engine --vkquake-rs build-rs/vkqr-engine
     # Phase 3 M6: gl_model.c fans model loading out over task workers and the
     # Rust loaders run on those workers, so changing the worker count must not
-    # perturb the simulation. -pinnedworkers overrides the count (tasks.c:366).
+    # perturb the simulation. -pinnedworkers overrides the count.
     #
     # Scope, precisely: the harness state hash covers edicts, qcvm globals and
-    # client entity state (Quake/harness.c:159-233) -- nothing produced by
-    # Mod_LoadSkinTask/Mod_LoadMDXSkinTask enters it. So this catches a loader
-    # that Sys_Errors, deadlocks, or corrupts state the simulation reads; it
-    # does NOT gate those two task bodies' own output for order independence.
-    # Decoder-level order independence is covered by the threaded_parse ctest.
-    - name: Worker count does not perturb the simulation (1 vs 8, mixed build)
+    # client entity state (Quake/harness.c) -- nothing produced by the skin
+    # load tasks enters it. So this catches a loader that Sys_Errors,
+    # deadlocks, or corrupts state the simulation reads; it does NOT gate
+    # those task bodies' own output for order independence. Decoder-level
+    # order independence is covered by the threaded_parse ctest.
+    - name: Worker count does not perturb the simulation (1 vs 8)
       run: |
         export QUAKE_GAME_DATA="$PWD/shareware-data"
         python3 scripts/harness/run_corpus.py --vkquake build-rs/vkqr-engine \
@@ -376,16 +259,15 @@ jobs:
           --extra-args "-pinnedworkers 0" \
           --compare-extra-args "-pinnedworkers 0,1,2,3,4,5,6,7"
     # Phase 8 M1 (ADR-015 / ADR-019): the windowed render harness, on lavapipe
-    # (mesa-vulkan-drivers) under xvfb. C-vs-C stability: the -renderhash
+    # (mesa-vulkan-drivers) under xvfb. Run-to-run stability: the -renderhash
     # chains (cull decisions + draw-call structure) must be identical run to
     # run and the screenshot SSIM must clear the entry threshold; this is also
     # what sets the per-platform SSIM floor. The validation layer is not in the
     # SDK subset installed above, so --validation is a local (Windows) gate.
-    # C-vs-mixed compares arrive with each Phase 8 slice.
-    - name: Render corpus stability (C-only, lavapipe, run-twice)
+    - name: Render corpus stability (lavapipe, run-twice)
       run: |
         export QUAKE_GAME_DATA="$PWD/shareware-data"
-        xvfb-run -a -s "-screen 0 1280x1024x24" python3 scripts/harness/render_corpus.py --vkquake build-c/vkqr-engine --stability --runs 2 --timeout 1200 --out render-out
+        xvfb-run -a -s "-screen 0 1280x1024x24" python3 scripts/harness/render_corpus.py --vkquake build-rs/vkqr-engine --stability --runs 2 --timeout 1200 --out render-out
     - name: Upload render corpus report
       if: always()
       uses: actions/upload-artifact@v4
@@ -395,43 +277,6 @@ jobs:
           render-out/report.json
           render-out/*/*/stdout*.txt
         if-no-files-found: ignore
-    # Phase 3 M7 (D9 / AC4-7): drive every model/image asset of the shareware
-    # id1 through both the c_ref C loaders and the Rust ports in-process and
-    # assert bit-for-bit parity of the parsed structs, console log, and
-    # upload payloads. Any divergence aborts the binary, failing this step;
-    # the emitted manifest is uploaded for cross-run/platform diffing.
-    - name: Formats corpus gate (C vs Rust, shareware)
-      run: |
-        python3 scripts/harness/run_formats_corpus.py \
-          --game-data "$PWD/shareware-data" --gamedir id1 \
-          --out formats-corpus-linux-x86_64.txt
-        # belt-and-braces vacuous-pass floor: grep -c exits 1 on zero OK lines
-        grep -c '^OK ' formats-corpus-linux-x86_64.txt
-        tail -1 formats-corpus-linux-x86_64.txt
-    - name: Formats corpus gate (C vs Rust, in-repo vq_pak images)
-      # M8: the three real PNGs under Misc/vq_pak (two of them baked into the
-      # embedded vkquake.pak and decoded on every engine launch) run through
-      # both Image_DecodeSTB implementations bit-for-bit on every CI run —
-      # the standing real-PNG leg of AC11 (the shareware tier has no
-      # PNG/TGA/JPG; the full-depot image corpus is a dev-host gate)
-      run: |
-        python3 scripts/harness/run_formats_corpus.py \
-          --game-data "$PWD/Misc" --gamedir vq_pak \
-          --out formats-corpus-vq-pak.txt
-        # pinned: all three PNGs must produce a parity-verified OK line, so a
-        # rename or skip cannot silently thin the leg out (update the count
-        # here and the comment above when a PNG is added to Misc/vq_pak)
-        test "$(grep -c '^OK .*\.png' formats-corpus-vq-pak.txt)" -eq 3
-        tail -1 formats-corpus-vq-pak.txt
-    - name: Upload formats manifest
-      uses: actions/upload-artifact@v4
-      with:
-        name: formats-corpus-manifest
-        path: |
-          formats-corpus-linux-x86_64.txt
-          formats-corpus-vq-pak.txt
-        # the manifest is always written on success; its absence is an error
-        if-no-files-found: error
 
   # ADR-013 / PLAN §7 gate 9: AddressSanitizer on the C side of the mixed
   # build, catching cross-language allocator misuse (alloc on one heap, free
@@ -489,7 +334,7 @@ jobs:
       run: python3 scripts/harness/fetch_shareware.py shareware-data
     - name: Build mixed with ASan
       run: |
-        meson setup build-asan -Duse_sdl3=disabled -Duse_rust=enabled -Db_sanitize=address
+        meson setup build-asan -Duse_sdl3=disabled -Db_sanitize=address
         ninja -C build-asan
     - name: Demo smoke under ASan
       run: |
@@ -500,8 +345,7 @@ jobs:
     # Phase 3 M6 / AC8: a map load reaches the alias and MD5/MD3 skin task
     # dispatches (gl_model.c:1997, :2205) that demo playback alone barely
     # exercises, and the forced eight-worker run makes the fan-out real on a
-    # small CI runner. Both go through the Rust loaders (use_rust_formats and
-    # use_rust_image follow use_rust to `auto` -> on).
+    # small CI runner. Both go through the Rust loaders.
     - name: Map load under ASan, forced multi-worker
       run: |
         export QUAKE_GAME_DATA="$PWD/shareware-data"
