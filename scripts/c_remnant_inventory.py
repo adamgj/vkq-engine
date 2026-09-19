@@ -1,34 +1,35 @@
 #!/usr/bin/env python3
 """C remnant inventory (Rust migration Phase 10 M1, ADR-002).
 
-Classifies every C/ObjC translation unit and vendored native library in the
+Classifies every C translation unit and vendored native library in the
 tree by an explicit rule table and writes
 docs/rust-migration/c-remnant-inventory.md. The table is the decision; the
 script only measures. A file with no rule fails ``--check`` so a new C file
 has to be classified before it lands.
 
+Since the Phase 9 deletion PR there is one engine build; the C originals of
+the ported modules live at tag c-reference/final (ADR-019) and the ctest
+oracle copies under rust/quake-ctest/csrc/, neither of which is inventoried
+here.
+
 Categories:
 
-  glue      Quake/*_glue.c -- compiled only by the mixed (-Duse_rust) build;
-            Host_Guard trampolines and C-owned globals for a ported module
-            (ADR-007/ADR-009). Each goes when its module's last C caller goes.
-  shared    engine C compiled by both the C-oracle and the mixed build;
-            the post-deletion port list.
+  glue      Quake/*_glue.c -- Host_Guard trampolines and C-owned globals for
+            a ported module (ADR-007/ADR-009). Each goes when its module's
+            last C caller goes (Phase 10 M6).
+  shared    engine C not yet ported; the Phase 10 M8/M9 port list.
   codec     audio decoder bridges kept as C (ADR-014).
   vendored  third-party C reached through #include from a host TU (ADR-002).
   harness   differential-verification harness TUs (ADR-019).
-  tool      native build-time tools.
-  oracle    C originals of ported modules, compiled only by the C-oracle
-            build; deleted by the Phase 9 soak-exit deletion PR.
-  unbuilt   in the tree but referenced by no Meson rule.
 
 Usage:
   python3 scripts/c_remnant_inventory.py            # regenerate the doc
   python3 scripts/c_remnant_inventory.py --check    # CI: stale classification or
                                                     # unclassified file -> 1
-  python3 scripts/c_remnant_inventory.py --ninja build.ninja --kind mixed|oracle
-      # cross-check the table against a configured Meson build: every TU that
-      # build compiles must carry a category that build is allowed to compile
+  python3 scripts/c_remnant_inventory.py --ninja build.ninja
+      # cross-check the table against a configured Meson build: every TU it
+      # compiles must be in the table, and every table entry the platform
+      # builds must be compiled
 """
 import argparse
 import glob
@@ -41,9 +42,9 @@ DOC = "docs/rust-migration/c-remnant-inventory.md"
 MESON = "meson.build"
 
 # --- rule table --------------------------------------------------------------
-# basename -> note. Files not listed here and not matching GLUE_RE must be in
-# ORACLE (or the run fails). Platform-conditional TUs are listed for every
-# platform; the --ninja cross-check only sees one platform's build at a time.
+# basename -> note. Files not listed here and not matching GLUE_RE fail the
+# run. Platform-conditional TUs are listed for every platform; the --ninja
+# cross-check only sees one platform's build at a time.
 
 SHARED = {
     "cd_null.c": "CD stub (no port planned; trivially portable)",
@@ -52,18 +53,18 @@ SHARED = {
     "image.c": "PNG writer host TU: includes lodepng.c (ADR-012 encoder keep)",
     "image_stb.c": "stb_image host TU: in-memory decode fallback/oracle (Phase 3 M8)",
     "mem.c": "mimalloc host TU: includes mimalloc/static.c (ADR-013)",
-    "model_parse.c": "always compiled; -Duse_rust_formats preprocesses out the ported loaders",
+    "model_parse.c": "scratch globals and Mod_SetExtraFlags around the ported loaders",
     "net_bsd.c": "BSD socket driver vtable slots (unix)",
     "net_loop.c": "loopback driver",
-    "net_main.c": "driver dispatch; per-slot USE_RUST_NET arms",
+    "net_main.c": "driver dispatch and console commands over the Rust drivers",
     "net_win.c": "Winsock driver vtable slots (Windows)",
     "palette.c": "palette/colormap tables",
-    "pr_cmds.c": "builtin table; ported builtins under USE_RUST_PROGS arms",
-    "pr_edict.c": "edict orchestration; ported pieces under USE_RUST_PROGS arms",
+    "pr_cmds.c": "builtin table; ported builtins dispatch to Rust",
+    "pr_edict.c": "edict orchestration around the ported arena/parse/save pieces",
     "pr_ext.c": "QSS extension builtins (largest remaining engine TU)",
     "pr_trace.c": "progs VM trace oracle hooks (ADR-019)",
     "q_thread_sdl.c": "SDL thread primitives",
-    "snd_sdl.c": "SDL2 audio backend; SDL2 mixed legs only (ADR-017)",
+    "snd_sdl.c": "SDL2 audio backend (ADR-017); ported at Phase 10 M9",
     "steam_api.c": "Steam API stub",
 }
 
@@ -80,57 +81,24 @@ HARNESS = {
     "harness_render.c": "render harness (Phase 8)",
 }
 
-TOOL = {
-    "Shaders/bintoc.c": "SPIR-V / pak to C array; Rust build uses xtask instead (Phase 8 M11)",
-    "Misc/vq_pak/mkpak.c": "vkquake.pak builder (native build tool)",
-}
-
-UNBUILT = {
-    "cd_sdl.c": "referenced by no Meson rule (Makefile-era CD audio)",
-    "pl_osx.m": "never in the Meson build; SDL clipboard covers macOS (Phase 9 M4)",
-}
-
 # vendored native libraries: path (relative to Quake/) -> (host TUs, note)
 VENDORED = {
     "mimalloc/": ("mem.c", "allocator (ADR-013; decision at Phase 10 M9)"),
     "lodepng.c": ("image.c", "PNG encoder (ADR-012 keep)"),
     "lodepng.h": ("image.c", ""),
-    "miniz.c": ("common_fs.c", "zip reader for the C-oracle filesystem only (Rust uses its own; goes with common_fs.c)"),
-    "miniz.h": ("common_fs.c", ""),
     "stb_image.h": ("image_stb.c", "decode fallback for formats quake-image does not decode"),
-    "stb_image_resize.h": ("gl_texmgr.c, gl_texmgr_glue.c", "mipmap resize"),
+    "stb_image_resize.h": ("gl_texmgr_glue.c", "mipmap resize"),
     "stb_image_write.h": ("image.c", "TGA/JPEG writer"),
-    "jsmn.h": ("json.c", "JSON tokenizer for the C-oracle json.c only (Phase 1 port has its own)"),
 }
-
-# C originals of ported modules (C-oracle build only). Listed explicitly so
-# that a new C file cannot silently join the oracle.
-ORACLE = """
-bgmusic.c cfgfile.c chase.c cl_demo.c cl_input.c cl_main.c cl_parse.c
-cl_tent.c cmd.c common_fs.c console.c crc.c cvar.c gl_draw.c gl_fog.c
-gl_heap.c gl_mesh.c gl_refrag.c gl_rlight.c gl_rmain.c gl_rmisc.c gl_screen.c
-gl_sky.c gl_texmgr.c gl_vidsdl.c gl_warp.c hash_map.c host.c host_cmd.c
-image_decode.c in_sdl.c in_sdl2.c in_sdl3.c json.c keys.c main_sdl.c
-mathlib.c mdfour.c menu.c net_dgrm.c net_dgrm_rel.c net_msg.c net_udp.c
-net_wins.c pl_linux.c pl_win.c pr_edict_arena.c pr_edict_load.c
-pr_edict_parse.c pr_edict_save.c pr_exec.c r_alias.c r_brush.c r_part.c
-r_part_fte.c r_sprite.c r_world.c sbar.c snd_codec.c snd_dma.c snd_mem.c
-snd_mix.c snd_mp3tag.c snd_sdl3.c snd_umx.c snd_wave.c steam.c strlcat.c
-strlcpy.c sv_main.c sv_move.c sv_phys.c sv_send.c sv_user.c sys_sdl.c
-sys_sdl_unix.c sys_sdl_win.c tasks.c view.c wad.c world.c
-""".split()
 
 GLUE_RE = re.compile(r"_glue\.c$")
-USE_RUST_RE = re.compile(r"\bUSE_RUST_[A-Z_]+\b")
-MESON_REF_RE = re.compile(r"'((?:Quake|Shaders|Misc/vq_pak)/[A-Za-z0-9_]+\.(?:c|m))'")
+MESON_REF_RE = re.compile(r"'(Quake/[A-Za-z0-9_]+\.c)'")
 
-# which categories each configured build may compile
-ALLOWED = {
-    "mixed": {"glue", "shared", "codec", "harness", "tool"},
-    "oracle": {"oracle", "shared", "codec", "harness", "tool"},
-}
+# the categories the engine build compiles (vendored code enters through its
+# host TU's #include)
+COMPILED = {"glue", "shared", "codec", "harness"}
 
-CATEGORY_ORDER = ["glue", "shared", "codec", "vendored", "harness", "tool", "oracle", "unbuilt"]
+CATEGORY_ORDER = ["glue", "shared", "codec", "vendored", "harness"]
 
 
 def read(path):
@@ -153,30 +121,22 @@ def dir_lines(path):
 
 
 def classify(rel):
-    """rel is 'Quake/x.c', 'Shaders/bintoc.c' or 'Misc/vq_pak/mkpak.c'."""
+    """rel is 'Quake/x.c'."""
     base = os.path.basename(rel)
-    if rel in TOOL:
-        return "tool", TOOL[rel]
     if base in VENDORED:
         return "vendored", VENDORED[base][1]
     if GLUE_RE.search(base):
         return "glue", ""
-    for cat, table in (("shared", SHARED), ("codec", CODEC), ("harness", HARNESS), ("unbuilt", UNBUILT)):
+    for cat, table in (("shared", SHARED), ("codec", CODEC), ("harness", HARNESS)):
         if base in table:
             return cat, table[base]
-    if base in ORACLE:
-        return "oracle", ""
     return None, ""
 
 
 def scan():
-    rows = []  # (category, rel, lines, use_rust_arms, note)
+    rows = []  # (category, rel, lines, note)
     errors = []
-    files = sorted(
-        glob.glob(os.path.join(ROOT, "Quake", "*.c"))
-        + glob.glob(os.path.join(ROOT, "Quake", "*.m"))
-        + [os.path.join(ROOT, t) for t in TOOL]
-    )
+    files = sorted(glob.glob(os.path.join(ROOT, "Quake", "*.c")))
     refs = set(MESON_REF_RE.findall(read(os.path.join(ROOT, MESON))))
     for path in files:
         rel = os.path.relpath(path, ROOT).replace(os.sep, "/")
@@ -184,14 +144,13 @@ def scan():
         if cat is None:
             errors.append("%s: no classification rule" % rel)
             cat = "UNCLASSIFIED"
-        elif cat in ("unbuilt", "vendored"):
+        elif cat == "vendored":
             if rel in refs:
                 errors.append("%s: classified %s but referenced by meson.build" % (rel, cat))
         elif rel not in refs:
             errors.append("%s: classified %s but not referenced by meson.build" % (rel, cat))
-        text = read(path)
-        rows.append((cat, rel, text.count("\n"), len(set(USE_RUST_RE.findall(text))), note))
-    for name in sorted(ORACLE) + sorted(SHARED) + sorted(CODEC) + sorted(HARNESS) + sorted(UNBUILT):
+        rows.append((cat, rel, count_lines(path), note))
+    for name in sorted(SHARED) + sorted(CODEC) + sorted(HARNESS):
         if not os.path.exists(os.path.join(ROOT, "Quake", name)):
             errors.append("Quake/%s: in the rule table but not in the tree" % name)
     for ref in sorted(refs):
@@ -220,7 +179,7 @@ def md_code(s):
 
 def mask_counts(text):
     """Blank the `Lines` column of every table; every other cell (file
-    counts, `USE_RUST_*` arms, notes) is compared verbatim."""
+    counts, notes) is compared verbatim."""
     out = []
     col = None
     for line in text.splitlines():
@@ -257,29 +216,26 @@ def render(rows, vendored):
     w("Regenerate with `python3 scripts/c_remnant_inventory.py`; `--check` fails")
     w("when the classification is stale, a file has no rule, or a rule disagrees")
     w("with `meson.build` (the line counts are informational and not compared,")
-    w("so a C-only edit does not fail CI). `--ninja <build.ninja> --kind")
-    w("mixed|oracle` cross-checks a configured build's TU list against the")
-    w("table.")
+    w("so a C-only edit does not fail CI). `--ninja <build.ninja>` cross-checks")
+    w("a configured build's TU list against the table.")
     w("")
-    w("This is the **pre-deletion** cut: the Phase 9 soak exit has not occurred,")
-    w("so the `oracle` rows still exist and the `glue` rows still compile. The")
-    w("ADR-002 Phase-10 appendix keys off the `shared`, `codec` and `vendored`")
-    w("sections; `glue` and `oracle` are the deletion/port lists (Phase 9")
-    w("deletion PR and Phase 10 M6/M8).")
+    w("This is the **post-deletion** cut (Phase 9 deletion PR): the C originals")
+    w("of the ported modules live at tag `c-reference/final` and, for the ctest")
+    w("differentials, under `rust/quake-ctest/csrc/`; neither is inventoried")
+    w("here. The ADR-002 Phase-10 appendix keys off the `shared`, `codec` and")
+    w("`vendored` sections; `glue` is the Phase 10 M6 removal list and `shared`")
+    w("the M8/M9 port list.")
     w("")
     w("## Summary")
     w("")
     w("| Category | Files | Lines | Compiled by | Disposition |")
     w("| --- | ---: | ---: | --- | --- |")
     disp = {
-        "glue": ("mixed build", "removed TU by TU as each module's C callers go (Phase 10 M6)"),
-        "shared": ("both builds", "port after the deletion PR (Phase 10 M8; `mem.c` at M9)"),
-        "codec": ("both builds", "keep: ADR-014 remnant (Symphonia closed by ADR-003)"),
+        "glue": ("engine build", "removed TU by TU as each module's C callers go (Phase 10 M6)"),
+        "shared": ("engine build", "port at Phase 10 M8 (`mem.c`, `snd_sdl.c` at M9)"),
+        "codec": ("engine build", "keep: ADR-014 remnant (Symphonia closed by ADR-003)"),
         "vendored": ("via host TU", "keep while the host TU exists (ADR-002)"),
-        "harness": ("both builds", "harness stays until its Rust twin exists (ADR-019)"),
-        "tool": ("native, build time", "keep for the C build; Rust build uses xtask"),
-        "oracle": ("C-oracle build", "deleted by the Phase 9 soak-exit deletion PR"),
-        "unbuilt": ("neither", "delete with the oracle"),
+        "harness": ("engine build", "harness stays until its Rust twin exists (ADR-019)"),
         "UNCLASSIFIED": ("?", "no classification rule: add one to `classify`"),
     }
     for cat in cats:
@@ -302,32 +258,32 @@ def render(rows, vendored):
                 w("| %s | %d | %d | %s | %s |" % (md_code(rel), n, lines, md_code(host), note))
             w("")
             continue
-        w("| File | Lines | `USE_RUST_*` arms | Note |")
-        w("| --- | ---: | ---: | --- |")
-        for _, rel, lines, arms, note in sorted(by_cat[cat], key=lambda r: r[1]):
-            w("| %s | %d | %d | %s |" % (md_code(rel), lines, arms, note))
+        w("| File | Lines | Note |")
+        w("| --- | ---: | --- |")
+        for _, rel, lines, note in sorted(by_cat[cat], key=lambda r: r[1]):
+            w("| %s | %d | %s |" % (md_code(rel), lines, note))
         w("")
     return "\n".join(out)
 
 
 
-def ninja_check(rows, path, kind):
+def ninja_check(rows, path):
     text = read(path)
     tus = set()
-    for m in re.finditer(r"^build [^:]*?\.(?:o|obj): (?:c|objc)_COMPILER \.\./((?:Quake|Shaders|Misc/vq_pak)/[A-Za-z0-9_]+\.(?:c|m))", text, re.M):
+    for m in re.finditer(r"^build [^:]*?\.(?:o|obj): c_COMPILER \.\./(Quake/[A-Za-z0-9_]+\.c)", text, re.M):
         tus.add(m.group(1))
-    cat_of = {rel: cat for cat, rel, _, _, _ in rows}
+    cat_of = {rel: cat for cat, rel, _, _ in rows}
     problems = []
     for tu in sorted(tus):
         cat = cat_of.get(tu)
         if cat is None:
-            problems.append("%s: compiled by the %s build but not in the table" % (tu, kind))
-        elif cat not in ALLOWED[kind]:
-            problems.append("%s: compiled by the %s build but classified %s" % (tu, kind, cat))
-    print("%s build: %d C TUs, %d problems" % (kind, len(tus), len(problems)))
+            problems.append("%s: compiled but not in the table" % tu)
+        elif cat not in COMPILED:
+            problems.append("%s: compiled but classified %s" % (tu, cat))
+    print("engine build: %d C TUs, %d problems" % (len(tus), len(problems)))
     for p in problems:
         print("  " + p)
-    absent = sorted(rel for rel, cat in cat_of.items() if cat in ALLOWED[kind] and rel not in tus)
+    absent = sorted(rel for rel, cat in cat_of.items() if cat in COMPILED and rel not in tus)
     if absent:
         print("  not compiled on this platform/config (allowed): " + ", ".join(absent))
     return not problems
@@ -337,16 +293,12 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--check", action="store_true")
     ap.add_argument("--ninja", metavar="BUILD_NINJA")
-    ap.add_argument("--kind", choices=("mixed", "oracle"))
     args = ap.parse_args()
     rows, vendored, errors = scan()
     for e in errors:
         print("error: " + e, file=sys.stderr)
-    if args.ninja:
-        if not args.kind:
-            ap.error("--ninja requires --kind")
-        if not ninja_check(rows, args.ninja, args.kind):
-            return 1
+    if args.ninja and not ninja_check(rows, args.ninja):
+        return 1
     doc = render(rows, vendored) + "\n"
     path = os.path.join(ROOT, DOC)
     if args.check:
