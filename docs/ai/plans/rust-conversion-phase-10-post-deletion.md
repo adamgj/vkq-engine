@@ -157,3 +157,35 @@ CI-only: Linux/macOS harness, lavapipe render corpus, sanitizers, bindgen diff, 
 ## First concrete action
 
 M0 commit (1): write amendments D-A..D-D and the `generate-goldens-linux` dispatch job, create the annotated tag `c-reference/final` on fb372b7d locally, and regenerate the three KNOWN STALE Windows goldens from a `c-reference/final` worktree (`meson setup build-c -Duse_rust=disabled -Duse_sdl3=enabled --buildtype=release`).
+
+## Verification evidence / handoff
+
+### M0 (2026-09-19, commits eb097512 .. 3a24a44e on `feature/rust-conversion-phase-11-0e8f8b`)
+
+Commits: (1) eb097512 amendments D-A..D-D, tag `c-reference/final` = fb372b7d (local, pushed with the PR), `generate-goldens-linux` dispatch job, three Windows registered-tier goldens regenerated from the tag; (2) ff07aff4 Meson switches removed (D3); (3) cd179810 81 oracle TUs, Makefiles and the MinGW/MSYS2 workflows deleted, `USE_RUST_*` arms collapsed; (4) 4ea4c3f8 ctest references frozen under `rust/quake-ctest/csrc/` (D4); (5) 29fdc743 harness CI reshaped (D10), `xtask_diff.py` retired; (6) 3a24a44e inventories regenerated, `scripts/glue_deps.py` added (D1), ROADMAP Phase 9 `[x]`.
+
+| Check | Kind | Result |
+| --- | --- | --- |
+| `cargo fmt --all --check` | broad | clean |
+| `cargo clippy` workspace, `progs,render`, `platform,sdl3`, `platform,sdl2` arms (`--locked -- -D warnings`) | broad | clean |
+| `cargo test --workspace --locked` debug and `--release` | broad | 1 576 passed, 0 failed each |
+| `cargo deny check`; `cargo deny --manifest-path fuzz/Cargo.toml check licenses` | broad | clean (pre-existing `Unicode-3.0` unmatched-allowance warning) |
+| `scripts/harness/check_ctest_symbols.sh` (vcvars64) | targeted | OK, 43 frozen sources |
+| `scripts/harness/check_capi_signatures.sh build-rs/quake_rs.h` (clang-cl) | targeted | OK |
+| `c_remnant_inventory.py --check`, `--ninja build-rs/build.ninja` | targeted | OK; 78 TUs compiled, 0 problems (net_bsd.c, snd_mp3.c, snd_sdl.c not on this platform/config) |
+| `setjmp_inventory.py --check` | targeted | OK, 19 sites (host_glue.c 16, gl_screen_glue.c 3), 39 guarded TUs |
+| `unsafe_inventory.py --check` | targeted | OK |
+| `glue_deps.py build-rs --mem` | targeted | runs; 9 glue TUs already have no C reader (gl_draw, gl_heap, gl_refrag, pr_cmds_cl, pr_cmds_sv, pr_cmds_sv_fx, pr_cmds_sv_msg, pr_edict_dispatch, tasks) |
+| `ninja -C build-rs` (clang-cl, SDL3, release) after commit 6 | targeted | links |
+| `run_corpus.py --check --tier shareware`, plain and `--sndhash`, full `id1` data | broad | 8 ran, 0 failed each |
+| `save_diff.py`, `condump_diff.py`, `config_diff.py` self mode on build-rs | targeted | identical |
+| `git grep -l setjmp Quake/` | targeted | executable sites only in `host_glue.c`, `gl_screen_glue.c`; the other TUs match ADR-009 comments |
+| `git grep -nE '^\s*#\s*(if|ifdef|ifndef|elif).*USE_RUST' Quake/ rust/` | targeted | 19, all inside the frozen `rust/quake-ctest/csrc/` text (the tag's tree, by design) |
+| Linux/macOS harness jobs, lavapipe render corpus, sanitizers, bindgen diff, the `generate-goldens-linux` dispatch | not run | CI only; no PR opened yet |
+| YAML validity of the four edited workflows | not run | no PyYAML on the host; structural checks only (no tabs, consistent CRLF, trailing newline) |
+
+Acceptance: AC1 met (tag local, ADR-019 recipe). AC2 met for executable references (no `get_option('use_rust`, no `-Duse_rust` outside the tag-building dispatch job, no `#if USE_RUST` outside `csrc/`); ~320 comment mentions of the retired switches remain in glue TU headers, `quake-c-sys` doc comments, `Quake/net_dgrm_int.h:29`, `Quake/pr_cmds.c:77`, the goldens MANIFESTs (provenance) -- R1's "empty" reading is not met literally and is left for the TUs' deletion at M6/M8. AC3, AC11 not run (CI). AC4 met locally. AC5 met (19 sites, matches the plan's M0 count). AC12 met locally.
+
+Risks carried: RA1 (no `--compare` oracle); Linux `--check` is vacuous until the dispatch job's goldens are committed; the MANIFEST/README wording for the dispatch job is unverified against a real run; `glue_deps.py` is textual (RA5).
+
+Handoff: open the PR (push the branch and the `c-reference/final` tag together), run the `generate-goldens-linux` dispatch and commit its output, then start M5 (`/feature-implement docs/ai/plans/rust-conversion-phase-10-post-deletion.md M5`). The single next action after the PR is green is M5.
