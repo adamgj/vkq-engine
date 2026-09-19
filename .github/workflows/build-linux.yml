@@ -21,6 +21,14 @@ on:
       - '.github/workflows/build-linux.yml'
   pull_request:
     paths: *ci-paths
+  # golden generation (ADR-019 rebuild recipe) is manual: it builds the C
+  # oracle at tag c-reference/final; the regular jobs do not run on dispatch
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: 'Commit the generated linux-x86_64 goldens to the dispatched branch (otherwise only upload them)'
+        type: boolean
+        default: true
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -30,6 +38,7 @@ jobs:
   build-linux:
     name: Build Linux
     runs-on: ubuntu-22.04
+    if: github.event_name != 'workflow_dispatch'
     permissions:
       contents: write
     steps:
@@ -73,6 +82,7 @@ jobs:
   harness-linux:
     name: Harness Linux (shareware)
     runs-on: ubuntu-24.04
+    if: github.event_name != 'workflow_dispatch'
     env:
       VULKAN_SDK_VER: 1.4.341.1
     steps:
@@ -430,6 +440,7 @@ jobs:
   asan-harness:
     name: ASan mixed build (shareware smoke)
     runs-on: ubuntu-24.04
+    if: github.event_name != 'workflow_dispatch'
     env:
       VULKAN_SDK_VER: 1.4.341.1
     steps:
@@ -499,3 +510,124 @@ jobs:
         python3 scripts/harness/run_demo.py --vkquake build-asan/vkqr-engine \
           --cmds asan-map.cmds --exitafter 1000 --out asan-map.hash \
           --extra-args "-pinnedworkers 0,1,2,3,4,5,6,7"
+
+  # Phase 9 deletion PR (ADR-019 amendment, 2026-09-19): the linux-x86_64
+  # goldens are generated from the C oracle at tag c-reference/final, never
+  # from the mixed build -- there is no C build in the tree any more, so the
+  # oracle is rebuilt from the tag in a side worktree. Manual dispatch only;
+  # the set is uploaded as an artifact and, with commit=true, committed to the
+  # dispatched branch. The MANIFEST pins the runner image and toolchain so a
+  # later mismatch can be told apart from an engine change (ADR-010: goldens
+  # are per platform and per toolchain).
+  generate-goldens-linux:
+    name: Generate linux-x86_64 goldens (C oracle at c-reference/final)
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      VULKAN_SDK_VER: 1.4.341.1
+    steps:
+    - uses: actions/checkout@v6
+      with:
+        fetch-depth: 0
+        fetch-tags: true
+    - name: Install Dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y meson ninja-build libsdl2-dev \
+          libvorbis-dev libflac-dev libopus-dev libopusfile-dev libmpg123-dev lhasa
+    - name: Cache Vulkan SDK tools
+      id: cache-vulkan
+      uses: actions/cache@v4
+      with:
+        path: vulkan-sdk
+        key: vulkan-sdk-${{ env.VULKAN_SDK_VER }}-linux-x86_64
+    - name: Install Vulkan SDK tools
+      if: steps.cache-vulkan.outputs.cache-hit != 'true'
+      run: |
+        wget -q -O vulkan-sdk.tar.xz "https://sdk.lunarg.com/sdk/download/${VULKAN_SDK_VER}/linux/vulkansdk-linux-x86_64-${VULKAN_SDK_VER}.tar.xz"
+        mkdir -p vulkan-sdk
+        tar -xf vulkan-sdk.tar.xz -C vulkan-sdk --strip-components=1 --wildcards \
+          "${VULKAN_SDK_VER}/x86_64/bin/glslang" \
+          "${VULKAN_SDK_VER}/x86_64/bin/glslangValidator" \
+          "${VULKAN_SDK_VER}/x86_64/bin/spirv-opt" \
+          "${VULKAN_SDK_VER}/x86_64/include" \
+          "${VULKAN_SDK_VER}/x86_64/lib/libvulkan.so*"
+        rm vulkan-sdk.tar.xz
+    - name: Export Vulkan SDK environment
+      run: |
+        echo "VULKAN_SDK=$PWD/vulkan-sdk/x86_64" >> "$GITHUB_ENV"
+        echo "LD_LIBRARY_PATH=$PWD/vulkan-sdk/x86_64/lib" >> "$GITHUB_ENV"
+        echo "$PWD/vulkan-sdk/x86_64/bin" >> "$GITHUB_PATH"
+    - name: Cache shareware data
+      uses: actions/cache@v4
+      with:
+        path: shareware-data
+        key: quake106-shareware-v1
+    - name: Fetch shareware data
+      run: python3 scripts/harness/fetch_shareware.py shareware-data
+    # the tag's tree still carries -Duse_rust; disabled = the pure C oracle
+    # (no cargo/cbindgen needed). SDL2, matching the harness-linux build.
+    - name: Build the C oracle at c-reference/final
+      run: |
+        git worktree add ../cref c-reference/final
+        cd ../cref
+        meson setup build-c -Duse_sdl3=disabled -Duse_rust=disabled --buildtype=release
+        ninja -C build-c
+    # run_corpus.py writes next to itself, so this tree's copy puts the set
+    # under this tree's Misc/harness/goldens/linux-x86_64/; the --check after
+    # proves the just-written set reproduces
+    - name: Generate goldens (shareware tier, state-hash and --sndhash chains)
+      run: |
+        export QUAKE_GAME_DATA="$PWD/shareware-data"
+        python3 scripts/harness/run_corpus.py --vkquake ../cref/build-c/vkqr-engine --generate --tier shareware
+        python3 scripts/harness/run_corpus.py --vkquake ../cref/build-c/vkqr-engine --generate --sndhash --tier shareware
+        python3 scripts/harness/run_corpus.py --vkquake ../cref/build-c/vkqr-engine --check --tier shareware
+        python3 scripts/harness/run_corpus.py --vkquake ../cref/build-c/vkqr-engine --check --sndhash --tier shareware
+    - name: Write MANIFEST.json
+      run: |
+        python3 - <<'EOF'
+        import datetime, json, os, subprocess
+        sh = lambda *a: subprocess.check_output(a, text=True).strip()
+        m = {
+          "platform": "linux-x86_64",
+          "generated_from_commit": sh("git", "rev-parse", "--short", "c-reference/final") + " (tag c-reference/final)",
+          "generated_date": datetime.date.today().isoformat(),
+          "generated_by_workflow_run": os.environ.get("GITHUB_RUN_ID", ""),
+          "build": {
+            "buildtype": "release",
+            "compiler": sh("cc", "--version").splitlines()[0],
+            "sdl": "SDL2 " + sh("pkg-config", "--modversion", "sdl2"),
+            "runner_image": os.environ.get("ImageOS", "") + " " + os.environ.get("ImageVersion", ""),
+            "use_rust": "disabled",
+          },
+          "notes": [
+            "Generated by the generate-goldens-linux workflow_dispatch job in .github/workflows/build-linux.yml from a C-only release build of tag c-reference/final (the last C-capable commit), per the ADR-019 rebuild recipe. The mixed build never generates goldens.",
+            "Coverage is the shareware tier only (the runner has no registered, mission-pack or mod data); run_corpus.py --check skips the other entries without failing.",
+            "corpus.json pins a sha256 on each entry's required data, and entry_available hard-skips on mismatch, so these goldens are tied to exactly the 1.06 pak0 that fetch_shareware.py produces.",
+            "Goldens are derived per-frame FNV-1a state hashes, not game data; the .snd files are the deterministic-DMA mixer PCM chains (--sndhash).",
+            "Generated from release builds only; debug builds run the stability gate but are not compared against these (FP results may differ by optimization level, ADR-010). The ADR-010 same-platform rule stands: never compare these against a non-Linux build, and re-dispatch this job if the runner image's compiler or SDL2 changes and --check starts failing on every entry at once.",
+            "The headless RNG stream intentionally differs from a windowed run, so these only ever compare headless runs against headless runs.",
+            "Never hand-edit. Regenerate by re-dispatching this job.",
+          ],
+        }
+        with open("Misc/harness/goldens/linux-x86_64/MANIFEST.json", "w") as f:
+          json.dump(m, f, indent=2)
+          f.write("\n")
+        EOF
+        cat Misc/harness/goldens/linux-x86_64/MANIFEST.json
+    - name: Upload goldens
+      uses: actions/upload-artifact@v4
+      with:
+        name: goldens-linux-x86_64
+        path: Misc/harness/goldens/linux-x86_64/
+        if-no-files-found: error
+    - name: Commit goldens to the dispatched branch
+      if: ${{ inputs.commit }}
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        git add Misc/harness/goldens/linux-x86_64
+        git commit -m "Add linux-x86_64 harness goldens from c-reference/final (ADR-019)"
+        git push
