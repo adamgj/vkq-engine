@@ -10,7 +10,7 @@
 // does not implement yet; fail loudly rather than silently diverge
 #[cfg(all(feature = "fs", feature = "userdirs"))]
 compile_error!(
-    "the Rust filesystem does not implement DO_USERDIRS yet; build with -Duse_rust_fs=disabled"
+    "the Rust filesystem does not implement DO_USERDIRS; build with -Ddo_userdirs=disabled"
 );
 
 #[cfg(feature = "engine-alloc")]

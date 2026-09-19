@@ -179,12 +179,7 @@ meson build -Ddebug=true -Dstrip=false && ninja -C build
 Meson prefers SDL3 and falls back to SDL2 if it is not installed; add `-Duse_sdl3=disabled` to force SDL2 (or `enabled` to require SDL3).
 
 > **Note**\
-> The Meson version needs to be 1.3.0 or newer. For older distributions you can use make:
-> ~~~
-> cd vkQuake/Quake
-> make -j
-> ~~~
-> Meson is the preferred way to build vkqr-engine because it automatically checks for out of date file depenencies, is faster and has better error reporting for missing dependencies.
+> The Meson version needs to be 1.3.0 or newer. The GNU Makefiles were retired with the Rust migration (ADR-018); on older distributions install a current Meson through `pip install meson`.
 
 > **Note**\
 > vkqr-engine requires **SDL3** or, as a fallback for older distributions, at least **SDL2 2.0.6 with enabled Vulkan support**.

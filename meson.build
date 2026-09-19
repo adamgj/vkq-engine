@@ -412,10 +412,6 @@ if get_option('buildtype').startswith('debug')
     cflags += '-D_DEBUG'
 endif
 
-if get_option('do_userdirs').enabled()
-    cflags += '-DDO_USERDIRS=1'
-endif
-
 incdirs = [
     'Quake/mimalloc',
 ]

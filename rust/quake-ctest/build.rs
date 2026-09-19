@@ -182,7 +182,6 @@ fn main() {
     for stub in [
         "snprintf_oracle.c",
         "stubs.c",
-        "abi_probe.c",
         "anorms_ref.c",
         "hashers_ref.c",
         "qctype_ref.c",
@@ -225,4 +224,24 @@ fn main() {
     println!("cargo:rerun-if-changed={}", prelude.display());
 
     build.compile("quake_c_ref");
+
+    // The ABI probe (stubs/abi_probe.c, read by tests/*_abi.rs) reports what
+    // the headers the shipping engine compiles against say on this platform,
+    // so it is built from the live Quake/ tree rather than the frozen csrc/
+    // copy: a Phase 10 header change that quake-types does not follow must
+    // fail an _abi test here, not corrupt memory at run time.
+    let live_quake = manifest.join("..").join("..").join("Quake");
+    let mut probe = cc::Build::new();
+    probe.include(manifest.join("include")).include(&live_quake);
+    if probe.get_compiler().is_like_msvc() {
+        probe.flag("/std:c11");
+        probe.flag(format!("/FI{}", prelude.display()));
+    } else {
+        probe.flag("-std=gnu11");
+        probe.flag("-include").flag(prelude.to_str().unwrap());
+    }
+    let probe_src = manifest.join("stubs").join("abi_probe.c");
+    println!("cargo:rerun-if-changed={}", probe_src.display());
+    println!("cargo:rerun-if-changed={}", live_quake.display());
+    probe.file(probe_src).compile("quake_c_ref_abi");
 }

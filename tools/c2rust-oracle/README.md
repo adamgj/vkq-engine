@@ -6,7 +6,7 @@ This package is deliberately **excluded from the `rust/` workspace**: transpiled
 
 ## Usage
 
-1. `./gen_compile_commands.sh` — configure a C-only build dir and copy its `compile_commands.json` here (Meson generates it automatically).
+1. `./gen_compile_commands.sh` — check the tag `c-reference/final` out into a worktree (`CREF`, default `build-cref-src/`; the C originals no longer exist in `Quake/` since the Phase 9 deletion PR, ADR-019), configure its C-only build dir (`-Duse_rust=disabled`) and copy its `compile_commands.json` here (Meson generates it automatically).
 2. `./translate.sh` — transpile the Phase 0 oracle targets (`pr_exec.c`, `mathlib.c`, `world.c`) into `translated/`. Adjust the `--filter` for other subsystems as later phases need them (Phase 1: `mathlib`; Phase 6: `pr_exec`; Phase 7: `world`).
 
 Commit refreshed output under `translated/` with a note of the c2rust version and the engine commit it was generated from.
