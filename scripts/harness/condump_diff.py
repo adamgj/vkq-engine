@@ -16,9 +16,8 @@ What makes the artifact deterministic:
     the ring geometry is therefore identical in every build;
   * the script issues `clear` before it emits anything, so the dumped ring
     holds only text the script itself produced -- none of the startup banner,
-    which legitimately differs between builds (host.c:1322 prints __DATE__ /
-    __TIME__, and a `-Duse_rust` build additionally prints the staticlib
-    banner at host.c:1326);
+    which legitimately differs between builds (the host banner prints
+    __DATE__ / __TIME__ and the staticlib banner);
   * `unbindall` precedes the binds, so `bindlist` dumps a table built only by
     this script and not by whatever config.cfg the install happens to carry.
 

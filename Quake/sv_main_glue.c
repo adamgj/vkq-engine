@@ -52,8 +52,6 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include "steam.h" // quake_rs.h declares the Phase 2 Steam shims in terms of steamgame_t
 #include "quake_rs.h"
 
-#ifdef USE_RUST_HOST
-
 /* ---------------------------------------------------------------------------
  * C-visible storage (sv_main.c:32-38; sv/svs are Rust-owned, see above).
  */
@@ -511,5 +509,3 @@ void SV_SpawnServer (const char *server)
 {
 	Host_Reraise (quake_rs_sv_spawn_server (server));
 }
-
-#endif // USE_RUST_HOST

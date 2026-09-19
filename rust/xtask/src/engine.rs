@@ -9,12 +9,6 @@ use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus};
 
-/// Cargo builds `libquake_rs` for the host triple, and Meson links it only
-/// as the MSVC-ABI staticlib on Windows: the MinGW/clangarm64 builds stay
-/// C-only (PLAN.md section 3), so a `*-windows-gnu` xtask defaults to
-/// `-Duse_rust=disabled`.
-pub const RUST_LINKS_BY_DEFAULT: bool = !cfg!(all(windows, target_env = "gnu"));
-
 /// Windows builds go through clang-cl (PLAN.md section 3; `meson.build` has
 /// no `cl.exe` handling, e.g. the ADR-010 `-ffp-contract=off` pin), so an
 /// MSVC-toolchain xtask supplies `CC=clang-cl` when nothing set `CC`.
@@ -31,9 +25,6 @@ pub struct BuildOptions {
     pub build_dir: PathBuf,
     /// Meson `--buildtype`.
     pub buildtype: String,
-    /// `-Duse_rust=enabled` (the default where the staticlib links) or
-    /// `disabled` for the C-only oracle.
-    pub use_rust: bool,
     /// Re-run `meson setup --reconfigure` even if the directory is configured.
     pub reconfigure: bool,
     /// Extra arguments appended verbatim to `meson setup` (e.g. `-Dtrace=true`).
@@ -45,7 +36,6 @@ impl Default for BuildOptions {
         Self {
             build_dir: PathBuf::from("build"),
             buildtype: "release".into(),
-            use_rust: RUST_LINKS_BY_DEFAULT,
             reconfigure: false,
             setup_args: Vec::new(),
         }
@@ -128,12 +118,6 @@ pub fn setup_args(
         args.push("--vsenv".into());
     }
     args.push(format!("--buildtype={}", options.buildtype).into());
-    let use_rust = if options.use_rust {
-        "enabled"
-    } else {
-        "disabled"
-    };
-    args.push(format!("-Duse_rust={use_rust}").into());
     args.extend(options.setup_args.iter().map(OsString::from));
     args
 }
@@ -293,15 +277,7 @@ mod tests {
     #[test]
     fn default_setup_args_match_ci_up_to_project_defaults() {
         let args = setup_args(&BuildOptions::default(), Path::new("build"), false, false);
-        let use_rust = if RUST_LINKS_BY_DEFAULT {
-            "-Duse_rust=enabled"
-        } else {
-            "-Duse_rust=disabled"
-        };
-        assert_eq!(
-            strs(&args),
-            ["setup", "build", "--buildtype=release", use_rust]
-        );
+        assert_eq!(strs(&args), ["setup", "build", "--buildtype=release"]);
     }
 
     #[test]
@@ -309,7 +285,6 @@ mod tests {
         let options = BuildOptions {
             build_dir: PathBuf::from("build-c-trace"),
             buildtype: "debug".into(),
-            use_rust: false,
             reconfigure: true,
             setup_args: vec!["-Dtrace=true".into(), "-Duse_sdl3=disabled".into()],
         };
@@ -322,7 +297,6 @@ mod tests {
                 "--reconfigure",
                 "--vsenv",
                 "--buildtype=debug",
-                "-Duse_rust=disabled",
                 "-Dtrace=true",
                 "-Duse_sdl3=disabled",
             ]
@@ -384,14 +358,6 @@ mod tests {
         assert!(dropped.is_empty());
         assert_eq!(kept, path);
         std::fs::remove_dir_all(&dir).unwrap();
-    }
-
-    #[test]
-    fn rust_is_off_by_default_on_windows_gnu() {
-        assert_eq!(
-            BuildOptions::default().use_rust,
-            !cfg!(all(windows, target_env = "gnu"))
-        );
     }
 
     #[test]

@@ -1,8 +1,9 @@
 #!/bin/bash
 # quake-ctest oracle-symbol gate (Rust migration, Phase 4).
 #
-# Every engine C file listed in rust/quake-ctest/build.rs's C_SOURCES is
-# compiled as the differential oracle with its public symbols renamed to
+# Every engine C file listed in rust/quake-ctest/build.rs's C_SOURCES (the
+# frozen text of tag c-reference/final under rust/quake-ctest/csrc/, plan D4)
+# is compiled as the differential oracle with its public symbols renamed to
 # c_ref_* by include/c_ref_prelude.h, so the originals can link beside the
 # Rust ports. A global that is missed by that rename block collides with the
 # Rust-side definition -- but only on a linker that does not dead-strip:
@@ -93,9 +94,9 @@ if [ -z "$out_dir" ] || [ ! -d "$out_dir" ]; then
     exit 1
 fi
 
-# only the C_SOURCES array -- build.rs also names Quake/miniz.c and
-# Quake/stb_image.h in rerun-if-changed lines, and those are #include'd into
-# another TU rather than compiled on their own
+# only the C_SOURCES array -- build.rs also names csrc/Quake/miniz.c and
+# csrc/Quake/stb_image.h in rerun-if-changed lines, and those are #include'd
+# into another TU rather than compiled on their own
 sources=$(awk '/const C_SOURCES/, /\];/' rust/quake-ctest/build.rs \
     | grep -oE '"Quake/[A-Za-z0-9_]+\.c"' | sed 's|"Quake/||; s|\.c"||')
 if [ -z "$sources" ]; then

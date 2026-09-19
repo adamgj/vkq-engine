@@ -245,19 +245,15 @@ int PR_Markup_Parse (struct markup_s *mu)
 
 /* Phase 6 M9: the per-slot builtin flip, as in pr_cmds.c. A table entry
    written PF_RS (name) resolves to the Rust port's C wrapper in
-   pr_cmds_glue.c under -Duse_rust_progs, and to the C original otherwise.
+   pr_cmds_glue.c (the C original was the oracle until the Phase 9 deletion PR).
    Every entry still written PF_name is deliberately still C; the reasons are
-   recorded on quake_progs::ext. Both sets of bodies stay compiled in both
-   configs -- the C ones are the -Duse_rust_progs=disabled oracle. */
-#ifdef USE_RUST_PROGS
+   recorded on quake_progs::ext. The flipped C bodies are still compiled
+   (unreferenced) until Phase 10 M8b deletes them. */
 #define PF_RS(name) rust_pf_##name
-/* Pattern C flips the builtin table one slot at a time and keeps the C
-   original beside every flipped one -- both bodies stay compiled so
-   -Duse_rust_progs=disabled remains the reference oracle and any slot can be
-   unflipped without resurrecting deleted code. The flipped originals are
-   therefore unreferenced statics in this configuration, which GCC reports
-   under -Werror=unused-function. Scoped to the mixed build only: the C-only
-   build keeps full warning coverage over exactly the same bodies. */
+/* Pattern C flipped the builtin table one slot at a time and kept the C
+   original beside every flipped one; the flipped originals are unreferenced
+   statics until Phase 10 M8b, which GCC reports under
+   -Werror=unused-function. */
 #if defined(__GNUC__)
 #pragma GCC diagnostic ignored "-Wunused-function"
 #endif
@@ -304,10 +300,7 @@ void rust_pf_edict_for_num (void);
 void rust_pf_strlen (void);
 void rust_pf_str2chr (void);
 void rust_pf_strstrofs (void);
-#ifdef USE_RUST_HOST
-/* Phase 7 M5: see the matching block in pr_cmds.c. These slots additionally
-   need the use_rust_host stratum, so they flip only when use_rust_progs and
-   use_rust_host are both enabled. */
+/* Phase 7 M5: see the matching block in pr_cmds.c (the host-coupled slots). */
 #define PF_RSH(name) rust_pf_##name
 void rust_pf_checkpvs (void);
 void rust_pf_sv_walkpathtogoal (void);
@@ -431,23 +424,6 @@ void rust_pf_sv_te_beam (void);
 void rust_pf_cl_te_beam (void);
 void rust_pf_sv_te_particlerain (void);
 void rust_pf_sv_te_particlesnow (void);
-#else
-#define PF_RSH(name)					PF_##name
-#define PR_RSH_UnzoneAll				PR_UnzoneAll
-#define PR_RSH_ResetParticleWarnCount() (pr_ext_warned_particleeffectnum = 0)
-#define PR_RSH_tokenize_flush			tokenize_flush
-#define PR_RSH_frikfile_shutdown		PF_frikfile_shutdown
-#define PR_RSH_buf_shutdown				PF_buf_shutdown
-#endif
-#else
-#define PF_RS(name)						PF_##name
-#define PF_RSH(name)					PF_##name
-#define PR_RSH_UnzoneAll				PR_UnzoneAll
-#define PR_RSH_ResetParticleWarnCount() (pr_ext_warned_particleeffectnum = 0)
-#define PR_RSH_tokenize_flush			tokenize_flush
-#define PR_RSH_frikfile_shutdown		PF_frikfile_shutdown
-#define PR_RSH_buf_shutdown				PF_buf_shutdown
-#endif
 
 // #define fixme
 
@@ -4369,7 +4345,6 @@ static void SV_Multicast (multicast_t to, float *org, int msg_entity, unsigned i
 	}
 	SZ_Clear (&sv.multicast);
 }
-#ifdef USE_RUST_HOST
 /* Phase 7 M9f: ADR-009 rule 3 seam for the Rust ports of this file's builtins.
    SV_Multicast is static here, so a Rust frame cannot reach it at all without a
    trampoline in this translation unit -- and it must not reach it unguarded
@@ -4398,7 +4373,6 @@ int PRExt_Glue_SVMulticast (int to, float *org, int msg_entity, unsigned int req
 	a.requireext2 = requireext2;
 	return Host_Guard (PRExt_InvokeSVMulticast, &a);
 }
-#endif
 static void PF_multicast (void)
 {
 	float	   *org = G_VECTOR (OFS_PARM0);
@@ -4705,7 +4679,6 @@ int PF_SV_ForceParticlePrecache (const char *s)
 	}
 	return 0;
 }
-#ifdef USE_RUST_HOST
 /* Phase 7 M9f group E: COM_Effectinfo_Enumerate reads a file and, through the
    callback above, reaches MSG_Write* and SV_Multicast -- all Host_Error-capable
    (ADR-009 rule 3). The callback itself stays C under its exact name:
@@ -4720,7 +4693,6 @@ int PRExt_Glue_EffectinfoEnumerate (void)
 {
 	return Host_Guard (PRExt_InvokeEffectinfoEnumerate, NULL);
 }
-#endif
 static void PF_sv_particleeffectnum (void)
 {
 	const char	 *s;

@@ -42,8 +42,6 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include "steam.h" // quake_rs.h declares the Phase 2 Steam shims in terms of steamgame_t
 #include "quake_rs.h"
 
-#ifdef USE_RUST_HOST
-
 /* ---------------------------------------------------------------------------
  * PF_sound (pr_cmds.c:692-713).
  */
@@ -405,5 +403,3 @@ int PRBI_FxGlue_LocalSound (void *ent, int sample_handle)
 	arg.sample_handle = sample_handle;
 	return Host_Guard (PRBI_FxInvokeLocalSound, &arg);
 }
-
-#endif /* USE_RUST_HOST */

@@ -44,8 +44,6 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 #include "quake_rs.h"
 
-#ifdef USE_RUST_HOST
-
 // ---------------------------------------------------------------------------
 // 1. C-visible storage.
 //
@@ -1048,5 +1046,3 @@ void Host_InitCommands (void)
 
 	Cmd_AddCommand ("mcache", Mod_Print);
 }
-
-#endif /* USE_RUST_HOST */

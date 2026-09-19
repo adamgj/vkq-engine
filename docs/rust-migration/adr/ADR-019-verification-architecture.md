@@ -24,6 +24,8 @@
 
 **C-build retirement criteria (Phase 9):** the C-only CI leg is removed only after (a) all phases 0–9 exit criteria hold with Rust `main()`, (b) one full release cycle ships from the mixed/Rust build with no compat regressions reported against the gates, and (c) the final C-capable commit is tagged `c-reference/final` with documented instructions for rebuilding the oracle. Golden regeneration after retirement uses that tag.
 
+*Amended 2026-09-19 (Phase 9 deletion PR):* criterion (b) was **waived** by user decision (task plan `docs/ai/plans/rust-conversion-phase-10-post-deletion.md`, D-A); the evidence accepted in its place is the green three-OS harness matrices of PR #41/#42 with `--compare` identical on every C-oracle leg. Criteria (a) and (c) hold: `c-reference/final` is fb372b7d. **Oracle rebuild recipe:** `git worktree add ../cref c-reference/final && cd ../cref && meson setup build-c -Duse_rust=disabled -Duse_sdl3=enabled --buildtype=release && ninja -C build-c` (Linux goldens are SDL2: `-Duse_sdl3=disabled`; Windows: `CC=clang-cl` from an MSVC environment, which the windows-x86_64 MANIFEST records as byte-identical to MSVC cl). Then, from the *current* tree so the files land in its `Misc/harness/goldens/<platform>/`, run `python3 scripts/harness/run_corpus.py --vkquake ../cref/build-c/vkqr-engine --generate` and again with `--sndhash`, and update that platform's `MANIFEST.json`. The linux-x86_64 set is produced the same way by the `generate-goldens-linux` `workflow_dispatch` job in `build-linux.yml`. A golden may only change when this recipe reproduces the change; the mixed build never generates goldens.
+
 ## Consequences
 
 - Compatibility becomes a continuously enforced property with an audit trail, not an aspiration.

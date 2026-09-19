@@ -42,30 +42,6 @@ if host_machine.system() != 'windows'
     endif
 endif
 
-shaders = [
-    'Shaders/alias.vert',
-    'Shaders/md5.vert',
-    'Shaders/basic.vert',
-    'Shaders/basic_alphatest.frag',
-    'Shaders/basic_notex.frag',
-    'Shaders/cs_tex_warp.comp',
-    'Shaders/indirect.comp',
-    'Shaders/indirect_clear.comp',
-    'Shaders/postprocess.frag',
-    'Shaders/postprocess.vert',
-    'Shaders/showtris.frag',
-    'Shaders/showtris.vert',
-    'Shaders/sky_box.frag',
-    'Shaders/sky_cube.frag',
-    'Shaders/sky_cube.vert',
-    'Shaders/sky_layer.frag',
-    'Shaders/sky_layer.vert',
-    'Shaders/world.vert',
-    'Shaders/ray_debug.comp',
-    'Shaders/mesh_interpolate.comp',
-    'Shaders/skinning.comp',
-]
-
 # Prefer SDL3 over SDL2; -Duse_sdl3=enabled requires SDL3, disabled forces SDL2
 use_sdl3_opt = get_option('use_sdl3')
 use_sdl3 = false
@@ -95,149 +71,61 @@ endif
 glslang = find_program('glslangValidator')
 spirv_opt = find_program('spirv-opt')
 
-# use_rust and use_rust_render are decided here, ahead of the other per-module
-# switches (below, next to cflags), because the shader and embedded-pak
-# pipeline depends on them: under use_rust_render the quake-capi build script
-# compiles the shaders and builds the pak itself (`cargo xtask`, Phase 8 M11,
-# task plan D8) and bakes them into libquake_rs, so the custom targets below
-# are the C build's, and the byte-identity oracle for that pipeline
-# (scripts/harness/xtask_diff.py).
-cargo = find_program('cargo', required : get_option('use_rust'))
-use_rust = cargo.found() and not get_option('use_rust').disabled()
-if get_option('use_rust_render').enabled() and not use_rust
-    error('-Duse_rust_render=enabled requires -Duse_rust=enabled (the renderer ships in libquake_rs.a)')
-endif
-use_rust_render = use_rust and not get_option('use_rust_render').disabled()
+# Rust migration, Phase 9 close (the deletion PR): the engine is the Rust
+# staticlib libquake_rs (rust/, crate quake-capi) plus the C remnant TUs
+# listed below. There is no C-only configuration any more -- the last
+# C-capable tree is tag c-reference/final (ADR-019) -- so the Rust toolchain
+# and cbindgen are hard requirements. cargo builds for the host default
+# triple, so it must match the C compiler's ABI (clang-cl on Windows).
+cargo = find_program('cargo')
+cbindgen = find_program('cbindgen')
+python3 = find_program('python3')
+# the quake-capi build script compiles the shaders and builds the embedded
+# pak with these tools (Phase 8 M11, rust/xtask/src/shaders.rs); Meson only
+# locates them and passes them through, and mirrors the build script's
+# spirv-opt requirement so the failure is reported at configure time
 run_test_canonicalize_ids_spirv_opt = run_command(spirv_opt, '-h', check : false)
 has_canonicalize_ids_spirv_opt = (run_test_canonicalize_ids_spirv_opt.stdout().strip().contains('--canonicalize-ids'))
-bintoc = executable('bintoc', ['Shaders/bintoc.c'], native: true)
-mkpak = executable('mkpak', ['Misc/vq_pak/mkpak.c'], native: true)
-
-if (build_machine.system() == 'darwin') or get_option('buildtype').startswith('debug')
-    spirv_opt_args = [] # MoltenVK spirv-cross has a bug that breaks optimized shaders
-else
+if not ((build_machine.system() == 'darwin') or get_option('buildtype').startswith('debug'))
     if not has_canonicalize_ids_spirv_opt
         error('spirv-opt does not support --canonicalize-ids, a newer Vulkan SDK is required')
     endif
-    spirv_opt_args = ['-Os', '--canonicalize-ids', '--strip-debug']
 endif
 
-glslang_args = ['-V', '--quiet']
-if get_option('buildtype').startswith('debug')
-    glslang_args += '-g'
-endif
-
-vq_pak_path = join_paths(meson.project_source_root(), 'Misc', 'vq_pak')
-mkpak_toc_file = join_paths(vq_pak_path, 'vq_pak_contents.txt')
-
-mkpak_command = [mkpak, '@OUTPUT@', vq_pak_path, mkpak_toc_file, '@DEPFILE@']
-
-if use_rust_render
-    # embedded_pak.c's symbols come from libquake_rs (quake-capi/src/embedded_pak.rs)
-    run_generate_embedded_pak = []
-else
-run_mkpak = custom_target('run-mkpak',
-  output : 'vkquake.pak',
-  depfile : 'vkquake.pak.d',
-  command: mkpak_command)
-
-# Write the embedded pak into the build dir so Meson can track it.
-bintoc_compress_command = [bintoc, '-c', '@INPUT@', 'vkquake.pak', '@OUTPUT@']
-
-run_generate_embedded_pak = custom_target('run-embed_vkquake_pak',
-							output : 'embedded_pak.c',
-							input : run_mkpak,
-							command : bintoc_compress_command)
-endif
-
-# shader sources compiled multiple times with different preprocessor defines
-shader_variants = [
-    ['Shaders/basic.frag', 'basic.frag', []],
-    ['Shaders/basic.frag', 'basic_oit.frag', ['-DWBOIT=1']],
-    ['Shaders/basic.frag', 'basic_mboit_moment.frag', ['-DMBOIT=1']],
-    ['Shaders/basic.frag', 'basic_mboit_composite.frag', ['-DMBOIT=1', '-DMBOIT_COMPOSITE=1']],
-    ['Shaders/basic.frag', 'basic_mboit_composite_msaa.frag', ['-DMBOIT=1', '-DMBOIT_COMPOSITE=1', '-DMSAA=1']],
-    ['Shaders/world.frag', 'world.frag', []],
-    ['Shaders/world.frag', 'world_oit.frag', ['-DWBOIT=1']],
-    ['Shaders/world.frag', 'world_mboit_moment.frag', ['-DMBOIT=1']],
-    ['Shaders/world.frag', 'world_mboit_composite.frag', ['-DMBOIT=1', '-DMBOIT_COMPOSITE=1']],
-    ['Shaders/world.frag', 'world_mboit_composite_msaa.frag', ['-DMBOIT=1', '-DMBOIT_COMPOSITE=1', '-DMSAA=1']],
-    ['Shaders/alias.frag', 'alias.frag', []],
-    ['Shaders/alias.frag', 'alias_alphatest.frag', ['-DALIAS_ALPHA_TEST=1']],
-    ['Shaders/alias.frag', 'alias_oit.frag', ['-DWBOIT=1']],
-    ['Shaders/alias.frag', 'alias_alphatest_oit.frag', ['-DALIAS_ALPHA_TEST=1', '-DWBOIT=1']],
-    ['Shaders/alias.frag', 'alias_mboit_moment.frag', ['-DMBOIT=1']],
-    ['Shaders/alias.frag', 'alias_alphatest_mboit_moment.frag', ['-DALIAS_ALPHA_TEST=1', '-DMBOIT=1']],
-    ['Shaders/alias.frag', 'alias_mboit_composite.frag', ['-DMBOIT=1', '-DMBOIT_COMPOSITE=1']],
-    ['Shaders/alias.frag', 'alias_alphatest_mboit_composite.frag', ['-DALIAS_ALPHA_TEST=1', '-DMBOIT=1', '-DMBOIT_COMPOSITE=1']],
-    ['Shaders/alias.frag', 'alias_mboit_composite_msaa.frag', ['-DMBOIT=1', '-DMBOIT_COMPOSITE=1', '-DMSAA=1']],
-    ['Shaders/alias.frag', 'alias_alphatest_mboit_composite_msaa.frag', ['-DALIAS_ALPHA_TEST=1', '-DMBOIT=1', '-DMBOIT_COMPOSITE=1', '-DMSAA=1']],
-    ['Shaders/alias.frag', 'md5_mboit_composite.frag', ['-DMBOIT=1', '-DMBOIT_COMPOSITE=1', '-DMBOIT_INPUT_SET=4']],
-    ['Shaders/alias.frag', 'md5_alphatest_mboit_composite.frag', ['-DALIAS_ALPHA_TEST=1', '-DMBOIT=1', '-DMBOIT_COMPOSITE=1', '-DMBOIT_INPUT_SET=4']],
-    ['Shaders/alias.frag', 'md5_mboit_composite_msaa.frag', ['-DMBOIT=1', '-DMBOIT_COMPOSITE=1', '-DMSAA=1', '-DMBOIT_INPUT_SET=4']],
-    ['Shaders/alias.frag', 'md5_alphatest_mboit_composite_msaa.frag', ['-DALIAS_ALPHA_TEST=1', '-DMBOIT=1', '-DMBOIT_COMPOSITE=1', '-DMSAA=1', '-DMBOIT_INPUT_SET=4']],
-    ['Shaders/md5.vert', 'md5_8.vert', ['-DEIGHT_WEIGHT_SKINNING']],
-    ['Shaders/wboit_resolve.frag', 'wboit_resolve.frag', []],
-    ['Shaders/wboit_resolve.frag', 'wboit_resolve_msaa.frag', ['-DMSAA=1']],
-    ['Shaders/mboit_resolve.frag', 'mboit_resolve.frag', []],
-    ['Shaders/mboit_resolve.frag', 'mboit_resolve_msaa.frag', ['-DMSAA=1']],
-    ['Shaders/screen_effects.comp', 'screen_effects_8bit.comp', []],
-    ['Shaders/screen_effects.comp', 'screen_effects_8bit_scale.comp', ['-DSCALING=1']],
-    ['Shaders/screen_effects.comp', 'screen_effects_8bit_scale_sops.comp', ['--target-env', 'vulkan1.1', '-DSCALING=1', '-DUSE_SUBGROUP_OPS=1']],
-    ['Shaders/screen_effects.comp', 'screen_effects_10bit.comp', ['-DUSE_10BIT=1']],
-    ['Shaders/screen_effects.comp', 'screen_effects_10bit_scale.comp', ['-DUSE_10BIT=1', '-DSCALING=1']],
-    ['Shaders/screen_effects.comp', 'screen_effects_10bit_scale_sops.comp', ['--target-env', 'vulkan1.1', '-DUSE_10BIT=1', '-DSCALING=1', '-DUSE_SUBGROUP_OPS=1']],
-    ['Shaders/update_lightmap.comp', 'update_lightmap_8bit.comp', []],
-    ['Shaders/update_lightmap.comp', 'update_lightmap_8bit_rt.comp', ['-DRAY_QUERIES=1']],
-    ['Shaders/update_lightmap.comp', 'update_lightmap_10bit.comp', ['-DUSE_10BIT=1']],
-    ['Shaders/update_lightmap.comp', 'update_lightmap_10bit_rt.comp', ['-DUSE_10BIT=1', '-DRAY_QUERIES=1']],
-    ['Shaders/skinning.comp', 'skinning_8.comp', ['-DEIGHT_WEIGHT_SKINNING']],
+rust_profile = get_option('buildtype') == 'debug' ? 'debug' : 'release'
+# engine-alloc binds Rust's global allocator to the mimalloc that mem.c
+# amalgamates (ADR-013). The per-module features are all on: the switches
+# that used to gate them (-Duse_rust_*) went with the C oracle; the features
+# themselves collapse at Phase 10 M9.
+rust_feature_list = [
+    'engine-alloc',
+    'fs', 'image', 'formats', 'snd', 'net', 'progs', 'cvar', 'host', 'tasks', 'render', 'platform',
+    'progs-host',
 ]
-
-fs = import('fs')
-
-shader_jobs = []
-foreach shader : shaders
-    target_env = shader.contains('sops') ? ['--target-env', 'vulkan1.1'] : []
-    shader_jobs += [[shader, fs.name(shader), target_env]]
-endforeach
-foreach variant : shader_variants
-    shader_jobs += [[variant[0], variant[1], variant[2]]]
-endforeach
-if use_rust_render
-    # the <name>_spv arrays come from libquake_rs (quake-capi/src/shaders.rs);
-    # the job table lives in rust/xtask/src/shaders.rs and must match this one
-    shader_jobs = []
+# the ported code's debug-only diagnostics must track the C engine's
+# DEBUG/_DEBUG, not the Rust profile: -D_DEBUG is set for every debug*
+# buildtype while the Rust profile is release for debugoptimized
+if get_option('buildtype').startswith('debug')
+    rust_feature_list += 'engine-debug'
 endif
+# cargo features tracking C defines the fs shims must agree with
+if use_sdl3
+    rust_feature_list += 'sdl3'
+else
+    rust_feature_list += 'sdl2'
+endif
+if get_option('do_userdirs').enabled()
+    # the Rust filesystem does not implement the DO_USERDIRS lookup branches
+    # (quake-capi fails the combination with a compile_error!); say so here
+    # rather than several minutes into a cargo build
+    error('-Ddo_userdirs=enabled is not supported by the Rust filesystem')
+endif
+# the codec-availability features are appended after the codec probes below
 
-shaders_c = []
-foreach job : shader_jobs
-    source = job[0]
-    name = job[1]
-    args = glslang_args + job[2]
-    if spirv_opt_args.length() > 0
-        spv = custom_target(name.underscorify() + '_raw_spv',
-            input : source,
-            output : name + '.raw.spv',
-            depfile : name + '.deps',
-            command : [glslang] + args + ['-o', '@OUTPUT@', '@INPUT@', '--depfile', '@DEPFILE@'])
-        spv = custom_target(name.underscorify() + '_spv',
-            input : spv,
-            output : name + '.spv',
-            command : [spirv_opt] + spirv_opt_args + ['@INPUT@', '-o', '@OUTPUT@'])
-    else
-        spv = custom_target(name.underscorify() + '_spv',
-            input : source,
-            output : name + '.spv',
-            depfile : name + '.deps',
-            command : [glslang] + args + ['-o', '@OUTPUT@', '@INPUT@', '--depfile', '@DEPFILE@'])
-    endif
-    shaders_c += custom_target(name.underscorify() + '_c',
-        input : spv,
-        output : name + '.c',
-        command : [bintoc, '@INPUT@', name + '_spv', '@OUTPUT@'])
-endforeach
-
+# The C remnant. Shared engine TUs port at Phase 10 M8; the *_glue.c TUs
+# (C-visible data, variadic wrappers, ADR-009 Host_Guard/Host_Reraise frames)
+# go stratum by stratum at Phase 10 M6; the codec bridges (ADR-014), the
+# lodepng/stb hosts (ADR-012) and the harness TUs (ADR-019) stay.
 srcs = [
     'Quake/cd_null.c',
     'Quake/common.c',
@@ -256,49 +144,62 @@ srcs = [
     'Quake/pr_edict.c',
     'Quake/pr_ext.c',
     'Quake/steam_api.c',
-	 run_generate_embedded_pak,
-]
-
-# Phase 3 (Rust migration): C format/asset parsing split out of gl_model.c and
-# image.c. model_parse.c is always compiled -- -Duse_rust_formats only
-# preprocesses out the ported loaders (Mod_SetExtraFlags and the alias scratch
-# arrays gl_mesh.c reads stay C) and adds the Host_Error trampolines;
-# image_decode.c (PCX/LMP) is gated by -Duse_rust_image below and stays the
-# comparison oracle.
-# image_stb.c is always compiled: under -Duse_rust_image (USE_RUST_IMAGE) it
-# keeps only Image_DecodeSTBMem, the in-memory stb fallback/oracle the Rust
-# Image_DecodeSTB routes crate-undecoded formats through (Phase 3 M8).
-phase3_formats_c_srcs = [
     'Quake/model_parse.c',
-]
-phase3_formats_glue_c_srcs = [
     'Quake/model_parse_glue.c',
-]
-phase3_image_c_srcs = [
-    'Quake/image_decode.c',
-]
-
-# Phase 2 (Rust migration): the C filesystem, compiled unless -Duse_rust_fs
-# provides these symbols from quake-fs/quake-capi instead. Deleted at phase
-# exit (ROADMAP.md Phase 2).
-phase2_c_srcs = [
-    'Quake/common_fs.c',
-    'Quake/steam.c',
-]
-
-# Phase 1 (Rust migration): C originals of modules ported to rust/. Compiled
-# only when use_rust is disabled; the mixed build resolves their symbols from
-# libquake_rs.a instead. Deleted at phase exit (ROADMAP.md Phase 1).
-phase1_c_srcs = [
-    'Quake/cfgfile.c',
-    'Quake/crc.c',
-    'Quake/hash_map.c',
-    'Quake/json.c',
-    'Quake/mathlib.c',
-    'Quake/mdfour.c',
-    'Quake/strlcat.c',
-    'Quake/strlcpy.c',
-    'Quake/wad.c',
+    'Quake/net_msg_glue.c',
+    'Quake/net_dgrm_glue.c',
+    'Quake/net_dgrm_orch_glue.c',
+    'Quake/in_sdl_glue.c',
+    'Quake/sys_glue.c',
+    'Quake/pr_exec_glue.c',
+    'Quake/pr_edict_save_glue.c',
+    'Quake/pr_edict_parse_glue.c',
+    'Quake/pr_edict_load_glue.c',
+    'Quake/pr_edict_arena_glue.c',
+    'Quake/pr_cmds_glue.c',
+    'Quake/cvar_cmd_glue.c',
+    'Quake/world_glue.c',
+    'Quake/sv_move_glue.c',
+    'Quake/sv_phys_glue.c',
+    'Quake/pr_cmds_sv_glue.c',
+    'Quake/pr_cmds_sv_msg_glue.c',
+    'Quake/pr_cmds_sv_fx_glue.c',
+    'Quake/pr_cmds_cl_glue.c',
+    'Quake/pr_edict_dispatch_glue.c',
+    'Quake/sv_main_glue.c',
+    'Quake/sv_send_glue.c',
+    'Quake/sv_user_glue.c',
+    'Quake/chase_glue.c',
+    'Quake/cl_input_glue.c',
+    'Quake/cl_tent_glue.c',
+    'Quake/view_glue.c',
+    'Quake/cl_parse_glue.c',
+    'Quake/cl_main_glue.c',
+    'Quake/cl_demo_glue.c',
+    'Quake/host_glue.c',
+    'Quake/host_cmd_glue.c',
+    'Quake/keys_glue.c',
+    'Quake/console_glue.c',
+    'Quake/sbar_glue.c',
+    'Quake/menu_glue.c',
+    'Quake/r_part_glue.c',
+    'Quake/r_part_fte_glue.c',
+    'Quake/tasks_glue.c',
+    'Quake/gl_heap_glue.c',
+    'Quake/gl_texmgr_glue.c',
+    'Quake/gl_rmisc_glue.c',
+    'Quake/gl_vidsdl_glue.c',
+    'Quake/gl_draw_glue.c',
+    'Quake/gl_fog_glue.c',
+    'Quake/gl_refrag_glue.c',
+    'Quake/gl_rlight_glue.c',
+    'Quake/gl_screen_glue.c',
+    'Quake/gl_sky_glue.c',
+    'Quake/gl_warp_glue.c',
+    'Quake/r_sprite_glue.c',
+    'Quake/r_alias_glue.c',
+    'Quake/gl_rmain_glue.c',
+    'Quake/snd_glue.c',
 ]
 
 if host_machine.system() == 'windows'
@@ -319,780 +220,17 @@ else
     ]
 endif
 
+# ADR-017: the SDL2 audio backend stays C until Phase 10 M9 ports it (the
+# file self-gates on USE_SDL3)
+if not use_sdl3
+    srcs += 'Quake/snd_sdl.c'
+endif
+
 cflags = cc.get_supported_arguments('-Wno-trigraphs', '-Wno-microsoft-enum-forward-reference') + ['-D_FILE_OFFSET_BITS=64']
 if cc.get_id() == 'clang' or cc.get_id() == 'clang-cl'
     # the stb single header libraries define their whole API static
     # (clang-cl reports its id as 'clang-cl', so it needs the same suppression)
     cflags += cc.get_supported_arguments('-Wno-unused-function')
-endif
-
-# Phase 2: first per-module switch; the C filesystem stays the comparison
-# oracle under -Duse_rust_fs=disabled. 'auto' follows use_rust; asking for it
-# explicitly without the Rust staticlib is a contradiction, not a downgrade
-if get_option('use_rust_fs').enabled() and not use_rust
-    error('-Duse_rust_fs=enabled requires -Duse_rust=enabled (the filesystem ships in libquake_rs.a)')
-endif
-use_rust_fs = use_rust and not get_option('use_rust_fs').disabled()
-# Phase 3 M2: PCX/LMP decoders; image_decode.c stays the comparison oracle
-# under -Duse_rust_image=disabled. Same auto-follows-use_rust rule as above
-if get_option('use_rust_image').enabled() and not use_rust
-    error('-Duse_rust_image=enabled requires -Duse_rust=enabled (the image decoders ship in libquake_rs.a)')
-endif
-use_rust_image = use_rust and not get_option('use_rust_image').disabled()
-# Phase 3 M3: brush/BSP loaders; the brush half of model_parse.c stays the
-# comparison oracle under -Duse_rust_formats=disabled. Same
-# auto-follows-use_rust rule as above
-if get_option('use_rust_formats').enabled() and not use_rust
-    error('-Duse_rust_formats=enabled requires -Duse_rust=enabled (the brush/BSP loaders ship in libquake_rs.a)')
-endif
-use_rust_formats = use_rust and not get_option('use_rust_formats').disabled()
-# Phase 4: sound engine; the C snd_* files stay the comparison oracle under
-# -Duse_rust_snd=disabled. Same auto-follows-use_rust rule as above
-if get_option('use_rust_snd').enabled() and not use_rust
-    error('-Duse_rust_snd=enabled requires -Duse_rust=enabled (the sound engine ships in libquake_rs.a)')
-endif
-use_rust_snd = use_rust and not get_option('use_rust_snd').disabled()
-# Phase 5: networking wire layer; the C originals stay the comparison oracle
-# under -Duse_rust_net=disabled. Same auto-follows-use_rust rule as above
-if get_option('use_rust_net').enabled() and not use_rust
-    error('-Duse_rust_net=enabled requires -Duse_rust=enabled (the networking wire layer ships in libquake_rs.a)')
-endif
-use_rust_net = use_rust and not get_option('use_rust_net').disabled()
-# Phase 6: the progs VM; the C pr_*.c originals stay the comparison oracle
-# under -Duse_rust_progs=disabled -- and here that is load-bearing beyond
-# convention: the ADR-019 gate-3 trace differ needs a C build to diff against.
-# Same auto-follows-use_rust rule as above
-if get_option('use_rust_progs').enabled() and not use_rust
-    error('-Duse_rust_progs=enabled requires -Duse_rust=enabled (the progs VM ships in libquake_rs.a)')
-endif
-use_rust_progs = use_rust and not get_option('use_rust_progs').disabled()
-# Phase 7: the cvar/command registry and the client/server simulation; the C
-# originals stay the comparison oracle under -Duse_rust_cvar=disabled /
-# -Duse_rust_host=disabled. Same auto-follows-use_rust rule as above
-if get_option('use_rust_cvar').enabled() and not use_rust
-    error('-Duse_rust_cvar=enabled requires -Duse_rust=enabled (the cvar/command registry ships in libquake_rs.a)')
-endif
-use_rust_cvar = use_rust and not get_option('use_rust_cvar').disabled()
-if get_option('use_rust_host').enabled() and not use_rust
-    error('-Duse_rust_host=enabled requires -Duse_rust=enabled (the client/server simulation ships in libquake_rs.a)')
-endif
-use_rust_host = use_rust and not get_option('use_rust_host').disabled()
-# Phase 8: the task system and the Vulkan renderer. Two crate-level switches
-# (task plan D1): renderer sub-slices land as commits under use_rust_render,
-# and the C originals stay the SSIM/-renderhash oracle under
-# -Duse_rust_tasks=disabled / -Duse_rust_render=disabled until Phase 9. Same
-# auto-follows-use_rust rule as above
-if get_option('use_rust_tasks').enabled() and not use_rust
-    error('-Duse_rust_tasks=enabled requires -Duse_rust=enabled (the task system ships in libquake_rs.a)')
-endif
-use_rust_tasks = use_rust and not get_option('use_rust_tasks').disabled()
-# Phase 9: the platform layer (task plan D1). One crate-level switch; the C
-# platform files are dropped one milestone at a time under
-# `if use_rust_platform` blocks, and -Duse_rust_platform=disabled stays the
-# comparison oracle (build-rs-cplatform) through the release-cycle soak
-if get_option('use_rust_platform').enabled() and not use_rust
-    error('-Duse_rust_platform=enabled requires -Duse_rust=enabled (the platform layer ships in libquake_rs.a)')
-endif
-use_rust_platform = use_rust and not get_option('use_rust_platform').disabled()
-# the Rust filesystem does not implement the DO_USERDIRS lookup branches yet
-# (quake-capi fails this combination with a compile_error!); say so here
-# rather than several minutes into a cargo build
-if use_rust_fs and get_option('do_userdirs').enabled()
-    error('-Ddo_userdirs=enabled is not supported by the Rust filesystem yet; build with -Duse_rust_fs=disabled')
-endif
-if use_rust
-    cbindgen = find_program('cbindgen', required : true)
-    cflags += '-DUSE_RUST'
-    python3 = find_program('python3')
-    rust_profile = get_option('buildtype') == 'debug' ? 'debug' : 'release'
-    # engine-alloc binds Rust's global allocator to the mimalloc that mem.c
-    # amalgamates (ADR-013); only the mixed build links those mi_* symbols
-    rust_feature_list = ['engine-alloc']
-    # the ported code's debug-only diagnostics must track the C engine's
-    # DEBUG/_DEBUG, not the Rust profile: -D_DEBUG is set for every debug*
-    # buildtype while the Rust profile is release for debugoptimized
-    if get_option('buildtype').startswith('debug')
-        rust_feature_list += 'engine-debug'
-    endif
-    if use_rust_fs
-        rust_feature_list += 'fs'
-    endif
-
-    if use_rust_image
-        rust_feature_list += 'image'
-    endif
-
-    if use_rust_formats
-        rust_feature_list += 'formats'
-    endif
-    if use_rust_snd
-        rust_feature_list += 'snd'
-    endif
-    if use_rust_net
-        rust_feature_list += 'net'
-    endif
-    if use_rust_progs
-        rust_feature_list += 'progs'
-    endif
-    if use_rust_cvar
-        rust_feature_list += 'cvar'
-    endif
-    if use_rust_host
-        rust_feature_list += 'host'
-    endif
-    # Phase 8: the feature and the -DUSE_RUST_* define land with the switch
-    # (M1); the per-file source swaps follow with each slice (tasks.c at M2,
-    # gl_heap.c at M3, ...) as `if use_rust_tasks` / `if use_rust_render`
-    # blocks next to the other Pattern-A swaps below.
-    if use_rust_tasks
-        rust_feature_list += 'tasks'
-        cflags += '-DUSE_RUST_TASKS'
-    endif
-    if use_rust_render
-        rust_feature_list += 'render'
-        cflags += '-DUSE_RUST_RENDER'
-    endif
-    if use_rust_platform
-        rust_feature_list += 'platform'
-        cflags += '-DUSE_RUST_PLATFORM'
-    endif
-    # Phase 7 M5: the server- and client-coupled pr_cmds.c/pr_ext.c builtins
-    # and the ED_Parse* dispatchers straddle both strata -- the builtin tables
-    # are progs, the sv/cl glue their cores call is host -- so the feature that
-    # compiles them tracks the conjunction, mirroring the C-side PF_RSH gate.
-    if use_rust_progs and use_rust_host
-        rust_feature_list += 'progs-host'
-    endif
-    # cargo features tracking C defines the fs shims must agree with
-    if use_sdl3
-        rust_feature_list += 'sdl3'
-    else
-        # Phase 9 (ADR-017): the Rust platform layer carries an SDL2 arm so
-        # the SDL2 legs keep building once in_sdl.c/main_sdl.c move to Rust
-        rust_feature_list += 'sdl2'
-    endif
-    if get_option('do_userdirs').enabled()
-        rust_feature_list += 'userdirs'
-    endif
-    # the custom_target itself is created after the codec-library probes
-    # below, so the codec-availability cargo features can track the same
-    # dependency decisions the C build makes (Phase 4, ADR-014)
-else
-    # C-only build: keep compiling the originals of the Rust-ported modules
-    srcs += phase1_c_srcs
-endif
-
-if not use_rust_fs
-    # the C filesystem stays in as long as the Phase 2 switch is off
-    srcs += phase2_c_srcs
-endif
-
-# Phase 3: model_parse.c is always compiled; under -Duse_rust_formats its
-# brush/BSP half is preprocessed out and the Host_Error trampolines that call
-# the Rust loaders (PLAN.md 4.3) come in alongside it
-srcs += phase3_formats_c_srcs
-
-if use_rust_formats
-    cflags += '-DUSE_RUST_FORMATS'
-    srcs += phase3_formats_glue_c_srcs
-endif
-
-if use_rust_image
-    cflags += '-DUSE_RUST_IMAGE'
-else
-    # the C PCX/LMP decoders stay in as long as the Phase 3 image switch is off
-    srcs += phase3_image_c_srcs
-endif
-
-# Phase 4: the sound engine flips file-by-file; the list grows per milestone
-# and the C originals stay the comparison oracle under -Duse_rust_snd=disabled
-phase4_c_srcs = [
-    'Quake/bgmusic.c',
-    'Quake/snd_codec.c',
-    'Quake/snd_dma.c',
-    'Quake/snd_mem.c',
-    'Quake/snd_mix.c',
-    'Quake/snd_umx.c',
-    'Quake/snd_wave.c',
-]
-phase4_glue_c_srcs = [
-    'Quake/snd_glue.c',
-]
-# Phase 5: the networking wire layer. The MSG/SZ section lives in net_msg.c
-# (split from common.c at M2) and swaps whole-file for the Rust exports plus
-# the net_msg_glue.c Host_Error trampolines; the drivers flip per
-# driver-vtable slot (net_bsd.c/net_win.c ifdefs) and cl_demo.c in-file. The
-# C originals stay the -Duse_rust_net=disabled comparison oracle
-if use_rust_net
-    cflags += '-DUSE_RUST_NET'
-    srcs += ['Quake/net_msg_glue.c', 'Quake/net_dgrm_glue.c', 'Quake/net_dgrm_orch_glue.c']
-else
-    srcs += ['Quake/net_msg.c', 'Quake/net_dgrm_rel.c', 'Quake/net_dgrm.c']
-    # Phase 9 M2: the UDP landrivers (net_udp.c on unix, net_wins.c on
-    # Windows) live in libquake_rs.a once use_rust_net is on; the C drivers
-    # are only built for the oracle
-    srcs += host_machine.system() == 'windows' ? ['Quake/net_wins.c'] : ['Quake/net_udp.c']
-endif
-
-# Phase 9 M3 (ADR-017): the input layer. in_sdl.c plus whichever of
-# in_sdl2.c/in_sdl3.c matches -Duse_sdl3 move to libquake_rs.a's
-# quake-platform::input (the other one is an empty TU under its #ifdef);
-# Quake/in_sdl_glue.c keeps in_debugkeys and the twelve joy_* cvars C-owned
-# (ADR-007) and holds the Host_Guard trampolines / Host_Reraise frames around
-# the event pump's raising callees (ADR-009). The C originals stay the
-# -Duse_rust_platform=disabled comparison oracle
-if use_rust_platform
-    srcs += ['Quake/in_sdl_glue.c']
-else
-    srcs += ['Quake/in_sdl.c', 'Quake/in_sdl2.c', 'Quake/in_sdl3.c']
-endif
-
-# Phase 9 M4: the PL_* layer (window icon, clipboard, error dialog) is
-# quake-platform::pl -- the Win32 calls of pl_win.c on Windows, the SDL
-# calls of pl_linux.c everywhere else (pl_osx.m was never in this build).
-# Nothing in it can raise, so there is no glue TU.
-if not use_rust_platform
-    srcs += [host_machine.system() == 'windows' ? 'Quake/pl_win.c' : 'Quake/pl_linux.c']
-endif
-
-# Phase 9 M5: the sys.h layer. sys_sdl.c (handle table, SDL helpers) plus
-# sys_sdl_win.c / sys_sdl_unix.c move to quake-platform::sys;
-# Quake/sys_glue.c keeps the variadic Sys_Error/Sys_Printf (formatted in C,
-# handed to the Rust cores as text), the Host_Guard trampoline around
-# Host_Shutdown and the Host_Reraise frames for Sys_Error/Sys_Quit/
-# Sys_SendKeyEvents (ADR-009), and the MSVC comctl32 manifest pragma. The C
-# originals stay the -Duse_rust_platform=disabled comparison oracle
-if use_rust_platform
-    srcs += ['Quake/sys_glue.c']
-else
-    srcs += ['Quake/sys_sdl.c', host_machine.system() == 'windows' ? 'Quake/sys_sdl_win.c' : 'Quake/sys_sdl_unix.c']
-endif
-
-# Phase 9 M6 (host inversion): main_sdl.c -- the process entry and frame
-# loop -- is quake-platform::main_sdl, exported as main / WinMain / SDL_main
-# from libquake_rs.a (quake-capi/src/entry.rs); sys_glue.c holds its
-# Host_Guard trampolines (Sys_Init, Host_Init, Host_Frame) and the compiler
-# banner. No C TU defines main or includes SDL3/SDL_main.h's entry shim in
-# that configuration. The C original stays the -Duse_rust_platform=disabled
-# comparison oracle
-if not use_rust_platform
-    srcs += ['Quake/main_sdl.c']
-endif
-
-# Phase 6: the progs VM. The flip is per-file and lands milestone by milestone
-# (pr_exec.c at M3, then the pr_edict.c splits -- pr_edict_save.c at M4,
-# pr_edict_parse.c at M5 and pr_edict_load.c at M6 -- then the builtin tables
-# slot by slot). pr_edict.c
-# itself never flips: the parts that move out are split into their own files
-# first, so what remains is unconditionally C.
-# The C originals stay the -Duse_rust_progs=disabled oracle -- and here that
-# is load-bearing, because the ADR-019 gate-3 trace differ compares against
-# them.
-if use_rust_progs
-    cflags += '-DUSE_RUST_PROGS'
-    srcs += [
-        'Quake/pr_exec_glue.c',
-        'Quake/pr_edict_save_glue.c',
-        'Quake/pr_edict_parse_glue.c',
-        'Quake/pr_edict_load_glue.c',
-        'Quake/pr_edict_arena_glue.c',
-        'Quake/pr_cmds_glue.c',
-    ]
-else
-    srcs += [
-        'Quake/pr_exec.c',
-        'Quake/pr_edict_save.c',
-        'Quake/pr_edict_parse.c',
-        'Quake/pr_edict_load.c',
-        'Quake/pr_edict_arena.c',
-    ]
-endif
-
-# Phase 7 M2: the cvar/command registry. Whole-file Pattern A swap: the Rust
-# exports replace cvar.c/cmd.c, with cvar_cmd_glue.c supplying the C-visible
-# data symbols, the Host_Guard trampolines for command handlers and cvar
-# callbacks, and the Host_Reraise wrappers (ADR-009). The C originals stay the
-# -Duse_rust_cvar=disabled comparison oracle.
-if use_rust_cvar
-    cflags += '-DUSE_RUST_CVAR'
-    srcs += ['Quake/cvar_cmd_glue.c']
-else
-    srcs += ['Quake/cvar.c', 'Quake/cmd.c']
-endif
-# Phase 7 M3: world.c. Same whole-file Pattern A swap: the Rust exports
-# replace world.c, with world_glue.c supplying the two C-visible cvars and
-# the ADR-009 raise topology. Six of world.c's entry points are raise-capable
-# -- SV_LinkEdict reaches PR_ExecuteProgram, and SV_HullForEntity's two
-# Con_Warning sites reach Host_Error through PR_GetString
-# (pr_edict_arena.c:315), which makes SV_ClipMoveToEntity, SV_Move,
-# SV_TestEntityPosition and SV_PointContentsAllBsps raise-capable in turn --
-# so each is a reraising C wrapper here over a quake_rs_* status core, and
-# the Host_Guard trampolines around every C callee that can longjmp live in
-# the glue. No longjmp crosses a Rust frame. The glue also carries the
-# cl.entities accessors World_ClipToNetwork needs until the M7 client port
-# gives `cl` an ADR-011 mirror. The C original stays the
-# -Duse_rust_host=disabled comparison oracle.
-if use_rust_host
-    cflags += '-DUSE_RUST_HOST'
-    srcs += ['Quake/world_glue.c']
-else
-    srcs += ['Quake/world.c']
-endif
-
-# Phase 7 M4: sv_move.c + sv_phys.c, riding the same use_rust_host switch.
-# Nine of their twelve entry points are raise-capable, so each is a reraising
-# C wrapper in the glue over a quake_rs_* status core, exactly as M3 did for
-# world.c; SV_FixCheckBottom, SV_CloseEnough and SV_PushGridEntityLinked are
-# plain Rust exports. sv_phys_glue.c also owns the twelve physics cvars
-# (sv_main.c registers them by address), sv_analyticphysics_frame (read by
-# sv_user.c, C until M6) and the sv_speeds_* counters (read and zeroed by
-# host.c). The C originals stay the -Duse_rust_host=disabled oracle.
-if use_rust_host
-    srcs += ['Quake/sv_move_glue.c', 'Quake/sv_phys_glue.c']
-else
-    srcs += ['Quake/sv_move.c', 'Quake/sv_phys.c']
-endif
-
-# Phase 7 M5: the glue behind the server- and client-coupled pr_cmds.c /
-# pr_ext.c builtins and the ED_Parse* key dispatchers. Pattern C, so unlike M3
-# and M4 there is no whole-file swap here: pr_cmds.c, pr_ext.c and pr_edict.c
-# stay compiled in every configuration and the flip happens slot by slot
-# through PF_RSH, which expands to the Rust export only when USE_RUST_PROGS
-# and USE_RUST_HOST are both defined. These files only *define* the
-# PRBI_*Glue_* / PREdictDispatch_Glue_* trampolines the Rust cores call back
-# into -- they reference no quake_rs_* symbol themselves -- so riding
-# use_rust_host alone is link-safe in all four progs/host combinations.
-if use_rust_host
-    srcs += [
-        'Quake/pr_cmds_sv_glue.c',
-        'Quake/pr_cmds_sv_msg_glue.c',
-        'Quake/pr_cmds_sv_fx_glue.c',
-        'Quake/pr_cmds_cl_glue.c',
-        'Quake/pr_edict_dispatch_glue.c',
-    ]
-endif
-
-# Phase 7 M6: sv_main.c, sv_send.c and sv_user.c -- the server simulation's
-# top half. Pattern A whole-file swap on use_rust_host, as M3 and M4 did.
-# T6.1 first split sv_main.c into a connection half (sv_main.c) and an entity
-# send half (sv_send.c); both halves plus sv_user.c port here.
-#
-# Glue ownership: sv_main_glue.c owns sv_protocol/sv_protocol_pext1/pext2 and
-# the SV_ConnectClient reraise; sv_user_glue.c owns the five sv_user.c cvars
-# (sv_edgefriction, sv_idealpitchscale, sv_altnoclip, sv_maxspeed,
-# sv_accelerate), which sv_main.c registers by address; sv_send_glue.c owns no
-# cvars -- sv_send.c declared none -- and exists for the ADR-009 guards alone.
-# server_t sv and server_static_t svs are now Rust-owned (quake-capi
-# sv_main.rs), closing the last ADR-007 sv/svs dual view; server.h's extern
-# declarations are unchanged and 35 C translation units keep reading them.
-#
-# SV_ConnectClient is statusized on Host_Guard's own 0/1/2 set, propagated
-# verbatim -- that is the ADR-009 precondition M9's NET funnel flips depend on.
-# The C originals stay the -Duse_rust_host=disabled oracle.
-if use_rust_host
-    srcs += ['Quake/sv_main_glue.c', 'Quake/sv_send_glue.c', 'Quake/sv_user_glue.c']
-else
-    srcs += ['Quake/sv_main.c', 'Quake/sv_send.c', 'Quake/sv_user.c']
-endif
-
-# Phase 7 M7 T7.2: the client stratum's leaves -- view.c, chase.c, cl_input.c
-# and cl_tent.c -- riding the same use_rust_host switch as M3/M4/M6.
-#
-# Glue ownership follows the sv_user_glue.c pattern: the cvar_t storage stays
-# C-visible because other still-C translation units reach it by plain name.
-# view_glue.c owns view.c's 30 cvars plus v_punchangles/v_blend/cshift_*
-# (gl_screen.c, gl_rmain.c, menu.c and sbar.c read them); chase_glue.c owns the
-# four chase cvars; cl_input_glue.c owns cl_input.c's nine cvars and the 17
-# kbutton_t in_* objects (in_sdl.c and menu.c drive them, and cl_main_glue.c
-# is what registers the cvars); cl_tent_glue.c owns cl_beams[],
-# cl_temp_entities[] and num_temp_entities, which cl_demo.c, cl_main.c and
-# host_cmd.c read. cl_tent.c's seven cl_sfx_* handles were file-static and move
-# to Rust.
-if use_rust_host
-    srcs += ['Quake/chase_glue.c', 'Quake/cl_input_glue.c', 'Quake/cl_tent_glue.c', 'Quake/view_glue.c']
-else
-    srcs += ['Quake/chase.c', 'Quake/cl_input.c', 'Quake/cl_tent.c', 'Quake/view.c']
-endif
-
-# Phase 7 M7 T7.3: cl_parse.c -- the server-message parser, and the phase's
-# largest ADR-009 surface. Pattern A whole-file swap on the same use_rust_host
-# switch as M3/M4/M6/T7.2.
-#
-# cl_parse.c has 38 Host_Error/Host_EndGame sites, of which 34 are live: the
-# three at :886/:890/:894 sit inside the #if 0 CL_KeepaliveMessage (:852-:915,
-# no callers) and the UF_UNUSED2 Host_EndGame at :439 is unreachable because
-# protocol.h:33 defines LERP_BANDAID unconditionally. cl_parse_glue.c mirrors
-# the 34 live sites as CLPARSE_* status codes and re-issues each raise verbatim
-# from ClParse_Raise, the PRBI_Raise pattern from pr_cmds_glue.c:309; the Rust
-# core returns status and never jumps.
-#
-# Glue ownership: cl_parse_glue.c owns svc_strings[128] (cl_parse.c:30-88),
-# external linkage in the original but declared in no header, and supplies the
-# 21 Host_Guard trampolines. The five entry points keep their exact C
-# signatures; CL_EntityNum and CL_ParseLocalSound are likewise header-less
-# externals, and r_part_fte.c:156 re-declares CL_EntityNum locally and calls it
-# at :4458, :5961 and :7251, so the plain name stays a real C function.
-#
-# The cl/cls ADR-007 row closed in T7.4: their storage now lives in
-# rust/quake-capi/src/cl_main.rs. The C originals stay the
-# -Duse_rust_host=disabled oracle.
-if use_rust_host
-    srcs += ['Quake/cl_parse_glue.c']
-else
-    srcs += ['Quake/cl_parse.c']
-endif
-
-# Phase 7 M7 T7.4: cl_main.c + cl_demo.c -- the client entry points, lerp and
-# relink, and demo record/playback. Pattern A whole-file swap on the same
-# use_rust_host switch as M3/M4/M6/T7.2/T7.3. This closes the ADR-007 cl/cls
-# row: their storage moves to rust/quake-capi/src/cl_main.rs.
-#
-# cl_main.c has three live raise sites (:232, :983, :1108); cl_demo.c has none
-# and exits only through Sys_Error, which aborts rather than longjmps.
-#
-# cl_main.c owns cl/cls and ~20 cvars; cl_maxpitch, cl_minpitch, cl_confirmquit,
-# needs_relink and CL_GenerateRandomParticlePrecache are header-less externals
-# that other TUs (cl_input.c, in_sdl.c, menu.c, view.c, cl_parse_glue.c) resolve
-# by local re-declaration, so those stay real C objects in the glue.
-if use_rust_host
-    srcs += ['Quake/cl_main_glue.c']
-else
-    srcs += ['Quake/cl_main.c']
-endif
-
-if use_rust_host
-    srcs += ['Quake/cl_demo_glue.c']
-else
-    srcs += ['Quake/cl_demo.c']
-endif
-
-# Phase 7 M8 T8.2: host.c -- the frame loop, timing accumulator, bring-up and
-# shutdown orchestration. Pattern A whole-file swap on the same use_rust_host
-# switch as M3/M4/M6/M7.
-#
-# The ADR-009 setjmp shell stays C: Host_Guard (host.c:302) and Host_Reraise
-# (host.c:339) live in Quake/host_glue.c along with the _Host_Frame setjmp,
-# which Host_Glue_FrameInner owns so no longjmp crosses a Rust frame.
-#
-# T8.2 closes no ADR-007 row: every host.c data object (host_parms, host_client,
-# the 20 cvars, oldrealtime, host_colormap, the sv_speeds counters) keeps its C
-# storage in the glue, because other TUs resolve them by local re-declaration.
-if use_rust_host
-    srcs += ['Quake/host_glue.c']
-else
-    srcs += ['Quake/host.c']
-endif
-
-# Phase 7 M8 T8.3: host_cmd.c -> quake-capi (Pattern A whole-file swap).
-#
-# Like T8.2, no ADR-007 row opens or closes: current_skill, the four filelist
-# heads plus extralevels_sorted, and noclip_anglehack all keep C storage in the
-# glue, and the ExtraMaps_* parsing thread stays C behind named seams
-# (ADR-016).
-if use_rust_host
-    srcs += ['Quake/host_cmd_glue.c']
-else
-    srcs += ['Quake/host_cmd.c']
-endif
-
-# Phase 7 M10b: keys.c -> quake-capi (Pattern A whole-file swap), on the same
-# use_rust_host switch as M3/M4/M6/M7/M8.
-#
-# Quake/keys_glue.c keeps every C-visible object keys.c defined -- the
-# key_lines edit line, key_linepos/key_insert/key_blinktime, edit_line,
-# history_line, key_dest, keybindings[], consolekeys[], menubound[],
-# keydown[], key_tabhint[], chat_team and the keynames[] table -- because
-# console.c, menu.c, sbar.c, in_sdl.c and the net/host code all resolve them
-# by plain name. Only keys.c's six file-statics (the chat buffer and its
-# length, key_inputgrab, and the three function-statics) move to Rust.
-#
-# The glue also carries the eleven ADR-009 Host_Guard trampolines the port
-# needs (SCR_UpdateScreen, the six Con_* console entry points, M_Keydown,
-# M_Charinput, M_ToggleMenu_f and VID_Toggle) and the Host_Reraise frames for
-# the eight raise-capable entry points.
-if use_rust_host
-    srcs += ['Quake/keys_glue.c']
-else
-    srcs += ['Quake/keys.c']
-endif
-
-# Phase 7 M10c: console.c -> quake-capi (Pattern A whole-file swap), on the
-# same use_rust_host switch as M3/M4/M6/M7/M8/M10b.
-#
-# Quake/console_glue.c keeps every C-visible object console.c defined -- the
-# scrollback buffer and its geometry, the six con_* cvars, the notify ring,
-# con_lastcenterstring, the rcon redirect buffer, con_mutex and
-# key_tabpartial -- because keys.c, gl_screen.c, host.c and the net code
-# resolve them by plain name.
-#
-# It also keeps the eight C-variadic entry points (Con_Printf and friends) so
-# libc still formats console output byte for byte, Con_Printf's
-# SCR_UpdateScreen tail (which reaches Mod_LoadModel -> Host_Error),
-# Con_NotifyBox, the three ADR-009 Host_Guard trampolines (M_Menu_Main_f and
-# the two tab-completion callbacks) and the Host_Reraise frames for
-# Con_ToggleConsole_f and Con_TabComplete.
-if use_rust_host
-    srcs += ['Quake/console_glue.c']
-else
-    srcs += ['Quake/console.c']
-endif
-
-# Phase 7 M10d: sbar.c -> quake-capi (Pattern A whole-file swap), on the same
-# use_rust_host switch as M3/M4/M6/M7/M8/M10b/M10c.
-#
-# Quake/sbar_glue.c keeps the four C-visible objects sbar.c defined --
-# sb_showscores, sb_lines, fragsort[] and scoreboardlines -- because
-# gl_screen.c writes and reads sb_lines, reads sb_showscores, and pr_ext.c
-# reads fragsort/scoreboardlines by plain name. Everything else sbar.c
-# defined at file scope is static (the qpic_t * handles, hipweapons[] and
-# hudtype) and moves to Rust.
-#
-# It also keeps every plain Sbar_* name as a wrapper over a quake_rs_sbar_*
-# core, because most of those prototypes mention cb_context_t * or qpic_t *,
-# neither of which cbindgen can spell. Five of the wrappers re-raise:
-# PR_ExecuteProgram is the file's only longjmp-capable callee (sbar.c:82,
-# :864, :870, :1590) and the Rust side reaches it through the existing
-# Host_Glue_PR_ExecuteProgram trampoline, so Host_Reraise is called only from
-# the glue and no jump crosses a Rust frame.
-if use_rust_host
-    srcs += ['Quake/sbar_glue.c']
-else
-    srcs += ['Quake/sbar.c']
-endif
-
-# Phase 7 M10e: menu.c -> quake-capi (Pattern A whole-file swap), on the same
-# use_rust_host switch as M3/M4/M6/M7/M8/M10b/M10c/M10d.
-#
-# Quake/menu_glue.c keeps the eight C-visible objects menu.c defined --
-# m_state, m_return_state, m_entersound, m_is_quitting, vid_menucmdfn,
-# vid_menukeyfn, m_return_onerror and m_return_reason[] -- because keys.c,
-# gl_screen.c, host.c and the already-Rust net_dgrm orchestration read or
-# write them by plain name. Everything else menu.c defined at file scope is
-# static and moves to Rust.
-#
-# It also keeps every plain M_* name as a wrapper over a quake_rs_menu_*
-# core, for the same cbindgen reason as M10d (cb_context_t * / qpic_t *).
-# Four of the wrappers re-raise: M_ToggleMenu_f, M_UpdateMouse, M_Draw and
-# M_Keydown. Ten Host_Guard trampolines live in the glue, so Host_Reraise is
-# called only from the glue TU and no longjmp crosses a Rust frame. That
-# includes Con_ToggleConsole_f, which has itself been a re-raising wrapper
-# since M10c (console_glue.c:234) and therefore cannot be called directly
-# from a Rust frame.
-if use_rust_host
-    srcs += ['Quake/menu_glue.c']
-else
-    srcs += ['Quake/menu.c']
-endif
-
-# Phase 7 M10f: r_part.c -> quake-capi (Pattern A whole-file swap), on the same
-# use_rust_host switch as M3/M4/M6/M7/M8/M10b/M10c/M10d/M10e. r_part_fte.c is
-# flipped separately by the M10f-2 block below.
-#
-# Only the classic particle *simulation* moves. Quake/r_part_glue.c keeps the
-# rendering half verbatim (r_part.c:54-221 and :951-1106) because the renderer
-# stays C until Phase 8, and it keeps the particle pool -- active_particles,
-# free_particles, particles and r_numparticles -- plus r_particles,
-# r_quadparticles, the five particletexture handles, texturescalefactor and
-# particle_index_buffer. The pool quartet and r_quadparticles lose their static
-# so quake-c-sys can extern them; r_part_fte.c's same-named globals (:459-461)
-# are static, so there is no collision.
-#
-# Every plain R_* / CL_RunParticles / Harness_HashParticles name stays in the
-# glue as a wrapper over a quake_rs_rpart_* core. One Host_Guard trampoline,
-# RPart_Glue_RegisterVariable: R_InitParticles calls Cvar_RegisterVariable
-# twice (r_part.c:247, :249) and under -Duse_rust_cvar that plain name is
-# itself a Host_Reraise wrapper (cvar_cmd_glue.c:300), so calling it from a
-# Rust frame would longjmp through Rust (ADR-009 rule 3). Modelled on
-# Chase_Glue_RegisterVariable. R_InitParticles is consequently the module's
-# only re-raising wrapper.
-if use_rust_host
-    srcs += ['Quake/r_part_glue.c']
-else
-    srcs += ['Quake/r_part.c']
-endif
-
-# Phase 7 M10f-2: the r_part_fte.c *simulation* half -> quake-capi (Pattern A
-# whole-file swap), on the same use_rust_host switch. Completes T10.5.
-#
-# Quake/r_part_fte_glue.c keeps C: the rendering/emit block (r_part_fte.c:5585-
-# 6324), PScript_UpdateParticleTypes (:6786) and everything below it, P_LoadTexture
-# (:1146-1327, the only renderer-coupled function below the seam) and the decal
-# clipper family (:3928-4307, pure qmodel_t BSP geometry whose every object is
-# already C-owned on the render side). The particle/beam/decal/trailstate pools
-# and the part_type table stay C storage; Rust drives them through ADR-011 mirrors.
-#
-# PScript_UpdateParticleTypes is deliberately not split: it interleaves simulation
-# bookkeeping with cl_stris batch reservation inside one loop, and the FTE particle
-# system never advances under -headless -- its task entry points are scheduled only
-# from gl_rmain.c inside R_RenderView, which host.c:1107 skips whenever no_rendering
-# is set -- so no engine-level gate could validate such a split. The ctest
-# differential is the only gate with an opinion about the ported simulation.
-#
-# Every plain PScript_* name in glquake.h:109-131 stays in the glue as a wrapper
-# over a quake_rs_ftepart_* core, as does CL_TraceLine (client.h:435). Four
-# Host_Guard trampolines, because each of these callees is itself a re-raising glue
-# wrapper and calling one from a Rust frame would longjmp through Rust (ADR-009
-# rule 3): Cvar_RegisterVariable (cvar_cmd_glue.c:300, x16 in PScript_InitParticles),
-# CL_ClearTrailStates (cl_main_glue.c:839), CL_RegisterParticles (cl_parse_glue.c:625)
-# and CL_EntityNum (cl_parse_glue.c:596).
-if use_rust_host
-    srcs += ['Quake/r_part_fte_glue.c']
-else
-    srcs += ['Quake/r_part_fte.c']
-endif
-
-# Phase 8 M2: tasks.c -> quake-tasks via quake-capi (Pattern A whole-file
-# swap, ADR-016). The Rust staticlib exports every Task_*/Tasks_* entry point
-# of tasks.h byte-for-byte (the signature gate compiles tasks.h against
-# quake_rs.h), so the glue TU is small: Quake/tasks_glue.c keeps only the
-# _DEBUG `test_tasks` command verbatim, because host.c and host_glue.c both
-# register TestTasks_f and the stress test is meant to drive the scheduler
-# through the real C ABI. tasks.c has no C-visible data symbols and no
-# raise-capable callee (Con_Printf/Con_DPrintf only), so there is no
-# Host_Guard topology to mirror. The C original stays the
-# -Duse_rust_tasks=disabled comparison oracle (build-rs-ctasks). atomics.h
-# stays: its other users are the C renderer, which retires it in Phase 9.
-if use_rust_tasks
-    srcs += ['Quake/tasks_glue.c']
-else
-    srcs += ['Quake/tasks.c']
-endif
-
-# Phase 8 M3: gl_heap.c -> quake-render::heap via quake-capi (Pattern A
-# whole-file swap, ADR-015; first use_rust_render slice). The Rust staticlib
-# exports the seven GL_Heap* entry points of gl_heap.h and calls back into
-# the still-C R_AllocateVulkanMemory / R_FreeVulkanMemory / GL_SetObjectName
-# seams. Quake/gl_heap_glue.c keeps only the _DEBUG `test_gl_heap` command
-# (host.c and host_glue.c both register GL_HeapTest_f), reduced to the public
-# API because the heap is opaque across the ABI. The C original stays the
-# -Duse_rust_render=disabled comparison oracle (build-rs-crender) and the
-# quake-ctest differential oracle.
-if use_rust_render
-    srcs += ['Quake/gl_heap_glue.c']
-else
-    srcs += ['Quake/gl_heap.c']
-endif
-
-# Phase 8 M4: gl_texmgr.c -> quake-render::texmgr via quake-capi (Pattern A
-# whole-file swap, ADR-015). The Rust staticlib exports the TexMgr_* entry
-# points of gl_texmgr.h except TexMgr_Init, which stays in
-# Quake/gl_texmgr_glue.c so the ADR-009 Host_Reraise of a caught
-# Cvar_RegisterVariable / Cmd_AddCommand Host_Error happens in a C frame.
-# The glue TU also owns the C-visible data (palettes, well-known texture
-# pointers, the two cvars), the stb_image_resize implementation and the
-# qmodel_t / texture_t accessors the Rust side cannot spell.
-if use_rust_render
-    srcs += ['Quake/gl_texmgr_glue.c']
-else
-    srcs += ['Quake/gl_texmgr.c']
-endif
-
-# Phase 8 M5: gl_rmisc.c -> quake-render::rmisc via quake-capi (Pattern A
-# whole-file swap, ADR-015). The Rust staticlib owns vulkan_globals and the
-# num_vulkan_* / total_*_vulkan_allocation_size counters (exported under
-# their C names, ADR-007 dual view) and exports the Vulkan half of
-# glquake.h's gl_rmisc.c block: memory, buffers, staging, the dynamic
-# vertex/index/uniform/storage rings, descriptor pools/sets/layouts,
-# samplers, shader modules and every pipeline family. Quake/gl_rmisc_glue.c
-# keeps R_Init and the cvar/command registrations and callbacks (ADR-009:
-# they can Host_Error), the two cvars it defines, use_simd/frame_oit_mode,
-# and the map/game/skin/timerefresh/memstats functions that only call other
-# still-C files.
-if use_rust_render
-    srcs += ['Quake/gl_rmisc_glue.c']
-else
-    srcs += ['Quake/gl_rmisc.c']
-endif
-
-# Phase 8 M6: gl_vidsdl.c -> quake-render::vid via quake-capi (Pattern A
-# whole-file swap, ADR-015, ash for the Vulkan calls). The Rust staticlib
-# owns the instance/device/swapchain/present state and prev_end_rendering_task
-# and exports the Vulkan half of glquake.h's gl_vidsdl.c block
-# (GL_BeginRendering / GL_EndRendering / GL_AcquireNextSwapChainImage /
-# GL_WaitForDeviceIdle / GL_SetObjectName / ...). Quake/gl_vidsdl_glue.c
-# keeps the SDL window, mode list, vid_* cvars, video menu, screenshot
-# command and VID_Init / VID_Restart (they Sys_Error / Host_Error, ADR-009)
-# plus the VID_Glue_* accessors the Rust half reads SDL state through.
-if use_rust_render
-    srcs += ['Quake/gl_vidsdl_glue.c']
-else
-    srcs += ['Quake/gl_vidsdl.c']
-endif
-
-# Phase 8 M7: the draw layer -> quake-capi (Pattern A whole-file swaps,
-# ADR-015): gl_draw.c, gl_fog.c, gl_rlight.c, gl_refrag.c, gl_sky.c,
-# gl_warp.c, r_sprite.c and the 2D-overlay half of gl_screen.c. Each
-# Quake/<file>_glue.c keeps the cvar/global definitions the rest of the
-# engine reads by name plus the *_Init registrations and the Host_Error-
-# capable commands (ADR-009). gl_screen_glue.c also keeps SCR_DrawGUI (a
-# setjmp target) and the loading plaque / SCR_ModalMessage re-entry paths;
-# SCR_UpdateScreen's task graph moved to Rust at Phase 8 M9. The Phase 7
-# Draw_* shims in menu/sbar/console resolve to the Rust gl_draw exports.
-if use_rust_render
-    srcs += [
-        'Quake/gl_draw_glue.c',
-        'Quake/gl_fog_glue.c',
-        'Quake/gl_refrag_glue.c',
-        'Quake/gl_rlight_glue.c',
-        'Quake/gl_screen_glue.c',
-        'Quake/gl_sky_glue.c',
-        'Quake/gl_warp_glue.c',
-        'Quake/r_sprite_glue.c',
-    ]
-else
-    srcs += [
-        'Quake/gl_draw.c',
-        'Quake/gl_fog.c',
-        'Quake/gl_refrag.c',
-        'Quake/gl_rlight.c',
-        'Quake/gl_screen.c',
-        'Quake/gl_sky.c',
-        'Quake/gl_warp.c',
-        'Quake/r_sprite.c',
-    ]
-endif
-
-# Phase 8 M8: the world/mesh renderer -> quake-capi (ADR-015): gl_mesh.c,
-# r_alias.c, r_brush.c and r_world.c. Their ray-tracing halves (entity BLAS
-# builds, AS scratch buffer, TLAS) followed at Phase 8 M10 (plan D5);
-# r_alias_glue.c resolves the alias header (Mod_Extradata_CheckSkin can
-# Host_Error) before entering Rust (ADR-009).
-if use_rust_render
-    srcs += [
-        'Quake/r_alias_glue.c',
-    ]
-else
-    srcs += [
-        'Quake/gl_mesh.c',
-        'Quake/r_alias.c',
-        'Quake/r_brush.c',
-        'Quake/r_world.c',
-    ]
-endif
-
-# Phase 8 M9: the frame graph -> quake-capi (ADR-015): gl_rmain.c's
-# R_RenderView task graph, view setup and entity draws. gl_rmain_glue.c keeps
-# the renderer globals/cvars the engine reads by name, R_PrintStats (ADR-005
-# %g output), the r_showbboxes edict walk and the Host_Guard thunks over the
-# Host_Error-capable model draws, and re-raises the Rust status core's code
-# (ADR-009). R_StoreEfrags' guard code now flows back through the same path,
-# so the M8 r_world_glue.c re-raise wrapper is gone.
-if use_rust_render
-    srcs += ['Quake/gl_rmain_glue.c']
-else
-    srcs += ['Quake/gl_rmain.c']
-endif
-
-if use_rust_snd
-    cflags += '-DUSE_RUST_SND'
-    srcs += phase4_glue_c_srcs
-    if not use_sdl3
-        # ADR-017: the SDL2 audio backend stays C until a use_rust+SDL2 CI
-        # leg exists to verify its Rust port (the file self-gates on USE_SDL3)
-        srcs += 'Quake/snd_sdl.c'
-    endif
-else
-    srcs += phase4_c_srcs + [ 'Quake/snd_sdl.c', 'Quake/snd_sdl3.c' ]
 endif
 
 deps = [
@@ -1105,11 +243,8 @@ deps = [
 # (the quake_rs staticlib dependency is appended after the codec probes below)
 
 if host_machine.system() == 'windows'
-    win_syslibs = ['ws2_32', 'winmm', 'dbghelp', 'ole32', 'uuid']
-    if use_rust
-        # the Rust standard library on *-pc-windows-msvc needs these
-        win_syslibs += ['advapi32', 'userenv', 'bcrypt', 'ntdll', 'synchronization']
-    endif
+    # the Rust standard library on *-pc-windows-msvc needs the second group
+    win_syslibs = ['ws2_32', 'winmm', 'dbghelp', 'ole32', 'uuid', 'advapi32', 'userenv', 'bcrypt', 'ntdll', 'synchronization']
     foreach syslib : win_syslibs
         deps += cc.find_library(syslib)
     endforeach
@@ -1182,9 +317,9 @@ else
     opusfile_dep = dependency('opusfile', required : get_option('use_codec_opus'))
 endif
 
-# under -Duse_rust_snd the mp3 tag skipper is the Rust port (quake-capi
-# exports mp3_skiptags); the decoder wrappers themselves stay C (ADR-014)
-mp3tag_srcs = use_rust_snd ? [] : [ 'Quake/snd_mp3tag.c' ]
+# the mp3 tag skipper is the Rust port (quake-capi exports mp3_skiptags);
+# the decoder wrappers themselves stay C (ADR-014)
+mp3tag_srcs = []
 if get_option('mp3_lib') == 'mad'
     if mad_dep.found()
         srcs += [ 'Quake/snd_mp3.c' ] + mp3tag_srcs
@@ -1225,62 +360,56 @@ if opus_dep.found() and opusfile_dep.found()
     cflags += '-DUSE_CODEC_OPUS'
 endif
 
-if use_rust
-    # codec-availability cargo features mirror the USE_CODEC_* decisions just
-    # made, so the Rust codec registry (Phase 4, ADR-014) registers exactly
-    # the wrappers this build links
-    if '-DUSE_CODEC_WAVE' in cflags
-        rust_feature_list += 'codec-wave'
-    endif
-    if '-DUSE_CODEC_MP3' in cflags
-        rust_feature_list += 'codec-mp3'
-    endif
-    if '-DUSE_CODEC_FLAC' in cflags
-        rust_feature_list += 'codec-flac'
-    endif
-    if '-DUSE_CODEC_VORBIS' in cflags
-        rust_feature_list += 'codec-vorbis'
-    endif
-    if '-DUSE_CODEC_OPUS' in cflags
-        rust_feature_list += 'codec-opus'
-    endif
-    rust_features = ','.join(rust_feature_list)
-    rust_lib_name = host_machine.system() == 'windows' ? 'quake_rs.lib' : 'libquake_rs.a'
-    quake_rs = custom_target(
-        'quake_rs',
-        output : [rust_lib_name, 'quake_rs.h'],
-        command : [
-            python3, meson.project_source_root() / 'scripts/cargo_build.py',
-            '--cargo', cargo,
-            '--manifest-path', meson.project_source_root() / 'rust/Cargo.toml',
-            '--target-dir', meson.project_build_root() / 'cargo-target',
-            '--profile', rust_profile,
-            '--output', '@OUTPUT0@',
-            '--depfile', '@DEPFILE@',
-            '--features', rust_features,
-            '--cbindgen', cbindgen,
-            '--header-output', '@OUTPUT1@',
-        ],
-        depfile : 'quake_rs.d',
-        # the quake-capi build script compiles the shaders with the same
-        # tools Meson found (Phase 8 M11); env is inherited through cargo
-        env : {'QUAKE_GLSLANG' : glslang.full_path(), 'QUAKE_SPIRV_OPT' : spirv_opt.full_path()},
-        console : true,
-        # cargo is its own (fast) change detector; always let it decide
-        build_always_stale : true,
-    )
-    # link_with the staticlib; sources orders C compilation after quake_rs.h
-    # generation (the header lands in the build root, which is on the include
-    # path implicitly)
-    deps += declare_dependency(link_with : quake_rs[0], sources : quake_rs[1])
+# codec-availability cargo features mirror the USE_CODEC_* decisions just
+# made, so the Rust codec registry (Phase 4, ADR-014) registers exactly
+# the wrappers this build links
+if '-DUSE_CODEC_WAVE' in cflags
+    rust_feature_list += 'codec-wave'
 endif
+if '-DUSE_CODEC_MP3' in cflags
+    rust_feature_list += 'codec-mp3'
+endif
+if '-DUSE_CODEC_FLAC' in cflags
+    rust_feature_list += 'codec-flac'
+endif
+if '-DUSE_CODEC_VORBIS' in cflags
+    rust_feature_list += 'codec-vorbis'
+endif
+if '-DUSE_CODEC_OPUS' in cflags
+    rust_feature_list += 'codec-opus'
+endif
+rust_features = ','.join(rust_feature_list)
+rust_lib_name = host_machine.system() == 'windows' ? 'quake_rs.lib' : 'libquake_rs.a'
+quake_rs = custom_target(
+    'quake_rs',
+    output : [rust_lib_name, 'quake_rs.h'],
+    command : [
+        python3, meson.project_source_root() / 'scripts/cargo_build.py',
+        '--cargo', cargo,
+        '--manifest-path', meson.project_source_root() / 'rust/Cargo.toml',
+        '--target-dir', meson.project_build_root() / 'cargo-target',
+        '--profile', rust_profile,
+        '--output', '@OUTPUT0@',
+        '--depfile', '@DEPFILE@',
+        '--features', rust_features,
+        '--cbindgen', cbindgen,
+        '--header-output', '@OUTPUT1@',
+    ],
+    depfile : 'quake_rs.d',
+    # the quake-capi build script compiles the shaders with the same
+    # tools Meson found (Phase 8 M11); env is inherited through cargo
+    env : {'QUAKE_GLSLANG' : glslang.full_path(), 'QUAKE_SPIRV_OPT' : spirv_opt.full_path()},
+    console : true,
+    # cargo is its own (fast) change detector; always let it decide
+    build_always_stale : true,
+)
+# link_with the staticlib; sources orders C compilation after quake_rs.h
+# generation (the header lands in the build root, which is on the include
+# path implicitly)
+deps += declare_dependency(link_with : quake_rs[0], sources : quake_rs[1])
 
 if get_option('buildtype').startswith('debug')
     cflags += '-D_DEBUG'
-endif
-
-if get_option('do_userdirs').enabled()
-    cflags += '-DDO_USERDIRS=1'
 endif
 
 incdirs = [
@@ -1289,7 +418,7 @@ incdirs = [
 
 executable(
     'vkqr-engine',
-    [srcs, shaders_c],
+    srcs,
     dependencies : deps,
     include_directories : incdirs,
     c_args : cflags,

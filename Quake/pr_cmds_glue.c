@@ -441,7 +441,6 @@ RUST_PF (strstrofs)
    -Duse_rust_host=disabled link would go looking for quake_rs_pf_* symbols
    that were never built. The matching PF_RSH macro in pr_cmds.c / pr_ext.c
    keeps those table slots on the C originals in exactly the same case. */
-#ifdef USE_RUST_HOST
 
 /* the link/trace/PVS group (progs_builtins_sv.rs) */
 RUST_PF (setorigin)
@@ -620,5 +619,3 @@ RUST_PF (sv_te_beam)
 RUST_PF (cl_te_beam)
 RUST_PF (sv_te_particlerain)
 RUST_PF (sv_te_particlesnow)
-
-#endif /* USE_RUST_HOST */

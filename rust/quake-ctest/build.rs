@@ -1,7 +1,8 @@
 //! Compiles the original C implementations (renamed to c_ref_*) into the
-//! differential test binaries. The C sources are compiled straight out of
-//! Quake/ while they exist; the Phase 1 deletion step repoints this at frozen
-//! copies under csrc/.
+//! differential test binaries. Since the Phase 9 deletion PR the C sources
+//! are the frozen copies under csrc/ (the text of tag c-reference/final, plan
+//! D4); Quake/ no longer holds them. A frozen file changes only when Phase 10
+//! M8 deletes a shared TU from Quake/ and its final text is frozen here.
 
 use std::fmt::Write as _;
 use std::path::PathBuf;
@@ -100,13 +101,13 @@ fn generate_embedded_pak(out_dir: &std::path::Path) -> PathBuf {
 fn main() {
     let manifest = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
     let out_dir = PathBuf::from(std::env::var("OUT_DIR").unwrap());
-    let repo_root = manifest.ancestors().nth(2).unwrap().to_path_buf();
+    let csrc = manifest.join("csrc");
     let prelude = manifest.join("include").join("c_ref_prelude.h");
 
     let mut build = cc::Build::new();
     build
         .include(manifest.join("include"))
-        .include(repo_root.join("Quake"))
+        .include(csrc.join("Quake"))
         // ADR-010: the engine pins -ffp-contract=off (meson.build) so C and
         // Rust agree on FMA behavior; the reference build must match. The
         // no-builtin flags stop clang fusing adjacent sinf/cosf into Apple's
@@ -128,7 +129,7 @@ fn main() {
     }
 
     for src in C_SOURCES {
-        let path = repo_root.join(src);
+        let path = csrc.join(src);
         println!("cargo:rerun-if-changed={}", path.display());
         build.file(path);
     }
@@ -153,17 +154,17 @@ fn main() {
         "Quake/gl_heap.c",
         "Quake/gl_texmgr.c",
     ] {
-        println!("cargo:rerun-if-changed={}", repo_root.join(src).display());
+        println!("cargo:rerun-if-changed={}", csrc.join(src).display());
     }
     // Phase 5 M7b: the unix UDP landriver oracle; Phase 9 M2: the Winsock
     // one (net_wins.c) on Windows, where its ws2_32 imports need the import
     // library the Rust side otherwise only pulls in through windows-sys
     if std::env::var_os("CARGO_CFG_UNIX").is_some() {
-        let path = repo_root.join("Quake/net_udp.c");
+        let path = csrc.join("Quake/net_udp.c");
         println!("cargo:rerun-if-changed={}", path.display());
         build.file(path);
     } else if std::env::var_os("CARGO_CFG_WINDOWS").is_some() {
-        let path = repo_root.join("Quake/net_wins.c");
+        let path = csrc.join("Quake/net_wins.c");
         println!("cargo:rerun-if-changed={}", path.display());
         build.file(path);
         println!("cargo:rustc-link-lib=ws2_32");
@@ -172,16 +173,15 @@ fn main() {
     // image_stb.c does the same with stb_image.h
     println!(
         "cargo:rerun-if-changed={}",
-        repo_root.join("Quake/miniz.c").display()
+        csrc.join("Quake/miniz.c").display()
     );
     println!(
         "cargo:rerun-if-changed={}",
-        repo_root.join("Quake/stb_image.h").display()
+        csrc.join("Quake/stb_image.h").display()
     );
     for stub in [
         "snprintf_oracle.c",
         "stubs.c",
-        "abi_probe.c",
         "anorms_ref.c",
         "hashers_ref.c",
         "qctype_ref.c",
@@ -224,4 +224,24 @@ fn main() {
     println!("cargo:rerun-if-changed={}", prelude.display());
 
     build.compile("quake_c_ref");
+
+    // The ABI probe (stubs/abi_probe.c, read by tests/*_abi.rs) reports what
+    // the headers the shipping engine compiles against say on this platform,
+    // so it is built from the live Quake/ tree rather than the frozen csrc/
+    // copy: a Phase 10 header change that quake-types does not follow must
+    // fail an _abi test here, not corrupt memory at run time.
+    let live_quake = manifest.join("..").join("..").join("Quake");
+    let mut probe = cc::Build::new();
+    probe.include(manifest.join("include")).include(&live_quake);
+    if probe.get_compiler().is_like_msvc() {
+        probe.flag("/std:c11");
+        probe.flag(format!("/FI{}", prelude.display()));
+    } else {
+        probe.flag("-std=gnu11");
+        probe.flag("-include").flag(prelude.to_str().unwrap());
+    }
+    let probe_src = manifest.join("stubs").join("abi_probe.c");
+    println!("cargo:rerun-if-changed={}", probe_src.display());
+    println!("cargo:rerun-if-changed={}", live_quake.display());
+    probe.file(probe_src).compile("quake_c_ref_abi");
 }

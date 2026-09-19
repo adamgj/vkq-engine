@@ -8,10 +8,9 @@ vkqr-engine is a C99 port of id Software's Quake using Vulkan instead of OpenGL,
 
 ## Build & verify
 
-- **Primary:** Meson — `meson setup build && ninja -C build`. `cd rust && cargo xtask build` / `cargo xtask run -- <engine args>` wrap the same Meson steps (default `-Duse_rust=enabled` into `build/`) with one cross-platform command line; see the readme's quick start.
-- **Fallback (Linux/macOS):** `cd Quake && make -j`.
-- **Windows:** Meson + clang-cl from an MSVC environment (the VS solution was retired per ADR-018), or MinGW/MSYS2 Makefiles.
-- There is **no automated test suite** in this repo. Verification is: the build succeeds for the platform(s) you touched, and behavior is checked manually (or via the Rust-migration verification harness, see below, where applicable). CI (`.github/workflows/`) runs build matrices for Windows (Meson/clang-cl + MinGW + arm64), Linux and macOS, the Rust lint/advisory jobs, and the differential-harness jobs — treat those workflows as the ground truth for what a change must pass. Every workflow shares a `paths` filter so docs/chore-only changes (Markdown, `docs/`, `.claude/` agent config, editor config) skip CI entirely, and editing one workflow only runs that workflow; a new workflow must copy the same block, with its own filename as the final re-include entry.
+- **Primary:** Meson — `meson setup build && ninja -C build`. `cd rust && cargo xtask build` / `cargo xtask run -- <engine args>` wrap the same Meson steps (into `build/`) with one cross-platform command line; see the readme's quick start.
+- **Windows:** Meson + clang-cl from an MSVC environment (the VS solution and the MinGW/MSYS2 Makefiles were retired per ADR-018).
+- There is **no automated test suite** in this repo. Verification is: the build succeeds for the platform(s) you touched, and behavior is checked manually (or via the Rust-migration verification harness, see below, where applicable). CI (`.github/workflows/`) runs build matrices for Windows (Meson/clang-cl), Linux and macOS, the Rust lint/advisory jobs, and the differential-harness jobs — treat those workflows as the ground truth for what a change must pass. Every workflow shares a `paths` filter so docs/chore-only changes (Markdown, `docs/`, `.claude/` agent config, editor config) skip CI entirely, and editing one workflow only runs that workflow; a new workflow must copy the same block, with its own filename as the final re-include entry.
 
 ## Code style
 
@@ -32,8 +31,8 @@ Commit messages: concise, imperative mood, matching existing `git log` history. 
 A migration plan exists to incrementally port the C engine to Rust. **Read `docs/rust-migration/PLAN.md` and `docs/rust-migration/ROADMAP.md` before touching migration-related code**; ADRs are indexed in `docs/rust-migration/adr/README.md`.
 
 Key facts:
-- Strategy is hybrid incremental oxidation (ADR-001): the Cargo workspace under `rust/` (created in Phase 0) builds a staticlib linked into the existing Meson build via `-Duse_rust`, module by module (per-module flags arrive as modules are ported). C is deleted only after each phase's exit criteria pass.
-- The C build remains the reference oracle until Phase 9 (host inversion).
+- Strategy is hybrid incremental oxidation (ADR-001): the Cargo workspace under `rust/` (created in Phase 0) builds a staticlib linked into the existing Meson build, module by module (the per-module switches existed while the C originals were the oracle). C is deleted only after each phase's exit criteria pass.
+- The C build was the reference oracle until Phase 9 (host inversion); since the Phase 9 deletion PR the oracle is the tag `c-reference/final` (ADR-019), rebuilt from a worktree only to regenerate goldens.
 - The roadmap is 11 phases (0–10) with explicit scope, exit criteria, and deletion lists per phase — **do not port code or delete C files out of roadmap order**, and don't touch code explicitly deferred to a later phase (e.g. `tasks.c` stays C until Phase 8, per ADR-016).
 - Follow ADR decisions exactly, especially the `(compat exception)` ones (e.g. ADR-005 float formatter, ADR-006 edict arena, ADR-008 ambient qcvm, ADR-010 determinism) — these are deliberate deviations from idiomatic Rust made to preserve bug-for-bug compatibility. Mark code implementing one with a `// COMPAT:` comment linking to the ADR, per the ADR template.
 - Check ADR-003 before adding any third-party crate, and ADR-004 before writing `unsafe`.

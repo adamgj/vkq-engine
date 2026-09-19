@@ -3,8 +3,9 @@
 
 Generates docs/rust-migration/setjmp-inventory.md from the C tree: every
 executable `setjmp` / `longjmp` / `jmp_buf` / `<setjmp.h>` site (comments
-stripped), each mapped to the disposition Phase 9 D7 requires -- "deleted
-with soak exit" or "converted at Phase 10" -- plus the per-TU `Host_Guard`
+stripped), each mapped to its Phase 10 disposition (the "deleted with soak
+exit" sites went with the C oracle in the Phase 9 deletion PR), plus the
+per-TU `Host_Guard`
 and `Host_Reraise` counts with the Rust crate files that call the guarded
 thunks (ADR-009). A site with no disposition rule fails the run, so a new
 setjmp cannot appear without being classified here.
@@ -30,20 +31,16 @@ GUARD_MACRO_RE = re.compile(r"^HOST_GUARD_(?:VOID|PTR|INT)\s*\(\s*([A-Za-z_][A-Z
 RERAISE_CALL_RE = re.compile(r"\bHost_Reraise\s*\(")
 DEF_RE = re.compile(r"^(?:int\s+Host_Guard|void\s+Host_Reraise)\s*\(")
 
-SOAK = "deleted with soak exit"
 P10 = "converted at Phase 10"
 
 # (file, regex over "<enclosing function>: <line>", disposition, note) --
 # first match wins; every site must match one.
 RULES = [
-    ("host.c", r".", SOAK, "C-oracle TU (`use_rust_host` swaps in `host_glue.c`; Phase 9 deletion list)"),
-    ("gl_screen.c", r".", SOAK, "C-oracle TU (`use_rust_render` swaps in `gl_screen_glue.c`)"),
     ("host_glue.c", r"#\s*include\s*<setjmp\.h>", P10, "goes with the last `jmp_buf`"),
     ("host_glue.c", r": jmp_buf\s+(host_abortserver|screen_error)", P10, "the two raise targets; become `Result` propagation once `Host_Error`/`Host_EndGame` are Rust (ADR-009 end state)"),
     ("host_glue.c", r"^(Host_Guard|Host_Reraise): ", P10, "`Host_Guard`/`Host_Reraise` trampoline pair (ADR-009 rule 3); needed while any C caller can raise past a Rust frame"),
     ("host_glue.c", r"longjmp \(screen_error, 1\)", P10, "`Host_Error` while CSQC draws the HUD; becomes an error path of the Rust render frame (ADR-009)"),
     ("host_glue.c", r"longjmp \(host_abortserver, 1\)", P10, "`Host_Error`/`Host_EndGame` raise; becomes `Err(HostError)` when the raise moves to Rust"),
-    ("host_glue.c", r"^Host_Glue_FrameInner: .*setjmp", SOAK, "the C frame's own `setjmp`, compiled only without `USE_RUST_PLATFORM` (with it the frame is a `Host_Guard` whose status `quake_rs_host_frame` hands back); the Rust loop (`quake-platform::main_sdl::recover`) owns frame-abort recovery, and the `#ifndef` goes with the `use_rust_platform` switch"),
     ("gl_screen_glue.c", r"#\s*include\s*<setjmp\.h>|extern jmp_buf screen_error", P10, "goes with `SCR_DrawGUI`'s `setjmp`"),
     ("gl_screen_glue.c", r"setjmp \(screen_error\)", P10, "`SCR_DrawGUI`'s CSQC recovery point; becomes an error path of the Rust render frame function (ADR-009 end state)"),
 ]
@@ -173,17 +170,18 @@ def render(sites, guards, callers):
     w("")
     w("Rust migration Phase 9 M7 (plan D7, [ADR-009](adr/ADR-009-error-handling.md)).")
     w("The ROADMAP's Phase 9 line \"last `setjmp`/`longjmp` removed\" is scoped by D7:")
-    w("while the C oracle is built from the same tree and the glue TUs below raise")
-    w("through `Host_Guard`, the trampoline pair stays. This file is the committed")
-    w("record of what remains and when each site goes. Regenerate with")
+    w("while the glue TUs below raise through `Host_Guard`, the trampoline pair")
+    w("stays; the C-oracle sites went with the Phase 9 deletion PR (the oracle is")
+    w("tag `c-reference/final`). This file is the committed record of what")
+    w("remains and when each site goes. Regenerate with")
     w("`python3 scripts/setjmp_inventory.py`; `--check` fails when it is stale or a")
     w("new site has no disposition rule.")
     w("")
     w("What is already true (Phase 9 M6/M7):")
     w("")
     w("- The Rust host loop (`quake-platform::main_sdl`) is the sole owner of")
-    w("  frame-abort recovery under `USE_RUST_PLATFORM`: `Host_Glue_FrameInner`")
-    w("  has no `setjmp` there (it is a `Host_Guard` whose status")
+    w("  frame-abort recovery: `Host_Glue_FrameInner` has no `setjmp` (it is a")
+    w("  `Host_Guard` whose status")
     w("  `quake_rs_host_frame` hands back), and `SysGlue_HostFrame`'s")
     w("  `Host_Guard` status is consumed as `quake_host::error::HostError` in")
     w("  `main_sdl::recover`.")

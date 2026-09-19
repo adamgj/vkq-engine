@@ -56,8 +56,6 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include "steam.h" // quake_rs.h declares the Phase 2 Steam shims in terms of steamgame_t
 #include "quake_rs.h"
 
-#ifdef USE_RUST_HOST
-
 /* ---------------------------------------------------------------------------
  * Guarded callbacks (ADR-009 rule 3).
  */
@@ -332,5 +330,3 @@ void SV_SendReconnect (void)
 {
 	Host_Reraise (quake_rs_svsend_send_reconnect ());
 }
-
-#endif // USE_RUST_HOST

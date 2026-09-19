@@ -1,8 +1,8 @@
-//! `cargo xtask`: the Meson shader/pak pipeline steps as commands, for the
-//! byte-identity differential against the C tools' outputs
-//! (scripts/harness/xtask_diff.py) and for inspecting what the quake-capi
-//! build script embeds; plus `build`/`run`, which drive the Meson engine
-//! build and launch the result with one command line on every platform.
+//! `cargo xtask`: the Meson shader/pak pipeline steps as commands, for
+//! inspecting what the quake-capi build script embeds (and, while the C
+//! tools still ran, for the byte-identity differential against their
+//! outputs); plus `build`/`run`, which drive the Meson engine build and
+//! launch the result with one command line on every platform.
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -23,8 +23,6 @@ const USAGE: &str = "usage:
       --build-dir DIR   Meson build directory (default: build, under the repo root)
       --debug           --buildtype=debug (default: release)
       --buildtype TYPE  any Meson buildtype
-      --c-only          -Duse_rust=disabled (the C oracle; default: enabled,
-                        except on a *-windows-gnu toolchain, which is C-only)
       --reconfigure     re-run meson setup --reconfigure on an existing directory
     the MESON environment variable overrides the `meson` program name; on an
     MSVC toolchain meson setup runs with CC=clang-cl unless CC is set, and
@@ -83,7 +81,6 @@ fn build_options(args: &[String], extra: &mut Vec<String>) -> Result<BuildOption
             "--build-dir" => options.build_dir = PathBuf::from(value("--build-dir")?),
             "--buildtype" => options.buildtype = value("--buildtype")?,
             "--debug" => options.buildtype = "debug".into(),
-            "--c-only" => options.use_rust = false,
             "--reconfigure" => options.reconfigure = true,
             _ => extra.push(arg.clone()),
         }
@@ -126,12 +123,9 @@ fn run(args: &[String]) -> Result<ExitCode, String> {
     let root = xtask::repo_root();
     let exe = if no_build {
         let defaults = BuildOptions::default();
-        if options.buildtype != defaults.buildtype
-            || options.use_rust != defaults.use_rust
-            || options.reconfigure
-        {
+        if options.buildtype != defaults.buildtype || options.reconfigure {
             return Err(format!(
-                "--no-build skips meson setup, so --debug/--buildtype/--c-only/--reconfigure have no effect; drop them or --no-build\n{USAGE}"
+                "--no-build skips meson setup, so --debug/--buildtype/--reconfigure have no effect; drop them or --no-build\n{USAGE}"
             ));
         }
         let build_dir = xtask::engine::resolve_dir(&root, &options.build_dir);

@@ -71,8 +71,6 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include "steam.h" // quake_rs.h declares the Phase 2 Steam shims in terms of steamgame_t
 #include "quake_rs.h"
 
-#ifdef USE_RUST_HOST
-
 /* r_part_fte.c:31 -- outside PSET_SCRIPT in the original, read by pr_ext.c. */
 cvar_t r_fteparticles = {"r_fteparticles", "1", CVAR_ARCHIVE};
 
@@ -2710,5 +2708,3 @@ float CL_TraceLine (vec3_t start, vec3_t end, vec3_t impact, vec3_t normal, int 
 }
 
 #endif /* PSET_SCRIPT */
-
-#endif /* USE_RUST_HOST */

@@ -36,9 +36,8 @@ jobs:
       fail-fast: false
       matrix:
         buildtype: [release, debug]
-        # no use_rust axis here: the shipped binary is the mixed build (Rust
-        # migration Phase 9 M6); the harness job below builds both C-only and
-        # mixed and diffs them, so a rust axis here would be duplicate work
+        # one engine configuration since the Phase 9 deletion PR; the harness
+        # job below gates it against the committed goldens
     steps:
     - uses: actions/checkout@v6
     - name: Determine version
@@ -74,7 +73,7 @@ jobs:
     - name: Configure
       run: |
         $env:CC = 'clang-cl'
-        meson setup builddir --buildtype=${{ matrix.buildtype }} -Ddebug=true -Dstrip=false -Duse_sdl3=enabled -Duse_rust=enabled
+        meson setup builddir --buildtype=${{ matrix.buildtype }} -Ddebug=true -Dstrip=false -Duse_sdl3=enabled
     - name: Build
       run: meson compile -C builddir
     - name: Upload vkqr-engine
@@ -150,83 +149,51 @@ jobs:
         key: quake106-shareware-v1
     - name: Fetch shareware data
       run: python scripts/harness/fetch_shareware.py shareware-data
-    # three configs: C-only, mixed with the Rust fs, mixed with the C fs
-    # (Phase 2 exit criterion: harness green under both -Duse_rust_fs settings)
-    - name: Build C-only and mixed
+    # Phase 9 deletion PR: one engine configuration (the C-only oracle is tag
+    # c-reference/final, ADR-019). Release is what the goldens were recorded
+    # from; the debug build runs the stability gate only, since FP results
+    # may differ by optimization level (ADR-010) and debug builds are never
+    # compared against the goldens.
+    - name: Build (release and debug)
       run: |
         $env:CC = 'clang-cl'
-        meson setup build-c -Duse_sdl3=enabled -Duse_rust=disabled
-        meson compile -C build-c
-        meson setup build-rs -Duse_sdl3=enabled -Duse_rust=enabled
+        meson setup build-rs -Duse_sdl3=enabled
         meson compile -C build-rs
-        meson setup build-rs-cfs -Duse_sdl3=enabled -Duse_rust=enabled -Duse_rust_fs=disabled
-        meson compile -C build-rs-cfs
-        # Phase 8: the C comparison oracles for the two Phase 8 switches
-        meson setup build-rs-ctasks -Duse_sdl3=enabled -Duse_rust=enabled -Duse_rust_tasks=disabled
-        meson compile -C build-rs-ctasks
-        meson setup build-rs-crender -Duse_sdl3=enabled -Duse_rust=enabled -Duse_rust_render=disabled
-        meson compile -C build-rs-crender
-        # Phase 9: the C comparison oracle for the platform switch
-        meson setup build-rs-cplatform -Duse_sdl3=enabled -Duse_rust=enabled -Duse_rust_platform=disabled
-        meson compile -C build-rs-cplatform
+        meson setup build-rs-debug -Duse_sdl3=enabled --buildtype=debug
+        meson compile -C build-rs-debug
     - name: FFI signature parity (quake_rs.h vs engine headers)
       shell: bash
       env:
         CC: clang-cl
-      run: |
-        ./scripts/harness/check_capi_signatures.sh build-rs/quake_rs.h
-        ./scripts/harness/check_capi_signatures.sh build-rs-cfs/quake_rs.h
-        ./scripts/harness/check_capi_signatures.sh build-rs-ctasks/quake_rs.h
-        ./scripts/harness/check_capi_signatures.sh build-rs-crender/quake_rs.h
-        ./scripts/harness/check_capi_signatures.sh build-rs-cplatform/quake_rs.h
-    # windows-x86_64 goldens landed in Phase 7 M11 (generated with MSVC cl from
-    # a C-only release build; clang-cl was verified to reproduce them
-    # byte-identically, see goldens/windows-x86_64/MANIFEST.json). --check is
-    # the absolute gate; --stability and the mixed-vs-C-only compares stay
-    # because they also cover the registered-tier entries CI has no data for.
-    # All of these cover the map entries, i.e. real server/edict state rather
-    # than demo playback alone.
-    - name: Corpus stability (C-only, run-twice)
+      run: ./scripts/harness/check_capi_signatures.sh build-rs/quake_rs.h
+    # windows-x86_64 goldens landed in Phase 7 M11 (MSVC cl, C-only release
+    # build; clang-cl was verified to reproduce them byte-identically) and the
+    # three registered-tier entries were regenerated from c-reference/final at
+    # the Phase 9 deletion PR, see goldens/windows-x86_64/MANIFEST.json.
+    # --check is the absolute gate; --stability stays because it also covers
+    # the registered-tier entries CI has no data for. All of these cover the
+    # map entries, i.e. real server/edict state rather than demo playback
+    # alone.
+    - name: Corpus stability (release, run-twice)
       run: |
         $env:QUAKE_GAME_DATA = "$PWD\shareware-data"
-        python scripts/harness/run_corpus.py --vkquake build-c/vkqr-engine.exe --stability --tier shareware
+        python scripts/harness/run_corpus.py --vkquake build-rs/vkqr-engine.exe --stability --tier shareware
         if ($LASTEXITCODE -ne 0) { throw "corpus stability failed" }
-    - name: Mixed build identity (rust fs vs C-only)
+    - name: Corpus stability (debug, run-twice)
       run: |
         $env:QUAKE_GAME_DATA = "$PWD\shareware-data"
-        python scripts/harness/run_corpus.py --vkquake build-c/vkqr-engine.exe --compare build-rs/vkqr-engine.exe --tier shareware
-        if ($LASTEXITCODE -ne 0) { throw "mixed build differs from C-only" }
+        python scripts/harness/run_corpus.py --vkquake build-rs-debug/vkqr-engine.exe --stability --tier shareware
+        if ($LASTEXITCODE -ne 0) { throw "corpus stability (debug) failed" }
     # Phase 7 M10.5 (ADR-019 gate 1): the classic particle simulator's active
     # list. It stays OUT of the default state-hash chain -- folding it in
     # would change every committed golden on every platform -- so it rides an
-    # opt-in engine flag and is gated by --compare, which needs no goldens.
-    - name: Particle-sim hash identity (mixed vs C-only, -parthash)
+    # opt-in engine flag and is gated on run-twice stability, which needs no
+    # goldens.
+    - name: Particle-sim hash stability (-parthash, run-twice)
       run: |
         $env:QUAKE_GAME_DATA = "$PWD\shareware-data"
-        python scripts/harness/run_corpus.py --vkquake build-c/vkqr-engine.exe --compare build-rs/vkqr-engine.exe --extra-args=-parthash --tier shareware
-        if ($LASTEXITCODE -ne 0) { throw "mixed build differs from C-only under -parthash" }
-    - name: Mixed build identity (C fs vs C-only)
-      run: |
-        $env:QUAKE_GAME_DATA = "$PWD\shareware-data"
-        python scripts/harness/run_corpus.py --vkquake build-c/vkqr-engine.exe --compare build-rs-cfs/vkqr-engine.exe --tier shareware
-        if ($LASTEXITCODE -ne 0) { throw "mixed build (C fs) differs from C-only" }
-    # Phase 8: both sides pinned to the same worker count (Tasks_NumWorkers
-    # chunking is sim-observable), see the Linux job
-    - name: Mixed build identity (C tasks vs C-only)
-      run: |
-        $env:QUAKE_GAME_DATA = "$PWD\shareware-data"
-        python scripts/harness/run_corpus.py --vkquake build-c/vkqr-engine.exe --compare build-rs-ctasks/vkqr-engine.exe --tier shareware --extra-args "-pinnedworkers 0,1,2,3" --compare-extra-args "-pinnedworkers 0,1,2,3"
-        if ($LASTEXITCODE -ne 0) { throw "mixed build (C tasks) differs from C-only" }
-    - name: Mixed build identity (C render vs C-only)
-      run: |
-        $env:QUAKE_GAME_DATA = "$PWD\shareware-data"
-        python scripts/harness/run_corpus.py --vkquake build-c/vkqr-engine.exe --compare build-rs-crender/vkqr-engine.exe --tier shareware
-        if ($LASTEXITCODE -ne 0) { throw "mixed build (C render) differs from C-only" }
-    - name: Mixed build identity (C platform vs C-only)
-      run: |
-        $env:QUAKE_GAME_DATA = "$PWD\shareware-data"
-        python scripts/harness/run_corpus.py --vkquake build-c/vkqr-engine.exe --compare build-rs-cplatform/vkqr-engine.exe --tier shareware
-        if ($LASTEXITCODE -ne 0) { throw "mixed build (C platform) differs from C-only" }
+        python scripts/harness/run_corpus.py --vkquake build-rs/vkqr-engine.exe --stability --extra-args=-parthash --tier shareware
+        if ($LASTEXITCODE -ne 0) { throw "corpus stability under -parthash failed" }
     # Phase 8 M1 probe (task plan RA2): does this runner expose a Vulkan
     # device at all? One windowed run of the smallest render-corpus entry;
     # non-fatal, its outcome decides whether the SSIM gate can run here or
@@ -235,47 +202,42 @@ jobs:
       continue-on-error: true
       run: |
         $env:QUAKE_GAME_DATA = "$PWD\shareware-data"
-        python scripts/harness/render_corpus.py --vkquake build-c/vkqr-engine.exe --stability --runs 1 --entry start-map --timeout 300 --out render-probe
+        python scripts/harness/render_corpus.py --vkquake build-rs/vkqr-engine.exe --stability --runs 1 --entry start-map --timeout 300 --out render-probe
         if ($LASTEXITCODE -ne 0) { throw "no usable Vulkan device on this runner" }
-    - name: Corpus goldens (--check, C-only and mixed)
+    - name: Corpus goldens (--check, plain and -sndhash)
       run: |
         $env:QUAKE_GAME_DATA = "$PWD\shareware-data"
-        python scripts/harness/run_corpus.py --vkquake build-c/vkqr-engine.exe --check --tier shareware
-        if ($LASTEXITCODE -ne 0) { throw "C-only differs from windows-x86_64 goldens" }
-        python scripts/harness/run_corpus.py --vkquake build-c/vkqr-engine.exe --check --sndhash --tier shareware
-        if ($LASTEXITCODE -ne 0) { throw "C-only differs from windows-x86_64 sound goldens" }
         python scripts/harness/run_corpus.py --vkquake build-rs/vkqr-engine.exe --check --tier shareware
-        if ($LASTEXITCODE -ne 0) { throw "mixed build differs from windows-x86_64 goldens" }
+        if ($LASTEXITCODE -ne 0) { throw "engine differs from windows-x86_64 goldens" }
         python scripts/harness/run_corpus.py --vkquake build-rs/vkqr-engine.exe --check --sndhash --tier shareware
-        if ($LASTEXITCODE -ne 0) { throw "mixed build differs from windows-x86_64 sound goldens" }
-    - name: Savegame byte-diff (C-only vs mixed)
+        if ($LASTEXITCODE -ne 0) { throw "engine differs from windows-x86_64 sound goldens" }
+    # ADR-019 gate 4 byte differs in single-build (self) mode: savegame,
+    # console dump (console.c's ring geometry plus keys.c's `bindlist`) and
+    # config (Key_WriteBindings and Cvar_WriteVariables through the ADR-005
+    # formatter). Each parses its own output and fails on a missing or
+    # malformed surface.
+    - name: Savegame byte-diff (self)
       run: |
         $env:QUAKE_GAME_DATA = "$PWD\shareware-data"
-        python scripts/harness/save_diff.py --vkquake build-c/vkqr-engine.exe --vkquake-b build-rs/vkqr-engine.exe
+        python scripts/harness/save_diff.py --vkquake build-rs/vkqr-engine.exe
         if ($LASTEXITCODE -ne 0) { throw "save diff failed" }
-        python scripts/harness/save_diff.py --vkquake build-c/vkqr-engine.exe --vkquake-b build-rs-cfs/vkqr-engine.exe
-        if ($LASTEXITCODE -ne 0) { throw "save diff (C fs) failed" }
-    # Phase 7 M10 (ADR-019 gate 4): the console/keys byte gates. condump
-    # covers console.c's ring geometry plus keys.c's `bindlist`; config
-    # covers Key_WriteBindings and Cvar_WriteVariables through the ADR-005
-    # formatter. Neither surface emits network traffic, so capture_diff
-    # cannot observe either one.
-    - name: Console dump byte-diff (C-only vs mixed)
+    - name: Console dump byte-diff (self)
       run: |
         $env:QUAKE_GAME_DATA = "$PWD\shareware-data"
-        python scripts/harness/condump_diff.py --vkquake build-c/vkqr-engine.exe --vkquake-b build-rs/vkqr-engine.exe
+        python scripts/harness/condump_diff.py --vkquake build-rs/vkqr-engine.exe
         if ($LASTEXITCODE -ne 0) { throw "condump diff failed" }
-    - name: Config byte-diff (C-only vs mixed)
+    - name: Config byte-diff (self)
       run: |
         $env:QUAKE_GAME_DATA = "$PWD\shareware-data"
-        python scripts/harness/config_diff.py --vkquake build-c/vkqr-engine.exe --vkquake-b build-rs/vkqr-engine.exe
+        python scripts/harness/config_diff.py --vkquake build-rs/vkqr-engine.exe
         if ($LASTEXITCODE -ne 0) { throw "config diff failed" }
     # Phase 9 M2: the Windows UDP runtime leg the net_wins.c flip was gated
-    # on -- 4-way C/Rust interop over the Rust Winsock landriver (localhost
-    # IPv4; the C oracle ships no IPv6 landriver on MSVC/clang-cl, see
-    # net_win.c)
-    - name: Interop matrix (C/Rust client x server, protocol cells)
+    # on -- client x server interop over the Rust Winsock landriver
+    # (localhost IPv4; the IPv6 landriver on MSVC/clang-cl is the Phase 10
+    # M9 flip). R/R is the only build combo left; the script keeps its
+    # two-build interface, so both sides name the same binary.
+    - name: Interop matrix (client x server, protocol cells)
       run: |
         $env:QUAKE_GAME_DATA = "$PWD\shareware-data"
-        python scripts/harness/interop_matrix.py --vkquake-c build-c/vkqr-engine.exe --vkquake-rs build-rs/vkqr-engine.exe
+        python scripts/harness/interop_matrix.py --combos R/R --vkquake-c build-rs/vkqr-engine.exe --vkquake-rs build-rs/vkqr-engine.exe
         if ($LASTEXITCODE -ne 0) { throw "interop matrix failed" }

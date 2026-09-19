@@ -27,13 +27,10 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 #include "net_dgrm.h"
 #include "net_loop.h"
-#ifdef USE_RUST_NET
 #include "steam.h" // quake_rs.h declares the Phase 2 Steam shims in terms of steamgame_t
 #include "quake_rs.h"
-#endif
 
 net_driver_t net_drivers[] = {
-#ifdef USE_RUST_NET
 	/* Rust migration Phase 5 M5: the loopback driver slots point at the Rust
 	   implementation; Loop_SearchForHosts (hostcache/slist plumbing) stays C
 	   until M9. Loop must stay driver 0 (IS_LOOP_DRIVER). */
@@ -53,10 +50,6 @@ net_driver_t net_drivers[] = {
 	 .CanSendUnreliableMessage = rust_loop_CanSendUnreliableMessage,
 	 .Close = rust_loop_Close,
 	 .Shutdown = rust_loop_Shutdown},
-#else
-	{"Loopback", false, Loop_Init, Loop_Listen, Loop_QueryAddresses, Loop_SearchForHosts, Loop_Connect, Loop_CheckNewConnections, Loop_GetAnyMessage,
-	 Loop_GetMessage, Loop_SendMessage, Loop_SendUnreliableMessage, Loop_CanSendMessage, Loop_CanSendUnreliableMessage, Loop_Close, Loop_Shutdown},
-#endif
 
 	{"Datagram", false, Datagram_Init, Datagram_Listen, Datagram_QueryAddresses, Datagram_SearchForHosts, Datagram_Connect, Datagram_CheckNewConnections,
 	 Datagram_GetAnyMessage, Datagram_GetMessage, Datagram_SendMessage, Datagram_SendUnreliableMessage, Datagram_CanSendMessage,
@@ -64,7 +57,6 @@ net_driver_t net_drivers[] = {
 
 const int net_numdrivers = countof (net_drivers);
 
-#ifdef USE_RUST_NET
 /* Rust migration Phase 9 M2: both Winsock landrivers point at the Rust
    implementation (quake-capi net_wins over quake-net::udp::sys::windows).
    Designated initializers so same-signature slots cannot swap silently.
@@ -119,57 +111,5 @@ net_landriver_t net_landrivers[] = {
 	 .SetSocketPort = rust_udp_SetSocketPort},
 #endif
 };
-#else
-#include "net_wins.h"
-
-net_landriver_t net_landrivers[] = {
-	{"Winsock TCPIP",
-	 false,
-	 0,
-	 WINIPv4_Init,
-	 WINIPv4_Shutdown,
-	 WINIPv4_Listen,
-	 WINIPv4_GetAddresses,
-	 WINIPv4_OpenSocket,
-	 WINS_CloseSocket,
-	 WINS_Connect,
-	 WINIPv4_CheckNewConnections,
-	 WINS_Read,
-	 WINS_Write,
-	 WINIPv4_Broadcast,
-	 WINS_AddrToString,
-	 WINIPv4_StringToAddr,
-	 WINS_GetSocketAddr,
-	 WINIPv4_GetNameFromAddr,
-	 WINIPv4_GetAddrFromName,
-	 WINS_AddrCompare,
-	 WINS_GetSocketPort,
-	 WINS_SetSocketPort},
-#ifdef IPPROTO_IPV6
-	{"Winsock IPv6",
-	 false,
-	 0,
-	 WINIPv6_Init,
-	 WINIPv6_Shutdown,
-	 WINIPv6_Listen,
-	 WINIPv6_GetAddresses,
-	 WINIPv6_OpenSocket,
-	 WINS_CloseSocket,
-	 WINS_Connect,
-	 WINIPv6_CheckNewConnections,
-	 WINS_Read,
-	 WINS_Write,
-	 WINIPv6_Broadcast,
-	 WINS_AddrToString,
-	 WINIPv6_StringToAddr,
-	 WINS_GetSocketAddr,
-	 WINIPv6_GetNameFromAddr,
-	 WINIPv6_GetAddrFromName,
-	 WINS_AddrCompare,
-	 WINS_GetSocketPort,
-	 WINS_SetSocketPort},
-#endif
-};
-#endif
 
 const int net_numlandrivers = countof (net_landrivers);

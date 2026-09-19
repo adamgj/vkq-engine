@@ -1,5 +1,6 @@
 #!/bin/sh
-# Translate the Phase 0 oracle targets (pr_exec.c, mathlib.c, world.c).
+# Translate the Phase 0 oracle targets (pr_exec.c, mathlib.c, world.c) from
+# the c-reference/final worktree gen_compile_commands.sh configured.
 # Requires c2rust on PATH (or run via docker, see README.md).
 set -e
 cd "$(dirname "$0")"

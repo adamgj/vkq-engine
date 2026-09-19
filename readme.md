@@ -1,5 +1,5 @@
 # 🌋 vkqr-engine
-[![Windows CI](https://github.com/Novum/vkQuake/actions/workflows/build-windows.yml/badge.svg)](https://github.com/Novum/vkQuake/actions/workflows/build-windows.yml) [![Windows CI](https://github.com/Novum/vkQuake/actions/workflows/build-mingw.yml/badge.svg)](https://github.com/Novum/vkQuake/actions/workflows/build-mingw.yml) [![Windows CI](https://github.com/Novum/vkQuake/actions/workflows/build-msys2-clangarm64.yml/badge.svg)](https://github.com/Novum/vkQuake/actions/workflows/build-msys2-clangarm64.yml) [![Linux CI](https://github.com/Novum/vkQuake/actions/workflows/build-linux.yml/badge.svg)](https://github.com/Novum/vkQuake/actions/workflows/build-linux.yml) [![macOS CI](https://github.com/Novum/vkQuake/actions/workflows/build-mac.yml/badge.svg)](https://github.com/Novum/vkQuake/actions/workflows/build-mac.yml) [![Formatting](https://github.com/Novum/vkQuake/actions/workflows/clang-format-check.yml/badge.svg)](https://github.com/Novum/vkQuake/actions/workflows/clang-format-check.yml)
+[![Windows CI](https://github.com/Novum/vkQuake/actions/workflows/build-windows.yml/badge.svg)](https://github.com/Novum/vkQuake/actions/workflows/build-windows.yml) [![Linux CI](https://github.com/Novum/vkQuake/actions/workflows/build-linux.yml/badge.svg)](https://github.com/Novum/vkQuake/actions/workflows/build-linux.yml) [![macOS CI](https://github.com/Novum/vkQuake/actions/workflows/build-mac.yml/badge.svg)](https://github.com/Novum/vkQuake/actions/workflows/build-mac.yml) [![Formatting](https://github.com/Novum/vkQuake/actions/workflows/clang-format-check.yml/badge.svg)](https://github.com/Novum/vkQuake/actions/workflows/clang-format-check.yml)
 
 vkqr-engine is a port of id Software's [Quake](https://en.wikipedia.org/wiki/Quake_(video_game)) using Vulkan instead of OpenGL for rendering. It is based on the popular [QuakeSpasm](http://quakespasm.sourceforge.net/) and [QuakeSpasm-Spiked](https://triptohell.info/moodles/qss/) ports and runs all mods compatible with QuakeSpasm like [Arcane Dimensions](http://www.moddb.com/mods/arcane-dimensions). 
 
@@ -81,7 +81,7 @@ vkqr-engine wouldn't even start on an big-endian system, outputing a fatal error
 ## Rust migration
 A phased plan to convert the engine from C to Rust — while preserving 100% compatibility with game logic, assets, savegames, demos, networking, mods, and the 2021 re-release — is documented in [docs/rust-migration/](docs/rust-migration/PLAN.md): the [plan](docs/rust-migration/PLAN.md), the [roadmap](docs/rust-migration/ROADMAP.md) of discrete phases, and the [architecture decision records](docs/rust-migration/adr/README.md).
 
-Phase 0 landed the scaffolding: a Cargo workspace in `rust/` builds a staticlib that Meson links into `vkqr-engine` when built with `-Duse_rust=enabled` (explicit opt-in, since cargo always builds for the host default triple; install the toolchain via [rustup](https://rustup.rs), the version is pinned by `rust/rust-toolchain.toml`). It also added the differential-verification harness — headless demo playback with per-frame state hashing, savegame byte-diffing, a progs VM trace and protocol capture — documented in [Misc/harness/README.md](Misc/harness/README.md). Since Phase 8 the `quake-capi` crate's `render` feature compiles the shaders and builds the embedded pak from `build.rs`, so `cargo check`/`cargo clippy -p quake-capi --features render` (and rust-analyzer with that feature set) need `glslangValidator` and `spirv-opt` -- on `PATH`, under `$VULKAN_SDK/bin`, or named by `QUAKE_GLSLANG`/`QUAKE_SPIRV_OPT`; the Meson build passes its own tool lookups through.
+Phase 0 landed the scaffolding: a Cargo workspace in `rust/` builds a staticlib that Meson links into `vkqr-engine`; since the Phase 9 deletion PR that is the only configuration (the last C-only tree is tag `c-reference/final`), so the Rust toolchain is a build requirement on every platform (install it via [rustup](https://rustup.rs), the version is pinned by `rust/rust-toolchain.toml`; cargo builds for the host default triple, which must match the C compiler's ABI). It also added the differential-verification harness — headless demo playback with per-frame state hashing, savegame byte-diffing, a progs VM trace and protocol capture — documented in [Misc/harness/README.md](Misc/harness/README.md). Since Phase 8 the `quake-capi` crate's `render` feature compiles the shaders and builds the embedded pak from `build.rs`, so `cargo check`/`cargo clippy -p quake-capi --features render` (and rust-analyzer with that feature set) need `glslangValidator` and `spirv-opt` -- on `PATH`, under `$VULKAN_SDK/bin`, or named by `QUAKE_GLSLANG`/`QUAKE_SPIRV_OPT`; the Meson build passes its own tool lookups through.
 
 ## Building
 > **Note**\
@@ -91,16 +91,16 @@ Phase 0 landed the scaffolding: a Cargo workspace in `rust/` builds a staticlib 
 
 ### Quick start with cargo xtask (all platforms)
 
-With Meson, Ninja, Python 3, the Vulkan SDK tools, the Rust toolchain and `cbindgen` (`cargo install cbindgen`; `-Duse_rust=enabled` generates the C header with it) installed (see the per-platform sections below for packages), the `xtask` crate wraps the Meson build and launches the result with one command line on every platform:
+With Meson, Ninja, Python 3, the Vulkan SDK tools, the Rust toolchain and `cbindgen` (`cargo install cbindgen`; the build generates the C header with it) installed (see the per-platform sections below for packages), the `xtask` crate wraps the Meson build and launches the result with one command line on every platform:
 
 ~~~
 cd rust
-cargo xtask build                                  # meson setup build -Duse_rust=enabled (first time), then meson compile
+cargo xtask build                                  # meson setup build (first time), then meson compile
 cargo xtask run --basedir ~/quake -- -window       # build, then launch vkqr-engine from ~/quake (holding id1/ or QuakeEX.kpf)
 cargo xtask run -- -window                         # same, letting the engine find a Steam/GOG/Epic install itself
 ~~~
 
-`build` defaults to a release `-Duse_rust=enabled` build in `build/` under the repository root; `--debug`, `--c-only`, `--build-dir DIR`, `--reconfigure`, and any Meson options after `--` (e.g. `-- -Duse_sdl3=disabled -Dtrace=true`) change that. On Windows with the MSVC Rust toolchain it runs `meson setup` with `CC=clang-cl` unless `CC` is set and with `--vsenv` unless a Developer shell is already active, i.e. the same configuration as the manual commands below (a PATH directory holding a stray `cl.exe`, which would make Meson skip the activation, is left out of the Meson commands' PATH); a MinGW (`*-windows-gnu`) toolchain defaults to `--c-only`, since the Rust staticlib links only through clang-cl. `run` passes `-basedir` only when `--basedir DIR` or `$QUAKE_GAME_DATA` names the game directory (an explicit `-basedir` turns the engine's store detection off); `--no-build` skips the build step. `cargo xtask` prints the full usage.
+`build` defaults to a release build in `build/` under the repository root; `--debug`, `--build-dir DIR`, `--reconfigure`, and any Meson options after `--` (e.g. `-- -Duse_sdl3=disabled -Dtrace=true`) change that. On Windows with the MSVC Rust toolchain it runs `meson setup` with `CC=clang-cl` unless `CC` is set and with `--vsenv` unless a Developer shell is already active, i.e. the same configuration as the manual commands below (a PATH directory holding a stray `cl.exe`, which would make Meson skip the activation, is left out of the Meson commands' PATH); the Rust staticlib links only through clang-cl, so a MinGW (`*-windows-gnu`) toolchain is not supported (ADR-018). `run` passes `-basedir` only when `--basedir DIR` or `$QUAKE_GAME_DATA` names the game directory (an explicit `-basedir` turns the engine's store detection off); `--no-build` skips the build step. `cargo xtask` prints the full usage.
 
 ### Windows
 
@@ -127,26 +127,9 @@ meson compile -C builddir
 
 Visual Studio can still be used as an editor/debugger; the checked-in solution has been retired in favor of Meson.
 
-#### MinGW
+#### MinGW / MSYS2
 
-Setup your [MinGW-w64](https://sourceforge.net/projects/mingw-w64/) environment, e.g. using [w64devkit](https://github.com/skeeto/w64devkit) or [MSYS2](https://www.msys2.org/).
-
-
-Build 64 bit Intel vkqr-engine:
-
-~~~
-cd vkQuake/Quake
-make -f Makefile.w64
-~~~
-
-Build 64 bit Arm vkqr-engine:
-
-~~~
-cd vkQuake/Quake
-make -f Makefile.w64a
-~~~
-
-If you are on Linux and want to cross-compile for Windows, see the `build_cross_win??.sh` scripts.
+Not supported: the GNU Makefiles and the MinGW/clangarm64 CI jobs were retired with the Phase 9 deletion PR (ADR-018), because the Rust staticlib links only through clang-cl. Build with the Meson/MSVC toolchain above.
 
 #### Meson
 
@@ -196,12 +179,7 @@ meson build -Ddebug=true -Dstrip=false && ninja -C build
 Meson prefers SDL3 and falls back to SDL2 if it is not installed; add `-Duse_sdl3=disabled` to force SDL2 (or `enabled` to require SDL3).
 
 > **Note**\
-> The Meson version needs to be 1.3.0 or newer. For older distributions you can use make:
-> ~~~
-> cd vkQuake/Quake
-> make -j
-> ~~~
-> Meson is the preferred way to build vkqr-engine because it automatically checks for out of date file depenencies, is faster and has better error reporting for missing dependencies.
+> The Meson version needs to be 1.3.0 or newer. The GNU Makefiles were retired with the Rust migration (ADR-018); on older distributions install a current Meson through `pip install meson`.
 
 > **Note**\
 > vkqr-engine requires **SDL3** or, as a fallback for older distributions, at least **SDL2 2.0.6 with enabled Vulkan support**.

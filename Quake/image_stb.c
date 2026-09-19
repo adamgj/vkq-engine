@@ -20,9 +20,9 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 */
 // image_stb.c -- PNG/TGA/JPG decode via stb_image (Rust migration Phase 3 M8 seam).
-// Under -Duse_rust_image (USE_RUST_IMAGE) the Rust shim provides Image_DecodeSTB
-// and this file keeps only Image_DecodeSTBMem, the in-memory stb decoder the
-// Rust side uses as the fallback/oracle for formats not (yet) decoded by crates.
+// The Rust shim provides Image_DecodeSTB; this file keeps only
+// Image_DecodeSTBMem, the in-memory stb decoder the Rust side uses as the
+// fallback for formats not (yet) decoded by crates (ADR-012).
 
 #include "quakedef.h"
 
@@ -168,57 +168,3 @@ byte *Image_DecodeSTBMem (const byte *mem, int len, int *width, int *height, con
 
 	return data;
 }
-
-#ifndef USE_RUST_IMAGE
-
-static int stbi_read_cb (void *user, char *data, int size)
-{
-	int *file_handle = (int *)user;
-
-	return Sys_FileRead (*file_handle, (void *)data, size);
-}
-
-static void stbi_skip_cb (void *user, int n)
-{
-	int *file_handle = (int *)user;
-
-	qfileofs_t current_pos = Sys_FilePos (*file_handle);
-
-	qfileofs_t new_pos = current_pos + n;
-
-	// mimic default stbi__stdio_skip() :
-	Sys_FileSeek (*file_handle, new_pos);
-
-	if (Sys_fgetc (*file_handle) != EOF)
-	{
-		Sys_FileSeek (*file_handle, new_pos);
-	}
-}
-
-static int stbi_eof_cb (void *user)
-{
-	int *file_handle = (int *)user;
-
-	return (int)Sys_feof (*file_handle);
-}
-
-/*
-============
-Image_DecodeSTB -- PNG/TGA/JPG via stb_image
-============
-*/
-byte *Image_DecodeSTB (int file_handle, int *width, int *height, const char *image_name)
-{
-	stbi_io_callbacks sys_file_cb = {.read = stbi_read_cb, .eof = stbi_eof_cb, .skip = stbi_skip_cb};
-
-	// data is managed by our Mem_Alloc routines, nothing more to do.
-	byte *data = stbi_load_from_callbacks (&sys_file_cb, (void *)&file_handle, width, height, NULL, 4);
-
-	if (!data)
-		Con_Warning ("couldn't load %s (%s)\n", image_name, stbi_failure_reason ());
-
-	COM_CloseFile (file_handle);
-	return data;
-}
-
-#endif /* !USE_RUST_IMAGE */
