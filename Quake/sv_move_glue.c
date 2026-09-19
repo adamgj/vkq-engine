@@ -32,8 +32,6 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include "steam.h" // quake_rs.h declares the Phase 2 Steam shims in terms of steamgame_t
 #include "quake_rs.h"
 
-#ifdef USE_RUST_HOST
-
 /* sv_move.c:39 */
 qboolean SV_CheckBottom (edict_t *ent)
 {
@@ -75,5 +73,3 @@ void SV_MoveToGoal (void)
 	int r = quake_rs_sv_move_to_goal ();
 	Host_Reraise (r);
 }
-
-#endif /* USE_RUST_HOST */

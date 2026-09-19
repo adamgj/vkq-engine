@@ -9,9 +9,8 @@ vkqr-engine is a C99 port of id Software's Quake using Vulkan instead of OpenGL,
 ## Build & verify
 
 - **Primary:** Meson — `meson setup build && ninja -C build`. `cd rust && cargo xtask build` / `cargo xtask run -- <engine args>` wrap the same Meson steps (into `build/`) with one cross-platform command line; see the readme's quick start.
-- **Fallback (Linux/macOS):** `cd Quake && make -j`.
-- **Windows:** Meson + clang-cl from an MSVC environment (the VS solution was retired per ADR-018), or MinGW/MSYS2 Makefiles.
-- There is **no automated test suite** in this repo. Verification is: the build succeeds for the platform(s) you touched, and behavior is checked manually (or via the Rust-migration verification harness, see below, where applicable). CI (`.github/workflows/`) runs build matrices for Windows (Meson/clang-cl + MinGW + arm64), Linux and macOS, the Rust lint/advisory jobs, and the differential-harness jobs — treat those workflows as the ground truth for what a change must pass. Every workflow shares a `paths` filter so docs/chore-only changes (Markdown, `docs/`, `.claude/` agent config, editor config) skip CI entirely, and editing one workflow only runs that workflow; a new workflow must copy the same block, with its own filename as the final re-include entry.
+- **Windows:** Meson + clang-cl from an MSVC environment (the VS solution and the MinGW/MSYS2 Makefiles were retired per ADR-018).
+- There is **no automated test suite** in this repo. Verification is: the build succeeds for the platform(s) you touched, and behavior is checked manually (or via the Rust-migration verification harness, see below, where applicable). CI (`.github/workflows/`) runs build matrices for Windows (Meson/clang-cl), Linux and macOS, the Rust lint/advisory jobs, and the differential-harness jobs — treat those workflows as the ground truth for what a change must pass. Every workflow shares a `paths` filter so docs/chore-only changes (Markdown, `docs/`, `.claude/` agent config, editor config) skip CI entirely, and editing one workflow only runs that workflow; a new workflow must copy the same block, with its own filename as the final re-include entry.
 
 ## Code style
 

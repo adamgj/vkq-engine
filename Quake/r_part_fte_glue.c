@@ -71,8 +71,6 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include "steam.h" // quake_rs.h declares the Phase 2 Steam shims in terms of steamgame_t
 #include "quake_rs.h"
 
-#ifdef USE_RUST_HOST
-
 /* r_part_fte.c:31 -- outside PSET_SCRIPT in the original, read by pr_ext.c. */
 cvar_t r_fteparticles = {"r_fteparticles", "1", CVAR_ARCHIVE};
 
@@ -817,8 +815,8 @@ static void PScript_AddDecals (void *vctx, vec3_t *points, size_t numtris)
 
 typedef struct fragmentdecal_s fragmentdecal_t;
 static void					   Mod_ClipDecal (
-					   qmodel_t *mod, vec3_t center, vec3_t normal, vec3_t tangent1, vec3_t tangent2, float size, unsigned int surfflagmask, unsigned int surfflagmatch,
-					   void (*callback) (void *ctx, vec3_t *points, size_t numpoints), void *ctx);
+	qmodel_t *mod, vec3_t center, vec3_t normal, vec3_t tangent1, vec3_t tangent2, float size, unsigned int surfflagmask, unsigned int surfflagmatch,
+	void (*callback) (void *ctx, vec3_t *points, size_t numpoints), void *ctx);
 
 // clipped decals actually work by defining the area of the decal with some planes, and then chopping away the entirety of the world based upon those planes
 // (hurrah for bsp to trivially reject most of it) the decal is then textured according to some texture projection.
@@ -2710,5 +2708,3 @@ float CL_TraceLine (vec3_t start, vec3_t end, vec3_t impact, vec3_t normal, int 
 }
 
 #endif /* PSET_SCRIPT */
-
-#endif /* USE_RUST_HOST */

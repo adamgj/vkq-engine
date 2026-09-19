@@ -41,8 +41,6 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include "steam.h" // quake_rs.h declares the Phase 2 Steam shims in terms of steamgame_t
 #include "quake_rs.h"
 
-#ifdef USE_RUST_CVAR
-
 /* ---------------------------------------------------------------------------
  * C-visible registry data (cmd.c:27-29, 42, 70, 504, 508).
  */
@@ -371,5 +369,3 @@ void Cvar_Reset (const char *name)
 	quake_rs_cvar_reset (name, &raised);
 	Host_Reraise (raised);
 }
-
-#endif /* USE_RUST_CVAR */

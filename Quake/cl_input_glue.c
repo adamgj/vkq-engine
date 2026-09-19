@@ -45,8 +45,6 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include "steam.h" // quake_rs.h declares the Phase 2 Steam shims in terms of steamgame_t
 #include "quake_rs.h"
 
-#ifdef USE_RUST_HOST
-
 /* ---------------------------------------------------------------------------
  * C-visible objects (cl_input.c:53-58, :323-335).
  */
@@ -169,5 +167,3 @@ void CL_SendMove (const usercmd_t *cmd)
 	int r = quake_rs_cl_send_move (cmd);
 	Host_Reraise (r);
 }
-
-#endif /* USE_RUST_HOST */

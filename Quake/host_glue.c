@@ -70,8 +70,8 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 //     Sys_ConsoleInput, SDL_Delay, SZ_Clear, Info_GetKey,
 //     q_vsnprintf/q_snprintf/q_strlcpy and the Steam_SetStatus_* shims cannot
 //     longjmp, so the Rust side calls them directly. Sys_SendKeyEvents is
-//     not among them: the input pump reaches Key_Event (and, under
-//     USE_RUST_PLATFORM, sys_glue.c's Host_Reraise), so it is guarded.
+//     not among them: the input pump reaches Key_Event (and sys_glue.c's
+//     Host_Reraise), so it is guarded.
 //
 // Host_Error (:218), Host_EndGame (:185), Host_Guard (:302) and Host_Reraise
 // (:339) are reproduced verbatim below: they are the raise machinery itself and
@@ -914,7 +914,7 @@ void Host_ServerFrame (void)
  * same jump from this pure C frame onto this frame's own setjmp, taking the
  * early return exactly as the C build did.
  *
- * Phase 9 M6 (host inversion): under USE_RUST_PLATFORM the frame loop is Rust
+ * Phase 9 M6 (host inversion): the frame loop is Rust
  * (quake-platform::main_sdl) and calls Host_Frame through sys_glue.c's
  * SysGlue_HostFrame, a Host_Guard whose setjmp is the outermost target and
  * whose status ends the frame in the Rust loop. This frame has no setjmp of
@@ -923,16 +923,6 @@ void Host_ServerFrame (void)
  * status back; quake_rs_host_frame returns it after Host_Frame's serverprofile
  * tail and Host_Frame's Host_Reraise re-issues the jump from that C frame.
  */
-#ifndef USE_RUST_PLATFORM
-int Host_Glue_FrameInner (double time)
-{
-	if (setjmp (host_abortserver))
-		return HOST_GUARD_OK; // something bad happened, or the server disconnected
-
-	Host_Reraise (quake_rs_host_frame_core (time));
-	return HOST_GUARD_OK;
-}
-#else
 static void Host_InvokeFrameCore (void *p)
 {
 	Host_Reraise (quake_rs_host_frame_core (*(double *)p));
@@ -942,7 +932,6 @@ int Host_Glue_FrameInner (double time)
 {
 	return Host_Guard (Host_InvokeFrameCore, &time);
 }
-#endif
 
 void Host_Frame (double time)
 {

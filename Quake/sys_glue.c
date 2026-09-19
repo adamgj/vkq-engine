@@ -43,8 +43,6 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include "steam.h" // quake_rs.h declares the Phase 2 Steam shims in terms of steamgame_t
 #include "quake_rs.h"
 
-#ifdef USE_RUST_PLATFORM
-
 #if defined(_WIN32) && defined(_MSC_VER)
 // comctl32 v6 activation context: with this in the manifest, SDL_ShowMessageBox
 // takes its native TaskDialogIndirect path instead of the hand-built dialog fallback
@@ -177,5 +175,3 @@ void Sys_SendKeyEvents (void)
 {
 	Host_Reraise (quake_rs_sys_send_key_events ());
 }
-
-#endif /* USE_RUST_PLATFORM */

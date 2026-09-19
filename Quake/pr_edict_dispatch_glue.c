@@ -49,8 +49,6 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include "steam.h" // quake_rs.h declares the Phase 2 Steam shims in terms of steamgame_t
 #include "quake_rs.h"
 
-#if defined(USE_RUST_HOST) && defined(USE_RUST_PROGS)
-
 /* ---- ED_FindGlobal / ED_FindField, out-param wrapped ---- */
 
 qboolean PREdictDispatch_Glue_FindGlobal (const char *name, unsigned short *out_type, unsigned short *out_ofs, int *out_s_name)
@@ -105,5 +103,3 @@ int PREdictDispatch_Glue_PrecacheModel (const char *s, int *out)
 	*out = 0;
 	return Host_Guard (PREdictDispatch_InvokePrecacheModel, &arg);
 }
-
-#endif /* USE_RUST_HOST && USE_RUST_PROGS */

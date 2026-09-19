@@ -1,5 +1,5 @@
 # 🌋 vkqr-engine
-[![Windows CI](https://github.com/Novum/vkQuake/actions/workflows/build-windows.yml/badge.svg)](https://github.com/Novum/vkQuake/actions/workflows/build-windows.yml) [![Windows CI](https://github.com/Novum/vkQuake/actions/workflows/build-mingw.yml/badge.svg)](https://github.com/Novum/vkQuake/actions/workflows/build-mingw.yml) [![Windows CI](https://github.com/Novum/vkQuake/actions/workflows/build-msys2-clangarm64.yml/badge.svg)](https://github.com/Novum/vkQuake/actions/workflows/build-msys2-clangarm64.yml) [![Linux CI](https://github.com/Novum/vkQuake/actions/workflows/build-linux.yml/badge.svg)](https://github.com/Novum/vkQuake/actions/workflows/build-linux.yml) [![macOS CI](https://github.com/Novum/vkQuake/actions/workflows/build-mac.yml/badge.svg)](https://github.com/Novum/vkQuake/actions/workflows/build-mac.yml) [![Formatting](https://github.com/Novum/vkQuake/actions/workflows/clang-format-check.yml/badge.svg)](https://github.com/Novum/vkQuake/actions/workflows/clang-format-check.yml)
+[![Windows CI](https://github.com/Novum/vkQuake/actions/workflows/build-windows.yml/badge.svg)](https://github.com/Novum/vkQuake/actions/workflows/build-windows.yml) [![Linux CI](https://github.com/Novum/vkQuake/actions/workflows/build-linux.yml/badge.svg)](https://github.com/Novum/vkQuake/actions/workflows/build-linux.yml) [![macOS CI](https://github.com/Novum/vkQuake/actions/workflows/build-mac.yml/badge.svg)](https://github.com/Novum/vkQuake/actions/workflows/build-mac.yml) [![Formatting](https://github.com/Novum/vkQuake/actions/workflows/clang-format-check.yml/badge.svg)](https://github.com/Novum/vkQuake/actions/workflows/clang-format-check.yml)
 
 vkqr-engine is a port of id Software's [Quake](https://en.wikipedia.org/wiki/Quake_(video_game)) using Vulkan instead of OpenGL for rendering. It is based on the popular [QuakeSpasm](http://quakespasm.sourceforge.net/) and [QuakeSpasm-Spiked](https://triptohell.info/moodles/qss/) ports and runs all mods compatible with QuakeSpasm like [Arcane Dimensions](http://www.moddb.com/mods/arcane-dimensions). 
 
@@ -127,26 +127,9 @@ meson compile -C builddir
 
 Visual Studio can still be used as an editor/debugger; the checked-in solution has been retired in favor of Meson.
 
-#### MinGW
+#### MinGW / MSYS2
 
-Setup your [MinGW-w64](https://sourceforge.net/projects/mingw-w64/) environment, e.g. using [w64devkit](https://github.com/skeeto/w64devkit) or [MSYS2](https://www.msys2.org/).
-
-
-Build 64 bit Intel vkqr-engine:
-
-~~~
-cd vkQuake/Quake
-make -f Makefile.w64
-~~~
-
-Build 64 bit Arm vkqr-engine:
-
-~~~
-cd vkQuake/Quake
-make -f Makefile.w64a
-~~~
-
-If you are on Linux and want to cross-compile for Windows, see the `build_cross_win??.sh` scripts.
+Not supported: the GNU Makefiles and the MinGW/clangarm64 CI jobs were retired with the Phase 9 deletion PR (ADR-018), because the Rust staticlib links only through clang-cl. Build with the Meson/MSVC toolchain above.
 
 #### Meson
 

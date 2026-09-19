@@ -27,13 +27,10 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 #include "net_dgrm.h"
 #include "net_loop.h"
-#ifdef USE_RUST_NET
 #include "steam.h" // quake_rs.h declares the Phase 2 Steam shims in terms of steamgame_t
 #include "quake_rs.h"
-#endif
 
 net_driver_t net_drivers[] = {
-#ifdef USE_RUST_NET
 	/* Rust migration Phase 5 M5: the loopback driver slots point at the Rust
 	   implementation; Loop_SearchForHosts (hostcache/slist plumbing) stays C
 	   until M9. Loop must stay driver 0 (IS_LOOP_DRIVER). */
@@ -53,10 +50,6 @@ net_driver_t net_drivers[] = {
 	 .CanSendUnreliableMessage = rust_loop_CanSendUnreliableMessage,
 	 .Close = rust_loop_Close,
 	 .Shutdown = rust_loop_Shutdown},
-#else
-	{"Loopback", false, Loop_Init, Loop_Listen, Loop_QueryAddresses, Loop_SearchForHosts, Loop_Connect, Loop_CheckNewConnections, Loop_GetAnyMessage,
-	 Loop_GetMessage, Loop_SendMessage, Loop_SendUnreliableMessage, Loop_CanSendMessage, Loop_CanSendUnreliableMessage, Loop_Close, Loop_Shutdown},
-#endif
 
 	{"Datagram", false, Datagram_Init, Datagram_Listen, Datagram_QueryAddresses, Datagram_SearchForHosts, Datagram_Connect, Datagram_CheckNewConnections,
 	 Datagram_GetAnyMessage, Datagram_GetMessage, Datagram_SendMessage, Datagram_SendUnreliableMessage, Datagram_CanSendMessage,
@@ -67,7 +60,6 @@ const int net_numdrivers = countof (net_drivers);
 #include "net_udp.h"
 
 net_landriver_t net_landrivers[] = {
-#ifdef USE_RUST_NET
 	/* Rust migration Phase 5 M7b: both UDP landrivers point at the Rust
 	   implementation (quake-capi net_udp over quake-net::udp). Designated
 	   initializers so same-signature slots cannot swap silently. */
@@ -115,51 +107,5 @@ net_landriver_t net_landrivers[] = {
 	 .AddrCompare = rust_udp_AddrCompare,
 	 .GetSocketPort = rust_udp_GetSocketPort,
 	 .SetSocketPort = rust_udp_SetSocketPort}};
-#else
-	{"UDP",
-	 false,
-	 0,
-	 UDP4_Init,
-	 UDP4_Shutdown,
-	 UDP4_Listen,
-	 UDP4_GetAddresses,
-	 UDP4_OpenSocket,
-	 UDP_CloseSocket,
-	 UDP_Connect,
-	 UDP4_CheckNewConnections,
-	 UDP_Read,
-	 UDP_Write,
-	 UDP4_Broadcast,
-	 UDP_AddrToString,
-	 UDP4_StringToAddr,
-	 UDP_GetSocketAddr,
-	 UDP_GetNameFromAddr,
-	 UDP4_GetAddrFromName,
-	 UDP_AddrCompare,
-	 UDP_GetSocketPort,
-	 UDP_SetSocketPort},
-	{"UDP6",
-	 false,
-	 0,
-	 UDP6_Init,
-	 UDP6_Shutdown,
-	 UDP6_Listen,
-	 UDP6_GetAddresses,
-	 UDP6_OpenSocket,
-	 UDP_CloseSocket,
-	 UDP_Connect,
-	 UDP6_CheckNewConnections,
-	 UDP_Read,
-	 UDP_Write,
-	 UDP6_Broadcast,
-	 UDP_AddrToString,
-	 UDP6_StringToAddr,
-	 UDP_GetSocketAddr,
-	 UDP_GetNameFromAddr,
-	 UDP6_GetAddrFromName,
-	 UDP_AddrCompare,
-	 UDP_GetSocketPort,
-	 UDP_SetSocketPort}};
-#endif
 
 const int net_numlandrivers = (sizeof (net_landrivers) / sizeof (net_landrivers[0]));

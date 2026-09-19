@@ -24,20 +24,16 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 /* Phase 6 M7: the per-slot builtin flip (the ROADMAP's Pattern C). A table
    entry written PF_RS (name) resolves to the Rust port's C wrapper in
-   pr_cmds_glue.c under -Duse_rust_progs, and to the C original otherwise.
+   pr_cmds_glue.c (the C original was the oracle until the Phase 9 deletion PR).
    Every entry still written PF_name is deliberately still C -- the reasons
-   are recorded on quake_progs::builtins. Both sets of bodies stay compiled in
-   both configs: the C ones are the -Duse_rust_progs=disabled oracle. */
-#ifdef USE_RUST_PROGS
+   are recorded on quake_progs::builtins. The flipped C bodies are still
+   compiled (unreferenced) until Phase 10 M8b deletes them. */
 #include "steam.h" // quake_rs.h declares the Phase 2 Steam shims in terms of steamgame_t
 #include "quake_rs.h"
-/* Pattern C flips the builtin table one slot at a time and keeps the C
-   original beside every flipped one -- both bodies stay compiled so
-   -Duse_rust_progs=disabled remains the reference oracle and any slot can be
-   unflipped without resurrecting deleted code. The flipped originals are
-   therefore unreferenced statics in this configuration, which GCC reports
-   under -Werror=unused-function. Scoped to the mixed build only: the C-only
-   build keeps full warning coverage over exactly the same bodies. */
+/* Pattern C flipped the builtin table one slot at a time and kept the C
+   original beside every flipped one; the flipped originals are unreferenced
+   statics until Phase 10 M8b, which GCC reports under
+   -Werror=unused-function. */
 #if defined(__GNUC__)
 #pragma GCC diagnostic ignored "-Wunused-function"
 #endif
@@ -77,14 +73,10 @@ void rust_pf_sv_WriteAngle (void);
 void rust_pf_sv_WriteCoord (void);
 void rust_pf_sv_WriteString (void);
 void rust_pf_sv_WriteEntity (void);
-#ifdef USE_RUST_HOST
 /* Phase 7 M5: the server- and client-coupled builtins additionally need the
    use_rust_host stratum. Their quake_rs_* cores call the PRBI_*Glue_*
-   trampolines that ship with world_glue.c and friends, and quake-capi only
-   compiles them when its progs-host feature is on -- which Meson sets exactly
-   when use_rust_progs and use_rust_host are both enabled. PF_RSH therefore
-   flips a slot only in that configuration and stays the C original otherwise,
-   which is what keeps all four progs/host combinations linkable. */
+   trampolines that ship with world_glue.c and friends, behind quake-capi's
+   progs-host feature (always on since the Phase 9 deletion PR). */
 #define PF_RSH(name) rust_pf_##name
 void rust_pf_aim (void);
 void rust_pf_bprint (void);
@@ -117,13 +109,6 @@ void rust_pf_cl_makestatic (void);
 void rust_pf_cl_particle (void);
 void rust_pf_cl_precache_sound (void);
 void rust_pf_cl_sound (void);
-#else
-#define PF_RSH(name) PF_##name
-#endif
-#else
-#define PF_RS(name)	 PF_##name
-#define PF_RSH(name) PF_##name
-#endif
 
 // #define	STRINGTEMP_BUFFERS		16
 // #define	STRINGTEMP_LENGTH		1024
@@ -1616,49 +1601,10 @@ This was a major timewaster in progs, so it was converted to C
    sv_move.c's SV_MoveToGoal calls PF_changeyaw directly as well and a
    vtable-slot flip alone would leave the two callers on different
    implementations. */
-#ifdef USE_RUST_PROGS
 void PF_changeyaw (void)
 {
 	quake_rs_pf_changeyaw ();
 }
-#else
-void PF_changeyaw (void)
-{
-	edict_t *ent;
-	float	 ideal, current, move, speed;
-
-	ent = PROG_TO_EDICT (pr_global_struct->self);
-	current = anglemod (ent->v.angles[1]);
-	ideal = ent->v.ideal_yaw;
-	speed = ent->v.yaw_speed;
-
-	if (current == ideal)
-		return;
-	move = ideal - current;
-	if (ideal > current)
-	{
-		if (move >= 180)
-			move = move - 360;
-	}
-	else
-	{
-		if (move <= -180)
-			move = move + 360;
-	}
-	if (move > 0)
-	{
-		if (move > speed)
-			move = speed;
-	}
-	else
-	{
-		if (move < -speed)
-			move = -speed;
-	}
-
-	ent->v.angles[1] = anglemod (current + move);
-}
-#endif
 
 /*
 ===============================================================================

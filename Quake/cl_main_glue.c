@@ -69,8 +69,6 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include "steam.h" // quake_rs.h declares the Phase 2 Steam shims in terms of steamgame_t
 #include "quake_rs.h"
 
-#ifdef USE_RUST_HOST
-
 /* ---------------------------------------------------------------------------
  * 1. C-visible storage (cl_main.c:29-72). Verbatim, including declaration
  * order -- Cvar_RegisterVariable order is observable in config.cfg and the
@@ -985,5 +983,3 @@ void CL_LegacyColor_f (void)
 {
 	ClMain_Raise (quake_rs_cl_legacy_color_f ());
 }
-
-#endif /* USE_RUST_HOST */

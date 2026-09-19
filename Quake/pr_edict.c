@@ -22,10 +22,8 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 // sv_edict.c -- entity dictionary
 
 #include "quakedef.h"
-#if defined(USE_RUST_HOST) && defined(USE_RUST_PROGS)
 #include "steam.h" // quake_rs.h declares the Phase 2 Steam shims in terms of steamgame_t
 #include "quake_rs.h"
-#endif
 
 const int type_size[NUM_TYPE_SIZES] = {
 	1, // ev_void
@@ -741,15 +739,10 @@ FIXME: need to tag constants, doesn't really work
 ==============================================================================
 */
 
-#if defined(USE_RUST_HOST) && defined(USE_RUST_PROGS)
 /* Phase 7 M5: the ED_Parse* dispatchers flip in place (the PF_changeyaw
    precedent -- ED_ParseEdict has direct callers in host_cmd.c and pr_ext.c,
-   not just a table slot), and only when both switches are on: their Rust
-   cores live behind quake-capi's progs-host feature, which Meson sets exactly
-   for use_rust_progs and use_rust_host together. The CI build-rs-cprogs leg
-   is -Duse_rust_progs=disabled with host still enabled, so gating on
-   USE_RUST_HOST alone would leave that leg with an unresolved
-   quake_rs_ed_parse_globals.
+   not just a table slot); their Rust cores live behind quake-capi's
+   progs-host feature (always on since the Phase 9 deletion PR).
 
    Status codes below are shared with
    rust/quake-capi/src/progs_edict_dispatch.rs (keep in sync). These are the
@@ -803,14 +796,12 @@ static void PREdictDispatch_Raise (int status, int detail, const char *brace, co
 		Host_Error ("%s: unknown status %i", func, status);
 	}
 }
-#endif
 
 /*
 =============
 ED_ParseGlobals
 =============
 */
-#if defined(USE_RUST_HOST) && defined(USE_RUST_PROGS)
 const char *ED_ParseGlobals (const char *data)
 {
 	const char *out = data;
@@ -821,44 +812,6 @@ const char *ED_ParseGlobals (const char *data)
 		PREdictDispatch_Raise (status, detail, "ED_ParseEntity", "ED_ParseGlobals");
 	return out;
 }
-#else
-const char *ED_ParseGlobals (const char *data)
-{
-	char	keyname[64];
-	ddef_t *key;
-
-	while (1)
-	{
-		// parse key
-		data = COM_Parse (data);
-		if (com_token[0] == '}')
-			break;
-		if (!data)
-			Host_Error ("ED_ParseEntity: EOF without closing brace");
-
-		q_strlcpy (keyname, com_token, sizeof (keyname));
-
-		// parse value
-		data = COM_Parse (data);
-		if (!data)
-			Host_Error ("ED_ParseEntity: EOF without closing brace");
-
-		if (com_token[0] == '}')
-			Host_Error ("ED_ParseEntity: closing brace without data");
-
-		key = ED_FindGlobal (keyname);
-		if (!key)
-		{
-			Con_Printf ("'%s' is not a global\n", keyname);
-			continue;
-		}
-
-		if (!ED_ParseEpair ((void *)qcvm->globals, key, com_token, false))
-			Host_Error ("ED_ParseGlobals: parse error");
-	}
-	return data;
-}
-#endif
 
 //============================================================================
 
@@ -871,7 +824,6 @@ ed should be a properly initialized empty edict.
 Used for initial level load and for savegames.
 ====================
 */
-#if defined(USE_RUST_HOST) && defined(USE_RUST_PROGS)
 const char *ED_ParseEdict (const char *data, edict_t *ent)
 {
 	const char *out = data;
@@ -885,128 +837,6 @@ const char *ED_ParseEdict (const char *data, edict_t *ent)
 		PREdictDispatch_Raise (status, detail, "ED_ParseEdict", "ED_ParseEdict");
 	return out;
 }
-#else
-const char *ED_ParseEdict (const char *data, edict_t *ent)
-{
-	ddef_t	*key;
-	char	 keyname[256];
-	qboolean anglehack, init;
-	int		 n;
-
-	init = false;
-
-	// clear it
-	if (ent != qcvm->edicts) // hack, this way never clear edict 0 = world
-		memset (&ent->v, 0, qcvm->progs->entityfields * 4);
-
-	// go through all the dictionary pairs
-	while (1)
-	{
-		// parse key
-		data = COM_Parse (data);
-		if (com_token[0] == '}')
-			break;
-		if (!data)
-			Host_Error ("ED_ParseEdict: EOF without closing brace");
-
-		// anglehack is to allow QuakeEd to write single scalar angles
-		// and allow them to be turned into vectors. (FIXME...)
-		if (!strcmp (com_token, "angle"))
-		{
-			strcpy (com_token, "angles");
-			anglehack = true;
-		}
-		else
-			anglehack = false;
-
-		// FIXME: change light to _light to get rid of this hack
-		if (!strcmp (com_token, "light"))
-			strcpy (com_token, "light_lev"); // hack for single light def
-
-		q_strlcpy (keyname, com_token, sizeof (keyname));
-
-		// another hack to fix keynames with trailing spaces
-		n = strlen (keyname);
-		while (n && keyname[n - 1] == ' ')
-		{
-			keyname[n - 1] = 0;
-			n--;
-		}
-
-		// parse value
-		// HACK: we allow truncation when reading the wad field,
-		// otherwise maps using lots of wads with absolute paths
-		// could cause a parse error
-		data = COM_ParseEx (data, !strcmp (keyname, "wad") ? CPE_ALLOWTRUNC : CPE_NOTRUNC);
-		if (!data)
-			Host_Error ("ED_ParseEdict: EOF without closing brace");
-
-		if (com_token[0] == '}')
-			Host_Error ("ED_ParseEdict: closing brace without data");
-
-		init = true;
-
-		// keynames with a leading underscore are used for utility comments,
-		// and are immediately discarded by quake, except for some specific keywords...
-		if (keyname[0] == '_')
-		{
-			// spike -- hacks to support func_illusionary with all sorts of mdls, and various particle effects
-			if (qcvm == &sv.qcvm)
-			{
-				if (!strcmp (keyname, "_precache_model") && sv.state == ss_loading)
-					SV_Precache_Model (PR_GetString (ED_NewString (com_token)));
-				else if (!strcmp (keyname, "_precache_sound") && sv.state == ss_loading)
-					SV_Precache_Sound (PR_GetString (ED_NewString (com_token)));
-			}
-			// spike
-			continue;
-		}
-
-		// johnfitz -- hack to support .alpha even when progs.dat doesn't know about it
-		if (!strcmp (keyname, "alpha"))
-			ent->alpha = ENTALPHA_ENCODE (atof (com_token));
-		// johnfitz
-
-		key = ED_FindField (keyname);
-		if (!key)
-		{
-#ifdef PSET_SCRIPT
-			eval_t *val;
-			if (!strcmp (keyname, "traileffect") && qcvm == &sv.qcvm && sv.state == ss_loading)
-			{
-				if ((val = GetEdictFieldValue (ent, qcvm->extfields.traileffectnum)))
-					val->_float = PF_SV_ForceParticlePrecache (com_token);
-			}
-			else if (!strcmp (keyname, "emiteffect") && qcvm == &sv.qcvm && sv.state == ss_loading)
-			{
-				if ((val = GetEdictFieldValue (ent, qcvm->extfields.emiteffectnum)))
-					val->_float = PF_SV_ForceParticlePrecache (com_token);
-			}
-			// johnfitz -- HACK -- suppress error becuase fog/sky/alpha fields might not be mentioned in defs.qc
-			else
-#endif
-				if (strncmp (keyname, "sky", 3) && strcmp (keyname, "fog") && strcmp (keyname, "alpha"))
-				Con_DPrintf ("\"%s\" is not a field\n", keyname); // johnfitz -- was Con_Printf
-			continue;
-		}
-
-		if (anglehack)
-		{
-			char temp[32];
-			strcpy (temp, com_token);
-			q_snprintf (com_token, sizeof (temp), "0 %s 0", temp);
-		}
-
-		if (!ED_ParseEpair ((void *)&ent->v, key, com_token, qcvm != &sv.qcvm))
-			Host_Error ("ED_ParseEdict: parse error");
-	}
-
-	if (!init)
-		ED_Free (ent);
-
-	return data;
-}
-#endif
 
 /*
 ================

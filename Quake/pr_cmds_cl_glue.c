@@ -47,8 +47,6 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include "steam.h" // quake_rs.h declares the Phase 2 Steam shims in terms of steamgame_t
 #include "quake_rs.h"
 
-#ifdef USE_RUST_HOST
-
 /* ---------------------------------------------------------------------------
  * Guarded seams (ADR-009 rule 3).
  */
@@ -149,5 +147,3 @@ int PRBI_ClGlue_MakeStatic (void *ent)
 {
 	return Host_Guard (PRBI_ClInvokeMakeStatic, ent);
 }
-
-#endif // USE_RUST_HOST
