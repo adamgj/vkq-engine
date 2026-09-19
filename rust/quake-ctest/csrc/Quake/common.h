@@ -1,0 +1,482 @@
+/*
+Copyright (C) 1996-2001 Id Software, Inc.
+Copyright (C) 2002-2009 John Fitzgibbons and others
+Copyright (C) 2010-2014 QuakeSpasm developers
+
+This program is free software; you can redistribute it and/or
+modify it under the terms of the GNU General Public License
+as published by the Free Software Foundation; either version 2
+of the License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+See the GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program; if not, write to the Free Software
+Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+
+*/
+
+#ifndef Q_COMMON_H
+#define Q_COMMON_H
+
+// comndef.h  -- general definitions
+
+#if defined(_WIN32)
+#ifdef _MSC_VER
+#pragma warning(disable : 4244)
+/* 'argument'	: conversion from 'type1' to 'type2',
+		  possible loss of data */
+#pragma warning(disable : 4305)
+/* 'identifier'	: truncation from 'type1' to 'type2' */
+/*  in our case, truncation from 'double' to 'float' */
+#pragma warning(disable : 4267)
+/* 'var'	: conversion from 'size_t' to 'type',
+		  possible loss of data (/Wp64 warning) */
+#endif /* _MSC_VER */
+#endif /* _WIN32 */
+
+#include "q_types.h"
+#include "q_minmax.h"
+#include "sys.h" // qfilesize_t / qfileofs_t
+
+// clang-format off
+#define GENERIC_INT_TYPES(x, separator) \
+	x(int, i) separator \
+	x(unsigned int, u) separator \
+	x(long, l) separator \
+	x(unsigned long, ul) separator \
+	x(long long, ll) separator \
+	x(unsigned long long, ull)
+
+#define IMPL_GENERIC_INT_FUNCS(type, suffix) \
+static inline type q_align_##suffix (type size, type alignment) \
+{ \
+	return ((size & (alignment - 1)) == 0) ? size : (size + alignment - (size & (alignment - 1))); \
+}
+
+GENERIC_INT_TYPES (IMPL_GENERIC_INT_FUNCS, NO_COMMA)
+
+#define SELECT_ALIGN(type, suffix) type: q_align_##suffix
+#define q_align(size, alignment) _Generic((size) + (alignment), \
+	GENERIC_INT_TYPES (SELECT_ALIGN, COMMA))(size, alignment)
+// clang-format on
+
+#define countof(x) (sizeof (x) / sizeof ((x)[0]))
+
+#define ZEROED_STRUCT(type, name) \
+	type name;                    \
+	memset (&name, 0, sizeof (type));
+#define ZEROED_STRUCT_ARRAY(type, name, count) \
+	type name[count];                          \
+	memset (name, 0, sizeof (type) * count);
+
+#define CHAIN_PNEXT(next_ptr, chained) \
+	{                                  \
+		*next_ptr = &chained;          \
+		next_ptr = &chained.pNext;     \
+	}
+
+typedef struct sizebuf_s
+{
+	qboolean allowoverflow; // if false, do a Sys_Error
+	qboolean overflowed;	// set to true if the buffer size failed
+	byte	*data;
+	int		 maxsize;
+	int		 cursize;
+} sizebuf_t;
+
+void  SZ_Alloc (sizebuf_t *buf, int startsize);
+void  SZ_Free (sizebuf_t *buf);
+void  SZ_Clear (sizebuf_t *buf);
+void *SZ_GetSpace (sizebuf_t *buf, int length);
+void  SZ_Write (sizebuf_t *buf, const void *data, int length);
+void  SZ_Print (sizebuf_t *buf, const char *data); // strcats onto the sizebuf
+
+//============================================================================
+
+typedef struct link_s
+{
+	struct link_s *prev, *next;
+} link_t;
+
+void ClearLink (link_t *l);
+void RemoveLink (link_t *l);
+void InsertLinkBefore (link_t *l, link_t *before);
+void InsertLinkAfter (link_t *l, link_t *after);
+
+// (type *)STRUCT_FROM_LINK(link_t *link, type, member)
+// ent = STRUCT_FROM_LINK(link,entity_t,order)
+// FIXME: remove this mess!
+#define STRUCT_FROM_LINK(l, t, m) ((t *)((byte *)l - offsetof (t, m)))
+
+//============================================================================
+
+typedef struct vec_header_t
+{
+	size_t capacity;
+	size_t size;
+} vec_header_t;
+
+#define VEC_HEADER(v) (((vec_header_t *)(v))[-1])
+
+#define VEC_PUSH(v, n)                                \
+	do                                                \
+	{                                                 \
+		Vec_Grow ((void **)&(v), sizeof ((v)[0]), 1); \
+		(v)[VEC_HEADER (v).size++] = (n);             \
+	} while (0)
+#define VEC_SIZE(v)	 ((v) ? VEC_HEADER (v).size : 0)
+#define VEC_FREE(v)	 Vec_Free ((void **)&(v))
+#define VEC_CLEAR(v) Vec_Clear ((void **)&(v))
+
+void Vec_Grow (void **pvec, size_t element_size, size_t count);
+void Vec_Append (void **pvec, size_t element_size, const void *data, size_t count);
+void Vec_Clear (void **pvec);
+void Vec_Free (void **pvec);
+
+//============================================================================
+
+extern short (*BigShort) (short l);
+extern short (*LittleShort) (short l);
+
+extern int (*BigLong) (int l);
+extern int (*LittleLong) (int l);
+
+extern float (*BigFloat) (float l);
+extern float (*LittleFloat) (float l);
+
+//============================================================================
+
+void MSG_WriteChar (sizebuf_t *sb, int c);
+void MSG_WriteByte (sizebuf_t *sb, int c);
+void MSG_WriteShort (sizebuf_t *sb, int c);
+void MSG_WriteLong (sizebuf_t *sb, int c);
+void MSG_WriteUInt64 (sizebuf_t *sb, unsigned long long c);
+void MSG_WriteInt64 (sizebuf_t *sb, long long c);
+void MSG_WriteFloat (sizebuf_t *sb, float f);
+void MSG_WriteDouble (sizebuf_t *sb, double f);
+void MSG_WriteStringUnterminated (sizebuf_t *sb, const char *s);
+void MSG_WriteString (sizebuf_t *sb, const char *s);
+void MSG_WriteCoord (sizebuf_t *sb, float f, unsigned int flags);
+void MSG_WriteAngle (sizebuf_t *sb, float f, unsigned int flags);
+void MSG_WriteAngle16 (sizebuf_t *sb, float f, unsigned int flags);			  // johnfitz
+void MSG_WriteEntity (sizebuf_t *sb, unsigned int index, unsigned int pext2); // spike
+struct entity_state_s;
+void MSG_WriteStaticOrBaseLine (
+	sizebuf_t *buf, int idx, struct entity_state_s *state, unsigned int protocol_pext2, unsigned int protocol,
+	unsigned int protocolflags); // spike
+
+extern int		msg_readcount;
+extern qboolean msg_badread; // set if a read goes beyond end of message
+
+void			   MSG_BeginReading (void);
+int				   MSG_ReadChar (void);
+int				   MSG_ReadByte (void);
+int				   MSG_ReadShort (void);
+int				   MSG_ReadLong (void);
+unsigned long long MSG_ReadUInt64 (void);
+long long		   MSG_ReadInt64 (void);
+float			   MSG_ReadFloat (void);
+float			   MSG_ReadDouble (void);
+const char		  *MSG_ReadString (void);
+
+float		 MSG_ReadCoord (unsigned int flags);
+float		 MSG_ReadAngle (unsigned int flags);
+float		 MSG_ReadAngle16 (unsigned int flags); // johnfitz
+byte		*MSG_ReadData (unsigned int length);   // spike
+unsigned int MSG_ReadEntity (unsigned int pext2);  // spike
+
+void COM_Effectinfo_Enumerate (int (*cb) (const char *pname)); // spike -- for dp compat
+
+//============================================================================
+
+int			wildcmp (const char *wild, const char *string);
+void		Info_RemoveKey (char *info, const char *key);
+void		Info_SetKey (char *info, size_t infosize, const char *key, const char *val);
+const char *Info_GetKey (const char *info, const char *key, char *out, size_t outsize);
+void		Info_Print (const char *info);
+void		Info_Enumerate (const char *info, void (*cb) (void *ctx, const char *key, const char *value), void *cbctx);
+
+#include "strl_fn.h"
+
+/* locale-insensitive strcasecmp replacement functions: */
+int q_strcasecmp (const char *s1, const char *s2);
+
+/* locale-insensitive natural string comparison function */
+int q_strnaturalcmp (const char *s1, const char *s2);
+
+int q_strncasecmp (const char *s1, const char *s2, size_t n);
+
+/* locale-insensitive case-insensitive alternative to strstr */
+char *q_strcasestr (const char *haystack, const char *needle);
+
+/* copies in to out, highlighting all occurrences of substr using the colored charset */
+char *COM_TintSubstring (const char *in, const char *substr, char *out, size_t outsize);
+
+/* locale-insensitive strlwr/upr replacement functions: */
+char *q_strlwr (char *str);
+char *q_strupr (char *str);
+
+/* writes the UTF-8 encoding of the code point; returns bytes written (up to 4) or 0 on error */
+size_t UTF8_WriteCodePoint (char *dst, size_t maxbytes, uint32_t codepoint);
+
+/* returns the number of bytes needed to encode the code point using UTF-8 (max 4), or 0 for an invalid code point */
+size_t UTF8_CodePointLength (uint32_t codepoint);
+
+/* converts a string from Quake encoding to UTF-8; returns the number of written characters (including the NUL terminator)
+if a valid output buffer is provided, or the total amount of space necessary if dst is NULL and maxbytes is 0 */
+size_t UTF8_FromQuake (char *dst, size_t maxbytes, const char *src);
+
+/* Trim whitespace on both ends, modifying str on-place: Returns the new start of str after trim */
+char *q_strtrim (char *str);
+
+/* Split str around any of the characters of sep_set, gobbling any number of consecutive found separators, modifying str in-place.
+In addition, if nb_substr != NULL:
+  The returned char** subs is the array of the nb_substr splitted sub-strings of str: subs[k] for k in [0 .. nb_substr [.
+else if nb_substr == NULL:
+   q_strsplit returns NULL.
+The returned char** subs array is allocated by Mem_Alloc.
+*/
+char **q_strsplit (char *str, const char *sep_set, size_t *nb_substr);
+
+// strdup that calls Mem_Alloc
+char *q_strdup (const char *str);
+
+/* snprintf, vsnprintf : always use our versions. */
+int q_snprintf (char *str, size_t size, const char *format, ...) FUNC_PRINTF (3, 4);
+int q_vsnprintf (char *str, size_t size, const char *format, va_list args) FUNC_PRINTF (3, 0);
+
+/*
+For input_str = NULL, sprintf() a new returned Mem_Alloc-ated string.
+For input_str != NULL, input_str must be a string previously returned by q_strcatf/q_vstrcatf:
+strcat() to input_str the sprintf() way reallocating if needed.
+The returned string is a Mem_Alloc-ated null-terminated string.
+*/
+char *q_strcatf (char *input_str, const char *format, ...) FUNC_PRINTF (2, 3);
+char *q_vstrcatf (char *input_str, const char *format, va_list args) FUNC_PRINTF (2, 0);
+
+//============================================================================
+
+#define COM_PARSE_MAX_TOKEN_SIZE 4096
+
+extern THREAD_LOCAL char com_token[COM_PARSE_MAX_TOKEN_SIZE];
+extern qboolean			 com_eof;
+
+typedef enum
+{
+	CPE_NOTRUNC,	// return parse error in case of overflow
+	CPE_ALLOWTRUNC, // truncate com_token in case of overflow
+} cpe_mode;
+
+const char *COM_Parse (const char *data);
+const char *COM_ParseEx (const char *data, cpe_mode mode);
+
+int	 COM_WordLength (const char *text);
+int	 COM_AdvanceLineWrapped (const char **text, int maxchars);
+void COM_WordWrap (char *dst, const char *src, size_t dstsize, int maxcols);
+
+extern int	  com_argc;
+extern char **com_argv;
+
+extern int safemode;
+/* safe mode: in true, the engine will behave as if one
+   of these arguments were actually on the command line:
+   -nosound, -nocdaudio, -nomidi, -stdvid, -dibonly,
+   -nomouse, -nojoy, -nolan
+ */
+
+int COM_CheckParm (const char *parm);
+int COM_CheckParmNext (int last, const char *parm);
+
+void COM_Init (void);
+void COM_InitArgv (int argc, char **argv);
+void COM_InitFilesystem (void);
+void COM_WriteSelectedBaseDir (void);
+
+// opens a file in the per-user preferences dir (%APPDATA%\vkQuake on Windows)
+FILE *COM_FOpenPrefFile (const char *filename, const char *mode);
+
+const char *COM_SkipPath (const char *pathname);
+void		COM_StripExtension (const char *in, char *out, size_t outsize);
+void		COM_FileBase (const char *in, char *out, size_t outsize);
+void		COM_AddExtension (char *path, const char *extension, size_t len);
+#if 0 /* COM_DefaultExtension can be dangerous */
+void COM_DefaultExtension (char *path, const char *extension, size_t len);
+#endif
+const char *COM_FileGetExtension (const char *in); /* doesn't return NULL */
+void		COM_ExtractExtension (const char *in, char *out, size_t outsize);
+
+char *va (const char *format, ...) FUNC_PRINTF (1, 2);
+// does a varargs printf into a temp buffer
+
+unsigned COM_HashString (const char *str);
+unsigned COM_HashBlock (const void *data, size_t size);
+
+// localization support for 2021 rerelease version:
+void		LOC_Init (void);
+void		LOC_Shutdown (void);
+const char *LOC_GetRawString (const char *key);
+const char *LOC_GetString (const char *key);
+qboolean	LOC_HasPlaceholders (const char *str);
+size_t		LOC_Format (const char *format, const char *(*getarg_fn) (int idx, void *userdata), void *userdata, char *out, size_t len);
+
+void	COM_SeedRand (uint64_t seed);
+int32_t COM_Rand (void);
+void	COM_RandState (uint32_t state[2]);
+
+// Limit to 24 bits so values fit in float mantissa & don't get negative when casting to ints
+#define COM_RAND_MAX 0xFFFFFF
+
+// Utility for assert() redefinition
+void COM_Assert_Failed (const char *expr, const char *file_path, int line);
+
+//============================================================================
+
+// QUAKEFS
+typedef struct
+{
+	char name[MAX_QPATH];
+	int	 filepos, filelen;
+} packfile_t;
+
+typedef struct pack_s
+{
+	char		filename[MAX_OSPATH];
+	int			handle;
+	int			numfiles;
+	packfile_t *files;
+} pack_t;
+
+typedef struct searchpath_s
+{
+	unsigned int		 path_id; // identifier assigned to the game directory
+								  // Note that <install_dir>/game1 and
+								  // <userdir>/game1 have the same id.
+	char				 filename[MAX_OSPATH];
+	pack_t				*pack;			 // only one of filename / pack will be used
+	char				 dir[MAX_QPATH]; // directory name: "id1", "rogue", etc.
+	struct searchpath_s *next;
+} searchpath_t;
+
+extern searchpath_t *com_searchpaths;
+extern searchpath_t *com_base_searchpaths;
+
+extern THREAD_LOCAL qfileofs_t com_filesize;
+struct cache_user_s;
+
+#define MAX_BASEDIRS 4
+extern char				com_basedir[MAX_OSPATH];
+extern char				com_basedirs[MAX_BASEDIRS][MAX_OSPATH]; // all content roots in mount order, write target (userdir) last
+extern int				com_numbasedirs;
+extern char				com_gamedir[MAX_OSPATH];
+extern THREAD_LOCAL int file_from_pak; // global indicating that file came from a pak
+
+// Rust migration seam: thread-local globals are not reachable through
+// bindgen, so ported code reads them through these accessors
+qfileofs_t	COM_ThreadFileSize (void);
+int			COM_ThreadFileFromPak (void);
+void		COM_SetThreadFileSize (qfilesize_t size);
+void		COM_SetThreadFileFromPak (int from_pak);
+const char *COM_ThreadToken (void);
+
+// Rust migration seam: quakeparms_t lives outside the bindgen-clean headers
+const char *COM_HostBasedir (void);
+const char *COM_HostUserdir (void);
+void		COM_SetHostUserdir (const char *dir);
+
+// Rust migration seams: these stay C while the filesystem is ported (the
+// "game" command tears down and reloads half the engine; the registration
+// check reads the reconstituted command line)
+void COM_Game_f (void);
+void COM_CheckRegistered (void);
+
+void COM_AddBaseDir (const char *dir);
+void COM_ResetGameDirectories (const char *newdirs);
+
+const char *COM_GetGameNames (qboolean full);
+qboolean	COM_GameDirMatches (const char *tdirs);
+qboolean	COM_ModForbiddenChars (const char *p);
+
+void		COM_WriteFile (const char *filename, const void *data, int len);
+qfilesize_t COM_OpenFile (const char *filename, int *handle, unsigned int *path_id);
+qfilesize_t COM_FOpenFile (const char *filename, FILE **file, unsigned int *path_id);
+qboolean	COM_FileExists (const char *filename, unsigned int *path_id);
+void		COM_CloseFile (int h);
+
+byte *COM_LoadFile (const char *path, unsigned int *path_id);
+
+// Opens the given path directly, ignoring search paths.
+// Returns NULL on failure, or else a '\0'-terminated malloc'ed buffer.
+// Loads in "t" mode so CRLF to LF translation is performed on Windows.
+byte *COM_LoadMallocFile_TextMode_OSPath (const char *path, long *len_out);
+
+// Attempts to parse an int, followed by a newline.
+// Returns advanced buffer position.
+// Doesn't signal parsing failure, but this is not needed for savegame loading.
+const char *COM_ParseIntNewline (const char *buffer, int *value);
+
+// Attempts to parse a float followed by a newline.
+// Returns advanced buffer position.
+const char *COM_ParseFloatNewline (const char *buffer, float *value);
+
+// Parse a string of non-whitespace into com_token, then tries to consume a
+// newline. Returns advanced buffer position.
+const char *COM_ParseStringNewline (const char *buffer);
+
+/*
+=================
+COM_SanitizeDescriptionString
+
+Cleans up strings commonly found in map descriptions:
+- removes colors if remove_color = true
+- replaces newlines with spaces
+- replaces consecutive spaces with single one
+- removes leading/trailing spaces
+
+Returns dst string length (excluding NUL terminator)
+=================
+*/
+size_t COM_SanitizeDescriptionString (char *dst, size_t dstsize, const char *src, bool remove_color);
+
+#define FS_ENT_NONE		 (0)
+#define FS_ENT_FILE		 (1 << 0)
+#define FS_ENT_DIRECTORY (1 << 1)
+
+/* The following FS_*() stdio replacements are necessary if one is
+ * to perform non-sequential reads on files reopened on pak files
+ * because we need the bookkeeping about file start/end positions.
+ * Allocating and filling in the fshandle_t structure is the users'
+ * responsibility when the file is initially opened. */
+
+typedef struct _fshandle_t
+{
+	FILE	   *file;
+	qboolean	pak;	/* is the file read from a pak */
+	qfileofs_t	start;	/* file or data start position */
+	qfilesize_t length; /* file or data size */
+	qfileofs_t	pos;	/* current position relative to start */
+} fshandle_t;
+
+// Only read 2**31 elements max, should be enough still
+size_t FS_fread (void *ptr, size_t size, size_t nmemb, fshandle_t *fh);
+
+int			FS_fseek (fshandle_t *fh, qfileofs_t offset, int whence);
+qfileofs_t	FS_ftell (fshandle_t *fh);
+void		FS_rewind (fshandle_t *fh);
+int			FS_feof (fshandle_t *fh);
+int			FS_ferror (fshandle_t *fh);
+int			FS_fclose (fshandle_t *fh);
+int			FS_fgetc (fshandle_t *fh);
+char	   *FS_fgets (char *s, int size, fshandle_t *fh);
+qfilesize_t FS_filelength (fshandle_t *fh);
+
+extern struct cvar_s registered;
+extern struct cvar_s cmdline;
+extern qboolean		 com_modified; // set true if using non-id files
+extern qboolean		 standard_quake, rogue, hipnotic;
+
+#endif /* Q_COMMON_H */

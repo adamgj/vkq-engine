@@ -17,14 +17,11 @@ Shaders/Compiled/Release/*.c
 Shaders/Compiled/Release/*.d
 Shaders/*.exe
 Shaders/*.obj
-Shaders/bintoc
-Shaders/bintoc.dSYM/
 Packaging/AppImage/AppDir
 Packaging/AppImage/vkquake*
 Packaging/AppImage/vkqr-engine*
 Packaging/Windows/vkqr-engine-Installer-*.exe
 Packaging/Windows/vkqr-engine*.zip
-Misc/vq_pak/mkpak
 Misc/vq_pak/*.exe
 Misc/vq_pak/*.dSYM
 build/
