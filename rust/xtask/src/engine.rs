@@ -316,6 +316,12 @@ pub fn run(
             }
             Some(dir)
         }
+        None if !engine_args.iter().any(|a| a == "-basedir") => {
+            eprintln!(
+                "xtask: note: no --basedir or $QUAKE_GAME_DATA; unless the engine finds game data in the working directory, a Steam/GOG/Epic install or a folder picked before, it waits for you to pick the Quake folder in a dialog"
+            );
+            None
+        }
         None => None,
     };
     if let Some(dir) = &basedir {
