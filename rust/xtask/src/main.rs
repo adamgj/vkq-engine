@@ -18,7 +18,9 @@ const USAGE: &str = "usage:
       build, then launch vkqr-engine with ENGINE-ARGS; with --basedir DIR
       (else $QUAKE_GAME_DATA) it runs from DIR with `-basedir DIR`, otherwise
       the engine looks for game data itself (working directory, then the
-      Steam/GOG/Epic store detection an explicit -basedir switches off)
+      Steam/GOG/Epic store detection, then the folder picked in an earlier
+      run, then, in SDL3 builds, a folder dialog; -select-basedir asks
+      again, and an explicit -basedir replaces all of them)
     BUILD-OPTIONS:
       --build-dir DIR   Meson build directory (default: build, under the repo root)
       --debug           --buildtype=debug (default: release)

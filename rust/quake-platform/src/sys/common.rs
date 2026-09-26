@@ -61,6 +61,12 @@ mod folder_select {
         SDL_PROP_FILE_DIALOG_LOCATION_STRING, SDL_PROP_FILE_DIALOG_TITLE_STRING,
     };
     use sdl3::sys::events::SDL_PumpEvents;
+    #[cfg(target_os = "macos")]
+    use sdl3::sys::hints::{
+        SDL_ResetHint, SDL_SetHint, SDL_HINT_MAC_BACKGROUND_APP, SDL_HINT_NO_SIGNAL_HANDLERS,
+    };
+    #[cfg(target_os = "macos")]
+    use sdl3::sys::init::{SDL_InitSubSystem, SDL_QuitSubSystem, SDL_INIT_VIDEO};
     use sdl3::sys::properties::{
         SDL_CreateProperties, SDL_DestroyProperties, SDL_SetStringProperty,
     };
@@ -99,6 +105,48 @@ mod folder_select {
         }
     }
 
+    /// The dialog runs from `COM_InitFilesystem`, before `VID_Init` starts
+    /// SDL video, so a terminal-launched engine is still a background-only
+    /// process on macOS and `runModal` opens the panel behind the terminal.
+    /// Starting video registers a regular app, and
+    /// `SDL_HINT_MAC_BACKGROUND_APP=0` makes SDL activate it (skipped by
+    /// default since macOS 14). `SDL_HINT_NO_SIGNAL_HANDLERS=1` keeps SDL
+    /// events from turning Ctrl-C into a quit event nothing reads during the
+    /// dialog. Returns whether video started, for [`end_foreground`].
+    ///
+    /// # Safety
+    /// Main thread.
+    #[cfg(target_os = "macos")]
+    unsafe fn begin_foreground() -> bool {
+        // SAFETY: caller contract: main thread, which SDL video init needs on
+        // macOS; the hint names are SDL's constants and the values NUL-terminated
+        // literals (SDL copies them).
+        unsafe {
+            SDL_SetHint(SDL_HINT_MAC_BACKGROUND_APP, c"0".as_ptr());
+            SDL_SetHint(SDL_HINT_NO_SIGNAL_HANDLERS, c"1".as_ptr());
+            SDL_InitSubSystem(SDL_INIT_VIDEO)
+        }
+    }
+
+    /// Undo [`begin_foreground`] once the dialog is closed. The background
+    /// hint stays set until now because SDL reads it when the launch
+    /// notification arrives, which can be inside the dialog's modal loop;
+    /// `VID_Init` then starts events again with the usual signal handlers.
+    ///
+    /// # Safety
+    /// Main thread; `video` is what `begin_foreground` returned.
+    #[cfg(target_os = "macos")]
+    unsafe fn end_foreground(video: bool) {
+        // SAFETY: caller contract; balances begin_foreground's calls.
+        unsafe {
+            if video {
+                SDL_QuitSubSystem(SDL_INIT_VIDEO);
+            }
+            SDL_ResetHint(SDL_HINT_MAC_BACKGROUND_APP);
+            SDL_ResetHint(SDL_HINT_NO_SIGNAL_HANDLERS);
+        }
+    }
+
     /// C: `int Sys_SelectFolder (const char *title, const char *default_location, char *dst, size_t dstsize)`
     ///
     /// # Safety
@@ -120,6 +168,9 @@ mod folder_select {
         // SAFETY: caller contract; `sel` outlives the dialog because the
         // loop below spins until the callback flags `done`.
         unsafe {
+            #[cfg(target_os = "macos")]
+            let video = begin_foreground();
+
             let props = SDL_CreateProperties();
             SDL_SetStringProperty(props, SDL_PROP_FILE_DIALOG_TITLE_STRING, title);
             if !default_location.is_null() && *default_location != 0 {
@@ -142,6 +193,9 @@ mod folder_select {
                 SDL_PumpEvents();
                 SDL_Delay(10);
             }
+
+            #[cfg(target_os = "macos")]
+            end_foreground(video);
         }
 
         sel.result

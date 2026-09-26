@@ -24,7 +24,7 @@ workspace `unsafe_op_in_unsafe_fn = deny` and
 | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | `quake-capi` | open | none | — | 5350 | 2239 | 5 | 5 | 3099 | 94/99 |
 | `quake-ctest` | open | none | — | 2198 | 174 | 0 | 2 | 2022 | 93/97 |
-| `quake-platform` | open | none | — | 406 | 197 | 0 | 0 | 209 | 13/17 |
+| `quake-platform` | open | none | — | 410 | 199 | 0 | 0 | 211 | 13/17 |
 | `quake-render` | open | none | — | 323 | 24 | 0 | 12 | 283 | 16/18 |
 | `quake-c-sys` | open | none | — | 286 | 20 | 246 | 0 | 20 | 9/36 |
 | `quake-progs` | deny | deny | `src/arena.rs`, `src/image.rs` | 139 | 7 | 0 | 0 | 132 | 2/10 |
@@ -40,7 +40,7 @@ workspace `unsafe_op_in_unsafe_fn = deny` and
 | `quake-tasks` | forbid | forbid | — | 0 | 0 | 0 | 0 | 0 | 0/8 |
 | `quake-util` | forbid | forbid | — | 0 | 0 | 0 | 0 | 0 | 0/11 |
 | `xtask` | open | none | — | 0 | 0 | 0 | 0 | 0 | 0/6 |
-| **total** | | | | **8782** | | | | | |
+| **total** | | | | **8786** | | | | | |
 
 Token kinds overlap by construction (`unsafe extern "C" fn` counts as
 `unsafe fn`; a token can be none of the four when it is an `unsafe`

@@ -66,6 +66,75 @@ pub fn is_configured(build_dir: &Path) -> bool {
         .is_file()
 }
 
+/// Options `meson_options.txt` no longer declares: exactly the `use_rust`
+/// switch and its per-module sub-options that `ff07aff4^` declared, removed
+/// by the Phase 9 deletion PR. A build directory configured with one keeps it
+/// in `meson-private/cmd_line.txt`, and Meson then refuses every regenerate,
+/// `--reconfigure` and `--wipe` with `Unknown options: "use_rust"`. This
+/// repair can go once no pre-deletion build directories are left around.
+fn is_retired_option(name: &str) -> bool {
+    matches!(
+        name,
+        "use_rust"
+            | "use_rust_fs"
+            | "use_rust_image"
+            | "use_rust_formats"
+            | "use_rust_snd"
+            | "use_rust_net"
+            | "use_rust_progs"
+            | "use_rust_cvar"
+            | "use_rust_host"
+            | "use_rust_tasks"
+            | "use_rust_render"
+            | "use_rust_platform"
+    )
+}
+
+/// `cmd_line` (a `meson-private/cmd_line.txt`) without its `[options]`
+/// entries for retired options, and the names it dropped.
+pub fn drop_retired_options(cmd_line: &str) -> (String, Vec<String>) {
+    let mut kept = String::with_capacity(cmd_line.len());
+    let mut dropped = Vec::new();
+    let mut in_options = false;
+    for line in cmd_line.split_inclusive('\n') {
+        let trimmed = line.trim();
+        if trimmed.starts_with('[') {
+            in_options = trimmed == "[options]";
+        } else if in_options {
+            let name = trimmed.split_once('=').map_or("", |(name, _)| name.trim());
+            if is_retired_option(name) {
+                dropped.push(name.to_owned());
+                continue;
+            }
+        }
+        kept.push_str(line);
+    }
+    (kept, dropped)
+}
+
+/// Strip retired options from `build_dir`'s recorded Meson command line.
+/// Returns whether any were dropped, in which case the directory needs a
+/// `meson setup --reconfigure` to regenerate from the edited options.
+fn drop_retired_options_in(build_dir: &Path) -> Result<bool, String> {
+    let path = build_dir.join("meson-private").join("cmd_line.txt");
+    let cmd_line = match std::fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(e) => return Err(format!("{}: {e}", path.display())),
+    };
+    let (kept, dropped) = drop_retired_options(&cmd_line);
+    if dropped.is_empty() {
+        return Ok(false);
+    }
+    eprintln!(
+        "xtask: {} was configured with removed Meson option(s) {}; dropping them and reconfiguring",
+        build_dir.display(),
+        dropped.join(", ")
+    );
+    std::fs::write(&path, kept).map_err(|e| format!("{}: {e}", path.display()))?;
+    Ok(true)
+}
+
 fn is_unset(value: Option<OsString>) -> bool {
     value.is_none_or(|v| v.is_empty())
 }
@@ -169,6 +238,9 @@ pub fn build(root: &Path, options: &BuildOptions) -> Result<PathBuf, String> {
         }
         command
     };
+    // before any Meson command: with a retired option recorded, even an
+    // explicit --reconfigure fails
+    let repaired = configured && drop_retired_options_in(&build_dir)?;
     if options.reconfigure || !configured {
         let mut setup = meson_command();
         setup.args(setup_args(
@@ -179,6 +251,15 @@ pub fn build(root: &Path, options: &BuildOptions) -> Result<PathBuf, String> {
         ));
         if let Some(cc) = default_cc(|name| env::var_os(name)) {
             setup.env("CC", cc);
+        }
+        run_checked(setup, "meson setup")?;
+    } else if repaired {
+        // the directory's own options, not this invocation's defaults: a
+        // build without --reconfigure never changes an existing configuration
+        let mut setup = meson_command();
+        setup.arg("setup").arg(&build_dir).arg("--reconfigure");
+        if vsenv {
+            setup.arg("--vsenv");
         }
         run_checked(setup, "meson setup")?;
     }
@@ -229,8 +310,9 @@ pub fn run(
     engine_args: &[String],
 ) -> Result<ExitStatus, String> {
     let mut command = Command::new(exe);
+    let args_basedir = engine_args.iter().any(|a| a == "-basedir");
     let basedir = match basedir {
-        Some(_) if engine_args.iter().any(|a| a == "-basedir") => {
+        Some(_) if args_basedir => {
             eprintln!("xtask: engine arguments carry -basedir; leaving it to them");
             None
         }
@@ -249,6 +331,12 @@ pub fn run(
                 );
             }
             Some(dir)
+        }
+        None if !args_basedir && !engine_args.iter().any(|a| a == "-dedicated") => {
+            eprintln!(
+                "xtask: note: no --basedir or $QUAKE_GAME_DATA; if the engine finds no game data itself, an SDL3 build asks for the Quake folder in a dialog"
+            );
+            None
         }
         None => None,
     };
@@ -406,6 +494,23 @@ mod tests {
         std::fs::create_dir(dir.join("id1")).unwrap();
         assert!(looks_like_basedir(&dir));
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn retired_options_leave_the_recorded_command_line() {
+        let cmd_line = "[options]\ndebug = true\nuse_rust = enabled\nuse_rust_fs = auto\n\
+                        use_sdl3 = enabled\n\n[properties]\nuse_rust = kept\n";
+        let (kept, dropped) = drop_retired_options(cmd_line);
+        assert_eq!(dropped, ["use_rust", "use_rust_fs"]);
+        assert_eq!(
+            kept,
+            "[options]\ndebug = true\nuse_sdl3 = enabled\n\n[properties]\nuse_rust = kept\n"
+        );
+        // only the options ff07aff4 removed, not a later use_rust_* one
+        let current = "[options]\nbuildtype = release\nuse_rust_lto = true\n\n[properties]\n\n";
+        let (kept, dropped) = drop_retired_options(current);
+        assert!(dropped.is_empty());
+        assert_eq!(kept, current);
     }
 
     #[test]
