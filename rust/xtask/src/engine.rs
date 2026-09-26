@@ -66,13 +66,28 @@ pub fn is_configured(build_dir: &Path) -> bool {
         .is_file()
 }
 
-/// Options `meson_options.txt` no longer declares: the `use_rust` switch and
-/// its per-module sub-options, removed by the Phase 9 deletion PR. A build
-/// directory configured with one keeps it in `meson-private/cmd_line.txt`,
-/// and Meson then refuses every regenerate, `--reconfigure` and `--wipe`
-/// with `Unknown options: "use_rust"`.
+/// Options `meson_options.txt` no longer declares: exactly the `use_rust`
+/// switch and its per-module sub-options that `ff07aff4^` declared, removed
+/// by the Phase 9 deletion PR. A build directory configured with one keeps it
+/// in `meson-private/cmd_line.txt`, and Meson then refuses every regenerate,
+/// `--reconfigure` and `--wipe` with `Unknown options: "use_rust"`. This
+/// repair can go once no pre-deletion build directories are left around.
 fn is_retired_option(name: &str) -> bool {
-    name == "use_rust" || name.starts_with("use_rust_")
+    matches!(
+        name,
+        "use_rust"
+            | "use_rust_fs"
+            | "use_rust_image"
+            | "use_rust_formats"
+            | "use_rust_snd"
+            | "use_rust_net"
+            | "use_rust_progs"
+            | "use_rust_cvar"
+            | "use_rust_host"
+            | "use_rust_tasks"
+            | "use_rust_render"
+            | "use_rust_platform"
+    )
 }
 
 /// `cmd_line` (a `meson-private/cmd_line.txt`) without its `[options]`
@@ -295,8 +310,9 @@ pub fn run(
     engine_args: &[String],
 ) -> Result<ExitStatus, String> {
     let mut command = Command::new(exe);
+    let args_basedir = engine_args.iter().any(|a| a == "-basedir");
     let basedir = match basedir {
-        Some(_) if engine_args.iter().any(|a| a == "-basedir") => {
+        Some(_) if args_basedir => {
             eprintln!("xtask: engine arguments carry -basedir; leaving it to them");
             None
         }
@@ -316,9 +332,9 @@ pub fn run(
             }
             Some(dir)
         }
-        None if !engine_args.iter().any(|a| a == "-basedir") => {
+        None if !args_basedir && !engine_args.iter().any(|a| a == "-dedicated") => {
             eprintln!(
-                "xtask: note: no --basedir or $QUAKE_GAME_DATA; unless the engine finds game data in the working directory, a Steam/GOG/Epic install or a folder picked before, it waits for you to pick the Quake folder in a dialog"
+                "xtask: note: no --basedir or $QUAKE_GAME_DATA; if the engine finds no game data itself, an SDL3 build asks for the Quake folder in a dialog"
             );
             None
         }
@@ -490,7 +506,8 @@ mod tests {
             kept,
             "[options]\ndebug = true\nuse_sdl3 = enabled\n\n[properties]\nuse_rust = kept\n"
         );
-        let current = "[options]\nbuildtype = release\ntrace = true\n\n[properties]\n\n";
+        // only the options ff07aff4 removed, not a later use_rust_* one
+        let current = "[options]\nbuildtype = release\nuse_rust_lto = true\n\n[properties]\n\n";
         let (kept, dropped) = drop_retired_options(current);
         assert!(dropped.is_empty());
         assert_eq!(kept, current);

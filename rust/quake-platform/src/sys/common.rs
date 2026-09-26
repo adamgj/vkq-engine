@@ -105,22 +105,22 @@ mod folder_select {
         }
     }
 
-    /// The folder dialog runs from `COM_InitFilesystem`, before `VID_Init`
-    /// brings up SDL video. Until then a binary started from a terminal is
-    /// a background-only process on macOS, and the dialog's `runModal`
-    /// opens behind the terminal with the engine seemingly hung. Bringing
-    /// video up for the dialog registers the regular app; the hint makes
-    /// SDL activate it, which it skips by default since macOS 14. Video
-    /// also starts SDL events, whose SIGINT/SIGTERM handlers only queue a
-    /// quit event nothing reads during the dialog, so they stay off and
-    /// Ctrl-C in the terminal still ends the engine. Returns whether
-    /// [`end_foreground`] must undo it.
+    /// The dialog runs from `COM_InitFilesystem`, before `VID_Init` starts
+    /// SDL video, so a terminal-launched engine is still a background-only
+    /// process on macOS and `runModal` opens the panel behind the terminal.
+    /// Starting video registers a regular app, and
+    /// `SDL_HINT_MAC_BACKGROUND_APP=0` makes SDL activate it (skipped by
+    /// default since macOS 14). `SDL_HINT_NO_SIGNAL_HANDLERS=1` keeps SDL
+    /// events from turning Ctrl-C into a quit event nothing reads during the
+    /// dialog. Returns whether video started, for [`end_foreground`].
     ///
     /// # Safety
     /// Main thread.
     #[cfg(target_os = "macos")]
     unsafe fn begin_foreground() -> bool {
-        // SAFETY: caller contract; plain SDL calls with static strings.
+        // SAFETY: caller contract: main thread, which SDL video init needs on
+        // macOS; the hint names are SDL's constants and the values NUL-terminated
+        // literals (SDL copies them).
         unsafe {
             SDL_SetHint(SDL_HINT_MAC_BACKGROUND_APP, c"0".as_ptr());
             SDL_SetHint(SDL_HINT_NO_SIGNAL_HANDLERS, c"1".as_ptr());
